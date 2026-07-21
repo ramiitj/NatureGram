@@ -1,0 +1,40 @@
+{
+  "name": "naturegram",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/server.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/server.js",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.39.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.0",
+    "firebase": "^12.8.0",
+    "firebase-admin": "^14.1.0",
+    "http-proxy": "^1.18.1",
+    "motion": "^12.36.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.39.3",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "playwright": "^1.61.1",
+    "tsx": "^4.22.3",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "NatureGram",
+  "description": "NatureGram is an AI-powered nature identification app and community. Use our real-time LiveLens to identify plants, animals, and wildlife. Track your nature expeditions, record field notes, and connect with naturalists worldwide. Your digital field guide for ecological discovery and citizen science.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

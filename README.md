@@ -1,11 +1,21 @@
-<div align="center">
+# AI Studio Gemini App Proxy Server
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+This nodejs proxy server lets you run your AI Studio Gemini application unmodified, without exposing your API key in the frontend code.
 
-  <h1>Built with AI Studio</h2>
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Instructions
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+**Prerequisites**:
+- [Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)
+- (Optional) Gemini API Key
 
-</div>
+1. Download or copy the files of your AI Studio app into this directory at the root level.
+2. If your app calls the Gemini API, create a Secret for your API key:
+     ```
+     echo -n "${GEMINI_API_KEY}" | gcloud secrets create gemini_api_key --data-file=-
+     ```
+
+3.  Deploy to Cloud Run (optionally including API key):
+    ```
+    gcloud run deploy my-app --source=. --update-secrets=GEMINI_API_KEY=gemini_api_key:latest
+    ```

@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'ram@iitj.ac.in';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User profiles, drafts, and notifications
+    match /users/{userId} {
+      // Any signed-in user can list/read (needed for admin + social features)
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || isAdmin();
+
+      match /drafts/{draftId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /notifications/{notifId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // 2. Daily themes & Seed Collections (Public Read)
+    match /themes/{themeId} {
+      allow read, write: if true;
+    }
+
+    match /daily_themes/{dateStr} {
+      allow read, write: if true;
+    }
+
+    // 3. Naturalist memories (Private history log)
+    match /naturalist_memories/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // 4. Ecosystem feed - Main Community Posts
+    match /ecosystem_feed/{postId} {
+      allow read: if true;
+      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || postId.matches("^seed_.*");
+      allow update: if (
+        isOwner(existing().userId) || isAdmin() ||
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic'])) ||
+        postId.matches("^seed_.*")
+      );
+      allow delete: if resource == null || isOwner(existing().userId) || isAdmin() || postId.matches("^seed_.*");
+
+      // 5. Comments on posts
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create, update: if isSignedIn();
+        allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      }
+    }
+
+    // 6. Cached Post thumbnails
+    match /feed_thumbnails/{postId} {
+      allow read: if true;
+      allow write: if isSignedIn() || postId.matches("^seed_.*");
+    }
+
+    // 7. System configurations (admin_config)
+    match /admin_config/{configId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // 8. App config - public read
+    match /app_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 9. Naturalist profiles - public read
+    match /naturalist_profiles/{profileId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

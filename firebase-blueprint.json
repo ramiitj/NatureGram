@@ -1,0 +1,140 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "email"]
+    },
+    "Draft": {
+      "title": "Evolution Expedition Draft",
+      "description": "User draft of expedition posts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id"]
+    },
+    "Notification": {
+      "title": "Field Notification",
+      "description": "In-app notifications for community events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "isRead"]
+    },
+    "Theme": {
+      "title": "Naturalist Theme",
+      "description": "Seeded cinematic backgrounds for naturalists",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "imageUrl"]
+    },
+    "CommunityPost": {
+      "title": "Ecosystem Feed Post",
+      "description": "Expedition posts shared with the community",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "isPublic": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "isPublic"]
+    },
+    "Comment": {
+      "title": "Post Comment",
+      "description": "Comments attached to feed posts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "text"]
+    },
+    "Thumbnail": {
+      "title": "Thumbnail Cache",
+      "description": "Thumbnail images bound to post documents",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["id", "imageUrl"]
+    },
+    "NaturalistMemory": {
+      "title": "Naturalist Memory",
+      "description": "Historic memory logs of encounters",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "AdminConfig": {
+      "title": "Admin Config",
+      "description": "System operational states",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles"
+    },
+    "users/{userId}/drafts/{draftId}": {
+      "schema": "Draft",
+      "description": "User local offline drafts"
+    },
+    "users/{userId}/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "Ecosystem event notifications"
+    },
+    "themes/{themeId}": {
+      "schema": "Theme",
+      "description": "Cinematic naturalist daily landing themes"
+    },
+    "daily_themes/{dateStr}": {
+      "schema": "Theme",
+      "description": "Daily theme dates mapping"
+    },
+    "naturalist_memories/{userId}": {
+      "schema": "NaturalistMemory",
+      "description": "Historical interactions matching naturalist prompts"
+    },
+    "ecosystem_feed/{postId}": {
+      "schema": "CommunityPost",
+      "description": "Post feed shared with the community"
+    },
+    "ecosystem_feed/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Subcollection comments for a specific post"
+    },
+    "feed_thumbnails/{postId}": {
+      "schema": "Thumbnail",
+      "description": "Cached image thumbnails for posts"
+    },
+    "admin_config/{configId}": {
+      "schema": "AdminConfig",
+      "description": "Configuration presets for administrators"
+    }
+  }
+}
