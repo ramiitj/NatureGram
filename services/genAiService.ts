@@ -8,8 +8,13 @@ import { auth } from "../firebaseConfig";
 // query param on every request, which the server verifies before swapping
 // in the real Gemini API key.
 export const getApiKey = async (): Promise<string> => {
-    if (auth.currentUser) {
-        return await auth.currentUser.getIdToken();
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+        try {
+            return await currentUser.getIdToken();
+        } catch (e) {
+            console.warn("Failed to get ID token, falling back to PROXY token");
+        }
     }
     return "PROXY";
 };
