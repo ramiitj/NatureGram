@@ -38,13 +38,19 @@ service cloud.firestore {
       }
     }
 
-    // 2. Daily themes & Seed Collections (Public Read)
+    // 2. Daily themes & Seed Collections.
+    // Public read (app-wide display config), but writes are admin-only:
+    // this is shared app configuration, not user data, and the client
+    // already falls back gracefully when a write is denied (auto-seed is
+    // a nice-to-have, not a requirement for normal use).
     match /themes/{themeId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /daily_themes/{dateStr} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // 3. Naturalist memories (Private history log)
@@ -55,18 +61,37 @@ service cloud.firestore {
     // 4. Ecosystem feed - Main Community Posts
     match /ecosystem_feed/{postId} {
       allow read: if true;
-      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || postId.matches("^seed_.*");
+      // Every real client session is signed in (anonymous auth included),
+      // so isSignedIn() already covers legitimate seed-post creation.
+      // There is no legitimate case for an unauthenticated write, so the
+      // previous "postId.matches('^seed_.*')" bypass (which allowed
+      // anyone, signed in or not, to create/overwrite/delete any post
+      // whose id happened to start with "seed_") has been removed.
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow update: if (
         isOwner(existing().userId) || isAdmin() ||
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic'])) ||
-        postId.matches("^seed_.*")
+        // Likes/comment-count are counters any signed-in user needs to
+        // bump; not forgery-proof without moving to Cloud Functions, but
+        // scoped narrowly to just those two fields.
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount']))
+        // NOTE: 'reports'/'reportStatus'/'reportCount' are intentionally
+        // NOT in the non-owner allowlist above — there is currently no
+        // report-a-post UI, so only the post owner or an admin can touch
+        // those fields (which is how AdminConsole's dismissReports works).
+        // If a "report this post" feature is added, extend this rule with
+        // a narrow, validated allowance (e.g. only appending the caller's
+        // own uid to 'reports' and only setting reportStatus to 'pending'),
+        // not a blanket field-name allowlist.
       );
-      allow delete: if resource == null || isOwner(existing().userId) || isAdmin() || postId.matches("^seed_.*");
+      allow delete: if resource == null || isOwner(existing().userId) || isAdmin();
 
       // 5. Comments on posts
       match /comments/{commentId} {
         allow read: if true;
-        allow create, update: if isSignedIn();
+        allow create: if isSignedIn();
+        // Only the comment's author (or an admin) may edit it — previously
+        // any signed-in user could rewrite anyone else's comment.
+        allow update: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
         allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
       }
     }
@@ -74,13 +99,14 @@ service cloud.firestore {
     // 6. Cached Post thumbnails
     match /feed_thumbnails/{postId} {
       allow read: if true;
-      allow write: if isSignedIn() || postId.matches("^seed_.*");
+      allow write: if isSignedIn();
     }
 
-    // 7. System configurations (admin_config)
+    // 7. System configurations (admin_config) - controls the Gemini
+    // system prompt/model used for every user; admin-only.
     match /admin_config/{configId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // 8. App config - public read

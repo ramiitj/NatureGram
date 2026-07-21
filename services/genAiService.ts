@@ -1,7 +1,16 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { auth } from "../firebaseConfig";
 
+// The server's /api-proxy route now requires a verified Firebase ID token
+// (the same scheme used by the Live WebSocket proxy) before it will relay
+// requests to Gemini. The GoogleGenAI SDK sends this value as the "key"
+// query param on every request, which the server verifies before swapping
+// in the real Gemini API key.
 export const getApiKey = async (): Promise<string> => {
+    if (auth.currentUser) {
+        return await auth.currentUser.getIdToken();
+    }
     return "PROXY";
 };
 
