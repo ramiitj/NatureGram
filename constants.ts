@@ -3,6 +3,13 @@ import { FunctionDeclaration, Type, Behavior } from "@google/genai";
 
 export const MODEL_NAME = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
+// Frames streamed continuously to the Live agent (one per second while the
+// camera is active) are billed as vision tokens per frame. Species/behavior
+// identification doesn't need native camera resolution (often 1920x1080+),
+// so streaming frames are downscaled to this max dimension before sending —
+// full-resolution capture (for saved posts) is untouched.
+export const LIVE_STREAM_FRAME_MAX_DIMENSION = 768;
+
 export const SYSTEM_INSTRUCTION = `
 ## ROLE: THE ETHOLOGICAL NATURALIST GUIDE
 You are an expert field naturalist and ethologist. Your mission is to not just identify species, but to narrate the biological "Why" behind their behaviors. You synthesize visual data into deep ecological stories.

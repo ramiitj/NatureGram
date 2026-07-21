@@ -14,6 +14,69 @@ export const getApiKey = async (): Promise<string> => {
     return "PROXY";
 };
 
+// Flash-first model routing: try the cheaper Flash model first and only
+// escalate to Pro when Flash fails outright or comes back with a
+// low-confidence/empty identification. This also acts as a safety net if
+// FLASH_MODEL ever turns out to be invalid/unavailable for the project —
+// analysis still completes via Pro instead of erroring out for users.
+const FLASH_MODEL = 'gemini-2.5-flash';
+const PRO_MODEL = 'gemini-3.1-pro-preview';
+
+interface TaxonomyResult {
+    taxonomy: string[];
+    ecologic: string;
+    hashtags: string[];
+    location: string;
+    confidence?: string;
+}
+
+const TAXONOMY_SCHEMA_PROPERTIES = {
+    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds." },
+    ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description." },
+    hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
+    location: { type: Type.STRING, description: "The location of the observation, inferred or provided." },
+    confidence: { type: Type.STRING, description: "Your confidence in this identification: 'high', 'medium', or 'low'." }
+};
+
+const isLowConfidenceOrEmpty = (result: TaxonomyResult): boolean => {
+    const hasTaxonomy = Array.isArray(result.taxonomy) && result.taxonomy.length > 0 && result.taxonomy[0] !== "Unknown";
+    return !hasTaxonomy || result.confidence === 'low';
+};
+
+const logUsage = (feature: string, model: string, usage?: { promptTokenCount?: number, candidatesTokenCount?: number, totalTokenCount?: number }) => {
+    console.debug(`[GenAiService] ${feature} via ${model} — tokens (prompt/output/total):`, usage?.promptTokenCount, usage?.candidatesTokenCount, usage?.totalTokenCount);
+};
+
+// Runs a taxonomy-identification prompt against Flash first; escalates to
+// Pro if Flash throws or returns a low-confidence/empty result.
+const generateTaxonomyWithFallback = async (ai: GoogleGenAI, contents: any): Promise<{ result: TaxonomyResult, modelUsed: string }> => {
+    const config = {
+        responseMimeType: "application/json" as const,
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: TAXONOMY_SCHEMA_PROPERTIES,
+            required: ["taxonomy", "ecologic", "hashtags", "location"]
+        }
+    };
+
+    try {
+        const flashResponse = await ai.models.generateContent({ model: FLASH_MODEL, contents, config });
+        const result = JSON.parse(flashResponse.text || "{}") as TaxonomyResult;
+        if (!isLowConfidenceOrEmpty(result)) {
+            logUsage('taxonomy', FLASH_MODEL, flashResponse.usageMetadata);
+            return { result, modelUsed: FLASH_MODEL };
+        }
+        console.debug("[GenAiService] Flash result low-confidence/empty, escalating to Pro");
+    } catch (flashErr) {
+        console.warn("[GenAiService] Flash analysis call failed, escalating to Pro:", flashErr);
+    }
+
+    const proResponse = await ai.models.generateContent({ model: PRO_MODEL, contents, config });
+    const result = JSON.parse(proResponse.text || "{}") as TaxonomyResult;
+    logUsage('taxonomy', PRO_MODEL, proResponse.usageMetadata);
+    return { result, modelUsed: PRO_MODEL };
+};
+
 export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
@@ -31,36 +94,19 @@ export const GenAiService = {
         await new Promise(resolve => reader.onload = resolve);
         const base64 = (reader.result as string).split(',')[1];
         
-        const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}. 
+        const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}.
         Identify all species or natural phenomena present. If this is a video, you MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), an ecological insight covering all aspects, suggested hashtags, and the location.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: {
-                parts: [
-                    { inlineData: { data: base64, mimeType: blob.type } },
-                    { text: prompt }
-                ]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds." },
-                        ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description." },
-                        hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
-                        location: { type: Type.STRING, description: "The location of the observation, inferred or provided." }
-                    },
-                    required: ["taxonomy", "ecologic", "hashtags", "location"]
-                }
-            }
+        Provide the taxonomy (species names of plants, animals, and sources of sounds), an ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification.`;
+
+        const { result } = await generateTaxonomyWithFallback(ai, {
+            parts: [
+                { inlineData: { data: base64, mimeType: blob.type } },
+                { text: prompt }
+            ]
         });
 
-        const text = response.text || "{}";
-        const result = JSON.parse(text);
         return {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
@@ -106,34 +152,17 @@ export const GenAiService = {
             parts.push({ inlineData: { data: imgBase64, mimeType: imgBlob.type } });
         }
 
-        const prompt = `Analyze this field observation${location ? ` from ${location}` : ''}. 
+        const prompt = `Analyze this field observation${location ? ` from ${location}` : ''}.
         Focus on the high-fidelity media recording (audio or video) to identify species by sound and movement, and use the provided images to ground the visual context.
         Identify all species or natural phenomena present. You MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or evolutionary significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), a deep ecological insight covering all aspects, suggested hashtags, and the location.`;
-        
+        Provide the taxonomy (species names of plants, animals, and sources of sounds), a deep ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification.`;
+
         parts.push({ text: prompt });
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: { parts },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Identified species or sounds." },
-                        ecologic: { type: Type.STRING, description: "Deep ecological insight." },
-                        hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Relevant hashtags." },
-                        location: { type: Type.STRING, description: "Inferred or provided location." }
-                    },
-                    required: ["taxonomy", "ecologic", "hashtags", "location"]
-                }
-            }
-        });
+        const { result } = await generateTaxonomyWithFallback(ai, { parts });
 
-        const text = response.text || "{}";
-        const result = JSON.parse(text);
         return {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
@@ -165,27 +194,37 @@ export const GenAiService = {
         
         const prompt = `The user is posting a collection of nature observations. Here are the details of the items in the collection:
         ${summaryText}
-        
+
         Generate a unifying title (e.g., 'Morning Avian and Flora Observations') and a cohesive summary description for this entire collection.
         Do not mention "Item 1" or "Item 2". Speak generally about the collection of observations.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING, description: "A unifying title for the collection." },
-                        description: { type: Type.STRING, description: "A cohesive summary description." }
-                    },
-                    required: ["title", "description"]
-                }
-            }
-        });
 
-        const text = response.text || "{}";
+        const config = {
+            responseMimeType: "application/json" as const,
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING, description: "A unifying title for the collection." },
+                    description: { type: Type.STRING, description: "A cohesive summary description." }
+                },
+                required: ["title", "description"]
+            }
+        };
+
+        // Pure text summarization of already-extracted taxonomy/insight
+        // strings — no vision/audio involved, so Flash is a safe direct
+        // swap here rather than needing a confidence-based escalation.
+        let text: string;
+        try {
+            const response = await ai.models.generateContent({ model: FLASH_MODEL, contents: prompt, config });
+            text = response.text || "{}";
+            logUsage('synthesizeCollection', FLASH_MODEL, response.usageMetadata);
+        } catch (flashErr) {
+            console.warn("[GenAiService] Flash synthesis call failed, falling back to Pro:", flashErr);
+            const response = await ai.models.generateContent({ model: PRO_MODEL, contents: prompt, config });
+            text = response.text || "{}";
+            logUsage('synthesizeCollection', PRO_MODEL, response.usageMetadata);
+        }
+
         const result = JSON.parse(text);
         return {
             title: result.title || "Field Collection",

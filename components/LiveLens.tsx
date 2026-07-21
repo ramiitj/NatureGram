@@ -7,6 +7,7 @@ import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
 import { GenAiService } from '../services/genAiService.ts';
+import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -122,33 +123,109 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const retakesCountRef = useRef<number>(0);
   const rawLocationRef = useRef<{lat: number, lng: number} | null>(null);
 
+  // Idle-session auto-disconnect: a Live session is the most expensive
+  // thing this app does, and it's easy to leave one open (phone put down,
+  // tab left in the background). If there's been no speech from either
+  // side, no camera motion, and no manual recording activity for this
+  // long, end the session automatically — on top of (not instead of) the
+  // server's hard 3-minute cap.
+  const IDLE_SESSION_TIMEOUT_MS = 60000;
+  const lastActivityAtRef = useRef<number>(Date.now());
+  const isFinalizingRef = useRef(false);
+
+  // Adaptive streaming frame rate: skip sending a frame to the Live agent
+  // when the scene hasn't meaningfully changed since the last one sent
+  // (e.g. the user is holding the camera steady while the agent talks).
+  // A heartbeat still forces a send periodically so the agent's view never
+  // goes stale for long. This only affects the continuous 1fps stream —
+  // full-resolution capture for saved posts is unaffected.
+  const frameDiffCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastFrameSignatureRef = useRef<Uint8ClampedArray | null>(null);
+  const lastFrameSentAtRef = useRef<number>(0);
+  const FRAME_DIFF_SIZE = 12;
+  const FRAME_DIFF_THRESHOLD = 10; // avg per-channel delta (0-255) considered "changed"
+  const FRAME_HEARTBEAT_MS = 4000; // always send at least this often
+
+  const shouldSendStreamingFrame = useCallback((sourceCanvas: HTMLCanvasElement): boolean => {
+    try {
+      if (!frameDiffCanvasRef.current) {
+        frameDiffCanvasRef.current = document.createElement('canvas');
+        frameDiffCanvasRef.current.width = FRAME_DIFF_SIZE;
+        frameDiffCanvasRef.current.height = FRAME_DIFF_SIZE;
+      }
+      const diffCanvas = frameDiffCanvasRef.current;
+      const diffCtx = diffCanvas.getContext('2d');
+      if (!diffCtx) return true; // fail open: send if we can't evaluate
+
+      diffCtx.drawImage(sourceCanvas, 0, 0, FRAME_DIFF_SIZE, FRAME_DIFF_SIZE);
+      const { data } = diffCtx.getImageData(0, 0, FRAME_DIFF_SIZE, FRAME_DIFF_SIZE);
+
+      const now = Date.now();
+      const heartbeatDue = now - lastFrameSentAtRef.current >= FRAME_HEARTBEAT_MS;
+      const previous = lastFrameSignatureRef.current;
+      lastFrameSignatureRef.current = data;
+
+      if (!previous || heartbeatDue) {
+        lastFrameSentAtRef.current = now;
+        return true;
+      }
+
+      let diffSum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        diffSum += Math.abs(data[i] - previous[i]) + Math.abs(data[i + 1] - previous[i + 1]) + Math.abs(data[i + 2] - previous[i + 2]);
+      }
+      const avgDiff = diffSum / ((data.length / 4) * 3);
+
+      if (avgDiff >= FRAME_DIFF_THRESHOLD) {
+        lastFrameSentAtRef.current = now;
+        lastActivityAtRef.current = now; // real camera motion counts as activity (heartbeat sends don't)
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return true; // fail open: never let this block the actual stream
+    }
+  }, []);
+
   const captureFrame = useCallback((optimize: boolean = false): { dataUrl: string, blobPromise?: Promise<Blob> } | null => {
     if (!videoRef.current || !canvasRef.current || !isCameraActiveRef.current) return null;
     const canvas = canvasRef.current;
-    if (videoRef.current.videoWidth > 0) {
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
+    const nativeWidth = videoRef.current.videoWidth;
+    const nativeHeight = videoRef.current.videoHeight;
+    if (nativeWidth > 0) {
+        if (optimize) {
+            // Full-quality capture (used for saved posts) keeps native resolution.
+            canvas.width = nativeWidth;
+            canvas.height = nativeHeight;
+        } else {
+            // Frames streamed continuously to the Live agent don't need
+            // native resolution — downscale to cut vision-token cost.
+            const scale = Math.min(1, LIVE_STREAM_FRAME_MAX_DIMENSION / Math.max(nativeWidth, nativeHeight));
+            canvas.width = Math.max(1, Math.round(nativeWidth * scale));
+            canvas.height = Math.max(1, Math.round(nativeHeight * scale));
+        }
     }
     if (canvas.width === 0) return null;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', optimize ? 0.95 : 0.5);
-    
+
     if (optimize) {
         setIsFlashing(true);
         setTimeout(() => setIsFlashing(false), 150);
     }
 
-    return { 
-        dataUrl, 
-        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined 
+    return {
+        dataUrl,
+        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined
     };
   }, []);
 
   const startRecording = useCallback((type: 'audio' | 'video') => {
     if (!activeStreamRef.current) return;
-    
+    lastActivityAtRef.current = Date.now();
+
     let streamToRecord: MediaStream;
     if (type === 'audio') {
         if (recordingDestinationRef.current) {
@@ -585,6 +662,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   };
 
   const finalizeSession = useCallback(async (summary?: string) => {
+    if (isFinalizingRef.current) return;
+    isFinalizingRef.current = true;
     setAgentState('FINALIZING');
     const finalSummary = summary || "Exploration concluded.";
     if (naturalistId) {
@@ -597,9 +676,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     setTimeout(() => onEndSession(finalSummary), 1200);
   }, [naturalistId, onEndSession]);
 
+  // initSession's own callback closure is recreated far less often than
+  // finalizeSession (which changes whenever naturalistId updates, e.g.
+  // right after a session starts), so the idle-check interval below reads
+  // through this ref instead of calling finalizeSession directly — that
+  // way it always finalizes with the current naturalistId, not whatever
+  // was set when initSession's closure was created.
+  const finalizeSessionRef = useRef(finalizeSession);
+  useEffect(() => { finalizeSessionRef.current = finalizeSession; }, [finalizeSession]);
+
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
+    if (role === 'user' || role === 'assistant') lastActivityAtRef.current = Date.now();
     setChatHistory(prev => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg && lastMsg.role === role && role !== 'system') {
@@ -888,6 +977,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       let inputCtx: AudioContext | null = null;
       let processor: ScriptProcessorNode | null = null;
       let videoInterval: number | null = null;
+      let idleCheckInterval: number | null = null;
+
+      lastActivityAtRef.current = Date.now();
+      isFinalizingRef.current = false;
 
       try {
         console.debug("initSession starting...");
@@ -978,11 +1071,22 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         processor.connect(inputCtx.destination); 
 
         videoInterval = window.setInterval(() => {
-             if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) { 
-                 const res = captureFrame(false); 
-                 if (res) service.sendVideoFrame(res.dataUrl); 
+             if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
+                 const res = captureFrame(false);
+                 if (res && canvasRef.current && shouldSendStreamingFrame(canvasRef.current)) {
+                     service.sendVideoFrame(res.dataUrl);
+                 }
              }
-        }, 1000); 
+        }, 1000);
+
+        idleCheckInterval = window.setInterval(() => {
+            if (isFinalizingRef.current) return;
+            const idleMs = Date.now() - lastActivityAtRef.current;
+            if (idleMs >= IDLE_SESSION_TIMEOUT_MS) {
+                console.debug(`[LiveLens] Ending session after ${Math.round(idleMs / 1000)}s of inactivity`);
+                finalizeSessionRef.current("Session ended automatically after a period of inactivity.");
+            }
+        }, 5000);
 
         console.debug("initSession complete.");
         return () => {
@@ -991,20 +1095,22 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 geminiServiceRef.current.disconnect();
                 geminiServiceRef.current = null;
             }
-            if (videoInterval) clearInterval(videoInterval); 
-            if (processor) processor.disconnect(); 
+            if (videoInterval) clearInterval(videoInterval);
+            if (idleCheckInterval) clearInterval(idleCheckInterval);
+            if (processor) processor.disconnect();
             if (inputCtx) inputCtx.close();
-            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()); 
+            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop());
         };
-      } catch (err) { 
+      } catch (err) {
           console.error("Session init failed:", err);
-          setAgentState('DISCONNECTED'); 
+          setAgentState('DISCONNECTED');
           return () => {
               if (geminiServiceRef.current) {
                   geminiServiceRef.current.disconnect();
                   geminiServiceRef.current = null;
               }
               if (videoInterval) clearInterval(videoInterval);
+              if (idleCheckInterval) clearInterval(idleCheckInterval);
               if (processor) processor.disconnect();
               if (inputCtx) inputCtx.close();
           };

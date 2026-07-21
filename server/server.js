@@ -148,9 +148,33 @@ try {
   console.error("Failed to initialize Firebase Admin:", e);
 }
 
-// In-memory session tracking
+// In-memory session tracking. Resets on server restart; fine for a single
+// instance, but should move to Firestore/Redis before running >1 replica.
 const userSessions = new Map(); // uid -> { date: string, count: number }
 const activeConnections = new Map(); // uid -> Set<WebSocket>
+
+// Live sessions are the most expensive thing this app does (realtime
+// audio+video against a native-audio model), so cap both how many a user
+// can have open at once and how many they can start per day.
+const MAX_CONCURRENT_LIVE_SESSIONS = parseInt(process.env.MAX_CONCURRENT_LIVE_SESSIONS || '1', 10);
+const MAX_DAILY_LIVE_SESSIONS = parseInt(process.env.MAX_DAILY_LIVE_SESSIONS || '20', 10);
+
+// Returns true and records the attempt if `uid` is still under its daily
+// Live session quota; returns false (without recording) if the quota for
+// today has already been reached.
+function tryConsumeDailyLiveSession(uid) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = userSessions.get(uid);
+  if (!entry || entry.date !== today) {
+    userSessions.set(uid, { date: today, count: 1 });
+    return true;
+  }
+  if (entry.count >= MAX_DAILY_LIVE_SESSIONS) {
+    return false;
+  }
+  entry.count += 1;
+  return true;
+}
 
 const TARGET_HOST = 'generativelanguage.googleapis.com';
 
@@ -551,8 +575,24 @@ async function startServer() {
            socket.destroy();
            return;
         }
-        
-        
+
+        // Abuse/cost controls: cap concurrent and per-day Live sessions.
+        // Checked before handleUpgrade so a rejected request never reaches
+        // Gemini and never counts against activeConnections.
+        const existingConns = activeConnections.get(uid);
+        if (existingConns && existingConns.size >= MAX_CONCURRENT_LIVE_SESSIONS) {
+           console.warn('[Proxy] Concurrent Live session limit reached for user', uid);
+           socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+           socket.destroy();
+           return;
+        }
+        if (!tryConsumeDailyLiveSession(uid)) {
+           console.warn('[Proxy] Daily Live session limit reached for user', uid);
+           socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+           socket.destroy();
+           return;
+        }
+
         wss.handleUpgrade(req, socket, head, (clientWs) => {
           
           const userActiveConns = activeConnections.get(uid) || new Set();
