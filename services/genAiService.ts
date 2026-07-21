@@ -1,7 +1,16 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { auth } from "../firebaseConfig";
 
 export const getApiKey = async (): Promise<string> => {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+        try {
+            return await currentUser.getIdToken();
+        } catch (e) {
+            console.warn("Failed to get ID token, falling back to PROXY token");
+        }
+    }
     return "PROXY";
 };
 

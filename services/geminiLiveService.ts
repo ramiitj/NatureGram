@@ -26,7 +26,7 @@ export class GeminiLiveService {
   private reconnectTimeoutId: any = null;
   
   private systemInstruction: string = '';
-  private model: string = 'models/gemini-2.5-flash-native-audio-latest';
+  private model: string = 'models/gemini-3.5-flash';
   private latLng: { latitude: number, longitude: number } | null = null;
 
   private currentModelTurnText: string = "";

@@ -17,6 +17,7 @@ import { rateLimit } from 'express-rate-limit';
 import { fileURLToPath, parse } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import admin from 'firebase-admin';
+import { getAuth } from 'firebase-admin/auth';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -373,11 +374,38 @@ async function startServer() {
   });
 
   // HTTP Proxy for Gemini API
-  app.use('/api-proxy', cors(), (req, res) => {
+  app.use('/api-proxy', cors(), async (req, res) => {
     // In app.use('/api-proxy'), req.url is relative to the mount point.
     // So if the request is /api-proxy/v1beta/models..., req.url is /v1beta/models...
     let targetPath = req.url;
     
+    // Auth Validation for HTTP Proxy
+    let uid = null;
+    try {
+      const url = new URL(req.url, `https://${TARGET_HOST}`);
+      const providedKey = url.searchParams.get('key') || req.headers['x-goog-api-key'];
+      
+      if (!providedKey || providedKey === 'PROXY') {
+         return res.status(401).json({ error: 'Unauthorized: Missing or invalid Firebase ID token.' });
+      }
+
+      try {
+         const decodedToken = await getAuth().verifyIdToken(providedKey);
+         uid = decodedToken.uid;
+      } catch (e) {
+         const projectId = currentFirebaseProjectId || 'biostream-6490a';
+         const decodedFallback = await verifyFirebaseTokenFallback(providedKey, projectId);
+         uid = decodedFallback.sub;
+      }
+      
+      if (!uid) {
+         return res.status(401).json({ error: 'Unauthorized: Invalid Firebase token.' });
+      }
+    } catch (e) {
+       console.error('[Proxy] Auth verification failed:', e.message);
+       return res.status(401).json({ error: 'Unauthorized', details: e.message });
+    }
+
     // Inject/Replace API key in query params
     try {
       const url = new URL(req.url, `https://${TARGET_HOST}`);
@@ -473,11 +501,11 @@ async function startServer() {
           
           // Verify Token
           try {
-             const decodedToken = await admin.auth().verifyIdToken(token);
+             const decodedToken = await getAuth().verifyIdToken(token);
              uid = decodedToken.uid;
-             console.log('[Proxy] Token verified successfully via admin.auth() for UID:', uid);
+             console.log('[Proxy] Token verified successfully via getAuth() for UID:', uid);
           } catch (e) {
-             console.warn('[Proxy] admin.auth().verifyIdToken failed, attempting pure Node.js fallback:', e.message);
+             console.warn('[Proxy] getAuth().verifyIdToken failed, attempting pure Node.js fallback:', e.message);
              try {
                 const projectId = currentFirebaseProjectId || 'biostream-6490a';
                 const decodedFallback = await verifyFirebaseTokenFallback(token, projectId);
