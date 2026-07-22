@@ -12,6 +12,7 @@ import AuthModal from './components/AuthModal.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
+import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from './services/uploadService.ts';
 import { AnimatePresence } from 'motion/react';
 import { hapticFeedback } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
@@ -241,6 +242,88 @@ const App: React.FC = () => {
   const handleCapture = (snap: Snapshot) => {
     setSnapshots(prev => [...prev, snap]);
     setCurrentSessionSnapshots(prev => [...prev, snap]);
+  };
+
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingStandaloneUpload, setIsProcessingStandaloneUpload] = useState(false);
+  const [standaloneUploadError, setStandaloneUploadError] = useState<string | null>(null);
+
+  // Fire-and-forget one-shot geolocation lookup: never blocks the upload,
+  // just returns null on any error/timeout/permission-denial.
+  const getQuickLocation = (): Promise<{ lat: number, lng: number } | null> => {
+    return new Promise((resolve) => {
+        if (!("geolocation" in navigator)) return resolve(null);
+        const timeoutId = window.setTimeout(() => resolve(null), 4000);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => { window.clearTimeout(timeoutId); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
+            () => { window.clearTimeout(timeoutId); resolve(null); },
+            { timeout: 4000, maximumAge: 60000 }
+        );
+    });
+  };
+
+  // A dedicated no-camera, no-microphone entry point: analyzes a single
+  // uploaded file via the same scope-gated pipeline as Live captures, then
+  // drops straight into PostSessionView — no getUserMedia, no WebSocket
+  // Gemini Live session ever starts for this path.
+  const handleStandaloneUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file || isProcessingStandaloneUpload) return;
+
+      setStandaloneUploadError(null);
+      setIsProcessingStandaloneUpload(true);
+
+      let prepared;
+      try {
+          prepared = await prepareUpload(file);
+      } catch (err) {
+          const message = err instanceof UploadValidationError ? err.message : "Couldn't process this file. Please try another.";
+          setStandaloneUploadError(message);
+          setIsProcessingStandaloneUpload(false);
+          return;
+      }
+
+      const coords = await getQuickLocation();
+      const location = coords ? `${coords.lat},${coords.lng}` : undefined;
+      const snapId = Date.now().toString();
+
+      handleCapture({
+          id: snapId,
+          ...prepared.snapshotFields,
+          timestamp: new Date().toLocaleTimeString(),
+          labels: ['Uploaded Discovery'],
+          behavior: "Uploaded media.",
+          aiInsight: "Processing...",
+          userId: userMode?.userId,
+          isHybrid: false,
+          location,
+          isAnalyzing: true,
+          rawLocation: coords,
+          sessionRetakes: 1,
+      } as Snapshot);
+
+      setSessionSummary("Uploaded from device.");
+      setShowModeSelection(false);
+      setIsProcessingStandaloneUpload(false);
+      setCurrentView(AppView.POST_SESSION);
+
+      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location).then(result => {
+          updateSnapshot(snapId, {
+              aiInsight: result.aiInsight,
+              labels: result.labels,
+              locationArea: result.locationArea,
+              isAnalyzing: false,
+              isNatureSubject: result.isNatureSubject,
+              isHybrid: result.isHybrid,
+              confidence: result.confidence,
+              aiProposedLabels: result.labels,
+              aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
+          });
+      }).catch(err => {
+          console.error("Standalone upload analysis failed", err);
+          updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+      });
   };
 
   const handleEndSession = (summary: string) => {
@@ -606,9 +689,36 @@ const App: React.FC = () => {
                                     The agent is an active companion, engaging in real-time dialogue about your surroundings and findings.
                                 </p>
                             </button>
+
+                            <button
+                                onClick={() => uploadInputRef.current?.click()}
+                                disabled={isProcessingStandaloneUpload}
+                                className="w-full p-6 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95 disabled:opacity-50"
+                            >
+                                <div className="flex items-center gap-4 mb-2">
+                                    <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
+                                        <span className="material-symbols-outlined">{isProcessingStandaloneUpload ? 'hourglass_top' : 'upload_file'}</span>
+                                    </div>
+                                    <h3 className="font-bold text-lg text-stone-900">{isProcessingStandaloneUpload ? 'Analyzing...' : 'Upload'}</h3>
+                                </div>
+                                <p className="text-xs text-stone-600 leading-relaxed">
+                                    Analyze a photo, video, or sound file from your device — no camera or microphone needed.
+                                </p>
+                            </button>
+                            <input
+                                ref={uploadInputRef}
+                                type="file"
+                                accept="image/*,video/*,audio/*"
+                                className="hidden"
+                                onChange={handleStandaloneUpload}
+                            />
                         </div>
 
-                        <button 
+                        {standaloneUploadError && (
+                            <p className="mt-4 text-xs font-bold text-red-500">{standaloneUploadError}</p>
+                        )}
+
+                        <button
                             onClick={() => setShowModeSelection(false)}
                             className="mt-8 text-xs font-bold text-stone-400 uppercase tracking-widest hover:text-stone-600 transition-colors"
                         >

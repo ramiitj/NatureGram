@@ -7,6 +7,7 @@ import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
 import { GenAiService, resolveNatureSubjectFields } from '../services/genAiService.ts';
+import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from '../services/uploadService.ts';
 import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -521,95 +522,58 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file) return;
-
-      const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/');
-      const isImage = file.type.startsWith('image/');
-
-      if (isVideo || isAudio) {
-          const media = isVideo ? document.createElement('video') : document.createElement('audio');
-          media.src = URL.createObjectURL(file);
-          
-          await new Promise((resolve) => {
-              media.onloadedmetadata = resolve;
-          });
-          
-          if (media.duration > 30) {
-              alert("Please select a file that is 30 seconds or shorter.");
-              return;
-          }
-      }
+      // Reset immediately so selecting the same file again still fires
+      // onChange, and so a second file can't be queued while one is in flight.
+      e.target.value = '';
+      if (!file || isProcessingCapture) return;
 
       setIsProcessingCapture(true);
       showStatus('processing', `Analyzing uploaded media...`);
-      const snapId = Date.now().toString();
-      const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
-      const mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
 
-      if (isImage) {
-          retakesCountRef.current += 1;
-          onCapture({
-              id: snapId,
-              url: URL.createObjectURL(file),
-              blob: file,
-              timestamp: new Date().toLocaleTimeString(),
-              labels: ['Uploaded Discovery'],
-              behavior: "Uploaded media.",
-              aiInsight: "Processing...",
-              type: 'image',
-              userId: userMode.userId,
-              isHybrid: false,
-              location: location,
-              isAnalyzing: true,
-              rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
-              timeToRecordMs: Date.now() - sessionStartMsRef.current,
-              sessionRetakes: retakesCountRef.current
-          });
-          const reader = new FileReader();
-          reader.onload = () => {
-              if (reader.result) {
-                   geminiServiceRef.current?.sendVideoFrame(reader.result as string);
-              }
-          };
-          reader.readAsDataURL(file);
-      } else {
-          retakesCountRef.current += 1;
-          onCapture({
-              id: snapId,
-              videoUrl: isVideo ? URL.createObjectURL(file) : undefined,
-              videoBlob: isVideo ? file : undefined,
-              audioUrl: isAudio ? URL.createObjectURL(file) : undefined,
-              audioBlob: isAudio ? file : undefined,
-              timestamp: new Date().toLocaleTimeString(),
-              labels: ['Uploaded Discovery'],
-              behavior: "Uploaded media.",
-              aiInsight: "Processing...",
-              type: mediaType,
-              userId: userMode.userId,
-              isHybrid: false,
-              location: location,
-              isAnalyzing: true,
-              rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
-              timeToRecordMs: Date.now() - sessionStartMsRef.current,
-              sessionRetakes: retakesCountRef.current
-          });
+      let prepared;
+      try {
+          prepared = await prepareUpload(file);
+      } catch (err) {
+          const message = err instanceof UploadValidationError ? err.message : "Couldn't process this file. Please try another.";
+          showStatus('error', message);
+          setIsProcessingCapture(false);
+          return;
       }
 
-      GenAiService.analyzeMedia(file, mediaType, location).then(result => {
-          const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
+      const snapId = Date.now().toString();
+      const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
+
+      retakesCountRef.current += 1;
+      onCapture({
+          id: snapId,
+          ...prepared.snapshotFields,
+          timestamp: new Date().toLocaleTimeString(),
+          labels: ['Uploaded Discovery'],
+          behavior: "Uploaded media.",
+          aiInsight: "Processing...",
+          userId: userMode.userId,
+          isHybrid: false,
+          location: location,
+          isAnalyzing: true,
+          rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
+          timeToRecordMs: Date.now() - sessionStartMsRef.current,
+          sessionRetakes: retakesCountRef.current
+      });
+
+      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location).then(result => {
           updateSnapshot(snapId, {
-              aiInsight,
-              labels,
-              locationArea: result.location,
+              aiInsight: result.aiInsight,
+              labels: result.labels,
+              locationArea: result.locationArea,
               isAnalyzing: false,
-              isNatureSubject,
+              isNatureSubject: result.isNatureSubject,
+              isHybrid: result.isHybrid,
               confidence: result.confidence,
-              aiProposedLabels: labels,
-              aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
+              aiProposedLabels: result.labels,
+              aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });
           setIsProcessingCapture(false);
-          showStatus('success', isNatureSubject ? 'Upload analyzed. Saved to field notes.' : 'No nature subject detected in this upload.');
+          showStatus('success', result.isNatureSubject ? 'Upload analyzed. Saved to field notes.' : 'No nature subject detected in this upload.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
           updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -1349,10 +1313,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   <span className="text-[7px] font-black uppercase tracking-tighter">Flip</span>
               </button>
               
-              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
+              <label className={`w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all shadow-2xl ${isProcessingCapture ? 'opacity-40' : 'active:scale-95 cursor-pointer'}`}>
                   <span className="material-symbols-outlined text-xl">upload_file</span>
                   <span className="text-[7px] font-black uppercase tracking-tighter">Upload</span>
-                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={handleMediaUpload} />
+                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" disabled={isProcessingCapture} onChange={handleMediaUpload} />
               </label>
           </div>
       )}
