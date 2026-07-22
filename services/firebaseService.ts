@@ -32,6 +32,8 @@ import {
   onAuthStateChanged,
   deleteUser,
   updateProfile,
+  linkWithCredential,
+  EmailAuthProvider,
 } from "firebase/auth";
 import { getToken, onMessage, isSupported as isMessagingSupported, MessagePayload } from "firebase/messaging";
 import { auth, db, storage, getMessagingInstance } from "../firebaseConfig";
@@ -261,7 +263,37 @@ export const FirebaseService = {
     return cred;
   },
 
+  // Upgrades the current anonymous account in place (same uid) when
+  // possible, instead of always creating a brand-new account — signing up
+  // via createUserWithEmailAndPassword directly would sign out the
+  // anonymous user and mint a new uid, silently orphaning any drafts,
+  // journal entries, or profile data already saved under the old one.
   registerUser: async (email: string, pass: string) => {
+    const currentUser = auth.currentUser;
+    if (currentUser && currentUser.isAnonymous) {
+        try {
+            const credential = EmailAuthProvider.credential(email, pass);
+            const cred = await linkWithCredential(currentUser, credential);
+            const username = email.split('@')[0];
+            try {
+                await updateDoc(doc(db, "users", cred.user.uid), { isAnonymous: false, username });
+                if (!cred.user.displayName) await updateProfile(cred.user, { displayName: username });
+            } catch (profileErr) {
+                console.warn("Failed to upgrade profile after account linking:", profileErr);
+            }
+            return cred;
+        } catch (err: any) {
+            // The email is already registered to a different account (or
+            // linking otherwise can't proceed) — fall through to a normal
+            // signup. The user just won't keep their anonymous history in
+            // that specific case, same as before this feature existed.
+            if (err?.code !== 'auth/email-already-in-use' && err?.code !== 'auth/credential-already-in-use') {
+                throw err;
+            }
+            console.warn("Anonymous account linking failed, falling back to fresh signup:", err);
+        }
+    }
+
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     try {
         await FirebaseService.ensureUserProfile(cred.user.uid, email, false);
