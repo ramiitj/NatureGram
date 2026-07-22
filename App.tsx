@@ -400,6 +400,8 @@ const App: React.FC = () => {
               isNatureSubject: result.isNatureSubject,
               isHybrid: result.isHybrid,
               confidence: result.confidence,
+              isSensitiveSpecies: result.isSensitiveSpecies,
+              subjects: result.subjects,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });

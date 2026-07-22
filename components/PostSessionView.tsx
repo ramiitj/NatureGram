@@ -75,15 +75,31 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // Pipeline reconciliation: once a human edits labels/insight for a given
+  // snapshot, a later-arriving automated re-analysis (which can resolve
+  // after the edit, since it runs in the background) must not silently
+  // clobber it. Tracked by snapshot id — not just "did the effect already
+  // run" — because this effect's dependency on the whole `snapshots` array
+  // means ANY snapshot's background analysis resolving re-runs it for
+  // whichever item is currently being viewed.
+  const manualEditRef = useRef<Set<string>>(new Set());
+  const markManualEdit = () => {
+      const current = snapshots[currentSnapIndex];
+      if (current) manualEditRef.current.add(current.id);
+  };
+
   useEffect(() => {
     const analyzeCurrent = async () => {
         if (snapshots.length === 0 || !snapshots[currentSnapIndex]) return;
         const current = snapshots[currentSnapIndex];
-        
-        setBehavior(current.behavior || "");
-        setAiInsight(current.aiInsight || "");
-        setLabels(current.labels || []);
-        
+        const humanEdited = manualEditRef.current.has(current.id);
+
+        if (!humanEdited) {
+            setBehavior(current.behavior || "");
+            setAiInsight(current.aiInsight || "");
+            setLabels(current.labels || []);
+        }
+
         if (current.isAnalyzing) {
             setIsAnalyzing(true);
             return;
@@ -115,18 +131,27 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                 
                 if (result) {
                     const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
-                    setAiInsight(aiInsight);
-                    setLabels(labels);
+                    // Reconciliation rule: post-analysis wins over the live
+                    // agent's initial guess UNLESS the human already
+                    // corrected it in the meantime — then the human's edit
+                    // stays, and only the supplementary AI-only fields
+                    // (confidence, sensitivity, subjects, location) update.
+                    if (!humanEdited) {
+                        setAiInsight(aiInsight);
+                        setLabels(labels);
+                    }
                     setTags(result.hashtags);
                     if (result.location && !resolvedArea) setResolvedArea(result.location);
 
                     setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? {
                         ...s,
-                        aiInsight,
-                        labels,
+                        aiInsight: humanEdited ? s.aiInsight : aiInsight,
+                        labels: humanEdited ? s.labels : labels,
                         locationArea: result.location,
                         isNatureSubject,
                         confidence: result.confidence,
+                        isSensitiveSpecies: result.isSensitiveSpecies,
+                        subjects: result.subjects,
                     } : s));
                 }
             } catch (e) {
@@ -526,8 +551,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <input 
                                   type="text" 
                                   placeholder="Species Name..."
-                                  value={labels.join(', ')} 
-                                  onChange={(e) => setLabels(e.target.value.split(',').map(l => l.trim()).filter(Boolean))} 
+                                  value={labels.join(', ')}
+                                  onChange={(e) => { markManualEdit(); setLabels(e.target.value.split(',').map(l => l.trim()).filter(Boolean)); }}
                                   className="w-full p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-[9px] font-black uppercase tracking-widest text-theme-primary outline-none focus:border-theme-accent/30 transition-colors placeholder:text-[9px] placeholder:font-black placeholder:uppercase placeholder:tracking-widest placeholder:text-theme-primary/30"
                               />
                           </section>
@@ -552,8 +577,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               </div>
                               <div className="relative">
                                   <textarea 
-                                      value={aiInsight} 
-                                      onChange={(e) => setAiInsight(e.target.value)} 
+                                      value={aiInsight}
+                                      onChange={(e) => { markManualEdit(); setAiInsight(e.target.value); }}
                                       placeholder="Describe the observation..."
                                       className={`w-full p-6 bg-theme-accent/5 border rounded-3xl text-base font-display italic text-theme-primary/90 leading-relaxed outline-none resize-none h-48 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
                                   />

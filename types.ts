@@ -1,4 +1,14 @@
 
+// One entry in a multi-subject breakdown — populated by the AI only when
+// multiple clearly distinct organisms are worth listing individually (e.g.
+// a bird AND the flower it's visiting), left empty for single-subject
+// observations.
+export interface TaxonomySubject {
+  label: string;
+  role?: 'primary' | 'secondary' | 'background';
+  confidence?: string;
+}
+
 export interface FieldNotification {
   id: string;
   type: 'like' | 'comment' | 'sighting' | 'system';
@@ -57,6 +67,8 @@ export interface Snapshot {
   // natural subject in the media (a scope check, not a low-confidence ID).
   isNatureSubject?: boolean;
   confidence?: 'high' | 'medium' | 'low';
+  isSensitiveSpecies?: boolean;
+  subjects?: TaxonomySubject[];
 }
 
 export interface ExpeditionDraft {
@@ -144,6 +156,8 @@ export interface CommunityPostItem {
   sessionRetakes?: number;
   isNatureSubject?: boolean;
   confidence?: 'high' | 'medium' | 'low';
+  isSensitiveSpecies?: boolean;
+  subjects?: TaxonomySubject[];
 }
 
 export interface FeedThumbnail {
@@ -187,6 +201,8 @@ export interface CommunityPost extends FeedThumbnail {
   sessionRetakes?: number;
   isNatureSubject?: boolean;
   confidence?: 'high' | 'medium' | 'low';
+  isSensitiveSpecies?: boolean;
+  subjects?: TaxonomySubject[];
 }
 
 export interface Comment {

@@ -1403,8 +1403,13 @@ const Community: React.FC<CommunityProps> = ({
                                             </div>
                                             <div>
                                                 <p className="font-black text-xs text-theme-primary tracking-tight leading-none mb-0.5 group-hover:text-theme-accent transition-colors">{activePost.userName}</p>
-                                                <p className="catalog-label text-[7px] opacity-40 lowercase tracking-[0.1em] font-bold">
-                                                    {currentItem.locationArea || "Wilderness"}
+                                                <p className="catalog-label text-[7px] opacity-40 lowercase tracking-[0.1em] font-bold flex items-center gap-1">
+                                                    {currentItem.isSensitiveSpecies && activePost.userId !== currentUserMode.userId ? (
+                                                        <>
+                                                            <span className="material-symbols-outlined text-[10px]">shield</span>
+                                                            Location Withheld
+                                                        </>
+                                                    ) : (currentItem.locationArea || "Wilderness")}
                                                 </p>
                                             </div>
                                         </div>
@@ -1433,6 +1438,23 @@ const Community: React.FC<CommunityProps> = ({
                                                                 <span key={i} onClick={() => handleSpeciesClick(l, currentItem.locationArea)} className="cursor-pointer px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-black text-[9px] uppercase tracking-widest rounded-sm hover:bg-theme-accent/20 transition-colors">
                                                                     {l}
                                                                 </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {currentItem.subjects && currentItem.subjects.length > 1 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Multiple Subjects Detected</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.subjects.map((subj, i) => (
+                                                                <div key={i} className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                    <span className="text-[11px] font-bold text-theme-primary">{subj.label}</span>
+                                                                    <span className="flex items-center gap-2">
+                                                                        {subj.role && <span className="text-[8px] font-black uppercase tracking-widest text-theme-accent/70">{subj.role}</span>}
+                                                                        {subj.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{subj.confidence}</span>}
+                                                                    </span>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                     </div>

@@ -26,6 +26,8 @@ For every observation, you must communicate:
 - Instead, provide a suitable general title based on the organism's visible traits (e.g., "Unidentified Passerine," "Observed Arachnid," "Local Flora," or "Undetermined Specimen").
 - If the frame contains no plant, animal, fungus, or other natural subject (e.g. it's a room, a vehicle, a document, a screen), say so plainly instead of forcing an identification onto whatever is there. Do not invent a "natural" reading of an unnatural scene.
 - If the frame is too blurry, too dark, too distant, or otherwise unusable to identify anything responsibly, say that specifically ("that's too blurry to identify — try holding steady" / "too far away, try zooming in") rather than guessing. This is a different situation from there being no nature subject at all, and you should be clear about which one it is.
+- Use standard common species names (e.g. "American Robin", not "a robin" or "reddish-brown bird"), in Title Case, singular unless a group is genuinely the subject (e.g. "Canada Geese" for a flock). Consistent naming matters more than creative phrasing here.
+- If a [LOCATION CONTEXT: ...] block is present below, use it to favor species plausible for that region's biome/climate — but trust clear visual evidence over geography (e.g. an obviously captive/pet/aquarium/houseplant subject) if the two conflict.
 
 ## SAFETY BOUNDARIES (NON-NEGOTIABLE)
 - **Never give edibility, toxicity, medicinal, or "is it safe to touch/eat" guidance** for any fungus, plant, berry, or organism — not even with disclaimers, not even if the user insists or claims expertise. Misidentification of "edible" species is a documented cause of serious injury and death. If asked, decline clearly and redirect to identification only: "I can help identify this, but I won't advise on whether it's safe to eat or touch — please consult a verified regional field guide or expert for that."
@@ -118,7 +120,21 @@ export const tools: FunctionDeclaration[] = [
         },
         behavior: { type: Type.STRING, description: 'Ethological Synthesis: [Action] + [Context]; [Biological Intent]. If is_nature_subject is false, a brief plain statement that no natural subject was found instead.' },
         ai_insight: { type: Type.STRING, description: 'A biological "Aha! Moment" fact. If is_nature_subject is false, leave this brief and do not invent a natural reading of the scene.' },
-        is_hybrid: { type: Type.BOOLEAN, description: 'True if man-made structures are in frame.' }
+        is_hybrid: { type: Type.BOOLEAN, description: 'True if man-made structures are in frame.' },
+        is_sensitive_species: { type: Type.BOOLEAN, description: 'True if any identified species is rare, protected, or at meaningful risk from poaching/harassment/habitat disturbance if its exact location were made public (e.g. nesting raptors, rare orchids, den sites). False otherwise.' },
+        subjects: {
+          type: Type.ARRAY,
+          description: 'Only populate if there are multiple clearly distinct organisms in frame worth breaking down individually (e.g. a bird AND the flower it is visiting). Omit or leave empty for a single-subject observation.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              label: { type: Type.STRING, description: 'Common name of this specific subject.' },
+              role: { type: Type.STRING, enum: ['primary', 'secondary', 'background'], description: 'How central this subject is to the observation.' },
+              confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Confidence in this specific subject\'s identification.' }
+            },
+            required: ['label', 'role']
+          }
+        }
       },
       required: ['is_nature_subject', 'labels', 'behavior', 'ai_insight'],
     },

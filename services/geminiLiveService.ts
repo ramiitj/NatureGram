@@ -92,11 +92,20 @@ export class GeminiLiveService {
           }
       });
 
+      // Geo-grounds identification: setLocation() (called by LiveLens before
+      // connect(), whenever a geolocation fix is available) is otherwise
+      // just stored and never used. Appended here rather than baked into
+      // setSystemInstruction so a mid-session reconnect always carries
+      // whatever the latest known location is.
+      const geoContext = this.latLng
+          ? `\n[LOCATION CONTEXT: The explorer is near latitude ${this.latLng.latitude.toFixed(3)}, longitude ${this.latLng.longitude.toFixed(3)}. Use this to favor species plausible for this region's biome/climate — but trust clear visual evidence over geography if they conflict (e.g. an obviously captive/pet/aquarium/houseplant subject).]`
+          : '';
+
       console.debug("[GeminiLiveService] Initiating ai.live.connect...");
       this.sessionPromise = ai.live.connect({
         model: this.model,
         config: {
-          systemInstruction: { parts: [{ text: this.systemInstruction }] },
+          systemInstruction: { parts: [{ text: this.systemInstruction + geoContext }] },
           tools: [
               { functionDeclarations: tools }
           ],

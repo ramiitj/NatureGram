@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
 import { FirebaseService } from "./firebaseService";
+import { TaxonomySubject } from "../types";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -51,16 +52,55 @@ interface TaxonomyResult {
     confidence?: string;
     isNatureSubject?: boolean;
     isHybrid?: boolean;
+    isSensitiveSpecies?: boolean;
+    subjects?: TaxonomySubject[];
 }
 
 const TAXONOMY_SCHEMA_PROPERTIES = {
     isNatureSubject: { type: Type.BOOLEAN, description: "False if the media contains no plant, animal, fungus, or other natural subject (e.g. it's a room, a vehicle, a screen, a document). True otherwise." },
-    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds. If isNatureSubject is false, an empty array." },
+    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds, using standard common names in Title Case. If isNatureSubject is false, an empty array." },
     ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description. If isNatureSubject is false, a brief plain statement that no natural subject was found — never an invented reading of the scene." },
     hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
     location: { type: Type.STRING, description: "The location of the observation, inferred or provided." },
     confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Your confidence in this identification." },
-    isHybrid: { type: Type.BOOLEAN, description: "True if man-made structures (buildings, roads, vehicles, fences) are also visible in frame alongside the natural subject." }
+    isHybrid: { type: Type.BOOLEAN, description: "True if man-made structures (buildings, roads, vehicles, fences) are also visible in frame alongside the natural subject." },
+    isSensitiveSpecies: { type: Type.BOOLEAN, description: "True if any identified species is rare, protected, or at meaningful risk from poaching/harassment/habitat disturbance if its exact location were made public (e.g. nesting raptors, rare orchids, den sites). False otherwise." },
+    subjects: {
+        type: Type.ARRAY,
+        description: "Only populate if there are multiple clearly distinct organisms worth breaking down individually (e.g. a bird AND the flower it's visiting). Omit or leave empty for a single-subject observation.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of this specific subject." },
+                role: { type: Type.STRING, enum: ['primary', 'secondary', 'background'], description: "How central this subject is to the observation." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific subject's identification." }
+            },
+            required: ['label', 'role']
+        }
+    }
+};
+
+// Consistent display formatting for model-provided species names: trims
+// whitespace, Title Cases each word, and dedupes case-insensitively while
+// preserving first-seen order. The model is already prompted to use
+// standard common names, but this is a cheap client-side safety net against
+// stray casing/whitespace drift and accidental duplicates.
+export const normalizeLabels = (labels: string[]): string[] => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const raw of labels || []) {
+        const trimmed = raw.replace(/\s+/g, ' ').trim();
+        if (!trimmed) continue;
+        const titleCased = trimmed
+            .split(' ')
+            .map(w => w.length > 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w)
+            .join(' ');
+        const key = titleCased.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(titleCased);
+    }
+    return result;
 };
 
 // Only meaningful when isNatureSubject is true — a confident "no nature
@@ -131,7 +171,7 @@ export const resolveNatureSubjectFields = (result: { taxonomy: string[], ecologi
     const isNatureSubject = result.isNatureSubject !== false;
     return {
         isNatureSubject,
-        labels: isNatureSubject ? result.taxonomy : ['No Nature Subject Detected'],
+        labels: isNatureSubject ? normalizeLabels(result.taxonomy) : ['No Nature Subject Detected'],
         aiInsight: isNatureSubject ? result.ecologic : "This capture doesn't appear to contain a natural subject.",
     };
 };
@@ -140,7 +180,7 @@ export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
    */
-  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean }> => {
+  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[] }> => {
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -156,8 +196,9 @@ export const GenAiService = {
         const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}.
         Identify all species or natural phenomena present. If this is a video, you MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), an ecological insight covering all aspects, suggested hashtags, and the location.
-        Also include your confidence ('high', 'medium', or 'low') in this identification, and whether man-made structures are also visible alongside the natural subject.
+        Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), an ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
         const { result } = await generateTaxonomyWithFallback(ai, {
@@ -174,7 +215,9 @@ export const GenAiService = {
             location: result.location || location || "Unknown Location",
             confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
             isNatureSubject: result.isNatureSubject,
-            isHybrid: result.isHybrid
+            isHybrid: result.isHybrid,
+            isSensitiveSpecies: result.isSensitiveSpecies,
+            subjects: result.subjects
         };
     } catch (e) {
         console.error("Media analysis failed", e);
@@ -193,7 +236,7 @@ export const GenAiService = {
    * Analyzes multiple modalities (audio + images) to extract deep ecological insights.
    * This prioritizes audio fidelity while using images for grounding.
    */
-  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean }> => {
+  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[] }> => {
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -222,8 +265,9 @@ export const GenAiService = {
         Focus on the high-fidelity media recording (audio or video) to identify species by sound and movement, and use the provided images to ground the visual context.
         Identify all species or natural phenomena present. You MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or evolutionary significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), a deep ecological insight covering all aspects, suggested hashtags, and the location.
-        Also include your confidence ('high', 'medium', or 'low') in this identification, and whether man-made structures are also visible/audible alongside the natural subject.
+        Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), a deep ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible/audible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear audio/visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
         parts.push({ text: prompt });
@@ -237,7 +281,9 @@ export const GenAiService = {
             location: result.location || location || "Unknown Location",
             confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
             isNatureSubject: result.isNatureSubject,
-            isHybrid: result.isHybrid
+            isHybrid: result.isHybrid,
+            isSensitiveSpecies: result.isSensitiveSpecies,
+            subjects: result.subjects
         };
     } catch (e) {
         console.error("Multimodal analysis failed", e);

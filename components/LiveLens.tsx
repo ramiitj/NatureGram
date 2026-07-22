@@ -6,7 +6,7 @@ import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
-import { GenAiService, resolveNatureSubjectFields } from '../services/genAiService.ts';
+import { GenAiService, resolveNatureSubjectFields, normalizeLabels } from '../services/genAiService.ts';
 import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from '../services/uploadService.ts';
 import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
@@ -333,6 +333,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   isAnalyzing: false,
                   isNatureSubject,
                   confidence: result.confidence,
+                  isSensitiveSpecies: result.isSensitiveSpecies,
+                  subjects: result.subjects,
                   aiProposedLabels: labels,
                   aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
               });
@@ -477,6 +479,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           isAnalyzing: false,
                           isNatureSubject,
                           confidence: result.confidence,
+                          isSensitiveSpecies: result.isSensitiveSpecies,
+                          subjects: result.subjects,
                           aiProposedLabels: labels,
                           aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
                       });
@@ -572,6 +576,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               isNatureSubject: result.isNatureSubject,
               isHybrid: result.isHybrid,
               confidence: result.confidence,
+              isSensitiveSpecies: result.isSensitiveSpecies,
+              subjects: result.subjects,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });
@@ -882,7 +888,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            // the model happened to emit.
            const isNatureSubject = args.is_nature_subject !== false;
            const resolvedLabels = isNatureSubject
-               ? (args.labels || (args.label ? [args.label] : ['Nature']))
+               ? normalizeLabels(args.labels || (args.label ? [args.label] : ['Nature']))
                : ['No Nature Subject Detected'];
            const resolvedBehavior = isNatureSubject
                ? (args.behavior || "Manual observation captured by explorer.")
@@ -906,6 +912,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                isHybrid: args.is_hybrid,
                isNatureSubject,
                confidence: args.confidence,
+               isSensitiveSpecies: args.is_sensitive_species,
+               subjects: args.subjects,
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
                timeToRecordMs: Date.now() - sessionStartMsRef.current,

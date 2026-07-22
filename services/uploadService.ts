@@ -1,4 +1,4 @@
-import { Snapshot } from '../types';
+import { Snapshot, TaxonomySubject } from '../types';
 import { compressImageToBlob } from './audioUtils';
 import { GenAiService, resolveNatureSubjectFields } from './genAiService';
 
@@ -96,6 +96,8 @@ export interface UploadAnalysisResult {
     isHybrid: boolean;
     confidence?: 'high' | 'medium' | 'low';
     locationArea: string;
+    isSensitiveSpecies?: boolean;
+    subjects?: TaxonomySubject[];
 }
 
 // Shared by every upload entry point (the standalone no-camera flow and the
@@ -115,6 +117,8 @@ export const analyzeUploadedMedia = async (
         isHybrid: isNatureSubject && !!result.isHybrid,
         confidence: result.confidence,
         locationArea: result.location,
+        isSensitiveSpecies: isNatureSubject ? result.isSensitiveSpecies : undefined,
+        subjects: isNatureSubject ? result.subjects : undefined,
     };
 };
 

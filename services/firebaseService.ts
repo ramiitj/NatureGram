@@ -373,6 +373,8 @@ export const FirebaseService = {
         sessionRetakes: s.sessionRetakes || 0,
         rawLocation: s.rawLocation || null,
         timeToRecordMs: s.timeToRecordMs || 0,
+        isSensitiveSpecies: s.isSensitiveSpecies ?? null,
+        subjects: s.subjects || null,
       };
   }),
 
@@ -625,6 +627,8 @@ export const FirebaseService = {
             sessionRetakes: snapshot.sessionRetakes || null,
             isNatureSubject: snapshot.isNatureSubject ?? null,
             confidence: snapshot.confidence || null,
+            isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
+            subjects: snapshot.subjects || null,
           };
       }));
 
@@ -672,6 +676,8 @@ export const FirebaseService = {
         humanDelta: primaryItem.humanDelta || false,
         isNatureSubject: primaryItem.isNatureSubject ?? null,
         confidence: primaryItem.confidence || null,
+        isSensitiveSpecies: snapshots.some(s => s.isSensitiveSpecies),
+        subjects: primaryItem.subjects || null,
       };
 
       if (synthesizedData) {
@@ -804,6 +810,8 @@ export const FirebaseService = {
         humanDelta: snapshot.humanDelta || false,
         isNatureSubject: snapshot.isNatureSubject ?? null,
         confidence: snapshot.confidence || null,
+        isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
+        subjects: snapshot.subjects || null,
       };
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
