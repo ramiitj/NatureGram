@@ -16,12 +16,13 @@ interface PostSessionViewProps {
   onClose: () => void;
   onViewFeed: () => void;
   onSaveDraft: () => void;
+  onPublished?: () => void;
   geminiServiceRef: React.MutableRefObject<GeminiLiveService | null>;
   updateSnapshot: (id: string, updates: Partial<Snapshot>) => void;
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
 }
 
-const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
+const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onPublished, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(initialSnapshots);
   // Default to selecting only the first snapshot, as per user request to not post all by default
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set([0]));
@@ -295,6 +296,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         }
         if (lastCreatedId) {
             setCreatedPostId(lastCreatedId);
+            // The auto-saved draft backing this session (if any) is now
+            // redundant — clean it up so it doesn't linger as an orphan.
+            onPublished?.();
         }
 
         setIsDone(true);

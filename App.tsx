@@ -239,9 +239,89 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Tracks the Firestore draft doc backing the *current* capture session, if
+  // any — so repeated auto-saves during one session update a single running
+  // draft instead of creating a new one every time, and so resuming a draft
+  // continues writing to that same doc rather than orphaning it.
+  const activeDraftIdRef = useRef<string | null>(null);
+  const draftMediaCacheRef = useRef<Map<string, Partial<Pick<Snapshot, 'url' | 'videoUrl' | 'audioUrl'>>>>(new Map());
+
+  const resetActiveDraftTracking = () => {
+      activeDraftIdRef.current = null;
+      draftMediaCacheRef.current.clear();
+  };
+
+  // Freshly captured media lives at blob: object URLs, which are only valid
+  // in this tab for this page load — worthless once persisted to Firestore
+  // and reopened later. Uploads the underlying blob to Storage once per
+  // snapshot (cached) so drafts reference real, durable URLs.
+  const resolveDraftMedia = async (snap: Snapshot): Promise<Snapshot> => {
+      const cached = draftMediaCacheRef.current.get(snap.id);
+      if (cached) return { ...snap, ...cached };
+
+      const updates: Partial<Pick<Snapshot, 'url' | 'videoUrl' | 'audioUrl'>> = {};
+      const uid = snap.userId || userMode?.userId || 'explorer_guest';
+      try {
+          if (snap.blob && (!snap.url || snap.url.startsWith('blob:'))) {
+              updates.url = await FirebaseService.uploadMedia(snap.blob, uid, 'image');
+          }
+          if (snap.videoBlob && (!snap.videoUrl || snap.videoUrl.startsWith('blob:'))) {
+              updates.videoUrl = await FirebaseService.uploadMedia(snap.videoBlob, uid, 'video');
+          }
+          if (snap.audioBlob && (!snap.audioUrl || snap.audioUrl.startsWith('blob:'))) {
+              updates.audioUrl = await FirebaseService.uploadMedia(snap.audioBlob, uid, 'audio');
+          }
+      } catch (e) {
+          console.warn("Draft media upload failed for snapshot", snap.id, e);
+      }
+      if (Object.keys(updates).length > 0) {
+          draftMediaCacheRef.current.set(snap.id, updates);
+      }
+      return { ...snap, ...updates };
+  };
+
+  // Fire-and-forget: persists progress after every capture so a crash or
+  // abandoned session never loses more than the single most recent capture.
+  // Anonymous users are intentionally excluded here, matching the explicit
+  // sign-up gate on the manual "Save Draft" action below.
+  const autoSaveDraft = async (snaps: Snapshot[], summaryText: string) => {
+      if (!userMode?.userId || userMode.isAnonymous || snaps.length === 0) return;
+      try {
+          const draftSafeSnaps = await Promise.all(snaps.map(resolveDraftMedia));
+          if (activeDraftIdRef.current) {
+              await FirebaseService.updateDraft(userMode.userId, activeDraftIdRef.current, draftSafeSnaps, summaryText || "Unfinished expedition.");
+          } else {
+              const newId = await FirebaseService.saveDraft(userMode.userId, draftSafeSnaps, summaryText || "Unfinished expedition.");
+              if (newId) activeDraftIdRef.current = newId;
+              refreshDraftsCount();
+          }
+      } catch (e) {
+          console.warn("Auto-save draft failed:", e);
+      }
+  };
+
   const handleCapture = (snap: Snapshot) => {
     setSnapshots(prev => [...prev, snap]);
-    setCurrentSessionSnapshots(prev => [...prev, snap]);
+    setCurrentSessionSnapshots(prev => {
+        const next = [...prev, snap];
+        autoSaveDraft(next, sessionSummary);
+        return next;
+    });
+  };
+
+  // Deletes the running auto-saved draft once its session's captures have
+  // been published as real posts — otherwise it lingers as an orphaned
+  // duplicate in DraftsTray.
+  const handleSessionPublished = async () => {
+      if (activeDraftIdRef.current && userMode?.userId) {
+          try {
+              await FirebaseService.deleteDraft(userMode.userId, activeDraftIdRef.current);
+          } catch (e) {
+              console.warn("Failed to clean up published draft:", e);
+          }
+      }
+      resetActiveDraftTracking();
+      refreshDraftsCount();
   };
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -273,6 +353,9 @@ const App: React.FC = () => {
 
       setStandaloneUploadError(null);
       setIsProcessingStandaloneUpload(true);
+      // Standalone upload is always its own single-item session, never a
+      // continuation of whatever session came before.
+      resetActiveDraftTracking();
 
       let prepared;
       try {
@@ -341,10 +424,16 @@ const App: React.FC = () => {
 
     if (activeUserId && currentSessionSnapshots.length > 0) {
         try {
-            await FirebaseService.saveDraft(activeUserId, currentSessionSnapshots, sessionSummary || "Unfinished expedition.");
+            const draftSafeSnaps = await Promise.all(currentSessionSnapshots.map(resolveDraftMedia));
+            if (activeDraftIdRef.current) {
+                await FirebaseService.updateDraft(activeUserId, activeDraftIdRef.current, draftSafeSnaps, sessionSummary || "Unfinished expedition.");
+            } else {
+                await FirebaseService.saveDraft(activeUserId, draftSafeSnaps, sessionSummary || "Unfinished expedition.");
+            }
         } catch (e) {
             console.error("Failed to save draft:", e);
         }
+        resetActiveDraftTracking();
         setCurrentSessionSnapshots([]);
         setSnapshots([]);
         setSessionSummary("");
@@ -353,18 +442,17 @@ const App: React.FC = () => {
     }
   };
 
+  // Resuming no longer deletes the draft up front — it stays live in
+  // Firestore, tracked by activeDraftIdRef, and gets overwritten in place as
+  // the resumed session continues (auto-save, explicit Save Draft, or
+  // deleted on publish). Deleting immediately on resume meant a crash or
+  // abandoned session lost the draft permanently with no recovery.
   const handleResumeDraft = async (draft: ExpeditionDraft) => {
       setCurrentSessionSnapshots(draft.snapshots);
       setSnapshots(draft.snapshots);
       setSessionSummary(draft.summary);
-      if (userMode?.userId) {
-          try {
-              await FirebaseService.deleteDraft(userMode.userId, draft.id);
-          } catch (e) {
-              console.error("Failed to delete draft:", e);
-          }
-          refreshDraftsCount();
-      }
+      activeDraftIdRef.current = draft.id;
+      draftMediaCacheRef.current.clear();
       await initAudioContext();
       setCurrentView(AppView.LENS);
   };
@@ -654,6 +742,7 @@ const App: React.FC = () => {
                         <div className="space-y-4">
                             <button 
                                 onClick={() => {
+                                    resetActiveDraftTracking();
                                     setSelectedMode('observation');
                                     setShowModeSelection(false);
                                     setCurrentView(AppView.LENS);
@@ -673,6 +762,7 @@ const App: React.FC = () => {
 
                             <button 
                                 onClick={() => {
+                                    resetActiveDraftTracking();
                                     setSelectedMode('conversation');
                                     setShowModeSelection(false);
                                     setCurrentView(AppView.LENS);
@@ -777,9 +867,10 @@ const App: React.FC = () => {
                  snapshots={currentSessionSnapshots} 
                  summary={sessionSummary} 
                  userMode={userMode} 
-                 onClose={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }} 
-                 onViewFeed={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }} 
-                 onSaveDraft={handleSaveDraft} 
+                 onClose={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }}
+                 onViewFeed={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }}
+                 onSaveDraft={handleSaveDraft}
+                 onPublished={handleSessionPublished}
                  geminiServiceRef={geminiServiceRef}
                  updateSnapshot={updateSnapshot}
                  pendingSnapshotIdRef={pendingSnapshotIdRef}

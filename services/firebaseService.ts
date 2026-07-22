@@ -342,9 +342,10 @@ export const FirebaseService = {
     }
   },
 
-  saveDraft: async (userId: string, snapshots: Snapshot[], summary: string) => {
-    // Strip Blobs and non-serializable properties before storing (otherwise setDoc throws)
-    const cleanSnapshots = snapshots.map(s => {
+  // Strip Blobs and non-serializable properties before storing (otherwise
+  // setDoc/updateDoc throws). Also keeps the AI-correction/confidence
+  // metadata so a resumed-and-published draft doesn't lose that signal.
+  _sanitizeDraftSnapshots: (snapshots: Snapshot[]) => snapshots.map(s => {
       const cleanImg = s.associatedImages ? s.associatedImages.map(img => ({
         url: img.url || null
       })) : null;
@@ -363,9 +364,20 @@ export const FirebaseService = {
         location: s.location || '',
         locationArea: s.locationArea || '',
         rotation: s.rotation || 0,
-        associatedImages: cleanImg
+        associatedImages: cleanImg,
+        isNatureSubject: s.isNatureSubject ?? null,
+        confidence: s.confidence || null,
+        aiProposedLabels: s.aiProposedLabels || [],
+        aiProposedBehavior: s.aiProposedBehavior || '',
+        humanDelta: !!s.humanDelta,
+        sessionRetakes: s.sessionRetakes || 0,
+        rawLocation: s.rawLocation || null,
+        timeToRecordMs: s.timeToRecordMs || 0,
       };
-    });
+  }),
+
+  saveDraft: async (userId: string, snapshots: Snapshot[], summary: string) => {
+    const cleanSnapshots = FirebaseService._sanitizeDraftSnapshots(snapshots);
 
     try {
       if (userId && userId !== 'explorer_guest' && auth.currentUser) {
@@ -403,6 +415,42 @@ export const FirebaseService = {
     }
   },
 
+  // Overwrites an existing draft in place rather than inserting a new
+  // document — used by auto-save (so repeated saves during one session
+  // update a single running draft instead of multiplying) and by resuming
+  // a draft (so continuing to capture after a resume updates the same
+  // draft instead of orphaning it).
+  updateDraft: async (userId: string, draftId: string, snapshots: Snapshot[], summary: string) => {
+    const cleanSnapshots = FirebaseService._sanitizeDraftSnapshots(snapshots);
+
+    if (draftId.startsWith("local_")) {
+      try {
+        const localDrafts = JSON.parse(localStorage.getItem(`drafts_${userId}`) || "[]");
+        const idx = localDrafts.findIndex((d: any) => d.id === draftId);
+        if (idx !== -1) {
+          localDrafts[idx] = { ...localDrafts[idx], snapshots: cleanSnapshots, summary };
+          localStorage.setItem(`drafts_${userId}`, JSON.stringify(localDrafts));
+        }
+      } catch (err) {
+        console.error("Local updateDraft failed:", err);
+      }
+      return;
+    }
+
+    try {
+      if (userId && userId !== 'explorer_guest' && auth.currentUser) {
+        await updateDoc(doc(db, "users", userId, "drafts", draftId), {
+          snapshots: cleanSnapshots,
+          summary,
+          timestamp: serverTimestamp()
+        });
+      }
+    } catch (e) {
+      console.warn("Firestore updateDraft failed:", e);
+      handleFirestoreError(e, OperationType.WRITE, `users/${userId}/drafts/${draftId}`);
+    }
+  },
+
   getDrafts: async (userId: string): Promise<ExpeditionDraft[]> => {
     let firestoreDrafts: ExpeditionDraft[] = [];
     try {
@@ -437,7 +485,31 @@ export const FirebaseService = {
       console.error("Local getDrafts parsing failed", err);
     }
 
-    return [...formattedLocal, ...firestoreDrafts];
+    const allDrafts = [...formattedLocal, ...firestoreDrafts];
+
+    // Lazily expire old drafts instead of running a server-side cron (none
+    // exists in this project): anything past DRAFT_EXPIRY_MS is dropped
+    // from the returned list and best-effort deleted in the background.
+    const DRAFT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const now = Date.now();
+    const fresh: ExpeditionDraft[] = [];
+    const expired: ExpeditionDraft[] = [];
+    for (const d of allDrafts) {
+      // A null/missing timestamp usually just means a serverTimestamp()
+      // write hasn't resolved in the local cache yet — treat that as
+      // fresh rather than risk deleting a draft that was only just saved.
+      const draftDate = d.timestamp?.toDate ? d.timestamp.toDate() : null;
+      if (draftDate && now - draftDate.getTime() > DRAFT_EXPIRY_MS) {
+        expired.push(d);
+      } else {
+        fresh.push(d);
+      }
+    }
+    if (expired.length > 0) {
+      Promise.all(expired.map(d => FirebaseService.deleteDraft(userId, d.id))).catch(() => {});
+    }
+
+    return fresh;
   },
 
   deleteDraft: async (userId: string, draftId: string) => {
