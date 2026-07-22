@@ -395,8 +395,8 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 bg-day-bg text-text-main font-body flex flex-col overflow-hidden h-[100dvh]">
-      
+    <div className="fixed inset-0 bg-day-bg text-text-main font-body flex overflow-hidden h-[100dvh]">
+
       {isNotificationsOpen && (
           <div className="fixed inset-0 z-[100] flex justify-end animate-fade-in">
               <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsNotificationsOpen(false)}></div>
@@ -423,6 +423,69 @@ const App: React.FC = () => {
           </div>
       )}
 
+      {isDashboardMode && !isDetailActive && (
+          <aside className="hidden md:flex md:flex-col w-20 lg:w-64 shrink-0 border-r border-stone-100 bg-white h-full py-8 px-2 lg:px-4 gap-1 overflow-y-auto no-scrollbar">
+              <div className="flex items-center gap-2 px-2 lg:px-3 mb-8">
+                  <span className="material-symbols-outlined text-2xl text-theme-accent shrink-0">wb_sunny</span>
+                  <span className="hidden lg:block font-display font-black italic text-xl text-theme-primary tracking-tight truncate">NatureGram</span>
+              </div>
+
+              {[
+                  { view: AppView.COMMUNITY, icon: 'home', label: 'Feed' },
+                  { view: AppView.JOURNAL, icon: 'fingerprint', label: 'My Journal' },
+              ].map(({ view, icon, label }) => (
+                  <button
+                      key={view}
+                      onClick={() => handleNavigationRequest(view)}
+                      aria-label={label}
+                      aria-current={currentView === view ? 'page' : undefined}
+                      className={`flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl transition-all duration-200 ${currentView === view ? 'bg-stone-100 text-stone-900 font-bold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'}`}
+                  >
+                      <span className={`material-symbols-outlined text-2xl shrink-0 ${currentView === view ? 'icon-fill' : ''}`}>{icon}</span>
+                      <span className="hidden lg:block text-sm truncate">{label}</span>
+                  </button>
+              ))}
+
+              <button
+                  onClick={() => handleNavigationRequest(AppView.LENS)}
+                  aria-label="Start new expedition"
+                  className="flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl bg-theme-accent text-white font-bold shadow-lg shadow-theme-accent/20 hover:opacity-90 active:scale-[0.98] transition-all my-2"
+              >
+                  <span className="material-symbols-outlined text-2xl shrink-0 font-black">add</span>
+                  <span className="hidden lg:block text-sm truncate">New Expedition</span>
+              </button>
+
+              <button
+                  onClick={() => {
+                      if (userMode?.isAnonymous) {
+                          setShowGlobalAuthModal(true);
+                          return;
+                      }
+                      setIsNotificationsOpen(true);
+                  }}
+                  aria-label={`Field alerts${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`}
+                  className={`relative flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl transition-all duration-200 ${isNotificationsOpen ? 'bg-stone-100 text-stone-900 font-bold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'}`}
+              >
+                  <span className="relative shrink-0">
+                      <span className={`material-symbols-outlined text-2xl ${isNotificationsOpen ? 'icon-fill' : ''}`}>favorite</span>
+                      {notifications.filter(n => !n.isRead).length > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-theme-accent rounded-full"></span>}
+                  </span>
+                  <span className="hidden lg:block text-sm truncate">Field Alerts</span>
+              </button>
+
+              <button
+                  onClick={() => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId })}
+                  aria-label="My Profile"
+                  aria-current={currentView === AppView.USER_PROFILE ? 'page' : undefined}
+                  className={`flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl transition-all duration-200 ${currentView === AppView.USER_PROFILE ? 'bg-stone-100 text-stone-900 font-bold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'}`}
+              >
+                  <span className={`material-symbols-outlined text-2xl shrink-0 ${currentView === AppView.USER_PROFILE ? 'icon-fill' : ''}`}>person</span>
+                  <span className="hidden lg:block text-sm truncate">Profile</span>
+              </button>
+          </aside>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden relative min-w-0">
       <main className="flex-1 relative overflow-hidden flex flex-col">
          {currentView === AppView.LANDING && (
              <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-hidden">
@@ -623,7 +686,7 @@ const App: React.FC = () => {
       </main>
 
       {isDashboardMode && !isDetailActive && (
-          <div className="absolute bottom-0 left-0 right-0 z-[40] pointer-events-none transition-all duration-300 translate-y-0 opacity-100 animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white border-t border-stone-100">
+          <div className="md:hidden absolute bottom-0 left-0 right-0 z-[40] pointer-events-none transition-all duration-300 translate-y-0 opacity-100 animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white border-t border-stone-100">
               <nav className="h-16 flex justify-around items-center px-2 pointer-events-auto max-w-md mx-auto transition-all">
                 <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} aria-label="Feed" aria-current={currentView === AppView.COMMUNITY ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'icon-fill' : ''}`}>home</span></button>
                 <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} aria-label="My Journal" aria-current={currentView === AppView.JOURNAL ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'icon-fill' : ''}`}>fingerprint</span></button>
@@ -642,6 +705,7 @@ const App: React.FC = () => {
               </nav>
           </div>
       )}
+      </div>
     </div>
   );
 };

@@ -744,7 +744,7 @@ const Community: React.FC<CommunityProps> = ({
         )}
 
         {/* Instagram/Explore Inspired Search Header */}
-        <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
+        <div className="w-full max-w-6xl mx-auto px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
             {/* Header branding & stats */}
             <div className="flex items-center justify-between gap-4">
                 <button
@@ -1087,7 +1087,7 @@ const Community: React.FC<CommunityProps> = ({
             )}
         </div>
 
-        <div className="w-full px-4 md:px-12 py-8">
+        <div className="w-full max-w-6xl mx-auto px-4 md:px-12 py-8">
             {isLoading ? (
                 <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 pb-56 space-y-2 md:space-y-4">
                     {[...Array(10)].map((_, i) => <SkeletonPost key={i} />)}

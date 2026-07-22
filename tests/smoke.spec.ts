@@ -36,7 +36,10 @@ test('community feed view (/feed) loads without an uncaught page error', async (
 
   await page.goto('/feed');
 
-  await expect(page.getByText('NatureGram', { exact: true })).toBeVisible();
+  // .first(): at desktop viewport widths the "NatureGram" wordmark
+  // legitimately appears twice — once in the page header, once in the
+  // persistent sidebar nav — which is expected, not a bug.
+  await expect(page.getByText('NatureGram', { exact: true }).first()).toBeVisible();
   expect(pageErrors, `Uncaught page errors: ${pageErrors.map(e => e.message).join('; ')}`).toEqual([]);
 });
 
