@@ -5,6 +5,7 @@ import { CommunityPost, UserMode, Comment } from '../types';
 import ShareStudio from './ShareStudio';
 import PublisherStudio from './PublisherStudio';
 import MediaEditor from './MediaEditor';
+import EditPostDetails from './EditPostDetails';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
 import FeedCard from './community/FeedCard';
@@ -353,6 +354,7 @@ const Community: React.FC<CommunityProps> = ({
   }, [loadMore]);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
   const [localFlipH, setLocalFlipH] = useState(false);
   const [localFlipV, setLocalFlipV] = useState(false);
   const [fetchedPostId, setFetchedPostId] = useState<string | null>(null);
@@ -678,12 +680,27 @@ const Community: React.FC<CommunityProps> = ({
         }
 
         if (Object.keys(updates).length > 0) {
-            await FirebaseService.updatePost(activePost.id, updates);
+            // Only re-screen when the actual media content changed (a new
+            // blob was produced) — a pure rotation-only edit doesn't need
+            // to go through content-safety again.
+            await FirebaseService.updatePost(activePost.id, updates, result.blob || null);
             setActivePost(prev => prev ? { ...prev, ...updates } : null);
         }
     } catch (e) {
         console.error("Failed to update post", e);
         alert("Failed to save edits.");
+    }
+  };
+
+  const handleSaveDetails = async (updates: Partial<CommunityPost>) => {
+    if (!activePost) return;
+    setIsEditingDetails(false);
+    try {
+        await FirebaseService.updatePost(activePost.id, updates);
+        setActivePost(prev => prev ? { ...prev, ...updates } : null);
+    } catch (e) {
+        console.error("Failed to update post details", e);
+        alert("Failed to save changes.");
     }
   };
 
@@ -1226,8 +1243,11 @@ const Community: React.FC<CommunityProps> = ({
                                 >
                                     <span className="material-symbols-outlined text-xl">campaign</span>
                                 </button>
-                                <button onClick={() => setIsEditing(true)} aria-label="Edit observation" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
+                                <button onClick={() => setIsEditing(true)} aria-label="Edit media" title="Edit media" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
                                     <span className="material-symbols-outlined text-xl">edit</span>
+                                </button>
+                                <button onClick={() => setIsEditingDetails(true)} aria-label="Edit details" title="Edit title, caption, taxonomy, tags" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
+                                    <span className="material-symbols-outlined text-xl">text_fields</span>
                                 </button>
                                 <button onClick={() => handleDeletePost(activePost.id)} aria-label="Delete observation" className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
                                     <span className="material-symbols-outlined text-xl">delete</span>
@@ -1512,7 +1532,7 @@ const Community: React.FC<CommunityProps> = ({
                 {isEditing && activePost && (() => {
                     const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
                     return (
-                        <MediaEditor 
+                        <MediaEditor
                             type={currentItem.mediaType as any}
                             source={currentItem.mediaType === 'video' ? currentItem.videoUrl! : currentItem.mediaType === 'audio' ? currentItem.audioUrl! : currentItem.imageUrl!}
                             initialRotation={currentItem.rotation || 0}
@@ -1521,6 +1541,15 @@ const Community: React.FC<CommunityProps> = ({
                         />
                     );
                 })()}
+
+                {isEditingDetails && activePost && (
+                    <EditPostDetails
+                        post={activePost}
+                        activeItemIndex={activeItemIndex}
+                        onSave={handleSaveDetails}
+                        onCancel={() => setIsEditingDetails(false)}
+                    />
+                )}
             </motion.div>
         )}
         </AnimatePresence>

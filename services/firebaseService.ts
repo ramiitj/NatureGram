@@ -1515,10 +1515,21 @@ export const FirebaseService = {
       return null;
     }
   },
-  updatePost: async (postId: string, updates: Partial<CommunityPost>) => {
-      await updateDoc(doc(db, "ecosystem_feed", postId), updates);
+  // mediaToRescreen: pass the new media blob whenever an edit actually
+  // replaces the published media (not for text-only or rotation-only
+  // edits) so the same automated content-safety screen that runs at
+  // publish time also covers post-publish media swaps — otherwise an
+  // edit could silently replace safe media with unscreened media.
+  updatePost: async (postId: string, updates: Partial<CommunityPost>, mediaToRescreen?: Blob | null) => {
+      const finalUpdates: Partial<CommunityPost> = { ...updates };
+      if (mediaToRescreen) {
+          const moderation = await screenPostSafety(mediaToRescreen);
+          finalUpdates.reportStatus = moderation.reportStatus;
+          finalUpdates.reports = moderation.reports;
+      }
+      await updateDoc(doc(db, "ecosystem_feed", postId), finalUpdates);
       try {
-          const thumbUpdates = { ...updates };
+          const thumbUpdates = { ...finalUpdates };
           delete thumbUpdates.items;
           delete thumbUpdates.imageUrl;
           delete thumbUpdates.videoUrl;
