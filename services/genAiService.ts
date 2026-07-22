@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
+import { FirebaseService } from "./firebaseService";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -50,6 +51,21 @@ const isLowConfidenceOrEmpty = (result: TaxonomyResult): boolean => {
 
 const logUsage = (feature: string, model: string, usage?: { promptTokenCount?: number, candidatesTokenCount?: number, totalTokenCount?: number }) => {
     console.debug(`[GenAiService] ${feature} via ${model} — tokens (prompt/output/total):`, usage?.promptTokenCount, usage?.candidatesTokenCount, usage?.totalTokenCount);
+
+    // Persist for the AdminConsole cost panel. Best-effort and non-blocking:
+    // a telemetry write failure should never surface to the caller or delay
+    // the (already-completed) AI call it's describing.
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+        FirebaseService.logAiUsage({
+            uid,
+            feature,
+            model,
+            promptTokenCount: usage?.promptTokenCount,
+            candidatesTokenCount: usage?.candidatesTokenCount,
+            totalTokenCount: usage?.totalTokenCount,
+        }).catch(() => {});
+    }
 };
 
 // Runs a taxonomy-identification prompt against Flash first; escalates to

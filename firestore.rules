@@ -120,5 +120,16 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // 10. AI usage telemetry (cost/token tracking for AdminConsole).
+    // Self-reported by each client about its own calls — write access is
+    // scoped to creating a record attributed to yourself, never editing or
+    // deleting one afterwards. Read access (aggregate viewing) is admin-only,
+    // since this can indirectly reveal per-user activity volume.
+    match /ai_usage_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }

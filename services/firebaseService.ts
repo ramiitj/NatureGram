@@ -34,9 +34,9 @@ import {
   updateProfile,
 } from "firebase/auth";
 import { auth, db, storage } from "../firebaseConfig";
-import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft } from "../types";
+import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, AiUsageLogEntry } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants";
-import { generateThumbnail } from "../utils";
+import { generateThumbnail, stripImageMetadata } from "../utils";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
@@ -89,13 +89,14 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 
-export const getCorsProxyUrl = (url: string) => {
-  if (!url) return url;
-  if (url.startsWith('http') && url.includes('firebasestorage.googleapis.com')) {
-    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-};
+// Firebase Storage's download endpoint (firebasestorage.googleapis.com)
+// already sends "Access-Control-Allow-Origin: *" on every response, so
+// browser fetch()/canvas access works directly — verified against a live
+// download URL, not assumed. This used to route through a server-side
+// /api/media-proxy hop for exactly that reason; that hop has been removed
+// as unnecessary latency/cost. Kept as a pass-through (rather than
+// inlining at each call site) so callers don't need to change.
+export const getCorsProxyUrl = (url: string) => url;
 
 const DEFAULT_CONFIG: GeminiConfig = {
   model: 'gemini-2.5-flash-native-audio-latest',
@@ -477,7 +478,12 @@ export const FirebaseService = {
           const uploadSource = snapshot.blob || snapshot.url;
           if (uploadSource) {
               if (snapshot.blob && snapshot.type === 'image') {
-                  originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, effectiveUserId, 'image');
+                  // Strip EXIF/GPS metadata before uploading the full-resolution
+                  // "original" — matters most for gallery-picked photos (live
+                  // camera captures never carry EXIF to begin with, since
+                  // they're synthesized via canvas already).
+                  const strippedBlob = await stripImageMetadata(snapshot.blob);
+                  originalImageUrl = await FirebaseService.uploadMedia(strippedBlob, effectiveUserId, 'image');
                   const thumbBlob = await generateThumbnail(snapshot.blob, 800);
                   publicUrl = await FirebaseService.uploadMedia(thumbBlob, effectiveUserId, 'image');
                   thumbnailUrl = publicUrl;
@@ -623,7 +629,12 @@ export const FirebaseService = {
       const uploadSource = snapshot.blob || snapshot.url;
       if (uploadSource) {
           if (snapshot.blob && snapshot.type === 'image') {
-              originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, effectiveUserId, 'image');
+              // Strip EXIF/GPS metadata before uploading the full-resolution
+              // "original" — matters most for gallery-picked photos (live
+              // camera captures never carry EXIF to begin with, since
+              // they're synthesized via canvas already).
+              const strippedBlob = await stripImageMetadata(snapshot.blob);
+              originalImageUrl = await FirebaseService.uploadMedia(strippedBlob, effectiveUserId, 'image');
               const thumbBlob = await generateThumbnail(snapshot.blob, 800);
               publicUrl = await FirebaseService.uploadMedia(thumbBlob, effectiveUserId, 'image');
               thumbnailUrl = publicUrl;
@@ -983,6 +994,34 @@ export const FirebaseService = {
     await updateDoc(doc(db, "users", userId, "notifications", notifId), { isRead: true });
   },
 
+  // Cost/usage telemetry (see AiUsageLogEntry). Fire-and-forget from the
+  // caller's perspective — a logging failure should never block or fail
+  // the AI call it's describing.
+  logAiUsage: async (entry: Omit<AiUsageLogEntry, 'id' | 'timestamp'>): Promise<void> => {
+    try {
+      await addDoc(collection(db, "ai_usage_logs"), {
+        ...entry,
+        timestamp: serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn("Failed to log AI usage telemetry:", e);
+    }
+  },
+
+  // Most recent usage records for the AdminConsole cost panel. Capped and
+  // client-aggregated, consistent with how other admin views in this app
+  // (getAllUsers/getAllPosts) work — fine at current scale; a scheduled
+  // daily-rollup would be the natural next step if this collection grows large.
+  getRecentAiUsage: async (limitCount = 500): Promise<AiUsageLogEntry[]> => {
+    const q = query(collection(db, "ai_usage_logs"), orderBy("timestamp", "desc"), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const entries: AiUsageLogEntry[] = [];
+    snapshot.forEach(doc => {
+      entries.push({ id: doc.id, ...doc.data() } as AiUsageLogEntry);
+    });
+    return entries;
+  },
+
   getReportedPosts: async (): Promise<CommunityPost[]> => {
       const q = query(collection(db, "ecosystem_feed"), where("reportStatus", "==", "pending"));
       const snapshot = await getDocs(q);
@@ -1014,19 +1053,13 @@ export const FirebaseService = {
         
         let firebaseUrl = "";
         if (url) {
-            const proxiedUrl = `/api/media-proxy?url=${encodeURIComponent(url)}`;
-            
+            // Theme source images (Unsplash/Wikimedia) already send permissive
+            // CORS headers, so this can fetch directly — no proxy hop needed.
             let res: Response | null = null;
             try {
-              res = await fetch(proxiedUrl, { cache: 'no-store' });
-            } catch (xhrError: any) {
-              console.warn(`Proxy fetch failed for theme ${id}, trying direct...`, xhrError);
-            }
-
-            // Direct fetch fallback if proxy failed or returned an error status
-            if (!res || !res.ok) {
-              console.log(`Fallback direct fetch for theme ${id}...`);
               res = await fetch(url, { cache: 'no-store' });
+            } catch (fetchError: any) {
+              console.warn(`Fetch failed for theme ${id}:`, fetchError);
             }
 
             if (res && res.ok) {

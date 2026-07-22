@@ -190,54 +190,13 @@ async function startServer() {
   // Allow standard CORS to support iframe preview environments correctly
   app.use(cors());
 
-  // Media Proxy to bypass CORS from Firebase Storage.
-  // Restricted to a fixed allowlist of hostnames we actually serve media
-  // from, to prevent this from being used as an open SSRF relay (e.g.
-  // against the Cloud Run metadata server or internal services).
-  const MEDIA_PROXY_ALLOWED_HOSTS = new Set([
-    'firebasestorage.googleapis.com',
-    'images.unsplash.com',
-    'upload.wikimedia.org',
-  ]);
-
-  app.get('/api/media-proxy', async (req, res) => {
-    try {
-      const targetUrl = req.query.url;
-      if (!targetUrl || typeof targetUrl !== 'string') {
-        return res.status(400).json({ error: 'URL parameter is required' });
-      }
-
-      let parsedUrl;
-      try {
-        parsedUrl = new URL(targetUrl);
-      } catch (e) {
-        return res.status(400).json({ error: 'Invalid URL' });
-      }
-
-      if (parsedUrl.protocol !== 'https:' || !MEDIA_PROXY_ALLOWED_HOSTS.has(parsedUrl.hostname)) {
-        return res.status(403).json({ error: 'Host not allowed' });
-      }
-
-      const response = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
-        }
-      });
-      if (!response.ok) {
-        return res.status(response.status).json({ error: 'Failed to fetch media' });
-      }
-      
-      res.set('Content-Type', response.headers.get('content-type') || 'application/octet-stream');
-      res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-      
-      const buffer = await response.arrayBuffer();
-      res.send(Buffer.from(buffer));
-    } catch (e) {
-      console.error('[Media Proxy Error]', e);
-      res.status(500).json({ error: 'Internal server error while fetching media' });
-    }
-  });
+  // Note: there used to be an /api/media-proxy route here to work around
+  // CORS when fetching Firebase Storage/Unsplash/Wikimedia images from the
+  // browser. Verified live that all three already send
+  // "Access-Control-Allow-Origin: *" on their actual download responses,
+  // so the proxy hop was pure unnecessary latency/Cloud Run cost (and
+  // attack surface) — removed. The client now fetches those URLs directly
+  // (see getCorsProxyUrl in services/firebaseService.ts).
 
   // Rate limiter for proxy route
   const apiProxyLimiter = rateLimit({

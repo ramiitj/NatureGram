@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig, CommunityPost, UserProfileData } from '../types';
+import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry } from '../types';
 import { auth } from '../firebaseConfig';
 
 interface AdminConsoleProps {
@@ -17,14 +17,17 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   const [status, setStatus] = useState('');
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'activity' | 'moderation'>('activity');
-  
+  const [activeTab, setActiveTab] = useState<'activity' | 'moderation' | 'usage'>('activity');
+
   // Moderation Data
   const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
-  
+
   // Activity / Log Tracking Data
   const [allUsers, setAllUsers] = useState<UserProfileData[]>([]);
   const [allPosts, setAllPosts] = useState<CommunityPost[]>([]);
+
+  // AI Cost/Usage Telemetry Data
+  const [aiUsageLogs, setAiUsageLogs] = useState<AiUsageLogEntry[]>([]);
 
   // Automatic elevation check on mount
   useEffect(() => {
@@ -84,12 +87,25 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       setStatus(`Found ${posts.length} reported items.`);
   };
 
+  const loadAiUsage = async () => {
+      setStatus('Loading AI usage telemetry...');
+      try {
+          const logs = await FirebaseService.getRecentAiUsage(500);
+          setAiUsageLogs(logs);
+          setStatus('');
+      } catch (e: any) {
+          setStatus('Failed loading AI usage telemetry: ' + e.message);
+      }
+  };
+
   useEffect(() => {
       if (isAuthenticated) {
           if (activeTab === 'moderation') {
               loadReportedPosts();
           } else if (activeTab === 'activity') {
               loadActivityLogs();
+          } else if (activeTab === 'usage') {
+              loadAiUsage();
           }
       }
   }, [isAuthenticated, activeTab]);
@@ -277,13 +293,20 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     <span className="material-symbols-outlined text-sm">analytics</span>
                     Activity Logs
                 </button>
-                <button 
+                <button
                     onClick={() => setActiveTab('moderation')}
                     className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'moderation' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
                 >
                     <span className="material-symbols-outlined text-sm">gavel</span>
                     Moderation
                     {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 rounded-full">{reportedPosts.length}</span>}
+                </button>
+                <button
+                    onClick={() => setActiveTab('usage')}
+                    className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'usage' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">query_stats</span>
+                    AI Usage
                 </button>
             </div>
         </aside>
@@ -553,6 +576,161 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     )}
                 </div>
             )}
+
+            {/* AI USAGE / COST TELEMETRY TAB */}
+            {activeTab === 'usage' && (() => {
+                const totalCalls = aiUsageLogs.length;
+                const totalTokens = aiUsageLogs.reduce((sum, l) => sum + (l.totalTokenCount || ((l.promptTokenCount || 0) + (l.candidatesTokenCount || 0))), 0);
+
+                const byModel = new Map<string, { count: number, tokens: number }>();
+                const byFeature = new Map<string, { count: number, tokens: number }>();
+                aiUsageLogs.forEach(l => {
+                    const tokens = l.totalTokenCount || ((l.promptTokenCount || 0) + (l.candidatesTokenCount || 0));
+                    const model = byModel.get(l.model) || { count: 0, tokens: 0 };
+                    model.count += 1;
+                    model.tokens += tokens;
+                    byModel.set(l.model, model);
+
+                    const feature = byFeature.get(l.feature) || { count: 0, tokens: 0 };
+                    feature.count += 1;
+                    feature.tokens += tokens;
+                    byFeature.set(l.feature, feature);
+                });
+
+                const formatTime = (ts: any) => {
+                    if (!ts) return 'Just now';
+                    if (typeof ts.toDate === 'function') return ts.toDate().toLocaleString();
+                    return new Date(ts).toLocaleString();
+                };
+
+                return (
+                    <div className="max-w-6xl mx-auto flex flex-col gap-8">
+                        <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
+                            <div>
+                                <h2 className="text-theme-primary text-2xl font-black tracking-tight flex items-center gap-2 font-display italic">
+                                    <span className="material-symbols-outlined text-theme-accent">query_stats</span>
+                                    AI Cost & Usage Telemetry
+                                </h2>
+                                <p className="text-theme-primary/50 text-xs mt-1">
+                                    Client-reported Gemini call volume and token usage (last {aiUsageLogs.length} calls). Self-reported, not an authoritative billing source — cross-check against Cloud Billing for real cost figures.
+                                </p>
+                            </div>
+                            <button
+                                onClick={loadAiUsage}
+                                className="bg-theme-primary/5 hover:bg-theme-primary/10 border border-theme-primary/10 text-theme-primary rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
+                            >
+                                <span className="material-symbols-outlined text-sm">sync</span>
+                                Refresh
+                            </button>
+                        </div>
+
+                        {/* SUMMARY STACK */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-theme-accent/10 flex items-center justify-center text-theme-accent shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">call</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">AI Calls Logged</p>
+                                    <p className="text-2xl font-black text-theme-primary">{totalCalls}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-teal-500/10 flex items-center justify-center text-teal-600 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">token</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Total Tokens</p>
+                                    <p className="text-2xl font-black text-theme-primary">{totalTokens.toLocaleString()}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">bolt</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Models In Use</p>
+                                    <p className="text-2xl font-black text-theme-primary">{byModel.size}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">category</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Features Tracked</p>
+                                    <p className="text-2xl font-black text-theme-primary">{byFeature.size}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* BREAKDOWN + RECENT CALLS */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            {/* Breakdown by model/feature */}
+                            <div className="lg:col-span-4 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">bar_chart</span>
+                                    Usage By Model
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
+                                    {Array.from(byModel.entries()).sort((a, b) => b[1].tokens - a[1].tokens).map(([model, stats]) => (
+                                        <div key={model} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-stone-800 font-bold text-xs truncate">{model}</p>
+                                            <p className="text-theme-primary/50 text-[9px] mt-1">{stats.count} calls • {stats.tokens.toLocaleString()} tokens</p>
+                                        </div>
+                                    ))}
+                                    {byModel.size === 0 && (
+                                        <div className="h-full flex items-center justify-center text-theme-primary/30 italic text-sm">No usage logged yet.</div>
+                                    )}
+                                </div>
+
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest my-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">category</span>
+                                    Usage By Feature
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
+                                    {Array.from(byFeature.entries()).sort((a, b) => b[1].tokens - a[1].tokens).map(([feature, stats]) => (
+                                        <div key={feature} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-stone-800 font-bold text-xs truncate">{feature}</p>
+                                            <p className="text-theme-primary/50 text-[9px] mt-1">{stats.count} calls • {stats.tokens.toLocaleString()} tokens</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Recent calls list */}
+                            <div className="lg:col-span-8 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">history</span>
+                                    Recent AI Calls ({aiUsageLogs.length})
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar">
+                                    {aiUsageLogs.length === 0 ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 italic text-sm font-display tracking-wide">
+                                            No AI usage logged yet.
+                                        </div>
+                                    ) : (
+                                        aiUsageLogs.map((log, idx) => (
+                                            <div key={log.id || idx} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4 flex items-center justify-between gap-4">
+                                                <div className="min-w-0">
+                                                    <p className="text-stone-800 font-bold text-xs truncate">{log.feature} <span className="text-theme-primary/40 font-normal">via {log.model}</span></p>
+                                                    <p className="text-theme-primary/40 text-[9px] mt-0.5">{formatTime(log.timestamp)} • uid: {log.uid.slice(0, 8)}</p>
+                                                </div>
+                                                <span className="bg-white/5 border border-theme-primary/10 text-theme-primary/70 px-2 py-1 rounded text-[8px] font-bold shrink-0">
+                                                    {(log.totalTokenCount || ((log.promptTokenCount || 0) + (log.candidatesTokenCount || 0))).toLocaleString()} tok
+                                                </span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* MAINTENANCE DELETED */}
         </main>

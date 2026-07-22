@@ -187,3 +187,18 @@ export interface Comment {
 }
 
 export type AudioMode = 'voice' | 'silent';
+
+// Client-reported record of a single Gemini call, written for cost/usage
+// visibility in AdminConsole. Self-reported by the calling client (like
+// likes/commentCount elsewhere in this app), not an authoritative billing
+// source — cross-check against Cloud Billing for real cost figures.
+export interface AiUsageLogEntry {
+  id?: string;
+  uid: string;
+  feature: string;
+  model: string;
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+  timestamp?: any;
+}
