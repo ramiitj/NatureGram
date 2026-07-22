@@ -16,6 +16,7 @@ import { initSentry, Sentry } from './lib/sentry.js';
 import { initFirebaseAdmin } from './lib/auth.js';
 import { registerSharePreviewRoute } from './routes/sharePreview.js';
 import { registerGeminiProxyRoutes } from './routes/geminiProxy.js';
+import { registerPushNotificationRoute } from './routes/pushNotifications.js';
 
 const sentryEnabled = initSentry();
 
@@ -53,6 +54,9 @@ async function startServer() {
   registerSharePreviewRoute(app);
   registerGeminiProxyRoutes(app, server, {
     apiKey: API_KEY,
+    projectId: currentFirebaseProjectId,
+  });
+  registerPushNotificationRoute(app, {
     projectId: currentFirebaseProjectId,
   });
 

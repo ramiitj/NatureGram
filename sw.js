@@ -61,3 +61,48 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// Web Push (FCM) — handled via the raw Push API rather than the Firebase
+// Messaging compat SDK, since this is a general-purpose service worker
+// (not a dedicated firebase-messaging-sw.js) and pulling in the compat
+// library here would mean loading it for every user, not just those who
+// opted into push.
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch (e) {
+    return;
+  }
+
+  const notification = payload.notification || {};
+  const data = payload.data || {};
+
+  event.waitUntil(
+    self.registration.showNotification(notification.title || 'NatureGram', {
+      body: notification.body || '',
+      data: { postId: data.postId || '' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const postId = event.notification.data?.postId;
+  const targetUrl = postId ? `/?post=${postId}` : '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          if ('navigate' in client) client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});

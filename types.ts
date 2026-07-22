@@ -20,6 +20,9 @@ export interface UserProfileData {
     observations: number;
     species: number;
   }
+  // Web Push (FCM) registration tokens, one per device/browser that has
+  // opted in. An array since a user can have multiple active devices.
+  fcmTokens?: string[];
 }
 
 export interface Snapshot {

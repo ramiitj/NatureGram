@@ -20,12 +20,33 @@ interface UserProfileProps {
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole }) => {
   const [profileData, setProfileData] = useState<UserProfileData | null>(null);
   const [journalStats, setJournalStats] = useState({ count: 0, species: 0 });
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  // Reflects actual browser permission state rather than assuming enabled —
+  // this toggle used to be purely cosmetic local state with no effect.
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  );
+  const [isTogglingNotifications, setIsTogglingNotifications] = useState(false);
   const [stealthMode, setStealthMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const isOwnProfile = userId === currentUserId;
+
+  const handleToggleNotifications = async () => {
+    if (!currentUserId || isTogglingNotifications) return;
+    setIsTogglingNotifications(true);
+    try {
+      if (!notificationsEnabled) {
+        const granted = await FirebaseService.requestPushPermission(currentUserId);
+        setNotificationsEnabled(granted);
+      } else {
+        await FirebaseService.disablePushNotifications(currentUserId);
+        setNotificationsEnabled(false);
+      }
+    } finally {
+      setIsTogglingNotifications(false);
+    }
+  };
 
   useEffect(() => {
     if (isAnonymous && isOwnProfile) {
@@ -191,9 +212,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                                         <p className="text-[10px] text-text-muted">Real-time platform updates</p>
                                     </div>
                                 </div>
-                                <button 
-                                    onClick={() => setNotificationsEnabled(!notificationsEnabled)}
-                                    className={`w-12 h-7 rounded-full p-1 transition-colors duration-300 ${notificationsEnabled ? 'bg-theme-accent' : 'bg-theme-primary/20'}`}
+                                <button
+                                    onClick={handleToggleNotifications}
+                                    disabled={isTogglingNotifications}
+                                    className={`w-12 h-7 rounded-full p-1 transition-colors duration-300 disabled:opacity-50 ${notificationsEnabled ? 'bg-theme-accent' : 'bg-theme-primary/20'}`}
                                 >
                                     <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-300 ${notificationsEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
                                 </button>
