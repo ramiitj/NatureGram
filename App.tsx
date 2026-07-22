@@ -842,9 +842,10 @@ const App: React.FC = () => {
                      activeDraftsCount={activeDraftsCount}
                      onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
                      onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
+                     onStartExpedition={() => handleNavigationRequest(AppView.LENS)}
                  />
              )}
-             {currentView === AppView.JOURNAL && userMode && <Journal 
+             {currentView === AppView.JOURNAL && userMode && <Journal
                      userId={userMode.userId!} 
                      activeDraftsCount={activeDraftsCount}
                      onViewDrafts={() => setCurrentView(AppView.DRAFTS)}

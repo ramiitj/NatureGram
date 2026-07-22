@@ -40,9 +40,12 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
         {loading ? (
             <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-theme-accent border-t-transparent animate-spin rounded-full"></div></div>
         ) : drafts.length === 0 ? (
-            <div className="text-center py-20 opacity-30">
-                <span className="material-symbols-outlined text-5xl mb-4">inventory_2</span>
-                <p className="catalog-label">No active drafts</p>
+            <div className="text-center py-20 px-8">
+                <span className="material-symbols-outlined text-5xl mb-4 opacity-30">inventory_2</span>
+                <p className="catalog-label opacity-30 mb-2">No Active Drafts</p>
+                <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mx-auto">
+                    Your expeditions auto-save as you capture, so nothing's ever lost if you close the app mid-session — anything unfinished will show up here to pick back up.
+                </p>
             </div>
         ) : (
             <div className="grid gap-4">

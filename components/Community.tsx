@@ -1151,7 +1151,7 @@ const Community: React.FC<CommunityProps> = ({
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
                     <span className="material-symbols-outlined text-5xl text-theme-accent/40 mb-6 select-none">science</span>
                     <h3 className="text-lg font-display italic text-theme-primary/70 mb-1 font-bold">No Observations Yet</h3>
-                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Your personal species catalog is empty. Start an expedition to log your first sighting.</p>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Your personal species catalog is empty. Start an expedition with your camera, or upload a photo you already have — no camera required either way.</p>
                     {onStartExpedition && (
                         <button onClick={onStartExpedition} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
                             Begin Expedition
@@ -1162,7 +1162,12 @@ const Community: React.FC<CommunityProps> = ({
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
                     <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">forest</span>
                     <h3 className="text-lg font-display italic text-theme-primary/60 mb-1 font-bold">No Sightings Yet</h3>
-                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">The field guide is quiet right now — be the first to share a discovery.</p>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">The field guide is quiet right now — be the first to share a discovery. Point your camera at anything alive, or upload a photo you already have.</p>
+                    {onStartExpedition && (
+                        <button onClick={onStartExpedition} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                            Begin Expedition
+                        </button>
+                    )}
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">

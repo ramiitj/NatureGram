@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 
 interface OnboardingTourProps {
   onComplete: () => void;
+  // Bypasses the localStorage "already seen" check — used to let a user
+  // replay the tour on demand (from the in-session help sheet) instead of
+  // only ever seeing it once, automatically, on their very first visit.
+  forceShow?: boolean;
 }
 
 const STEPS = [
@@ -12,9 +16,9 @@ const STEPS = [
     description: "This is your AI Guide. It sees what you see and hears what you hear. It watches the camera feed to identify species and listens to the environment.",
     // Spotlight Coordinates (approximate percentages for responsive layout)
     x: 50,
-    y: 12, 
+    y: 12,
     radius: 80,
-    cardPosition: "top-[25%]" 
+    cardPosition: "top-[25%]"
   },
   {
     id: "vision",
@@ -30,24 +34,46 @@ const STEPS = [
     title: "Explorer Tools",
     description: "Tap the Shutter to capture a photo. Hold it to record up to 30s of video. Use the Mic for audio-only. The AI yields when you talk.",
     x: 50,
-    y: 88, 
+    y: 88,
     radius: 100,
     cardPosition: "bottom-[35%]"
+  },
+  {
+    id: "controls",
+    title: "Ask For What You Need",
+    description: "Just ask out loud: \"zoom in\", \"turn on the torch\", or \"switch to the front camera\" — the guide can drive the hardware for you. The Upload button next to it lets you analyze existing photos or clips with no camera at all.",
+    x: 50,
+    y: 88,
+    radius: 100,
+    cardPosition: "bottom-[35%]"
+  },
+  {
+    id: "help",
+    title: "Lost? Tap the Help Icon",
+    description: "The \"?\" icon in the top-left corner is a cheat sheet you can open anytime — camera controls, capture gestures, and the guide's safety boundaries, all in one place.",
+    x: 12,
+    y: 12,
+    radius: 70,
+    cardPosition: "top-[25%]"
   }
 ];
 
-const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
+const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete, forceShow = false }) => {
   const [stepIndex, setStepIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
+    if (forceShow) {
+      setIsVisible(true);
+      return;
+    }
     const hasSeen = localStorage.getItem('naturegram_has_seen_tour');
     if (!hasSeen) {
       setIsVisible(true);
     } else {
       onComplete();
     }
-  }, [onComplete]);
+  }, [onComplete, forceShow]);
 
   const handleNext = () => {
     if (stepIndex < STEPS.length - 1) {

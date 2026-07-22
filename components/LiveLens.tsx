@@ -109,6 +109,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [recordingTime, setRecordingTime] = useState(0);
   const [showModalityTooltip, setShowModalityTooltip] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
+  const [showTourReplay, setShowTourReplay] = useState(false);
   const [lastAudioSnapshotId, setLastAudioSnapshotId] = useState<string | null>(null);
   const [lastAudioImages, setLastAudioImages] = useState<{url: string, blob: Blob}[]>([]);
   const pendingAssociatedImagesRef = useRef<{ url: string, blob: Blob }[]>([]);
@@ -134,6 +135,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   // long, end the session automatically — on top of (not instead of) the
   // server's hard 3-minute cap.
   const IDLE_SESSION_TIMEOUT_MS = 60000;
+  // A hard cap on total active session time, independent of the idle
+  // timeout above: the server already caps each WebSocket connection at 3
+  // minutes (geminiProxy.js), but GeminiLiveService just reconnects and
+  // continues, so a genuinely engaged user could otherwise run a session
+  // indefinitely. 15 minutes is a generous single-sitting budget.
+  const MAX_SESSION_DURATION_MS = 15 * 60 * 1000;
   const lastActivityAtRef = useRef<number>(Date.now());
   const isFinalizingRef = useRef(false);
 
@@ -1112,6 +1119,17 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             if (idleMs >= IDLE_SESSION_TIMEOUT_MS) {
                 console.debug(`[LiveLens] Ending session after ${Math.round(idleMs / 1000)}s of inactivity`);
                 finalizeSessionRef.current("Session ended automatically after a period of inactivity.");
+                return;
+            }
+            // The idle timeout alone doesn't cap a genuinely active session:
+            // the server's 3-minute-per-connection cap (geminiProxy.js) is
+            // invisible to the user because GeminiLiveService just
+            // reconnects and continues — an engaged user talking/capturing
+            // continuously could otherwise run (and bill) indefinitely.
+            const sessionMs = Date.now() - sessionStartMsRef.current;
+            if (sessionMs >= MAX_SESSION_DURATION_MS) {
+                console.debug(`[LiveLens] Ending session after reaching max duration (${Math.round(sessionMs / 60000)}min)`);
+                finalizeSessionRef.current("Session ended automatically after reaching its maximum length. Start a new expedition to keep exploring.");
             }
         }, 5000);
 
@@ -1303,8 +1321,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       </div>
 
                       <button
+                          onClick={() => { setShowHelpSheet(false); setShowTourReplay(true); }}
+                          className="mt-6 w-full py-3.5 rounded-2xl border-2 border-theme-accent/30 text-theme-accent font-black text-xs uppercase tracking-widest active:scale-95 transition-transform flex items-center justify-center gap-2"
+                      >
+                          <span className="material-symbols-outlined text-lg">replay</span>
+                          Replay Welcome Tour
+                      </button>
+                      <button
                           onClick={() => setShowHelpSheet(false)}
-                          className="mt-6 w-full py-4 rounded-2xl bg-theme-accent text-white font-black text-xs uppercase tracking-widest active:scale-95 transition-transform"
+                          className="mt-3 w-full py-4 rounded-2xl bg-theme-accent text-white font-black text-xs uppercase tracking-widest active:scale-95 transition-transform"
                       >
                           Got It
                       </button>
@@ -1314,6 +1339,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
 
       <OnboardingTour onComplete={() => setIsTourActive(false)} />
+      {showTourReplay && (
+          <OnboardingTour forceShow onComplete={() => setShowTourReplay(false)} />
+      )}
 
       {/* Sighting Insight Overlay Text Blob */}
       <AnimatePresence>
