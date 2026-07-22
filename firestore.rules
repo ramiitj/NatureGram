@@ -33,8 +33,19 @@ service cloud.firestore {
         allow read, write: if isOwner(userId) || isAdmin();
       }
 
+      // Pre-existing bug fixed here: notifications are inherently created
+      // BY one user FOR another (liking/commenting on someone's post
+      // notifies them) — the previous "write: if isOwner(userId)" rule
+      // required the CALLER to be the recipient themselves, which a
+      // liker/commenter never is, so every cross-user addNotification()
+      // call should have been rejected with permission-denied (and
+      // toggleLike/addComment call it unguarded, not wrapped in try/catch).
+      // Reads/edits/deletes stay owner-only; creates are open to any
+      // signed-in user but must honestly claim their own uid as senderId,
+      // preventing impersonation/spoofed notifications.
       match /notifications/{notifId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, update, delete: if isOwner(userId) || isAdmin();
+        allow create: if isSignedIn() && incoming().senderId == request.auth.uid;
       }
     }
 
