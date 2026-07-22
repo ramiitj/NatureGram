@@ -12,9 +12,12 @@ import path from 'path';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 
+import { initSentry, Sentry } from './lib/sentry.js';
 import { initFirebaseAdmin } from './lib/auth.js';
 import { registerSharePreviewRoute } from './routes/sharePreview.js';
 import { registerGeminiProxyRoutes } from './routes/geminiProxy.js';
+
+const sentryEnabled = initSentry();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,6 +55,12 @@ async function startServer() {
     apiKey: API_KEY,
     projectId: currentFirebaseProjectId,
   });
+
+  // Must be registered after routes (so it can catch their errors) and
+  // before the catch-all static/Vite middleware below.
+  if (sentryEnabled) {
+    Sentry.setupExpressErrorHandler(app);
+  }
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
