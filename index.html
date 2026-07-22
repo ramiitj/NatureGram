@@ -70,11 +70,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com" onerror="console.warn('Tailwind CDN failed to load; custom theme config will not apply.')"></script>
     <script>
         // Shim process for browser environment to prevent SDK crash
         window.process = { env: { API_KEY: "" } };
-        
+
+        // Guard against the CDN script above failing to load (network
+        // block, ad-blocker, offline) — without this, referencing the
+        // global directly throws an uncaught ReferenceError that aborts
+        // this whole inline script (custom theme colors/animations/fonts
+        // below never get configured, degrading everything styled with
+        // them to unstyled defaults) for a failure mode that's otherwise
+        // silent and hard to diagnose.
+        if (typeof tailwind !== 'undefined') {
         tailwind.config = {
             theme: {
                 extend: {
@@ -116,6 +124,7 @@
                 },
             },
         }
+        }
     </script>
     <style>
         :root { --sab: env(safe-area-inset-bottom); --sat: env(safe-area-inset-top); }
@@ -149,6 +158,5 @@
   <body class="text-theme-primary/90 font-body">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
 </body>
 </html>
