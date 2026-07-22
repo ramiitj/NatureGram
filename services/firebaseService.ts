@@ -88,6 +88,25 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   // Removed throw new Error to prevent React app crashes on silent background failures
 }
 
+// Runs the automated content-safety pre-screen (GenAiService.checkContentSafety)
+// on a post's primary media and returns the reportStatus/reports fields to
+// merge into the new post doc. Flagged content lands in AdminConsole's
+// existing moderation queue (reportStatus: 'pending') instead of being
+// blocked outright — see checkContentSafety for the fail-open rationale.
+// Dynamically imports genAiService to avoid a static circular import
+// (genAiService.ts imports FirebaseService for usage telemetry).
+async function screenPostSafety(mediaBlob: Blob | undefined | null): Promise<{ reportStatus: 'safe' | 'pending', reports: { reason: string, timestamp: any }[] }> {
+  const { GenAiService } = await import('./genAiService');
+  const safety = await GenAiService.checkContentSafety(mediaBlob);
+  if (safety.isSafe) {
+    return { reportStatus: 'safe', reports: [] };
+  }
+  return {
+    reportStatus: 'pending',
+    reports: [{ reason: `Automated screening: ${safety.reason}`, timestamp: Date.now() }]
+  };
+}
+
 
 // Firebase Storage's download endpoint (firebasestorage.googleapis.com)
 // already sends "Access-Control-Allow-Origin: *" on every response, so
@@ -540,6 +559,12 @@ export const FirebaseService = {
       const allLabels = new Set<string>();
       items.forEach(item => item.labels.forEach(l => allLabels.add(l)));
 
+      const primarySnapshot = snapshots[0];
+      const safetyCheckBlob = primaryItem.mediaType === 'video' ? primarySnapshot.videoBlob
+        : primaryItem.mediaType === 'audio' ? primarySnapshot.audioBlob
+        : primarySnapshot.blob;
+      const moderation = await screenPostSafety(safetyCheckBlob);
+
       const postData: any = {
         userId: effectiveUserId,
         userName: userName,
@@ -550,19 +575,19 @@ export const FirebaseService = {
         audioUrl: primaryItem.audioUrl,
         associatedImageUrls: primaryItem.associatedImageUrls,
         mediaType: primaryItem.mediaType,
-        labels: Array.from(allLabels), 
+        labels: Array.from(allLabels),
         behavior: synthesizedData ? synthesizedData.description : primaryItem.behavior,
         aiInsight: primaryItem.aiInsight,
-        locationArea: primaryItem.locationArea, 
-        showLocation: primaryItem.showLocation, 
+        locationArea: primaryItem.locationArea,
+        showLocation: primaryItem.showLocation,
         tags: tags,
         timestamp: serverTimestamp(),
         likes: [],
         commentCount: 0,
         isPublic: flags.feed,
         isJournal: flags.journal,
-        reportStatus: 'safe',
-        reports: [],
+        reportStatus: moderation.reportStatus,
+        reports: moderation.reports,
         isHybrid: snapshots.some(s => s.isHybrid || (s.associatedImages && s.associatedImages.length > 0)),
         items: items,
         rotation: primaryItem.rotation || 0,
@@ -596,7 +621,9 @@ export const FirebaseService = {
           behavior: synthesizedData?.description || primaryItem.behavior || "",
           aiInsight: primaryItem.aiInsight || null,
           locationArea: primaryItem.locationArea || "",
-          isHybrid: postData.isHybrid
+          isHybrid: postData.isHybrid,
+          reportStatus: moderation.reportStatus,
+          reports: moderation.reports
       };
       await setDoc(doc(db, "feed_thumbnails", docRef.id), thumbData);
       
@@ -656,11 +683,16 @@ export const FirebaseService = {
       let associatedImageUrls: string[] = [];
       if (snapshot.associatedImages && snapshot.associatedImages.length > 0) {
           associatedImageUrls = await Promise.all(
-              snapshot.associatedImages.map(img => 
+              snapshot.associatedImages.map(img =>
                   FirebaseService.uploadMedia(img.blob || img.url!, effectiveUserId, 'image')
               )
           );
       }
+
+      const safetyCheckBlob = snapshot.type === 'video' ? snapshot.videoBlob
+        : snapshot.type === 'audio' ? snapshot.audioBlob
+        : snapshot.blob;
+      const moderation = await screenPostSafety(safetyCheckBlob);
 
       const postData: any = {
         userId: effectiveUserId,
@@ -672,19 +704,19 @@ export const FirebaseService = {
         audioUrl: audioUrl || null,
         associatedImageUrls: associatedImageUrls,
         mediaType: snapshot.type,
-        labels: snapshot.labels, 
+        labels: snapshot.labels,
         behavior: synthesis,
         aiInsight: snapshot.aiInsight || null,
-        locationArea: snapshot.locationArea || "", 
-        showLocation: (snapshot as any).showLocation ?? true, 
+        locationArea: snapshot.locationArea || "",
+        showLocation: (snapshot as any).showLocation ?? true,
         tags: tags,
         timestamp: serverTimestamp(),
         likes: [],
         commentCount: 0,
         isPublic: flags.feed,
         isJournal: flags.journal,
-        reportStatus: 'safe',
-        reports: [],
+        reportStatus: moderation.reportStatus,
+        reports: moderation.reports,
         isHybrid: snapshot.isHybrid || associatedImageUrls.length > 0,
         rotation: snapshot.rotation || 0,
         rawLocation: snapshot.rawLocation || null,
@@ -712,7 +744,9 @@ export const FirebaseService = {
           behavior: synthesis,
           aiInsight: snapshot.aiInsight || null,
           locationArea: snapshot.locationArea || "",
-          isHybrid: postData.isHybrid
+          isHybrid: postData.isHybrid,
+          reportStatus: moderation.reportStatus,
+          reports: moderation.reports
       };
       await setDoc(doc(db, "feed_thumbnails", docRef.id), thumbData);
       
@@ -751,9 +785,11 @@ export const FirebaseService = {
       const posts: CommunityPost[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        if (data.isPublic !== false) {
-          posts.push({ 
-            id: doc.id, 
+        // Content pending moderation review (auto-flagged at post time)
+        // stays out of the public feed until an admin dismisses the report.
+        if (data.isPublic !== false && data.reportStatus !== 'pending') {
+          posts.push({
+            id: doc.id,
             ...data,
             labels: data.labels || (data.label ? [data.label] : ["Nature"])
           } as CommunityPost);
@@ -810,9 +846,11 @@ export const FirebaseService = {
           let posts: CommunityPost[] = [];
           snapshot.forEach((doc) => {
               const data = doc.data() as any;
-              if (data.isPublic !== false) {
-                  posts.push({ 
-                    id: doc.id, 
+              // Content pending moderation review (auto-flagged at post time)
+              // stays out of the public feed until an admin dismisses the report.
+              if (data.isPublic !== false && data.reportStatus !== 'pending') {
+                  posts.push({
+                    id: doc.id,
                     ...data,
                     labels: data.labels || (data.label ? [data.label] : ["Nature"])
                   } as CommunityPost);
@@ -1039,6 +1077,15 @@ export const FirebaseService = {
 
   dismissReports: async (postId: string) => {
       await updateDoc(doc(db, "ecosystem_feed", postId), { reports: [], reportStatus: 'safe' });
+      // Keep feed_thumbnails (what the public feed actually reads from) in
+      // sync — otherwise a post cleared here would stay hidden from the
+      // feed forever, since subscribeToFeed/getMorePosts filter on this
+      // collection's own reportStatus field.
+      try {
+          await updateDoc(doc(db, "feed_thumbnails", postId), { reports: [], reportStatus: 'safe' });
+      } catch (e) {
+          console.warn("Could not sync dismissed report to feed_thumbnails:", e);
+      }
   },
 
   seedThemesMigration: async (): Promise<void> => {

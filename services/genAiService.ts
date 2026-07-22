@@ -262,6 +262,68 @@ export const GenAiService = {
   },
 
   /**
+   * Automated content-safety pre-screen for a post's primary media, run at
+   * post-creation time. This is a triage filter, not a final moderation
+   * decision: flagged content is routed to reportStatus: 'pending' (the
+   * existing AdminConsole moderation queue) for human review rather than
+   * being blocked outright, and any error here fails OPEN (defaults to
+   * "safe") so a moderation-check outage can never block posting entirely
+   * — the tradeoff is that a transient failure means that one post skips
+   * screening, same as before this feature existed.
+   */
+  checkContentSafety: async (blob: Blob | undefined | null): Promise<{ isSafe: boolean, reason: string }> => {
+    if (!blob) return { isSafe: true, reason: 'No media to screen.' };
+    try {
+        const apiKey = await getApiKey();
+        const ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: { baseUrl: window.location.origin + '/api-proxy' }
+        });
+
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        await new Promise(resolve => reader.onload = resolve);
+        const base64 = (reader.result as string).split(',')[1];
+
+        const prompt = `You are a content moderator for NatureGram, a nature/wildlife photography and field-journal community app.
+        Review this media and determine if it violates community guidelines: sexually explicit content, graphic violence or gore, hate symbols or harassment, or content that is clearly unrelated spam/abuse rather than a genuine nature/field observation.
+        Ordinary nature photography (including injured/dead wildlife documented for scientific or educational purposes, e.g. predation) is allowed and should be marked safe.
+        Respond with whether this is safe to publish and a brief reason.`;
+
+        const response = await ai.models.generateContent({
+            model: FLASH_MODEL,
+            contents: {
+                parts: [
+                    { inlineData: { data: base64, mimeType: blob.type } },
+                    { text: prompt }
+                ]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        isSafe: { type: Type.BOOLEAN, description: "False if this media violates community guidelines and needs human review." },
+                        reason: { type: Type.STRING, description: "Brief reason for the classification." }
+                    },
+                    required: ["isSafe", "reason"]
+                }
+            }
+        });
+
+        logUsage('contentSafety', FLASH_MODEL, response.usageMetadata);
+        const result = JSON.parse(response.text || "{}");
+        return {
+            isSafe: result.isSafe !== false,
+            reason: result.reason || (result.isSafe === false ? 'Flagged by automated screening.' : 'Passed automated screening.')
+        };
+    } catch (e) {
+        console.warn("[GenAiService] Content safety check failed, defaulting to safe (fail-open):", e);
+        return { isSafe: true, reason: 'Automated screening unavailable; not reviewed.' };
+    }
+  },
+
+  /**
    * Generates a visual representation of an audio summary using Gemini 2.5 Flash Image ("Nano Banana").
    */
   generateImageFromSummary: async (summary: string): Promise<string | null> => {
