@@ -774,10 +774,24 @@ const Community: React.FC<CommunityProps> = ({
                     className={`text-left ${onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all" : "cursor-default"}`}
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
-                        {isJournalOnly ? "My Journal" : "NatureGram"}
+                        {isJournalOnly ? "My Journal" : (
+                            <>
+                                {/* The desktop/tablet sidebar already shows the NatureGram
+                                    brand mark, so repeating it here would just duplicate it —
+                                    this shows a page-specific title there instead. On mobile,
+                                    where there's no sidebar, this is the only brand mark. */}
+                                <span className="md:hidden">NatureGram</span>
+                                <span className="hidden md:inline">Feed</span>
+                            </>
+                        )}
                     </h2>
                     <p className="text-[9px] md:text-[10px] font-black text-theme-primary/30 uppercase tracking-widest mt-0.5">
-                        {isJournalOnly ? "Personal species catalog" : "Living field guide"}
+                        {isJournalOnly ? "Personal species catalog" : (
+                            <>
+                                <span className="md:hidden">Living field guide</span>
+                                <span className="hidden md:inline">What the community is discovering</span>
+                            </>
+                        )}
                     </p>
                 </button>
 

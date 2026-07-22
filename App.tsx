@@ -598,10 +598,15 @@ const App: React.FC = () => {
 
       {isDashboardMode && !isDetailActive && (
           <aside className="hidden md:flex md:flex-col w-20 lg:w-64 shrink-0 border-r border-stone-100 bg-white h-full py-8 px-2 lg:px-4 gap-1 overflow-y-auto no-scrollbar">
-              <div className="flex items-center gap-2 px-2 lg:px-3 mb-8">
+              <button
+                  type="button"
+                  onClick={() => handleNavigationRequest(AppView.LANDING)}
+                  aria-label="NatureGram home"
+                  className="flex items-center gap-2 px-2 lg:px-3 mb-8 text-left cursor-pointer hover:opacity-80 active:scale-95 transition-all"
+              >
                   <span className="material-symbols-outlined text-2xl text-theme-accent shrink-0">wb_sunny</span>
                   <span className="hidden lg:block font-display font-black italic text-xl text-theme-primary tracking-tight truncate">NatureGram</span>
-              </div>
+              </button>
 
               {[
                   { view: AppView.COMMUNITY, icon: 'home', label: 'Feed' },
