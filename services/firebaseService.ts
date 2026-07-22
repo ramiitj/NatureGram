@@ -769,14 +769,22 @@ export const FirebaseService = {
     let q;
     if (searchTag) {
         const normalizedTag = searchTag.startsWith('#') ? searchTag : `#${searchTag.toLowerCase().replace(/\s+/g, '')}`;
+        // isPublic is filtered at the query level (every write path sets it
+        // explicitly — see getMorePosts for the fuller rationale); bounded
+        // with orderBy+limit like the non-tag branch below, since this was
+        // previously unbounded (a live listener with no cap on result size).
         q = query(
-            collection(db, "feed_thumbnails"), 
-            where("tags", "array-contains", normalizedTag)
+            collection(db, "feed_thumbnails"),
+            where("tags", "array-contains", normalizedTag),
+            where("isPublic", "==", true),
+            orderBy("timestamp", "desc"),
+            limit(20)
         );
     } else {
         q = query(
-            collection(db, "feed_thumbnails"), 
-            orderBy("timestamp", "desc"), 
+            collection(db, "feed_thumbnails"),
+            where("isPublic", "==", true),
+            orderBy("timestamp", "desc"),
             limit(20)
         );
     }
@@ -785,9 +793,13 @@ export const FirebaseService = {
       const posts: CommunityPost[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        // Content pending moderation review (auto-flagged at post time)
-        // stays out of the public feed until an admin dismisses the report.
-        if (data.isPublic !== false && data.reportStatus !== 'pending') {
+        // reportStatus stays a client-side filter deliberately: unlike
+        // isPublic (always explicitly set), older/seed posts predate this
+        // field entirely, and a Firestore "==" filter would treat a missing
+        // field as non-matching — silently hiding all of them from the
+        // feed. This is also why it's "!== 'pending'" rather than
+        // "=== 'safe'": absent is treated as safe, not excluded.
+        if (data.reportStatus !== 'pending') {
           posts.push({
             id: doc.id,
             ...data,
@@ -809,11 +821,21 @@ export const FirebaseService = {
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
+      // isPublic is filtered at the query level below — every write path
+      // sets it explicitly (post creation, seed data, migrations), so
+      // there's no "missing field" case to worry about, unlike
+      // reportStatus (see the client-side filter below for why that one's
+      // different). Filtering it in the query — rather than fetching a
+      // fixed-size page and discarding non-public rows afterward — is what
+      // actually fixes pagination: previously, a page could come back
+      // mostly (or entirely) private/journal-only posts and silently
+      // shrink well below the requested limit.
       let q;
       if (searchTag) {
           const normalizedTag = searchTag.startsWith('#') ? searchTag : `#${searchTag.toLowerCase().replace(/\s+/g, '')}`;
           const queryConstraints: any[] = [
               where("tags", "array-contains", normalizedTag),
+              where("isPublic", "==", true),
               orderBy("timestamp", "desc"),
               limit(50)
           ];
@@ -823,6 +845,7 @@ export const FirebaseService = {
           q = query(collection(db, "feed_thumbnails"), ...queryConstraints);
       } else {
           const queryConstraints: any[] = [
+              where("isPublic", "==", true),
               orderBy("timestamp", "desc"),
               limit(50)
           ];
@@ -830,14 +853,14 @@ export const FirebaseService = {
               queryConstraints.push(startAfter(lastVisible));
           }
           q = query(
-              collection(db, "feed_thumbnails"), 
+              collection(db, "feed_thumbnails"),
               ...queryConstraints
           );
       }
-      
+
       try {
           let snapshot = await getDocs(q);
-          
+
           if (snapshot.empty && !lastVisible && !searchTag) {
               await FirebaseService.seedDefaultObservationsIfNeeded();
               snapshot = await getDocs(q);
@@ -846,9 +869,9 @@ export const FirebaseService = {
           let posts: CommunityPost[] = [];
           snapshot.forEach((doc) => {
               const data = doc.data() as any;
-              // Content pending moderation review (auto-flagged at post time)
-              // stays out of the public feed until an admin dismisses the report.
-              if (data.isPublic !== false && data.reportStatus !== 'pending') {
+              // See subscribeToFeed for why reportStatus stays a
+              // client-side check instead of a query filter.
+              if (data.reportStatus !== 'pending') {
                   posts.push({
                     id: doc.id,
                     ...data,
