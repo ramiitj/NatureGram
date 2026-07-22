@@ -25,19 +25,21 @@ interface CommunityProps {
   activeDraftsCount?: number;
   onViewDrafts?: () => void;
   onLogoClick?: () => void;
+  onStartExpedition?: () => void;
 }
 
-const Community: React.FC<CommunityProps> = ({ 
-    currentUserMode, 
-    selectedPostId, 
-    onPostClose, 
-    onPostOpen, 
+const Community: React.FC<CommunityProps> = ({
+    currentUserMode,
+    selectedPostId,
+    onPostClose,
+    onPostOpen,
     backLabel = "Feed",
     onViewProfile,
     isJournalOnly = false,
     activeDraftsCount = 0,
     onViewDrafts,
-    onLogoClick
+    onLogoClick,
+    onStartExpedition
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -384,8 +386,11 @@ const Community: React.FC<CommunityProps> = ({
     const unsubscribe = FirebaseService.subscribeToUserJournal(currentUserMode.userId, (data) => {
         setPosts(data);
         setIsLoading(false);
+    }, (err) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setIsLoading(false);
     });
-    
+
     return () => unsubscribe();
   }, [isJournalOnly, currentUserMode.userId]);
 
@@ -647,13 +652,16 @@ const Community: React.FC<CommunityProps> = ({
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
             {/* Header branding & stats */}
             <div className="flex items-center justify-between gap-4">
-                <div 
+                <button
+                    type="button"
                     onClick={() => {
                         if (onLogoClick && !isJournalOnly) {
                             onLogoClick();
                         }
                     }}
-                    className={onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all outline-none" : ""}
+                    disabled={!onLogoClick || isJournalOnly}
+                    aria-label={onLogoClick && !isJournalOnly ? "Go to home" : undefined}
+                    className={`text-left ${onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all" : "cursor-default"}`}
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
                         {isJournalOnly ? "My Journal" : "NatureGram"}
@@ -661,15 +669,16 @@ const Community: React.FC<CommunityProps> = ({
                     <p className="text-[9px] md:text-[10px] font-black text-theme-primary/30 uppercase tracking-widest mt-0.5">
                         {isJournalOnly ? "Personal species catalog" : "Living field guide"}
                     </p>
-                </div>
+                </button>
 
                 {/* Drafts Drawer Toggle Button */}
                 <div className="flex items-center gap-3">
                     {onViewDrafts && (
-                        <button 
-                            onClick={onViewDrafts} 
+                        <button
+                            onClick={onViewDrafts}
                             className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all"
                             title="Active drafts"
+                            aria-label={`Saved drafts${activeDraftsCount > 0 ? ` (${activeDraftsCount})` : ''}`}
                         >
                             <span className="material-symbols-outlined text-lg">inventory</span>
                             {activeDraftsCount > 0 ? (
@@ -709,8 +718,9 @@ const Community: React.FC<CommunityProps> = ({
                             className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-theme-primary/40 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
                         />
                         {searchQuery && (
-                            <button 
+                            <button
                                 onClick={() => setSearchQuery("")}
+                                aria-label="Clear search"
                                 className="absolute right-4 top-1/2 -translate-y-1/2 text-theme-primary/30 hover:text-theme-primary transition-colors flex items-center justify-center p-1"
                             >
                                 <span className="material-symbols-outlined text-sm font-bold">close</span>
@@ -1027,6 +1037,23 @@ const Community: React.FC<CommunityProps> = ({
                         )}
                     </div>
                 </div>
+            ) : posts.length === 0 && isJournalOnly ? (
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-accent/40 mb-6 select-none">science</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/70 mb-1 font-bold">No Observations Yet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Your personal species catalog is empty. Start an expedition to log your first sighting.</p>
+                    {onStartExpedition && (
+                        <button onClick={onStartExpedition} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                            Begin Expedition
+                        </button>
+                    )}
+                </div>
+            ) : posts.length === 0 ? (
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">forest</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/60 mb-1 font-bold">No Sightings Yet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">The field guide is quiet right now — be the first to share a discovery.</p>
+                </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
                     <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">search_off</span>
@@ -1073,19 +1100,21 @@ const Community: React.FC<CommunityProps> = ({
 
                     {/* Desktop floating navigation chevrons - replacing top header numbered pagination */}
                     {activePostIndex > 0 && (
-                        <button 
+                        <button
                             onClick={() => navigateSequential('prev')}
                             className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
                             title="Previous specimen"
+                            aria-label="Previous specimen"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_left</span>
                         </button>
                     )}
                     {activePostIndex !== -1 && activePostIndex < posts.length - 1 && (
-                        <button 
+                        <button
                             onClick={() => navigateSequential('next')}
                             className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
                             title="Next specimen"
+                            aria-label="Next specimen"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_right</span>
                         </button>
@@ -1094,22 +1123,23 @@ const Community: React.FC<CommunityProps> = ({
                     <div className="flex items-center gap-4">
                         {activePost.userId === currentUserMode.userId && (
                             <>
-                                <button 
-                                    onClick={() => setPublishingPost(activePost)} 
+                                <button
+                                    onClick={() => setPublishingPost(activePost)}
                                     className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center text-emerald-700 transition-colors cursor-pointer"
                                     title="Launch Publisher Studio"
+                                    aria-label="Launch Publisher Studio"
                                 >
                                     <span className="material-symbols-outlined text-xl">campaign</span>
                                 </button>
-                                <button onClick={() => setIsEditing(true)} className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
+                                <button onClick={() => setIsEditing(true)} aria-label="Edit observation" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
                                     <span className="material-symbols-outlined text-xl">edit</span>
                                 </button>
-                                <button onClick={() => handleDeletePost(activePost.id)} className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
+                                <button onClick={() => handleDeletePost(activePost.id)} aria-label="Delete observation" className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
                                     <span className="material-symbols-outlined text-xl">delete</span>
                                 </button>
                             </>
                         )}
-                        <button onClick={() => setSharingPost(activePost)} className="w-10 h-10 rounded-full bg-theme-primary/5 flex items-center justify-center text-theme-accent">
+                        <button onClick={() => setSharingPost(activePost)} aria-label="Share observation" className="w-10 h-10 rounded-full bg-theme-primary/5 flex items-center justify-center text-theme-accent">
                             <span className="material-symbols-outlined text-xl">share</span>
                         </button>
                     </div>
@@ -1152,8 +1182,9 @@ const Community: React.FC<CommunityProps> = ({
                                                         ) : item.mediaType === 'audio' ? (
                                                             <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
                                                                 {item.thumbnailUrl || item.imageUrl ? (
-                                                                    <img 
-                                                                        src={item.thumbnailUrl || item.imageUrl} 
+                                                                    <img
+                                                                        src={item.thumbnailUrl || item.imageUrl}
+                                                                        alt={activePost.title || activePost.labels?.[0] || 'Nature sighting audio thumbnail'}
                                                                         className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                                     />
                                                                 ) : (
@@ -1164,8 +1195,9 @@ const Community: React.FC<CommunityProps> = ({
                                                                 <audio src={item.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                             </div>
                                                         ) : (
-                                                            <img 
-                                                                src={item.imageUrl || item.thumbnailUrl} 
+                                                            <img
+                                                                src={item.imageUrl || item.thumbnailUrl}
+                                                                alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
                                                                 onClick={() => window.open(item.imageUrl || item.thumbnailUrl, '_blank')}
                                                             />
@@ -1176,8 +1208,9 @@ const Community: React.FC<CommunityProps> = ({
 
                                             {/* Left Arrow overlay visible on hover */}
                                             {activeItemIndex > 0 && (
-                                                <button 
+                                                <button
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }}
+                                                    aria-label="Previous item"
                                                     className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_left</span>
@@ -1186,8 +1219,9 @@ const Community: React.FC<CommunityProps> = ({
 
                                             {/* Right Arrow overlay visible on hover */}
                                             {activeItemIndex < (activePost.items?.length || 1) - 1 && (
-                                                <button 
+                                                <button
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }}
+                                                    aria-label="Next item"
                                                     className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_right</span>
@@ -1200,6 +1234,8 @@ const Community: React.FC<CommunityProps> = ({
                                                     <button
                                                         key={index}
                                                         onClick={() => scrollToItem(index)}
+                                                        aria-label={`Go to item ${index + 1} of ${activePost.items!.length}`}
+                                                        aria-current={index === activeItemIndex ? 'true' : undefined}
                                                         className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${index === activeItemIndex ? 'bg-white scale-110 opacity-100' : 'bg-white/40 hover:bg-white/60 opacity-30'}`}
                                                     />
                                                 ))}
@@ -1219,8 +1255,9 @@ const Community: React.FC<CommunityProps> = ({
                                             ) : currentItem.mediaType === 'audio' ? (
                                                 <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
                                                     {currentItem.thumbnailUrl || currentItem.imageUrl ? (
-                                                        <img 
-                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl} 
+                                                        <img
+                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl}
+                                                            alt={activePost.title || activePost.labels?.[0] || 'Nature sighting audio thumbnail'}
                                                             className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                         />
                                                     ) : (
@@ -1231,8 +1268,9 @@ const Community: React.FC<CommunityProps> = ({
                                                     <audio src={currentItem.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                 </div>
                                             ) : (
-                                                <img 
-                                                    src={currentItem.imageUrl || currentItem.thumbnailUrl} 
+                                                <img
+                                                    src={currentItem.imageUrl || currentItem.thumbnailUrl}
+                                                    alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
                                                     onClick={() => window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank')}
                                                 />
@@ -1254,7 +1292,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 </p>
                                             </div>
                                         </div>
-                                        <button onClick={(e) => handleLike(e, activePost)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
+                                        <button onClick={(e) => handleLike(e, activePost)} aria-label={activePost.likes?.includes(currentUserMode.userId!) ? 'Unlike' : 'Like'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
                                             <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'fill-current' : ''}`}>favorite</span>
                                             <span className="text-[10px] font-black tracking-tighter">{activePost.likes?.length || 0}</span>
                                         </button>

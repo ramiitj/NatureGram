@@ -888,7 +888,7 @@ export const FirebaseService = {
       }
   },
 
-  subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void) => {
+  subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void, onError?: (error: unknown) => void) => {
     const q = query(
         collection(db, "ecosystem_feed"), 
         where("userId", "==", userId)
@@ -923,6 +923,7 @@ export const FirebaseService = {
       callback(posts);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, "ecosystem_feed");
+      onError?.(error);
     });
   },
 
@@ -1057,7 +1058,7 @@ export const FirebaseService = {
     }
   },
 
-  subscribeToNotifications: (userId: string, callback: (notifs: FieldNotification[]) => void) => {
+  subscribeToNotifications: (userId: string, callback: (notifs: FieldNotification[]) => void, onError?: (error: unknown) => void) => {
     const q = query(collection(db, "users", userId, "notifications"), orderBy("timestamp", "desc"), limit(20));
     return onSnapshot(q, (snapshot) => {
       const notifs: FieldNotification[] = [];
@@ -1068,6 +1069,7 @@ export const FirebaseService = {
       callback(notifs);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${userId}/notifications`);
+      onError?.(error);
     });
   },
 

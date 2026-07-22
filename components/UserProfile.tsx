@@ -112,8 +112,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       return (
           <div className="fixed inset-0 z-[60] bg-day-bg flex flex-col font-body animate-slide-in-right">
               <header className="px-6 py-4 flex items-center justify-between bg-white/50 backdrop-blur-md border-b border-theme-primary/10 shrink-0 safe-pt">
-                  <button 
-                      onClick={onBack} 
+                  <button
+                      onClick={onBack}
+                      aria-label="Back"
                       className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors"
                   >
                       <span className="material-symbols-outlined">arrow_back</span>
@@ -134,8 +135,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   return (
     <div className="fixed inset-0 z-[60] bg-day-bg flex flex-col font-body animate-slide-in-right">
         <header className="px-6 py-4 flex items-center justify-between bg-white/50 backdrop-blur-md border-b border-theme-primary/10 shrink-0 safe-pt">
-            <button 
-                onClick={onBack} 
+            <button
+                onClick={onBack}
+                aria-label="Back"
                 className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors"
             >
                 <span className="material-symbols-outlined">arrow_back</span>

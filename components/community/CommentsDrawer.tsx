@@ -43,7 +43,7 @@ const CommentsDrawer: React.FC<CommentsDrawerProps> = ({ comments, newComment, o
 
                 <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
                     <h3 className="font-display font-black text-xl italic text-theme-primary">Field Notes</h3>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
+                    <button onClick={onClose} aria-label="Close field notes" className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
                         <span className="material-symbols-outlined text-lg">close</span>
                     </button>
                 </div>

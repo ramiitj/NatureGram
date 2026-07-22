@@ -32,7 +32,7 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
     <div className="h-full bg-day-bg p-8 animate-fade-in">
         <div className="flex items-center justify-between mb-8">
             <h2 className="text-3xl font-display font-black italic text-theme-primary">Saved Drafts</h2>
-            <button onClick={onBack} className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors">
+            <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors">
                 <span className="material-symbols-outlined">arrow_back</span>
             </button>
         </div>
@@ -59,7 +59,7 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
                             <p className="font-bold text-theme-primary leading-none mb-1">{draft.snapshots.length} Observations</p>
                             <p className="text-[10px] text-theme-primary/40 font-medium">Last active {new Date(draft.timestamp?.toDate?.() || Date.now()).toLocaleDateString()}</p>
                         </div>
-                        <button onClick={(e) => handleDelete(e, draft.id)} className="w-10 h-10 rounded-full hover:bg-red-50 text-theme-primary/30 hover:text-red-500 transition-colors">
+                        <button onClick={(e) => handleDelete(e, draft.id)} aria-label="Discard draft" className="w-10 h-10 rounded-full hover:bg-red-50 text-theme-primary/30 hover:text-red-500 transition-colors">
                             <span className="material-symbols-outlined">delete</span>
                         </button>
                     </div>

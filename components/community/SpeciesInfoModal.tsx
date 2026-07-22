@@ -25,7 +25,7 @@ const SpeciesInfoModal: React.FC<SpeciesInfoModalProps> = ({ species, data, onCl
                             </p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-theme-primary/40 hover:text-theme-primary transition-colors">
+                    <button onClick={onClose} aria-label="Close species details" className="text-theme-primary/40 hover:text-theme-primary transition-colors">
                         <span className="material-symbols-outlined text-2xl">close</span>
                     </button>
                 </div>

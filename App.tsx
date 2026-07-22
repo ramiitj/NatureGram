@@ -95,6 +95,7 @@ const App: React.FC = () => {
   const [authType, setAuthType] = useState<'signin' | 'signup' | null>(null);
   const [showGlobalAuthModal, setShowGlobalAuthModal] = useState(false);
   const [notifications, setNotifications] = useState<FieldNotification[]>([]);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [isDetailActive, setIsDetailActive] = useState(false);
   
@@ -175,12 +176,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userMode?.userId && userMode.userId !== 'explorer_guest') {
+      setNotificationsError(null);
       const unsubscribe = FirebaseService.subscribeToNotifications(userMode.userId, (notifs) => {
         setNotifications(notifs);
+        setNotificationsError(null);
+      }, (err) => {
+        setNotificationsError(err instanceof Error ? err.message : String(err));
       });
       return () => unsubscribe();
     } else {
       setNotifications([]);
+      setNotificationsError(null);
     }
   }, [userMode?.userId]);
 
@@ -397,10 +403,16 @@ const App: React.FC = () => {
               <div className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-in-right">
                   <header className="p-8 pb-4 flex items-center justify-between border-b border-stone-100 shrink-0">
                       <div><h2 className="text-2xl font-display font-black italic text-text-main">Field Alerts</h2><p className="catalog-label text-[9px]">Platform Updates</p></div>
-                      <button onClick={() => setIsNotificationsOpen(false)} className="w-10 h-10 rounded-full bg-stone-50 text-theme-accent flex items-center justify-center"><span className="material-symbols-outlined">close</span></button>
+                      <button onClick={() => setIsNotificationsOpen(false)} aria-label="Close alerts panel" className="w-10 h-10 rounded-full bg-stone-50 text-theme-accent flex items-center justify-center"><span className="material-symbols-outlined">close</span></button>
                   </header>
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
-                      {notifications.length === 0 ? <div className="flex flex-col items-center justify-center h-40 opacity-30"><span className="material-symbols-outlined text-4xl mb-2">notifications_off</span><p className="text-xs font-bold uppercase tracking-widest">No Alerts</p></div> : notifications.map(alert => (
+                      {notificationsError ? (
+                          <div className="flex flex-col items-center justify-center h-40 text-center px-4 gap-2">
+                              <span className="material-symbols-outlined text-4xl text-red-400">cloud_off</span>
+                              <p className="text-xs font-bold uppercase tracking-widest text-stone-500">Couldn't Load Alerts</p>
+                              <button onClick={() => window.location.reload()} className="mt-2 text-[10px] font-black uppercase tracking-widest text-theme-accent">Retry</button>
+                          </div>
+                      ) : notifications.length === 0 ? <div className="flex flex-col items-center justify-center h-40 opacity-30"><span className="material-symbols-outlined text-4xl mb-2">notifications_off</span><p className="text-xs font-bold uppercase tracking-widest">No Alerts</p></div> : notifications.map(alert => (
                           <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-5 rounded-2xl text-left border flex items-start gap-4 ${alert.isRead ? 'bg-white border-stone-50 opacity-60' : 'bg-stone-50/50 border-stone-100 shadow-sm'}`}>
                               <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent"><span className="material-symbols-outlined text-sm">{alert.type === 'sighting' ? 'park' : alert.type === 'comment' ? 'chat_bubble' : 'favorite'}</span></div>
                               <div className="flex-1"><div className="flex justify-between items-start mb-1"><p className="catalog-label text-[8px]">{alert.senderName || 'Platform'}</p></div><p className="text-sm font-medium text-text-main leading-tight">{alert.message}</p></div>
@@ -427,7 +439,7 @@ const App: React.FC = () => {
                         <p className={`text-theme-text font-bold uppercase tracking-[0.4em] text-[10px] mt-2 drop-shadow-md`}>The Living Field Guide</p>
                     </div>
                     
-                    <div className="w-full max-w-xs px-6 cursor-pointer" onClick={() => selectMode('community')}>
+                    <button type="button" className="w-full max-w-xs px-6 cursor-pointer" onClick={() => selectMode('community')}>
                         <div className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 group shadow-2xl border border-white/20">
                             <div className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow">
                                 <span className="material-symbols-outlined text-3xl">explore</span>
@@ -437,7 +449,7 @@ const App: React.FC = () => {
                                 <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</p>
                             </div>
                         </div>
-                    </div>
+                    </button>
                     
                     <div className="text-center px-6 max-w-md mx-auto">
                         <p className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</p>
@@ -575,6 +587,7 @@ const App: React.FC = () => {
                      onPostOpen={() => setIsDetailActive(true)}
                      onPostClose={handlePostClose}
                      onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
+                     onStartExpedition={() => handleNavigationRequest(AppView.LENS)}
                  />}
              {currentView === AppView.DRAFTS && userMode && <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); setCurrentView(AppView.COMMUNITY); }} />}
           </div>
@@ -613,20 +626,20 @@ const App: React.FC = () => {
       {isDashboardMode && !isDetailActive && (
           <div className="absolute bottom-0 left-0 right-0 z-[40] pointer-events-none transition-all duration-300 translate-y-0 opacity-100 animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white border-t border-stone-100">
               <nav className="h-16 flex justify-around items-center px-2 pointer-events-auto max-w-md mx-auto transition-all">
-                <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'fill-current' : ''}`}>home</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'fill-current' : ''}`}>fingerprint</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.LENS)} className="group relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all"><span className="material-symbols-outlined text-2xl font-black">add</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} aria-label="Feed" aria-current={currentView === AppView.COMMUNITY ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'fill-current' : ''}`}>home</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} aria-label="My Journal" aria-current={currentView === AppView.JOURNAL ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'fill-current' : ''}`}>fingerprint</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.LENS)} aria-label="Start new expedition" className="group relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all"><span className="material-symbols-outlined text-2xl font-black">add</span></button>
                 <button onClick={() => {
                     if (userMode?.isAnonymous) {
                         setShowGlobalAuthModal(true);
                         return;
                     }
                     setIsNotificationsOpen(true);
-                }} className={`relative flex flex-col items-center gap-1 transition-all duration-300 ${isNotificationsOpen ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}>
+                }} aria-label={`Field alerts${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`} className={`relative flex flex-col items-center gap-1 transition-all duration-300 ${isNotificationsOpen ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}>
                     <span className={`material-symbols-outlined text-2xl ${isNotificationsOpen ? 'fill-current' : ''}`}>favorite</span>
                     {notifications.filter(n => !n.isRead).length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-theme-accent rounded-full"></span>}
                 </button>
-                <button onClick={() => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId })} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.USER_PROFILE ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.USER_PROFILE ? 'fill-current' : ''}`}>person</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId })} aria-label="My Profile" aria-current={currentView === AppView.USER_PROFILE ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.USER_PROFILE ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.USER_PROFILE ? 'fill-current' : ''}`}>person</span></button>
               </nav>
           </div>
       )}

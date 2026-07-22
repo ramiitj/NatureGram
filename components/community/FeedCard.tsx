@@ -59,14 +59,14 @@ const FeedCard: React.FC<{
                 {post.mediaType === 'audio' ? (
                     <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt={post.title || post.labels?.[0] || 'Audio sighting thumbnail'} onLoad={() => onImageLoad(post.id)} />
                         ) : null}
                         <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
                     </div>
                 ) : post.mediaType === 'video' ? (
                     <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt={post.title || post.labels?.[0] || 'Video sighting thumbnail'} onLoad={() => onImageLoad(post.id)} />
                         ) : (
                             <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
@@ -77,7 +77,7 @@ const FeedCard: React.FC<{
                 ) : (
                     <img
                         src={post.thumbnailUrl || post.imageUrl}
-                        alt="Observation"
+                        alt={post.title || post.labels?.[0] || 'Nature sighting'}
                         loading="lazy"
                         onLoad={() => onImageLoad(post.id)}
                         className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`}
