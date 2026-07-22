@@ -83,6 +83,52 @@ export const applyFilter = async (source: Blob | string, filter: 'grayscale' | '
   });
 };
 
+// cropRect is in normalized 0-1 fractions of the image's natural dimensions
+// (not pixels) so the same crop rect works regardless of how the image is
+// displayed on screen.
+export const cropImageBlob = async (
+  source: Blob | string,
+  cropRect: { x: number, y: number, width: number, height: number }
+): Promise<Blob> => {
+  return new Promise(async (resolve, reject) => {
+    let blob: Blob;
+    if (typeof source === 'string') {
+      try {
+        const response = await fetch(getCorsProxyUrl(source));
+        blob = await response.blob();
+      } catch (e) {
+        return reject(e);
+      }
+    } else {
+      blob = source;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Failed to get canvas context'));
+
+      const sx = Math.max(0, cropRect.x * img.width);
+      const sy = Math.max(0, cropRect.y * img.height);
+      const sw = Math.max(1, cropRect.width * img.width);
+      const sh = Math.max(1, cropRect.height * img.height);
+
+      canvas.width = sw;
+      canvas.height = sh;
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+      canvas.toBlob((newBlob) => {
+        if (newBlob) resolve(newBlob);
+        else reject(new Error('Failed to create blob'));
+      }, blob.type || 'image/jpeg');
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(blob);
+  });
+};
+
 export const rotateImageBlob = async (source: Blob | string, degrees: number): Promise<Blob> => {
   return new Promise(async (resolve, reject) => {
     let blob: Blob;
