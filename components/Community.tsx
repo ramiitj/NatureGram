@@ -218,7 +218,42 @@ const Community: React.FC<CommunityProps> = ({
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const mediaScrollRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
+
+  // Pull-to-refresh (feed only — journal is a live subscription, always current)
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pullStartY = useRef<number | null>(null);
+  const PULL_THRESHOLD = 70;
+  const PULL_MAX = 100;
+
+  const handlePullTouchStart = (e: React.TouchEvent) => {
+      if (isJournalOnly || activePost) return;
+      const container = scrollContainerRef.current;
+      pullStartY.current = (container && container.scrollTop <= 0) ? e.touches[0].clientY : null;
+  };
+
+  const handlePullTouchMove = (e: React.TouchEvent) => {
+      if (pullStartY.current === null || isRefreshing) return;
+      const delta = e.touches[0].clientY - pullStartY.current;
+      if (delta > 0) {
+          setPullDistance(Math.min(delta * 0.5, PULL_MAX));
+      } else {
+          setPullDistance(0);
+      }
+  };
+
+  const handlePullTouchEnd = () => {
+      if (pullStartY.current === null) return;
+      pullStartY.current = null;
+      if (pullDistance >= PULL_THRESHOLD && !isRefreshing) {
+          hapticFeedback(10);
+          setIsRefreshing(true);
+          fetchFeed({ silent: true }).finally(() => setIsRefreshing(false));
+      }
+      setPullDistance(0);
+  };
 
   const swipeTouchStartX = useRef(0);
   const swipeTouchStartY = useRef(0);
@@ -394,26 +429,25 @@ const Community: React.FC<CommunityProps> = ({
     return () => unsubscribe();
   }, [isJournalOnly, currentUserMode.userId]);
 
-  // Original Global Feed loaded paginated query
-  useEffect(() => {
-    if (isJournalOnly) return;
-    
-    window.scrollTo(0, 0);
-    const container = document.getElementById('community-scroll-container');
-    if (container) container.scrollTop = 0;
-    
-    setIsLoading(true);
-    setPosts([]);
+  // Fetches the first page of the global feed. `silent` skips the full
+  // skeleton-loading state (used by pull-to-refresh, which keeps the
+  // existing posts visible under a small top indicator instead of
+  // blanking the whole feed like the initial mount load does).
+  const fetchFeed = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+        setIsLoading(true);
+        setPosts([]);
+    }
     setLastVisible(null);
     setHasMore(true);
     setError(null);
-    
-    FirebaseService.getMorePosts(null, searchTag).then(({ posts: newPosts, lastVisible: newLastVisible }) => {
+
+    try {
+        const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(null, searchTag);
         setPosts(newPosts);
         setLastVisible(newLastVisible);
         setHasMore(newLastVisible !== null);
-        setIsLoading(false);
-    }).catch(err => {
+    } catch (err: any) {
         console.error("Failed to load initial posts:", err);
         let msg = err.message || String(err);
         try {
@@ -421,9 +455,21 @@ const Community: React.FC<CommunityProps> = ({
             if (parsed && parsed.error) msg = parsed.error;
         } catch (e) {}
         setError(msg);
+    } finally {
         setIsLoading(false);
-    });
-  }, [searchTag, isJournalOnly]);
+    }
+  }, [searchTag]);
+
+  // Original Global Feed loaded paginated query
+  useEffect(() => {
+    if (isJournalOnly) return;
+
+    window.scrollTo(0, 0);
+    const container = document.getElementById('community-scroll-container');
+    if (container) container.scrollTop = 0;
+
+    fetchFeed();
+  }, [searchTag, isJournalOnly, fetchFeed]);
 
   useEffect(() => {
     if (selectedPostId) {
@@ -498,10 +544,31 @@ const Community: React.FC<CommunityProps> = ({
           setShowAuthModal(true);
           return;
       }
-      if (!currentUserMode.userId) return;
+      const userId = currentUserMode.userId;
+      if (!userId) return;
       hapticFeedback(10);
-      const isLiked = post.likes?.includes(currentUserMode.userId);
-      await FirebaseService.toggleLike(post.id, currentUserMode.userId, !!isLiked);
+      const isLiked = !!post.likes?.includes(userId);
+
+      // Optimistic update: this feed's main view is a one-time fetch (not
+      // a live subscription), so without this, liking a post gave zero
+      // visual feedback at all — not just a lack of snappiness, the heart
+      // fill and like count genuinely never changed until a full reload.
+      const applyLikeState = (likes: string[] | undefined, shouldBeLiked: boolean) => {
+          const base = likes || [];
+          return shouldBeLiked
+              ? (base.includes(userId) ? base : [...base, userId])
+              : base.filter(id => id !== userId);
+      };
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: applyLikeState(p.likes, !isLiked) } : p));
+      setActivePost(prev => prev && prev.id === post.id ? { ...prev, likes: applyLikeState(prev.likes, !isLiked) } : prev);
+
+      try {
+          await FirebaseService.toggleLike(post.id, userId, isLiked);
+      } catch (err) {
+          console.error('Failed to toggle like, reverting:', err);
+          setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: applyLikeState(p.likes, isLiked) } : p));
+          setActivePost(prev => prev && prev.id === post.id ? { ...prev, likes: applyLikeState(prev.likes, isLiked) } : prev);
+      }
   };
 
   const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
@@ -513,7 +580,13 @@ const Community: React.FC<CommunityProps> = ({
               setShowAuthModal(true);
               return;
           }
-          handleLike(e as any, post);
+          // Double-tap only ever likes, never unlikes — matches the
+          // standard convention (re-double-tapping an already-liked post
+          // just replays the heart burst without unliking it).
+          const isLiked = currentUserMode.userId && post.likes?.includes(currentUserMode.userId);
+          if (!isLiked) {
+              handleLike(e as any, post);
+          }
           setShowHeartAnimation(true);
           setTimeout(() => setShowHeartAnimation(false), 800);
       }
@@ -630,7 +703,29 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   return (
-    <div id="community-scroll-container" className="w-full relative min-h-screen max-h-screen overflow-y-auto no-scrollbar scroll-smooth">
+    <div
+        id="community-scroll-container"
+        ref={scrollContainerRef}
+        onTouchStart={handlePullTouchStart}
+        onTouchMove={handlePullTouchMove}
+        onTouchEnd={handlePullTouchEnd}
+        className="w-full relative min-h-screen max-h-screen overflow-y-auto overscroll-y-contain no-scrollbar scroll-smooth"
+    >
+        {!isJournalOnly && (pullDistance > 0 || isRefreshing) && (
+            <div
+                className="absolute top-0 left-0 right-0 flex justify-center z-40 pointer-events-none transition-[height] duration-200"
+                style={{ height: isRefreshing ? 56 : pullDistance }}
+            >
+                <div className="flex items-end pb-2">
+                    <span
+                        className={`material-symbols-outlined text-theme-accent text-2xl ${isRefreshing ? 'animate-spin' : ''}`}
+                        style={!isRefreshing ? { transform: `rotate(${Math.min(pullDistance / PULL_THRESHOLD, 1) * 180}deg)`, opacity: Math.min(pullDistance / PULL_THRESHOLD, 1) } : undefined}
+                    >
+                        {isRefreshing ? 'progress_activity' : 'arrow_downward'}
+                    </span>
+                </div>
+            </div>
+        )}
         {/* Advanced Species Intelligence Modal */}
         {selectedSpecies && (
             <SpeciesInfoModal
@@ -1160,7 +1255,20 @@ const Community: React.FC<CommunityProps> = ({
                         
                         return (
                             <>
-                                <div className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden">
+                                <div onClick={(e) => handleDoubleTap(e, activePost)} className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden">
+                                    <AnimatePresence>
+                                        {showHeartAnimation && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.5 }}
+                                                animate={{ opacity: 1, scale: 1.15 }}
+                                                exit={{ opacity: 0, scale: 1.4 }}
+                                                transition={{ duration: 0.35, ease: 'easeOut' }}
+                                                className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+                                            >
+                                                <span className="material-symbols-outlined icon-fill text-white text-9xl drop-shadow-2xl">favorite</span>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                     {hasMultipleItems ? (
                                         <>
                                             <div 
@@ -1199,7 +1307,6 @@ const Community: React.FC<CommunityProps> = ({
                                                                 src={item.imageUrl || item.thumbnailUrl}
                                                                 alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                                onClick={() => window.open(item.imageUrl || item.thumbnailUrl, '_blank')}
                                                             />
                                                         )}
                                                     </div>
@@ -1272,7 +1379,6 @@ const Community: React.FC<CommunityProps> = ({
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl}
                                                     alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                    onClick={() => window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank')}
                                                 />
                                             )}
                                         </div>
@@ -1293,7 +1399,7 @@ const Community: React.FC<CommunityProps> = ({
                                             </div>
                                         </div>
                                         <button onClick={(e) => handleLike(e, activePost)} aria-label={activePost.likes?.includes(currentUserMode.userId!) ? 'Unlike' : 'Like'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
-                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'fill-current' : ''}`}>favorite</span>
+                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'icon-fill' : ''}`}>favorite</span>
                                             <span className="text-[10px] font-black tracking-tighter">{activePost.likes?.length || 0}</span>
                                         </button>
                                     </div>

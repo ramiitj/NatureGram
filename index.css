@@ -72,6 +72,13 @@
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
 }
+/* Toggles the icon font's own FILL axis for a "liked"/active state.
+ * `fill-current` (Tailwind's SVG fill utility) was being applied to
+ * these font-ligature icons throughout the app and doing nothing —
+ * font glyphs have no SVG fill attribute to set. */
+.icon-fill {
+  font-variation-settings: 'FILL' 1;
+}
 
 @tailwind base;
 @tailwind components;
