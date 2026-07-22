@@ -945,7 +945,7 @@ const Community: React.FC<CommunityProps> = ({
             {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
                 {[
-                    { id: 'all', label: 'All Sighting', icon: '✨' },
+                    { id: 'all', label: 'All Sightings', icon: '✨' },
                     { id: 'flora', label: 'Flora', icon: '🌿' },
                     { id: 'fauna', label: 'Fauna', icon: '🐦' },
                     { id: 'fungi', label: 'Fungi / Spores', icon: '🍄' },

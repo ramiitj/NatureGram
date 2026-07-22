@@ -379,7 +379,7 @@ const App: React.FC = () => {
     setCurrentView(AppView.COMMUNITY);
   };
 
-  const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
+  const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS || currentView === AppView.USER_PROFILE;
 
   if (isInitializingDeepLink) {
       return (
@@ -590,11 +590,10 @@ const App: React.FC = () => {
                      onStartExpedition={() => handleNavigationRequest(AppView.LENS)}
                  />}
              {currentView === AppView.DRAFTS && userMode && <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); setCurrentView(AppView.COMMUNITY); }} />}
+             {currentView === AppView.USER_PROFILE && userMode && (
+                 <UserProfile userId={targetProfileId || userMode.userId!} currentUserId={userMode.userId} isAnonymous={userMode.isAnonymous} onBack={() => handleNavigationRequest(AppView.COMMUNITY)} onSignOut={() => handleNavigationRequest(AppView.LANDING)} onViewJournal={() => handleNavigationRequest(AppView.JOURNAL)} onAdminConsole={() => setCurrentView(AppView.ADMIN)} />
+             )}
           </div>
-        )}
-        
-        {currentView === AppView.USER_PROFILE && userMode && (
-            <UserProfile userId={targetProfileId || userMode.userId!} currentUserId={userMode.userId} isAnonymous={userMode.isAnonymous} onBack={() => handleNavigationRequest(AppView.COMMUNITY)} onSignOut={() => handleNavigationRequest(AppView.LANDING)} onViewJournal={() => handleNavigationRequest(AppView.JOURNAL)} onAdminConsole={() => setCurrentView(AppView.ADMIN)} />
         )}
 
         {currentView === AppView.ADMIN && <AdminConsole onBack={() => setCurrentView(AppView.USER_PROFILE)} />}

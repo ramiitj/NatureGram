@@ -102,7 +102,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   if (isLoading) {
       return (
-          <div className="fixed inset-0 z-[60] bg-day-bg flex items-center justify-center animate-fade-in">
+          <div className="h-full bg-day-bg flex items-center justify-center animate-fade-in">
               <div className="w-8 h-8 border-2 border-theme-accent border-t-transparent animate-spin rounded-full"></div>
           </div>
       );
@@ -110,7 +110,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   if (isAnonymous && isOwnProfile) {
       return (
-          <div className="fixed inset-0 z-[60] bg-day-bg flex flex-col font-body animate-slide-in-right">
+          <div className="h-full bg-day-bg flex flex-col font-body animate-slide-in-right">
               <header className="px-6 py-4 flex items-center justify-between bg-white/50 backdrop-blur-md border-b border-theme-primary/10 shrink-0 safe-pt">
                   <button
                       onClick={onBack}
@@ -133,7 +133,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   }
 
   return (
-    <div className="fixed inset-0 z-[60] bg-day-bg flex flex-col font-body animate-slide-in-right">
+    <div className="h-full bg-day-bg flex flex-col font-body animate-slide-in-right">
         <header className="px-6 py-4 flex items-center justify-between bg-white/50 backdrop-blur-md border-b border-theme-primary/10 shrink-0 safe-pt">
             <button
                 onClick={onBack}

@@ -30,11 +30,11 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
 
   return (
     <div className="h-full bg-day-bg p-8 animate-fade-in">
-        <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-display font-black italic text-theme-primary">Saved Drafts</h2>
-            <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors">
+        <div className="flex items-center gap-4 mb-8">
+            <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-theme-accent shadow-sm hover:opacity-70 transition-colors shrink-0">
                 <span className="material-symbols-outlined">arrow_back</span>
             </button>
+            <h2 className="text-3xl font-display font-black italic text-theme-primary">Saved Drafts</h2>
         </div>
 
         {loading ? (
