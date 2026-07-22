@@ -25,6 +25,21 @@ test('landing page renders the core hero and call-to-action', async ({ page }) =
   await expect(page.getByText('Begin Expedition')).toBeVisible();
 });
 
+test('community feed view (/feed) loads without an uncaught page error', async ({ page }) => {
+  // Exercises components/Community.tsx directly (default anonymous user
+  // mode means no login click is needed to reach it). Tolerant of the
+  // feed being empty/erroring against a live backend from this
+  // environment — the point is confirming the component itself doesn't
+  // crash on mount, not that specific posts load.
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (err) => pageErrors.push(err));
+
+  await page.goto('/feed');
+
+  await expect(page.getByText('NatureGram', { exact: true })).toBeVisible();
+  expect(pageErrors, `Uncaught page errors: ${pageErrors.map(e => e.message).join('; ')}`).toEqual([]);
+});
+
 test('share route responds for a non-existent post without crashing the server', async ({ request }) => {
   // Exercises server/server.js's /s/:postId route (crawler-preview branch is
   // gated on User-Agent, so a plain request here takes the human-redirect

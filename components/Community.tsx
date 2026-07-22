@@ -7,127 +7,12 @@ import PublisherStudio from './PublisherStudio';
 import MediaEditor from './MediaEditor';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
+import FeedCard from './community/FeedCard';
+import SpeciesInfoModal from './community/SpeciesInfoModal';
+import DeleteConfirmModal from './community/DeleteConfirmModal';
+import CommentsDrawer from './community/CommentsDrawer';
 import { AnimatePresence, motion } from 'motion/react';
 import { hapticFeedback } from '../utils';
-
-const FeedCard: React.FC<{
-    post: CommunityPost;
-    onPostClick: (post: CommunityPost) => void;
-    loadedImages: Record<string, boolean>;
-    onImageLoad: (id: string) => void;
-}> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const isLoaded = post.mediaType === 'audio' ? true : loadedImages[post.id];
-    const [isHovered, setIsHovered] = useState(false);
-    const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
-    const cardRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const isMobile = window.matchMedia("(hover: none)").matches;
-        if (!isMobile || !cardRef.current) return;
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    // Start playing if at least 60% of the card is visible
-                    setIsHovered(entry.isIntersecting);
-                });
-            },
-            { threshold: 0.6 }
-        );
-        
-        observer.observe(cardRef.current);
-        return () => observer.disconnect();
-    }, []);
-
-    useEffect(() => {
-        let active = true;
-        if (isHovered && !post.videoUrl && !post.audioUrl && (post.mediaType === 'video' || post.mediaType === 'audio')) {
-            FirebaseService.getFullPost(post.id).then(full => {
-                if (active && full) {
-                    setFullMedia({ videoUrl: full.videoUrl, audioUrl: full.audioUrl });
-                }
-            });
-        }
-        return () => { active = false; };
-    }, [isHovered, post]);
-
-    const videoUrl = post.videoUrl || fullMedia?.videoUrl;
-    const audioUrl = post.audioUrl || fullMedia?.audioUrl;
-
-    return (
-        <div 
-            ref={cardRef}
-            onClick={() => { setIsHovered(false); onPostClick(post); }} 
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            className={`relative group cursor-pointer transition-all duration-700 break-inside-avoid ${isLoaded ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-[0.98]'}`}
-        >
-            <div className="relative overflow-hidden bg-theme-primary/10 shadow-sm border border-theme-primary/10 rounded-lg">
-                {post.mediaType === 'audio' ? (
-                    <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} />
-                        ) : null}
-                        <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
-                    </div>
-                ) : post.mediaType === 'video' ? (
-                    <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} />
-                        ) : (
-                            <div className="w-full h-full bg-stone-900 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
-                            </div>
-                        )}
-                        <span className="material-symbols-outlined text-white text-4xl absolute z-10 drop-shadow-md">play_circle</span>
-                    </div>
-                ) : (
-                    <img 
-                        src={post.thumbnailUrl || post.imageUrl} 
-                        alt="Observation" 
-                        loading="lazy" 
-                        onLoad={() => onImageLoad(post.id)}
-                        className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
-                    />
-                )}
-                {post.items && post.items.length > 1 && (
-                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center z-20">
-                        <span className="material-symbols-outlined text-white text-[12px]">filter_none</span>
-                    </div>
-                )}
-                {post.mediaType === 'video' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">play_arrow</span>
-                    </div>
-                ) : post.mediaType === 'audio' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">mic</span>
-                    </div>
-                ) : post.audioUrl ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">music_note</span>
-                    </div>
-                ) : null}
-            </div>
-            
-            <div className={`px-1 mt-2 text-center md:text-left transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h4 className="text-[10px] font-display font-bold italic text-theme-primary leading-tight truncate tracking-tight group-hover:text-theme-accent transition-colors">
-                    {post.title || post.labels?.[0] || "Specimen"}
-                </h4>
-                <div className="flex items-center justify-center md:justify-start gap-1 mt-1 opacity-40">
-                    <p className="catalog-label text-[6px] tracking-[0.2em] uppercase font-bold text-theme-primary/60">
-                        {post.locationArea || "Earth"}
-                    </p>
-                    <span className="w-0.5 h-0.5 rounded-full bg-theme-primary/30 shrink-0"></span>
-                    <div className="flex items-center gap-0.5">
-                            <span className="material-symbols-outlined text-[7px] text-theme-accent">favorite</span>
-                            <span className="text-[7px] font-bold text-theme-primary/60">{post.likes?.length || 0}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 interface CommunityProps {
   currentUserMode: UserMode;
@@ -743,91 +628,19 @@ const Community: React.FC<CommunityProps> = ({
     <div id="community-scroll-container" className="w-full relative min-h-screen max-h-screen overflow-y-auto no-scrollbar scroll-smooth">
         {/* Advanced Species Intelligence Modal */}
         {selectedSpecies && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-theme-shadow/80 backdrop-blur-sm" onClick={() => setSelectedSpecies(null)}></div>
-                <div className="relative w-full max-w-lg bg-day-bg rounded-3xl overflow-hidden shadow-2xl animate-slide-up border border-theme-primary/10 flex flex-col max-h-[80vh]">
-                    <div className="p-6 md:p-8 shrink-0 flex items-center justify-between border-b border-theme-primary/10">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-2xl">pest_control</span>
-                            </div>
-                            <div>
-                                <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{selectedSpecies.name}</h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
-                                    <span className="material-symbols-outlined text-[10px]">public</span>
-                                    {selectedSpecies.location}
-                                </p>
-                            </div>
-                        </div>
-                        <button onClick={() => setSelectedSpecies(null)} className="text-theme-primary/40 hover:text-theme-primary transition-colors">
-                            <span className="material-symbols-outlined text-2xl">close</span>
-                        </button>
-                    </div>
-                    
-                    <div className="p-6 md:p-8 overflow-y-auto hidden-scrollbar flex-1">
-                        {speciesData?.loading ? (
-                            <div className="flex flex-col items-center justify-center py-12 gap-4">
-                                <span className="material-symbols-outlined text-4xl text-theme-accent animate-spin">sync</span>
-                                <p className="text-theme-primary/40 font-black text-[10px] uppercase tracking-widest animate-pulse">Running Global Biological Sweep...</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-6">
-                                {speciesData?.thumbnail && (
-                                    <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden shadow-inner border border-theme-primary/10 shrink-0">
-                                        <img src={speciesData.thumbnail} className="w-full h-full object-cover" alt={selectedSpecies.name} />
-                                    </div>
-                                )}
-                                <div className="space-y-4">
-                                    <p className="catalog-label text-[9px] font-black tracking-[0.2em] text-theme-primary uppercase flex items-center gap-1.5 opacity-60">
-                                        <span className="material-symbols-outlined text-xs">science</span>
-                                        Encyclopedia Data
-                                    </p>
-                                    <p className="text-theme-primary/80 font-serif leading-relaxed text-sm text-justify">
-                                        {speciesData?.extract}
-                                    </p>
-                                </div>
-                                <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4 mt-2 relative overflow-hidden flex items-center gap-4">
-                                    <span className="material-symbols-outlined text-blue-500 text-3xl opacity-50">map</span>
-                                    <div>
-                                        <p className="text-blue-600 font-bold text-xs">Geo-Spatial Sighting</p>
-                                        <p className="text-blue-600/70 text-[10px] leading-relaxed mt-1">This species was encountered within the <strong>{selectedSpecies.location}</strong> ecological zone. Local coordinates match observation bounds.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
+            <SpeciesInfoModal
+                species={selectedSpecies}
+                data={speciesData}
+                onClose={() => setSelectedSpecies(null)}
+            />
         )}
 
         {/* Custom Confirmation Modal */}
         {confirmDeleteId && (
-            <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-theme-shadow/80 backdrop-blur-sm" onClick={() => setConfirmDeleteId(null)}></div>
-                <div className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-8 shadow-2xl animate-slide-up border border-theme-primary/10">
-                    <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-6 mx-auto">
-                        <span className="material-symbols-outlined text-3xl">delete_forever</span>
-                    </div>
-                    <h3 className="text-2xl font-display font-black italic text-theme-primary text-center mb-3">Discard Specimen?</h3>
-                    <p className="text-sm text-theme-primary/60 text-center leading-relaxed mb-8">
-                        This observation will be permanently removed from the Living Field Guide and your personal archive.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                        <button 
-                            onClick={executeDelete}
-                            className="w-full py-4 bg-red-600 text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
-                        >
-                            Confirm Deletion
-                        </button>
-                        <button 
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/40 font-black text-[10px] uppercase tracking-widest rounded-full active:scale-95 transition-all"
-                        >
-                            Keep Observation
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <DeleteConfirmModal
+                onConfirm={executeDelete}
+                onCancel={() => setConfirmDeleteId(null)}
+            />
         )}
 
         {/* Instagram/Explore Inspired Search Header */}
@@ -1517,71 +1330,14 @@ const Community: React.FC<CommunityProps> = ({
     
     <AnimatePresence>
         {isCommentsOpen && (
-            <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 bg-black/60 backdrop-blur-sm font-body">
-                <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0" 
-                    onClick={() => setIsCommentsOpen(false)}
-                />
-                <motion.div 
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    drag="y"
-                    dragConstraints={{ top: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(e, { offset, velocity }) => {
-                        if (offset.y > 100 || velocity.y > 500) {
-                            setIsCommentsOpen(false);
-                        }
-                    }}
-                    className="w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
-                >
-                    <div className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
-                        <div className="w-12 h-1.5 bg-theme-primary/30 rounded-full"></div>
-                    </div>
-                    
-                    <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
-                        <h3 className="font-display font-black text-xl italic text-theme-primary">Field Notes</h3>
-                        <button onClick={() => setIsCommentsOpen(false)} className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
-                            <span className="material-symbols-outlined text-lg">close</span>
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        {comments.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-theme-primary/40">
-                                <span className="material-symbols-outlined text-4xl mb-2 opacity-50">forum</span>
-                                <p className="text-xs font-medium">No field notes yet.</p>
-                            </div>
-                        ) : (
-                            comments.map(c => (
-                                <div key={c.id} className="animate-fade-in group">
-                                    <p onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="text-[8px] font-black text-theme-primary/40 uppercase tracking-widest mb-1 leading-none cursor-pointer hover:text-theme-accent">{c.userName}</p>
-                                    <p className="text-[12px] text-theme-primary/80 leading-relaxed font-medium tracking-tight">{c.text}</p>
-                                </div>
-                            ))
-                        )}
-                    </div>
-
-                    <div className="p-4 border-t border-theme-primary/10 bg-white shrink-0">
-                        <form onSubmit={handleSendComment} className="flex gap-2.5">
-                            <input 
-                                value={newComment} 
-                                onChange={e => setNewComment(e.target.value)} 
-                                placeholder="Append field note..." 
-                                className="flex-1 bg-theme-primary/5 border border-theme-primary/10 rounded-lg px-4 py-3 text-xs outline-none focus:border-theme-accent transition-colors font-semibold"
-                            />
-                            <button type="submit" disabled={!newComment.trim()} className="px-5 py-3 bg-theme-primary text-white text-[9px] font-black uppercase tracking-widest rounded-lg disabled:opacity-30 transition-all active:scale-95">
-                                Log
-                            </button>
-                        </form>
-                    </div>
-                </motion.div>
-            </div>
+            <CommentsDrawer
+                comments={comments}
+                newComment={newComment}
+                onNewCommentChange={setNewComment}
+                onSendComment={handleSendComment}
+                onClose={() => setIsCommentsOpen(false)}
+                onProfileClick={handleProfileClick}
+            />
         )}
     </AnimatePresence>
 
