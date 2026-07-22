@@ -54,6 +54,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const [aiOpticActive, setAiOpticActive] = useState(false);
   const [isFlashing, setIsFlashing] = useState(false);
+  const [micUnavailable, setMicUnavailable] = useState(false);
+  const micUnavailableRef = useRef(false);
 
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
@@ -106,6 +108,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [isMuted, setIsMuted] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [showModalityTooltip, setShowModalityTooltip] = useState(false);
+  const [showHelpSheet, setShowHelpSheet] = useState(false);
   const [lastAudioSnapshotId, setLastAudioSnapshotId] = useState<string | null>(null);
   const [lastAudioImages, setLastAudioImages] = useState<{url: string, blob: Blob}[]>([]);
   const pendingAssociatedImagesRef = useRef<{ url: string, blob: Blob }[]>([]);
@@ -735,25 +738,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             }
         };
 
-        // 1. Try preferred settings (Requested Mode + Audio Processing)
-        // Note: Removed sampleRate constraint as it causes failures on some hardware.
-        // Web Audio API will handle resampling later.
-        let stream = await getMedia({ 
-            video: { facingMode: mode }, 
-            audio: { echoCancellation: true, noiseSuppression: true } 
-        });
-
-        // 2. Fallback: Any Camera + Audio Processing (Fixes desktop/device specific facingMode issues)
-        if (!stream) {
-            stream = await getMedia({ 
-                video: true, 
-                audio: { echoCancellation: true, noiseSuppression: true } 
+        let stream: MediaStream | null = null;
+        try {
+            // 1. Try preferred settings (Requested Mode + Audio Processing)
+            // Note: Removed sampleRate constraint as it causes failures on some hardware.
+            // Web Audio API will handle resampling later.
+            stream = await getMedia({
+                video: { facingMode: mode },
+                audio: { echoCancellation: true, noiseSuppression: true }
             });
-        }
 
-        // 3. Fallback: Any Camera + Any Audio (Fixes audio constraint issues)
-        if (!stream) {
-            stream = await getMedia({ video: true, audio: true });
+            // 2. Fallback: Any Camera + Audio Processing (Fixes desktop/device specific facingMode issues)
+            if (!stream) {
+                stream = await getMedia({
+                    video: true,
+                    audio: { echoCancellation: true, noiseSuppression: true }
+                });
+            }
+
+            // 3. Fallback: Any Camera + Any Audio (Fixes audio constraint issues)
+            if (!stream) {
+                stream = await getMedia({ video: true, audio: true });
+            }
+        } catch (permErr: any) {
+            // The combined video+audio request was denied outright. Before
+            // giving up on the whole session, check whether the camera
+            // alone is still usable — a lot of the app (capture, framing)
+            // works fine without a microphone; only the agent's ability to
+            // hear the user is lost. This distinguishes "mic blocked" from
+            // "camera blocked" instead of failing the same way for both.
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode } });
+            } catch {
+                throw new Error("CAMERA_PERMISSION_DENIED");
+            }
         }
 
         if (!stream) {
@@ -761,7 +779,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
 
         activeStreamRef.current = stream;
-        if (videoRef.current) { 
+        const noMic = stream.getAudioTracks().length === 0;
+        if (noMic && !micUnavailableRef.current) {
+            showStatus('error', "Microphone unavailable — the agent can see but won't hear you. Enable mic access in your browser settings to talk with it.");
+        }
+        micUnavailableRef.current = noMic;
+        setMicUnavailable(noMic);
+        if (videoRef.current) {
             videoRef.current.srcObject = stream; 
             stream.getVideoTracks().forEach(t => t.enabled = isCameraActiveRef.current);
         }
@@ -1003,6 +1027,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 const errMsg = err?.message || String(err);
                 if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
                     setSessionError("API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'. Also ensure empty referrers are allowed for WebSockets.");
+                } else if (errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.toLowerCase().includes("quota")) {
+                    setSessionError("You've reached today's usage limit for the Live Guide. Please try again in a little while.");
                 }
             }
         });
@@ -1028,34 +1054,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             await inputCtx.resume();
         }
         
-        const sourceNode = inputCtx.createMediaStreamSource(stream);
-        
-        // --- Dual-Path Audio Routing Setup ---
-        // Path A: To Agent (always on)
-        const agentGainNode = inputCtx.createGain();
-        agentGainNode.gain.value = 1;
-        agentGainNodeRef.current = agentGainNode;
-        sourceNode.connect(agentGainNode);
+        // createMediaStreamSource throws on a track-less stream, so only
+        // wire up the mic-input graph when a microphone was actually
+        // granted — a camera-only stream (mic denied/unavailable) still
+        // runs the session, just without the agent hearing the user.
+        if (stream.getAudioTracks().length > 0) {
+            const sourceNode = inputCtx.createMediaStreamSource(stream);
 
-        // Path B: To Recording (can be muted)
-        const recordingGainNode = inputCtx.createGain();
-        recordingGainNode.gain.value = 1; // Default to unmuted
-        recordingGainNodeRef.current = recordingGainNode;
-        sourceNode.connect(recordingGainNode);
-        
-        const recordingDestination = inputCtx.createMediaStreamDestination();
-        recordingDestinationRef.current = recordingDestination;
-        recordingGainNode.connect(recordingDestination);
-        // -------------------------------------
+            // --- Dual-Path Audio Routing Setup ---
+            // Path A: To Agent (always on)
+            const agentGainNode = inputCtx.createGain();
+            agentGainNode.gain.value = 1;
+            agentGainNodeRef.current = agentGainNode;
+            sourceNode.connect(agentGainNode);
 
-        processor = inputCtx.createScriptProcessor(4096, 1, 1);
-        processor.onaudioprocess = (e) => { 
-            if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
-                service.sendAudioChunk(e.inputBuffer.getChannelData(0)); 
-            }
-        };
-        agentGainNode.connect(processor);
-        processor.connect(inputCtx.destination); 
+            // Path B: To Recording (can be muted)
+            const recordingGainNode = inputCtx.createGain();
+            recordingGainNode.gain.value = 1; // Default to unmuted
+            recordingGainNodeRef.current = recordingGainNode;
+            sourceNode.connect(recordingGainNode);
+
+            const recordingDestination = inputCtx.createMediaStreamDestination();
+            recordingDestinationRef.current = recordingDestination;
+            recordingGainNode.connect(recordingDestination);
+            // -------------------------------------
+
+            processor = inputCtx.createScriptProcessor(4096, 1, 1);
+            processor.onaudioprocess = (e) => {
+                if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
+                    service.sendAudioChunk(e.inputBuffer.getChannelData(0));
+                }
+            };
+            agentGainNode.connect(processor);
+            processor.connect(inputCtx.destination);
+        }
 
         videoInterval = window.setInterval(() => {
              if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
@@ -1090,6 +1122,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         };
       } catch (err) {
           console.error("Session init failed:", err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg === "CAMERA_PERMISSION_DENIED") {
+              setSessionError("Camera access is required for the Live Lens. Please allow camera permissions for this site in your browser settings, then retry.");
+          }
           setAgentState('DISCONNECTED');
           return () => {
               if (geminiServiceRef.current) {
@@ -1139,6 +1175,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           }
           finalizeSession();
       }} className="absolute top-10 right-6 z-[120] w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg"><span className="material-symbols-outlined">close</span></button>
+
+      <button
+          onClick={() => setShowHelpSheet(true)}
+          aria-label="What can I ask or do?"
+          title="What can I ask or do?"
+          className="absolute top-10 left-6 z-[120] w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg"
+      >
+          <span className="material-symbols-outlined">help</span>
+      </button>
 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[120] pointer-events-auto flex flex-col items-center gap-2">
           {!analysisStatus && (
@@ -1211,6 +1256,52 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center">
               <div className="w-20 h-20 rounded-full border-4 border-theme-accent border-t-transparent animate-spin mb-8"></div>
               <h2 className="text-3xl font-display font-black italic text-white mb-2">Archiving Discovery...</h2>
+          </div>
+      )}
+
+      {showHelpSheet && (
+          <div className="absolute inset-0 z-[220] flex items-end sm:items-center justify-center p-4 animate-fade-in pointer-events-auto">
+              <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowHelpSheet(false)}></div>
+              <div className="relative w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden max-h-[80vh] overflow-y-auto">
+                  <div className="p-7">
+                      <h3 className="text-xl font-display font-black italic text-stone-900 mb-1">What Can I Ask or Do?</h3>
+                      <p className="text-xs text-stone-500 mb-5 uppercase tracking-widest font-bold">Field Guide Cheat Sheet</p>
+
+                      <div className="space-y-4 text-sm text-stone-700">
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">zoom_in</span>
+                              <p><b>"Zoom in on that."</b> The agent can adjust zoom, exposure, and switch between front/back cameras for you — just ask.</p>
+                          </div>
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">flashlight_on</span>
+                              <p><b>"Turn on the torch."</b> Works for low light, if your device supports it.</p>
+                          </div>
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">camera</span>
+                              <p><b>Tap the shutter</b> for a photo. <b>Hold it</b> to record up to 30s of video.</p>
+                          </div>
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">mic</span>
+                              <p><b>Hold the mic</b> for an audio-only recording. Tap it to mute/unmute your voice to the agent.</p>
+                          </div>
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">upload_file</span>
+                              <p><b>Already have media?</b> Use the upload button — no camera needed.</p>
+                          </div>
+                          <div className="flex gap-3">
+                              <span className="material-symbols-outlined text-theme-accent shrink-0">shield</span>
+                              <p>The agent won't offer edibility or toxicity guidance for anything it identifies — misidentification is genuinely dangerous, so it always sticks to biology and ID.</p>
+                          </div>
+                      </div>
+
+                      <button
+                          onClick={() => setShowHelpSheet(false)}
+                          className="mt-6 w-full py-4 rounded-2xl bg-theme-accent text-white font-black text-xs uppercase tracking-widest active:scale-95 transition-transform"
+                      >
+                          Got It
+                      </button>
+                  </div>
+              </div>
           </div>
       )}
 
@@ -1373,19 +1464,20 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               <div className="flex items-center gap-8">
                   <div className="flex flex-col items-center gap-2">
                       <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                          {isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening")}
+                          {micUnavailable ? "No Mic" : (isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening"))}
                       </span>
-                      <button 
+                      <button
                         onPointerDown={handleMicPress}
                         onPointerUp={handleMicRelease}
                         onPointerLeave={handleMicRelease}
-                        disabled={isProcessingCapture}
-                        className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl touch-none ${isRecordingAudio ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : (isMuted ? 'bg-white/5 border-white/10 text-white/20' : 'bg-theme-accent/20 border-theme-accent/30 text-theme-accent active:scale-95')} ${isProcessingCapture ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={isProcessingCapture || micUnavailable}
+                        title={micUnavailable ? "Microphone unavailable" : undefined}
+                        className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl touch-none ${isRecordingAudio ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : (isMuted || micUnavailable ? 'bg-white/5 border-white/10 text-white/20' : 'bg-theme-accent/20 border-theme-accent/30 text-theme-accent active:scale-95')} ${isProcessingCapture || micUnavailable ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                          <span className="material-symbols-outlined">{isRecordingAudio ? 'stop_circle' : (isMuted ? 'mic_off' : 'mic')}</span>
+                          <span className="material-symbols-outlined">{isRecordingAudio ? 'stop_circle' : (isMuted || micUnavailable ? 'mic_off' : 'mic')}</span>
                           {isRecordingAudio && <span className="text-[8px] font-black">{recordingTime}s</span>}
                       </button>
-                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-tighter">Tap: Mute • Hold: Rec</span>
+                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-tighter">{micUnavailable ? "Camera only" : "Tap: Mute • Hold: Rec"}</span>
                   </div>
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (

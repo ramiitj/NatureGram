@@ -28,6 +28,14 @@ export const getApiKey = async (): Promise<string> => {
 const FLASH_MODEL = 'gemini-2.5-flash';
 const PRO_MODEL = 'gemini-3.1-pro-preview';
 
+// Distinguishes an exhausted quota/rate limit from any other failure so the
+// user gets an explanation they can act on ("try again later") instead of a
+// generic "Analysis failed."
+const isQuotaExceededError = (e: unknown): boolean => {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    return errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.toLowerCase().includes("quota") || JSON.stringify(e).includes("RESOURCE_EXHAUSTED");
+};
+
 // Shared safety governance for both single- and multi-modal analysis below.
 // Mirrors the equivalent rules in constants.ts's SYSTEM_INSTRUCTION for the
 // live agent, so a post-capture analysis and a live-session identification
@@ -174,6 +182,9 @@ export const GenAiService = {
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
         }
+        if (isQuotaExceededError(e)) {
+            return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
+        }
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }
   },
@@ -233,6 +244,9 @@ export const GenAiService = {
         const errMsg = e instanceof Error ? e.message : String(e);
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
+        }
+        if (isQuotaExceededError(e)) {
+            return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
         }
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }

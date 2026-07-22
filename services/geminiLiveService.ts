@@ -5,6 +5,18 @@ import { floatTo16BitPCM, arrayBufferToBase64, decodeAudioData, base64ToArrayBuf
 import { GroundingLink } from "../types";
 import { auth } from "../firebaseConfig";
 
+// Errors worth giving up on immediately rather than burning through the
+// bounded reconnect attempts: a blocked API key or an exhausted quota won't
+// resolve itself by retrying, so retrying just delays a message the user
+// actually needs to see.
+const isFatalLiveError = (errMsg: string): boolean =>
+    errMsg.includes("referer") ||
+    errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") ||
+    errMsg.includes("403") ||
+    errMsg.includes("RESOURCE_EXHAUSTED") ||
+    errMsg.includes("429") ||
+    errMsg.toLowerCase().includes("quota");
+
 interface GeminiLiveDelegate {
   onAudioData: (audioBuffer: AudioBuffer) => void;
   onInterrupted?: () => void;
@@ -120,7 +132,7 @@ export class GeminiLiveService {
                 console.error("[GeminiLiveService] Live Error (callback):", err);
                 this.delegate.onError?.(err);
                 const errMsg = err?.message || String(err);
-                const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+                const isFatal = isFatalLiveError(errMsg);
                 if (!this.connected && !this.isManuallyClosed && !isFatal) {
                     this.handleReconnect();
                 } else if (isFatal) {
@@ -134,7 +146,7 @@ export class GeminiLiveService {
           console.error("[GeminiLiveService] ai.live.connect promise rejected:", err);
           this.delegate.onError?.(err);
           const errMsg = err?.message || String(err);
-          const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+          const isFatal = isFatalLiveError(errMsg);
           if (!isFatal) {
               this.handleReconnect();
           } else {
@@ -146,7 +158,7 @@ export class GeminiLiveService {
       console.error("[GeminiLiveService] Connection failed:", error);
       this.delegate.onError?.(error);
       const errMsg = error instanceof Error ? error.message : String(error);
-      const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+      const isFatal = isFatalLiveError(errMsg);
       if (!isFatal) {
           this.handleReconnect();
       } else {
