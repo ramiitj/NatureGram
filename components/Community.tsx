@@ -2,8 +2,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode, Comment } from '../types';
-import ShareStudio from './ShareStudio';
-import PublisherStudio from './PublisherStudio';
+import ShareSheet from './ShareSheet';
 import MediaEditor from './MediaEditor';
 import EditPostDetails from './EditPostDetails';
 import SkeletonPost from './SkeletonPost';
@@ -321,7 +320,6 @@ const Community: React.FC<CommunityProps> = ({
   }, [activePost]);
 
   const [sharingPost, setSharingPost] = useState<CommunityPost | null>(null);
-  const [publishingPost, setPublishingPost] = useState<CommunityPost | null>(null);
 
   const loadMore = useCallback(async () => {
       if (!hasMore || isLoading || isJournalOnly) return;
@@ -1235,14 +1233,6 @@ const Community: React.FC<CommunityProps> = ({
                     <div className="flex items-center gap-4">
                         {activePost.userId === currentUserMode.userId && (
                             <>
-                                <button
-                                    onClick={() => setPublishingPost(activePost)}
-                                    className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center text-emerald-700 transition-colors cursor-pointer"
-                                    title="Launch Publisher Studio"
-                                    aria-label="Launch Publisher Studio"
-                                >
-                                    <span className="material-symbols-outlined text-xl">campaign</span>
-                                </button>
                                 <button onClick={() => setIsEditing(true)} aria-label="Edit media" title="Edit media" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
                                     <span className="material-symbols-outlined text-xl">edit</span>
                                 </button>
@@ -1517,15 +1507,12 @@ const Community: React.FC<CommunityProps> = ({
     </AnimatePresence>
 
     <AnimatePresence>
-        {sharingPost && <ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} />}
-    </AnimatePresence>
-
-    <AnimatePresence>
-        {publishingPost && (
-            <PublisherStudio 
-                post={publishingPost} 
-                activeItemIndex={activeItemIndex} 
-                onClose={() => setPublishingPost(null)} 
+        {sharingPost && (
+            <ShareSheet
+                post={sharingPost}
+                activeItemIndex={activeItemIndex}
+                isOwner={sharingPost.userId === currentUserMode.userId}
+                onClose={() => setSharingPost(null)}
             />
         )}
     </AnimatePresence>

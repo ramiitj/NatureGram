@@ -4,6 +4,25 @@ export const hapticFeedback = (pattern: number | number[] = 50) => {
     }
 };
 
+// The canonical public origin for shareable post links. In local dev,
+// window.location.origin is localhost — useless in a link anyone else could
+// open, or that a social platform's link-unfurler bot could fetch for OG
+// preview data — so fall back to a configurable deployed origin instead.
+// Set VITE_PUBLIC_ORIGIN at build time to override the default fallback.
+const FALLBACK_PUBLIC_ORIGIN = 'https://ais-pre-jzuicxor5ykd57l4xuevq4-414779155775.asia-east1.run.app';
+
+export const getPublicOrigin = (): string => {
+    const origin = window.location.origin;
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return import.meta.env.VITE_PUBLIC_ORIGIN || FALLBACK_PUBLIC_ORIGIN;
+    }
+    return origin;
+};
+
+export const getPostShareUrl = (post: { id: string; sourceUrl?: string }): string => {
+    return post.sourceUrl || `${getPublicOrigin()}/s/${post.id}`;
+};
+
 export const generateThumbnail = async (blob: Blob, maxWidth = 800): Promise<Blob> => {
     if (!blob.type.startsWith('image/')) return blob;
     return new Promise((resolve) => {

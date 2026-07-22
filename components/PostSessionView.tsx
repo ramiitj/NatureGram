@@ -8,6 +8,7 @@ import { GenAiService, resolveNatureSubjectFields } from '../services/genAiServi
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AuthModal from './AuthModal.tsx';
 import { motion } from 'motion/react';
+import { getPublicOrigin } from '../utils.ts';
 
 interface PostSessionViewProps {
   snapshots: Snapshot[];
@@ -222,11 +223,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
   const handleCopyLink = async () => {
     if (!createdPostId) return;
-    let origin = window.location.origin;
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      origin = 'https://ais-pre-jzuicxor5ykd57l4xuevq4-414779155775.asia-east1.run.app';
-    }
-    const shareUrl = `${origin}/s/${createdPostId}`;
+    const shareUrl = `${getPublicOrigin()}/s/${createdPostId}`;
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
