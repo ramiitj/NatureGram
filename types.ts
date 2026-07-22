@@ -53,6 +53,10 @@ export interface Snapshot {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  // False when the agent/analysis found no plant, animal, fungus, or other
+  // natural subject in the media (a scope check, not a low-confidence ID).
+  isNatureSubject?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface ExpeditionDraft {
@@ -138,6 +142,8 @@ export interface CommunityPostItem {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  isNatureSubject?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface FeedThumbnail {
@@ -179,6 +185,8 @@ export interface CommunityPost extends FeedThumbnail {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  isNatureSubject?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 export interface Comment {

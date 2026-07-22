@@ -28,23 +28,35 @@ export const getApiKey = async (): Promise<string> => {
 const FLASH_MODEL = 'gemini-2.5-flash';
 const PRO_MODEL = 'gemini-3.1-pro-preview';
 
+// Shared safety governance for both single- and multi-modal analysis below.
+// Mirrors the equivalent rules in constants.ts's SYSTEM_INSTRUCTION for the
+// live agent, so a post-capture analysis and a live-session identification
+// of the same subject are governed by the same policy.
+const SAFETY_INSTRUCTIONS = `
+SAFETY (non-negotiable): Never include edibility, toxicity, medicinal, or "is it safe to touch/eat" guidance for any fungus, plant, berry, or organism, even with disclaimers — misidentified "edible" species is a documented cause of serious injury and death. If the subject invites that question, the ecological insight should stick to identification and biology only. If a person is a prominent subject in the media, do not describe, identify, or make demographic claims about them — acknowledge their presence neutrally at most.`;
+
 interface TaxonomyResult {
     taxonomy: string[];
     ecologic: string;
     hashtags: string[];
     location: string;
     confidence?: string;
+    isNatureSubject?: boolean;
 }
 
 const TAXONOMY_SCHEMA_PROPERTIES = {
-    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds." },
-    ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description." },
+    isNatureSubject: { type: Type.BOOLEAN, description: "False if the media contains no plant, animal, fungus, or other natural subject (e.g. it's a room, a vehicle, a screen, a document). True otherwise." },
+    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds. If isNatureSubject is false, an empty array." },
+    ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description. If isNatureSubject is false, a brief plain statement that no natural subject was found — never an invented reading of the scene." },
     hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
     location: { type: Type.STRING, description: "The location of the observation, inferred or provided." },
-    confidence: { type: Type.STRING, description: "Your confidence in this identification: 'high', 'medium', or 'low'." }
+    confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Your confidence in this identification." }
 };
 
+// Only meaningful when isNatureSubject is true — a confident "no nature
+// subject here" is a valid, useful result, not a low-confidence one.
 const isLowConfidenceOrEmpty = (result: TaxonomyResult): boolean => {
+    if (result.isNatureSubject === false) return false;
     const hasTaxonomy = Array.isArray(result.taxonomy) && result.taxonomy.length > 0 && result.taxonomy[0] !== "Unknown";
     return !hasTaxonomy || result.confidence === 'low';
 };
@@ -76,7 +88,7 @@ const generateTaxonomyWithFallback = async (ai: GoogleGenAI, contents: any): Pro
         responseSchema: {
             type: Type.OBJECT,
             properties: TAXONOMY_SCHEMA_PROPERTIES,
-            required: ["taxonomy", "ecologic", "hashtags", "location"]
+            required: ["isNatureSubject", "taxonomy", "ecologic", "hashtags", "location"]
         }
     };
 
@@ -98,11 +110,27 @@ const generateTaxonomyWithFallback = async (ai: GoogleGenAI, contents: any): Pro
     return { result, modelUsed: PRO_MODEL };
 };
 
+// Defense in depth for every analyzeMedia/analyzeMultimodal caller: even
+// though the prompt/schema already instruct the model not to invent a
+// natural reading of a non-nature scene, don't trust its free-text
+// taxonomy/insight in that case — override with a fixed, honest message.
+// Centralized here so every capture path (live tool call, upload, session
+// finalize) applies the same scope-gate handling instead of four separate
+// copies drifting apart.
+export const resolveNatureSubjectFields = (result: { taxonomy: string[], ecologic: string, isNatureSubject?: boolean }): { labels: string[], aiInsight: string, isNatureSubject: boolean } => {
+    const isNatureSubject = result.isNatureSubject !== false;
+    return {
+        isNatureSubject,
+        labels: isNatureSubject ? result.taxonomy : ['No Nature Subject Detected'],
+        aiInsight: isNatureSubject ? result.ecologic : "This capture doesn't appear to contain a natural subject.",
+    };
+};
+
 export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
    */
-  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string }> => {
+  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean }> => {
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -119,7 +147,8 @@ export const GenAiService = {
         Identify all species or natural phenomena present. If this is a video, you MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
         Provide the taxonomy (species names of plants, animals, and sources of sounds), an ecological insight covering all aspects, suggested hashtags, and the location.
-        Also include your confidence ('high', 'medium', or 'low') in this identification.`;
+        Also include your confidence ('high', 'medium', or 'low') in this identification.
+        ${SAFETY_INSTRUCTIONS}`;
 
         const { result } = await generateTaxonomyWithFallback(ai, {
             parts: [
@@ -132,7 +161,9 @@ export const GenAiService = {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
             hashtags: result.hashtags || ["Nature"],
-            location: result.location || location || "Unknown Location"
+            location: result.location || location || "Unknown Location",
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject
         };
     } catch (e) {
         console.error("Media analysis failed", e);
@@ -148,7 +179,7 @@ export const GenAiService = {
    * Analyzes multiple modalities (audio + images) to extract deep ecological insights.
    * This prioritizes audio fidelity while using images for grounding.
    */
-  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string }> => {
+  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean }> => {
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -178,7 +209,8 @@ export const GenAiService = {
         Identify all species or natural phenomena present. You MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or evolutionary significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
         Provide the taxonomy (species names of plants, animals, and sources of sounds), a deep ecological insight covering all aspects, suggested hashtags, and the location.
-        Also include your confidence ('high', 'medium', or 'low') in this identification.`;
+        Also include your confidence ('high', 'medium', or 'low') in this identification.
+        ${SAFETY_INSTRUCTIONS}`;
 
         parts.push({ text: prompt });
 
@@ -188,7 +220,9 @@ export const GenAiService = {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
             hashtags: result.hashtags || ["Nature"],
-            location: result.location || location || "Unknown Location"
+            location: result.location || location || "Unknown Location",
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject
         };
     } catch (e) {
         console.error("Multimodal analysis failed", e);

@@ -6,7 +6,7 @@ import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
-import { GenAiService } from '../services/genAiService.ts';
+import { GenAiService, resolveNatureSubjectFields } from '../services/genAiService.ts';
 import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -321,16 +321,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               allImageBlobs, 
               location
           ).then(result => {
+              const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
               updateSnapshot(snapId, {
-                  aiInsight: result.ecologic,
-                  labels: result.taxonomy,
+                  aiInsight,
+                  labels,
                   locationArea: result.location,
                   isAnalyzing: false,
-                  aiProposedLabels: result.taxonomy,
-                  aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)' 
+                  isNatureSubject,
+                  confidence: result.confidence,
+                  aiProposedLabels: labels,
+                  aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
               });
               setIsProcessingCapture(false);
-              showStatus('success', 'Analysis complete. Saved to field notes.');
+              showStatus('success', isNatureSubject ? 'Analysis complete. Saved to field notes.' : 'No nature subject detected in this capture.');
           }).catch(err => {
               console.error("Background analysis failed", err);
               updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -462,16 +465,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   });
 
                   GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
+                      const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
                       updateSnapshot(snapId, {
-                          aiInsight: result.ecologic,
-                          labels: result.taxonomy,
+                          aiInsight,
+                          labels,
                           locationArea: result.location,
                           isAnalyzing: false,
-                          aiProposedLabels: result.taxonomy,
-                          aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+                          isNatureSubject,
+                          confidence: result.confidence,
+                          aiProposedLabels: labels,
+                          aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
                       });
                       setIsProcessingCapture(false);
-                      showStatus('success', 'Analysis complete. Saved to field notes.');
+                      showStatus('success', isNatureSubject ? 'Analysis complete. Saved to field notes.' : 'No nature subject detected in this capture.');
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
                       updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -591,16 +597,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       }
 
       GenAiService.analyzeMedia(file, mediaType, location).then(result => {
+          const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
           updateSnapshot(snapId, {
-              aiInsight: result.ecologic,
-              labels: result.taxonomy,
+              aiInsight,
+              labels,
               locationArea: result.location,
               isAnalyzing: false,
-              aiProposedLabels: result.taxonomy,
-              aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+              isNatureSubject,
+              confidence: result.confidence,
+              aiProposedLabels: labels,
+              aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
           });
           setIsProcessingCapture(false);
-          showStatus('success', 'Upload analyzed. Saved to field notes.');
+          showStatus('success', isNatureSubject ? 'Upload analyzed. Saved to field notes.' : 'No nature subject detected in this upload.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
           updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -878,23 +887,37 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (res && res.blobPromise) {
         res.blobPromise.then(compressedBlob => {
            const objUrl = URL.createObjectURL(compressedBlob);
-           const resolvedLabels = args.labels || (args.label ? [args.label] : ['Nature']);
-           const resolvedBehavior = args.behavior || "Manual observation captured by explorer.";
-           const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
-           
+           // Defense in depth: even though the prompt/schema instruct the
+           // model not to invent a natural reading when is_nature_subject
+           // is false, don't trust free-text labels/insight in that case —
+           // override with an honest, fixed message rather than whatever
+           // the model happened to emit.
+           const isNatureSubject = args.is_nature_subject !== false;
+           const resolvedLabels = isNatureSubject
+               ? (args.labels || (args.label ? [args.label] : ['Nature']))
+               : ['No Nature Subject Detected'];
+           const resolvedBehavior = isNatureSubject
+               ? (args.behavior || "Manual observation captured by explorer.")
+               : "No plant, animal, or fungus detected in this frame.";
+           const resolvedAiInsight = isNatureSubject
+               ? (args.ai_insight || "Visual record for field study.")
+               : "This capture doesn't appear to contain a natural subject.";
+
            retakesCountRef.current += 1;
 
-           onCapture({ 
-               id: Date.now().toString(), 
-               url: objUrl, 
-               blob: compressedBlob, 
-               timestamp: new Date().toLocaleTimeString(), 
+           onCapture({
+               id: Date.now().toString(),
+               url: objUrl,
+               blob: compressedBlob,
+               timestamp: new Date().toLocaleTimeString(),
                labels: resolvedLabels,
-               behavior: resolvedBehavior, 
+               behavior: resolvedBehavior,
                aiInsight: resolvedAiInsight,
-               type: 'image', 
-               userId: userMode.userId, 
+               type: 'image',
+               userId: userMode.userId,
                isHybrid: args.is_hybrid,
+               isNatureSubject,
+               confidence: args.confidence,
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
                timeToRecordMs: Date.now() - sessionStartMsRef.current,

@@ -4,7 +4,7 @@ import { Snapshot, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { generateFieldCard } from '../services/audioUtils.ts';
 import { rotateImageBlob } from '../services/imageUtils.ts';
-import { GenAiService } from '../services/genAiService.ts';
+import { GenAiService, resolveNatureSubjectFields } from '../services/genAiService.ts';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AuthModal from './AuthModal.tsx';
 import { motion } from 'motion/react';
@@ -112,16 +112,19 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                 }
                 
                 if (result) {
-                    setAiInsight(result.ecologic);
-                    setLabels(result.taxonomy);
+                    const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
+                    setAiInsight(aiInsight);
+                    setLabels(labels);
                     setTags(result.hashtags);
                     if (result.location && !resolvedArea) setResolvedArea(result.location);
 
                     setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? {
                         ...s,
-                        aiInsight: result.ecologic,
-                        labels: result.taxonomy,
+                        aiInsight,
+                        labels,
                         locationArea: result.location,
+                        isNatureSubject,
+                        confidence: result.confidence,
                     } : s));
                 }
             } catch (e) {
@@ -529,7 +532,23 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           </section>
                           
                           <section>
-                              <label className="catalog-label text-[9px] mb-3 block opacity-50">Ecological Insight</label>
+                              <div className="flex items-center justify-between mb-3">
+                                  <label className="catalog-label text-[9px] opacity-50">Ecological Insight</label>
+                                  {snapshots[currentSnapIndex]?.isNatureSubject === false && (
+                                      <span className="normal-case tracking-normal font-bold text-[9px] px-2 py-0.5 rounded-full bg-stone-400/10 text-stone-500">
+                                          No nature subject detected
+                                      </span>
+                                  )}
+                                  {snapshots[currentSnapIndex]?.confidence && snapshots[currentSnapIndex]?.isNatureSubject !== false && (
+                                      <span className={`normal-case tracking-normal font-bold text-[9px] px-2 py-0.5 rounded-full ${
+                                          snapshots[currentSnapIndex]?.confidence === 'high' ? 'bg-emerald-500/10 text-emerald-700' :
+                                          snapshots[currentSnapIndex]?.confidence === 'medium' ? 'bg-amber-500/10 text-amber-700' :
+                                          'bg-stone-400/10 text-stone-500'
+                                      }`}>
+                                          {snapshots[currentSnapIndex]?.confidence} confidence
+                                      </span>
+                                  )}
+                              </div>
                               <div className="relative">
                                   <textarea 
                                       value={aiInsight} 

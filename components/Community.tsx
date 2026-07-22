@@ -1429,10 +1429,21 @@ const Community: React.FC<CommunityProps> = ({
                                                 )}
 
                                                 {currentItem.aiInsight && (
-                                                    <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
-                                                        <p className="catalog-label text-[8px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
-                                                            <span className="material-symbols-outlined text-[11px]">auto_awesome</span>
-                                                            Ecologic Analysis
+                                                    <div className={`p-5 border rounded-xl space-y-3 ${currentItem.isNatureSubject === false ? 'bg-stone-50 border-stone-200' : 'bg-insight-bg border-theme-accent/30'}`}>
+                                                        <p className={`catalog-label text-[8px] font-black tracking-[0.25em] uppercase flex items-center justify-between gap-1.5 border-b pb-2 ${currentItem.isNatureSubject === false ? 'text-stone-400 border-stone-200' : 'text-theme-accent border-theme-accent/20'}`}>
+                                                            <span className="flex items-center gap-1.5">
+                                                                <span className="material-symbols-outlined text-[11px]">{currentItem.isNatureSubject === false ? 'info' : 'auto_awesome'}</span>
+                                                                {currentItem.isNatureSubject === false ? 'No Nature Subject' : 'Ecologic Analysis'}
+                                                            </span>
+                                                            {currentItem.confidence && currentItem.isNatureSubject !== false && (
+                                                                <span className={`normal-case tracking-normal font-bold text-[9px] px-2 py-0.5 rounded-full shrink-0 ${
+                                                                    currentItem.confidence === 'high' ? 'bg-emerald-500/10 text-emerald-700' :
+                                                                    currentItem.confidence === 'medium' ? 'bg-amber-500/10 text-amber-700' :
+                                                                    'bg-stone-400/10 text-stone-500'
+                                                                }`}>
+                                                                    {currentItem.confidence} confidence
+                                                                </span>
+                                                            )}
                                                         </p>
                                                         <div className="space-y-3 mt-2">
                                                             {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (

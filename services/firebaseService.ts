@@ -551,6 +551,8 @@ export const FirebaseService = {
             aiProposedBehavior: snapshot.aiProposedBehavior || null,
             humanDelta: snapshot.humanDelta || false,
             sessionRetakes: snapshot.sessionRetakes || null,
+            isNatureSubject: snapshot.isNatureSubject ?? null,
+            confidence: snapshot.confidence || null,
           };
       }));
 
@@ -596,6 +598,8 @@ export const FirebaseService = {
         timeToRecordMs: primaryItem.timeToRecordMs || null,
         sessionRetakes: primaryItem.sessionRetakes || null,
         humanDelta: primaryItem.humanDelta || false,
+        isNatureSubject: primaryItem.isNatureSubject ?? null,
+        confidence: primaryItem.confidence || null,
       };
 
       if (synthesizedData) {
@@ -726,10 +730,12 @@ export const FirebaseService = {
         aiProposedBehavior: snapshot.aiProposedBehavior || null,
         sessionRetakes: snapshot.sessionRetakes || null,
         humanDelta: snapshot.humanDelta || false,
+        isNatureSubject: snapshot.isNatureSubject ?? null,
+        confidence: snapshot.confidence || null,
       };
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
-      
+
       const thumbData = {
           id: docRef.id,
           mediaType: snapshot.type,
