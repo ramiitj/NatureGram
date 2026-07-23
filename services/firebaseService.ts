@@ -408,6 +408,7 @@ export const FirebaseService = {
         isSensitiveSpecies: s.isSensitiveSpecies ?? null,
         subjects: s.subjects || null,
         candidates: s.candidates || null,
+        soundscape: s.soundscape || null,
       };
   }),
 
@@ -663,6 +664,7 @@ export const FirebaseService = {
             isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
             subjects: snapshot.subjects || null,
             candidates: snapshot.candidates || null,
+            soundscape: snapshot.soundscape || null,
             snapshotId: snapshot.id,
           };
       }));
@@ -724,6 +726,7 @@ export const FirebaseService = {
         isSensitiveSpecies: snapshots.some(s => s.isSensitiveSpecies),
         subjects: primaryItem.subjects || null,
         candidates: primaryItem.candidates || null,
+        soundscape: primaryItem.soundscape || null,
         snapshotId: primaryItem.snapshotId,
       };
 
@@ -860,6 +863,7 @@ export const FirebaseService = {
         isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
         subjects: snapshot.subjects || null,
         candidates: snapshot.candidates || null,
+        soundscape: snapshot.soundscape || null,
         snapshotId: snapshot.id,
       };
 
@@ -1511,6 +1515,30 @@ export const FirebaseService = {
       entries.push({ id: doc.id, ...doc.data() } as LiveSessionMetricsEntry);
     });
     return entries;
+  },
+
+  // S3: research-grade audio dataset export. Scoped to what's actually
+  // buildable without the BigQuery warehouse pipeline (Pillar T2, not
+  // built) — a direct Firestore read of community-verified (see Q3
+  // confirmIdentification) audio observations, which the caller turns into
+  // a downloadable file. "Verified" here specifically means
+  // verificationState === 'confirmed' (Q3's promotion threshold), not
+  // merely posted — an unverified, possibly-wrong AI label has no place in
+  // a dataset meant to support a scientific claim.
+  getVerifiedAudioObservations: async (limitCount = 1000): Promise<CommunityPost[]> => {
+    const q = query(
+      collection(db, "ecosystem_feed"),
+      where("mediaType", "==", "audio"),
+      where("verificationState", "==", "confirmed"),
+      orderBy("timestamp", "desc"),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    const posts: CommunityPost[] = [];
+    snapshot.forEach(doc => {
+      posts.push({ id: doc.id, ...doc.data() } as CommunityPost);
+    });
+    return posts;
   },
 
   getReportedPosts: async (): Promise<CommunityPost[]> => {

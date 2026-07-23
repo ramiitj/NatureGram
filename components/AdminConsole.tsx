@@ -36,6 +36,9 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
   const [isRecomputingCalibration, setIsRecomputingCalibration] = useState(false);
 
+  // Audio Dataset Export (S3)
+  const [isExportingAudioDataset, setIsExportingAudioDataset] = useState(false);
+
   // Automatic elevation check on mount
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -129,6 +132,50 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
           setStatus('Failed to recompute calibration: ' + e.message);
       } finally {
           setIsRecomputingCalibration(false);
+      }
+  };
+
+  // S3: research-grade export of community-verified audio observations.
+  // Precise coordinates are withheld for sensitive species — the same
+  // protection the community feed UI already applies at display time (see
+  // isSensitiveSpecies handling in Community.tsx) — since this file, once
+  // downloaded, can leave the app's own access controls entirely.
+  const handleExportAudioDataset = async () => {
+      setIsExportingAudioDataset(true);
+      setStatus('Fetching community-verified audio observations...');
+      try {
+          const posts = await FirebaseService.getVerifiedAudioObservations();
+          const records = posts.map(post => {
+              const isSensitive = !!post.isSensitiveSpecies;
+              const ts = (post.timestamp && typeof (post.timestamp as any).toDate === 'function')
+                  ? (post.timestamp as any).toDate().toISOString()
+                  : null;
+              return {
+                  id: post.id,
+                  labels: post.labels || [],
+                  soundscape: post.soundscape || undefined,
+                  confidence: post.confidence,
+                  locationArea: post.locationArea || undefined,
+                  lat: !isSensitive ? post.rawLocation?.lat : undefined,
+                  lng: !isSensitive ? post.rawLocation?.lng : undefined,
+                  timestamp: ts,
+                  audioUrl: post.audioUrl,
+                  tags: post.tags,
+              };
+          });
+
+          const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `naturegram-verified-audio-dataset-${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setStatus(`Exported ${records.length} community-verified audio observation(s).`);
+      } catch (e: any) {
+          setStatus('Failed to export audio dataset: ' + e.message);
+      } finally {
+          setIsExportingAudioDataset(false);
       }
   };
 
@@ -886,6 +933,27 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                             </div>
                         </div>
                     )}
+
+                    {/* S3: research-grade audio dataset export */}
+                    <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm flex justify-between items-center gap-6">
+                        <div>
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">graphic_eq</span>
+                                Audio Dataset Export
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px]">
+                                Downloads community-verified (confirmed) audio observations — labels, soundscape breakdown, location, and timestamp — as JSON. Precise coordinates are withheld for sensitive species.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleExportAudioDataset}
+                            disabled={isExportingAudioDataset}
+                            className="bg-theme-primary/5 hover:bg-theme-primary/10 border border-theme-primary/10 text-theme-primary rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isExportingAudioDataset ? 'hourglass_empty' : 'download'}</span>
+                            {isExportingAudioDataset ? 'Exporting...' : 'Export'}
+                        </button>
+                    </div>
                 </div>
             )}
 

@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AudioVisualizer from './AudioVisualizer.tsx';
+import Spectrogram from './Spectrogram.tsx';
 import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode } from '../types.ts';
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
@@ -134,6 +135,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const agentGainNodeRef = useRef<GainNode | null>(null);
   const recordingGainNodeRef = useRef<GainNode | null>(null);
   const recordingDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  // S1: taps the same signal recordingGainNode feeds to the recorder, so
+  // the spectrogram always reflects exactly what will end up in the
+  // captured audio clip.
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const [analyserReady, setAnalyserReady] = useState(false);
 
   const sessionStartMsRef = useRef<number>(Date.now());
   const retakesCountRef = useRef<number>(0);
@@ -355,6 +361,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   isSensitiveSpecies: result.isSensitiveSpecies,
                   subjects: result.subjects,
                   candidates: result.candidates,
+                  soundscape: result.soundscape,
                   aiProposedLabels: labels,
                   aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
               });
@@ -600,6 +607,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               isSensitiveSpecies: result.isSensitiveSpecies,
               subjects: result.subjects,
               candidates: result.candidates,
+              soundscape: result.soundscape,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });
@@ -1152,6 +1160,18 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             const recordingDestination = inputCtx.createMediaStreamDestination();
             recordingDestinationRef.current = recordingDestination;
             recordingGainNode.connect(recordingDestination);
+
+            // Path C: To the live spectrogram (S1) — taps the same signal
+            // that gets recorded, purely for analysis, so the visualization
+            // always matches what will actually be captured. connect()
+            // with no destination arg still lets the node process audio for
+            // getByteFrequencyData reads; it doesn't need to reach speakers.
+            const analyserNode = inputCtx.createAnalyser();
+            analyserNode.fftSize = 1024;
+            analyserNode.smoothingTimeConstant = 0.4;
+            recordingGainNode.connect(analyserNode);
+            analyserNodeRef.current = analyserNode;
+            setAnalyserReady(true);
             // -------------------------------------
 
             processor = inputCtx.createScriptProcessor(4096, 1, 1);
@@ -1205,6 +1225,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             if (processor) processor.disconnect();
             if (inputCtx) inputCtx.close();
             if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop());
+            analyserNodeRef.current = null;
+            setAnalyserReady(false);
         };
       } catch (err) {
           console.error("Session init failed:", err);
@@ -1580,9 +1602,21 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   </div>
               </div>
           )}
+          {/* S1: dedicated sound-capture surface — a real scrolling
+              frequency-over-time spectrogram of the mic signal while
+              recording audio, not a decorative visualizer. */}
+          {isRecordingAudio && analyserReady && (
+              <div className="max-w-md mx-auto mb-4 pointer-events-none animate-fade-in">
+                  <div className="bg-black/50 backdrop-blur-xl p-3 rounded-2xl border border-white/10">
+                      <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1.5 px-1">Live Spectrogram</p>
+                      <Spectrogram analyser={analyserNodeRef.current} isActive={isRecordingAudio} className="h-24 w-full" />
+                  </div>
+              </div>
+          )}
+
           <div className="flex items-center justify-between max-w-md mx-auto pointer-events-auto">
               <div className="w-14 h-14" />
-              
+
               <div className="flex items-center gap-8">
                   <div className="flex flex-col items-center gap-2">
                       <span className="text-[9px] font-black uppercase tracking-widest text-white/40">

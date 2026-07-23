@@ -1581,6 +1581,30 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
 
+                                                {currentItem.soundscape && currentItem.soundscape.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Soundscape</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.soundscape.map((event, i) => {
+                                                                const formatTime = (s?: number) => s === undefined ? null : `${Math.floor(s / 60)}:${Math.round(s % 60).toString().padStart(2, '0')}`;
+                                                                const start = formatTime(event.startSec);
+                                                                const end = formatTime(event.endSec);
+                                                                return (
+                                                                    <div key={i} className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                        <span className="text-[11px] font-bold text-theme-primary">{event.label}</span>
+                                                                        <span className="flex items-center gap-2 shrink-0">
+                                                                            {(start || end) && (
+                                                                                <span className="text-[8px] font-mono font-bold text-theme-primary/40">{start}{end ? `–${end}` : ''}</span>
+                                                                            )}
+                                                                            {event.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{event.confidence}</span>}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 {(activePost.verificationState === 'confirmed' || activePost.verificationState === 'disputed') && (
                                                     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activePost.verificationState === 'confirmed' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>
                                                         <span className="material-symbols-outlined text-[14px]">{activePost.verificationState === 'confirmed' ? 'verified' : 'help'}</span>

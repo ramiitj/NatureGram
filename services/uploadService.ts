@@ -1,4 +1,4 @@
-import { Snapshot, TaxonomySubject, TaxonomyCandidate } from '../types';
+import { Snapshot, TaxonomySubject, TaxonomyCandidate, SoundscapeEvent } from '../types';
 import { compressImageToBlob } from './audioUtils';
 import { GenAiService, resolveNatureSubjectFields } from './genAiService';
 
@@ -99,6 +99,7 @@ export interface UploadAnalysisResult {
     isSensitiveSpecies?: boolean;
     subjects?: TaxonomySubject[];
     candidates?: TaxonomyCandidate[];
+    soundscape?: SoundscapeEvent[];
 }
 
 // Shared by every upload entry point (the standalone no-camera flow and the
@@ -124,6 +125,7 @@ export const analyzeUploadedMedia = async (
         isSensitiveSpecies: isNatureSubject ? result.isSensitiveSpecies : undefined,
         subjects: isNatureSubject ? result.subjects : undefined,
         candidates: isNatureSubject ? result.candidates : undefined,
+        soundscape: isNatureSubject ? result.soundscape : undefined,
     };
 };
 

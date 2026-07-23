@@ -154,6 +154,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                         isSensitiveSpecies: result.isSensitiveSpecies,
                         subjects: result.subjects,
                         candidates: result.candidates,
+                        soundscape: result.soundscape,
                     } : s));
                 }
             } catch (e) {

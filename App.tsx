@@ -403,6 +403,7 @@ const App: React.FC = () => {
               isSensitiveSpecies: result.isSensitiveSpecies,
               subjects: result.subjects,
               candidates: result.candidates,
+              soundscape: result.soundscape,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });

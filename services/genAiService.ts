@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
 import { FirebaseService } from "./firebaseService";
-import { TaxonomySubject, TaxonomyCandidate, QualityEvent } from "../types";
+import { TaxonomySubject, TaxonomyCandidate, QualityEvent, SoundscapeEvent } from "../types";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -55,6 +55,7 @@ interface TaxonomyResult {
     isSensitiveSpecies?: boolean;
     subjects?: TaxonomySubject[];
     candidates?: TaxonomyCandidate[];
+    soundscape?: SoundscapeEvent[];
 }
 
 const TAXONOMY_SCHEMA_PROPERTIES = {
@@ -88,6 +89,20 @@ const TAXONOMY_SCHEMA_PROPERTIES = {
                 label: { type: Type.STRING, description: "Common name of this alternative candidate identification." },
                 distinguishingFeature: { type: Type.STRING, description: "A plain-language visual/audible cue that would tell this candidate apart from the primary identification." },
                 confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific alternative." }
+            },
+            required: ['label']
+        }
+    },
+    soundscape: {
+        type: Type.ARRAY,
+        description: "Only for an audio or video recording with multiple distinct, temporally distinguishable calls/sounds (e.g. two species calling at different times, or overlapping choruses) — break down each distinct call event with its approximate start/end time in seconds from the start of the recording. Omit or leave empty for a single continuous/simple sound, or for image-only analysis.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of the species or sound source for this specific call event." },
+                startSec: { type: Type.NUMBER, description: "Approximate start time of this call, in seconds from the start of the recording." },
+                endSec: { type: Type.NUMBER, description: "Approximate end time of this call, in seconds from the start of the recording." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific call event's identification." }
             },
             required: ['label']
         }
@@ -206,7 +221,7 @@ export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
    */
-  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[] }> => {
+  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
     const startedAt = Date.now();
     try {
         const apiKey = await getApiKey();
@@ -226,6 +241,7 @@ export const GenAiService = {
         Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), an ecological insight covering all aspects, suggested hashtags, and the location.
         Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
         Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
+        ${type !== 'image' ? `If this recording has multiple distinct, temporally distinguishable calls or sounds (e.g. two species calling at different times, or overlapping choruses), also include a soundscape breakdown with each call's approximate start/end time in seconds. Leave this empty for a single continuous/simple sound.` : ''}
         ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
@@ -261,7 +277,8 @@ export const GenAiService = {
             isHybrid: result.isHybrid,
             isSensitiveSpecies: result.isSensitiveSpecies,
             subjects: result.subjects,
-            candidates: result.candidates
+            candidates: result.candidates,
+            soundscape: result.soundscape
         };
     } catch (e) {
         console.error("Media analysis failed", e);
@@ -280,7 +297,7 @@ export const GenAiService = {
    * Analyzes multiple modalities (audio + images) to extract deep ecological insights.
    * This prioritizes audio fidelity while using images for grounding.
    */
-  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMultimodal' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[] }> => {
+  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMultimodal' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
     const startedAt = Date.now();
     try {
         const apiKey = await getApiKey();
@@ -313,6 +330,7 @@ export const GenAiService = {
         Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), a deep ecological insight covering all aspects, suggested hashtags, and the location.
         Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible/audible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
         Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
+        ${mediaBlob ? `If this recording has multiple distinct, temporally distinguishable calls or sounds (e.g. two species calling at different times, or overlapping choruses), also include a soundscape breakdown with each call's approximate start/end time in seconds. Leave this empty for a single continuous/simple sound.` : ''}
         ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear audio/visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
@@ -345,7 +363,8 @@ export const GenAiService = {
             isHybrid: result.isHybrid,
             isSensitiveSpecies: result.isSensitiveSpecies,
             subjects: result.subjects,
-            candidates: result.candidates
+            candidates: result.candidates,
+            soundscape: result.soundscape
         };
     } catch (e) {
         console.error("Multimodal analysis failed", e);

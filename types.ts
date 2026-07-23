@@ -23,6 +23,20 @@ export interface TaxonomyCandidate {
 // moderation status (see CommunityPost.reportStatus for that).
 export type VerificationState = 'unverified' | 'confirmed' | 'disputed';
 
+// One distinct call/vocalization event within an audio or video recording —
+// populated only when a recording has multiple temporally distinguishable
+// sounds (e.g. two species calling at different times, or overlapping
+// choruses), never for a single continuous/simple sound (see S2: "multiple
+// overlapping, time-stamped calls in one recording, not one label").
+// start/endSec are the model's best estimate from the recording, not a
+// frame-accurate measurement.
+export interface SoundscapeEvent {
+  label: string;
+  startSec?: number;
+  endSec?: number;
+  confidence?: string;
+}
+
 export interface FieldNotification {
   id: string;
   type: 'like' | 'comment' | 'sighting' | 'system';
@@ -84,6 +98,7 @@ export interface Snapshot {
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
   candidates?: TaxonomyCandidate[];
+  soundscape?: SoundscapeEvent[];
 }
 
 export interface ExpeditionDraft {
@@ -174,6 +189,7 @@ export interface CommunityPostItem {
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
   candidates?: TaxonomyCandidate[];
+  soundscape?: SoundscapeEvent[];
   verificationState?: VerificationState;
   confirmedBy?: string[];
   disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
@@ -228,6 +244,7 @@ export interface CommunityPost extends FeedThumbnail {
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
   candidates?: TaxonomyCandidate[];
+  soundscape?: SoundscapeEvent[];
   verificationState?: VerificationState;
   confirmedBy?: string[];
   disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
