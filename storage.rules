@@ -1,0 +1,36 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Post/observation media (snapshots/videos/audio, all under
+    // <type>/{userId}/<filename>, per uploadMedia() in firebaseService.ts).
+    // Public read is intentional and required: social platform link-
+    // unfurler bots (Facebook/WhatsApp/etc. fetching OG preview images for
+    // a shared /s/<postId> link) are never authenticated, so a
+    // signed-in-only read rule would silently break link previews for
+    // every public post. The "privacy" of a journal-only (non-public) post
+    // is enforced at the Firestore level (ecosystem_feed's isPublic flag
+    // and feed queries) rather than by hiding the underlying media file —
+    // the same tradeoff this app already makes for feed_thumbnails/
+    // ecosystem_feed documents themselves, which are public-read regardless
+    // of isPublic.
+    match /{folder}/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId);
+    }
+
+    // Anything outside the known upload folders defaults to closed —
+    // no legitimate client path writes here today.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

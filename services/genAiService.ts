@@ -1,7 +1,16 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
+import { FirebaseService } from "./firebaseService";
+import { TaxonomySubject, TaxonomyCandidate, QualityEvent, SoundscapeEvent } from "../types";
+import { runOnDevicePrefilterOnBlob } from "./onDeviceFilterService";
+import { TracingService } from "./tracingService";
 
+// The server's /api-proxy route now requires a verified Firebase ID token
+// (the same scheme used by the Live WebSocket proxy) before it will relay
+// requests to Gemini. The GoogleGenAI SDK sends this value as the "key"
+// query param on every request, which the server verifies before swapping
+// in the real Gemini API key.
 export const getApiKey = async (): Promise<string> => {
     const currentUser = auth.currentUser;
     if (currentUser) {
@@ -14,65 +23,322 @@ export const getApiKey = async (): Promise<string> => {
     return "PROXY";
 };
 
+// Flash-first model routing: try the cheaper Flash model first and only
+// escalate to Pro when Flash fails outright or comes back with a
+// low-confidence/empty identification. This also acts as a safety net if
+// FLASH_MODEL ever turns out to be invalid/unavailable for the project —
+// analysis still completes via Pro instead of erroring out for users.
+const FLASH_MODEL = 'gemini-2.5-flash';
+const PRO_MODEL = 'gemini-3.1-pro-preview';
+
+// Distinguishes an exhausted quota/rate limit from any other failure so the
+// user gets an explanation they can act on ("try again later") instead of a
+// generic "Analysis failed."
+const isQuotaExceededError = (e: unknown): boolean => {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    return errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.toLowerCase().includes("quota") || JSON.stringify(e).includes("RESOURCE_EXHAUSTED");
+};
+
+// Shared safety governance for both single- and multi-modal analysis below.
+// Mirrors the equivalent rules in constants.ts's SYSTEM_INSTRUCTION for the
+// live agent, so a post-capture analysis and a live-session identification
+// of the same subject are governed by the same policy.
+const SAFETY_INSTRUCTIONS = `
+SAFETY (non-negotiable): Never include edibility, toxicity, medicinal, or "is it safe to touch/eat" guidance for any fungus, plant, berry, or organism, even with disclaimers — misidentified "edible" species is a documented cause of serious injury and death. If the subject invites that question, the ecological insight should stick to identification and biology only. If a person is a prominent subject in the media, do not describe, identify, or make demographic claims about them — acknowledge their presence neutrally at most.`;
+
+interface TaxonomyResult {
+    taxonomy: string[];
+    ecologic: string;
+    hashtags: string[];
+    location: string;
+    confidence?: string;
+    isNatureSubject?: boolean;
+    isHybrid?: boolean;
+    isSensitiveSpecies?: boolean;
+    subjects?: TaxonomySubject[];
+    candidates?: TaxonomyCandidate[];
+    soundscape?: SoundscapeEvent[];
+}
+
+const TAXONOMY_SCHEMA_PROPERTIES = {
+    isNatureSubject: { type: Type.BOOLEAN, description: "False if the media contains no plant, animal, fungus, or other natural subject (e.g. it's a room, a vehicle, a screen, a document). True otherwise." },
+    taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds, using standard common names in Title Case. If isNatureSubject is false, an empty array." },
+    ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description. If isNatureSubject is false, a brief plain statement that no natural subject was found — never an invented reading of the scene." },
+    hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
+    location: { type: Type.STRING, description: "The location of the observation, inferred or provided." },
+    confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Your confidence in this identification." },
+    isHybrid: { type: Type.BOOLEAN, description: "True if man-made structures (buildings, roads, vehicles, fences) are also visible in frame alongside the natural subject." },
+    isSensitiveSpecies: { type: Type.BOOLEAN, description: "True if any identified species is rare, protected, or at meaningful risk from poaching/harassment/habitat disturbance if its exact location were made public (e.g. nesting raptors, rare orchids, den sites). False otherwise." },
+    subjects: {
+        type: Type.ARRAY,
+        description: "Only populate if there are multiple clearly distinct organisms worth breaking down individually (e.g. a bird AND the flower it's visiting). Omit or leave empty for a single-subject observation.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of this specific subject." },
+                role: { type: Type.STRING, enum: ['primary', 'secondary', 'background'], description: "How central this subject is to the observation." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific subject's identification." }
+            },
+            required: ['label', 'role']
+        }
+    },
+    candidates: {
+        type: Type.ARRAY,
+        description: "Only populate if there's genuine ambiguity between two or more similar-looking species and you can't confidently settle on one. Omit or leave empty otherwise — most identifications have no ambiguity worth surfacing.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of this alternative candidate identification." },
+                distinguishingFeature: { type: Type.STRING, description: "A plain-language visual/audible cue that would tell this candidate apart from the primary identification." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific alternative." }
+            },
+            required: ['label']
+        }
+    },
+    soundscape: {
+        type: Type.ARRAY,
+        description: "Only for an audio or video recording with multiple distinct, temporally distinguishable calls/sounds (e.g. two species calling at different times, or overlapping choruses) — break down each distinct call event with its approximate start/end time in seconds from the start of the recording. Omit or leave empty for a single continuous/simple sound, or for image-only analysis.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of the species or sound source for this specific call event." },
+                startSec: { type: Type.NUMBER, description: "Approximate start time of this call, in seconds from the start of the recording." },
+                endSec: { type: Type.NUMBER, description: "Approximate end time of this call, in seconds from the start of the recording." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific call event's identification." }
+            },
+            required: ['label']
+        }
+    }
+};
+
+// Consistent display formatting for model-provided species names: trims
+// whitespace, Title Cases each word, and dedupes case-insensitively while
+// preserving first-seen order. The model is already prompted to use
+// standard common names, but this is a cheap client-side safety net against
+// stray casing/whitespace drift and accidental duplicates.
+export const normalizeLabels = (labels: string[]): string[] => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const raw of labels || []) {
+        const trimmed = raw.replace(/\s+/g, ' ').trim();
+        if (!trimmed) continue;
+        const titleCased = trimmed
+            .split(' ')
+            .map(w => w.length > 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w)
+            .join(' ');
+        const key = titleCased.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(titleCased);
+    }
+    return result;
+};
+
+// Only meaningful when isNatureSubject is true — a confident "no nature
+// subject here" is a valid, useful result, not a low-confidence one.
+const isLowConfidenceOrEmpty = (result: TaxonomyResult): boolean => {
+    if (result.isNatureSubject === false) return false;
+    const hasTaxonomy = Array.isArray(result.taxonomy) && result.taxonomy.length > 0 && result.taxonomy[0] !== "Unknown";
+    return !hasTaxonomy || result.confidence === 'low';
+};
+
+// One identification outcome (see QualityEvent) — distinct from logUsage's
+// pure cost/token telemetry. Only written when the caller supplies a
+// snapshotId (the stable thread back to this identification's later human
+// correction and community verification); callers without one just skip
+// this, same fire-and-forget contract as logUsage.
+const logQualityEvent = (event: Omit<QualityEvent, 'id' | 'timestamp' | 'updatedAt' | 'humanCorrected' | 'correctionCount' | 'verificationState' | 'confirmations' | 'disputeCount' | 'uid'>) => {
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+        FirebaseService.logQualityEvent({ ...event, uid }).catch(() => {});
+    }
+};
+
+const logUsage = (feature: string, model: string, usage?: { promptTokenCount?: number, candidatesTokenCount?: number, totalTokenCount?: number }) => {
+    console.debug(`[GenAiService] ${feature} via ${model} — tokens (prompt/output/total):`, usage?.promptTokenCount, usage?.candidatesTokenCount, usage?.totalTokenCount);
+
+    // Persist for the AdminConsole cost panel. Best-effort and non-blocking:
+    // a telemetry write failure should never surface to the caller or delay
+    // the (already-completed) AI call it's describing.
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+        FirebaseService.logAiUsage({
+            uid,
+            feature,
+            model,
+            promptTokenCount: usage?.promptTokenCount,
+            candidatesTokenCount: usage?.candidatesTokenCount,
+            totalTokenCount: usage?.totalTokenCount,
+        }).catch(() => {});
+    }
+};
+
+// Runs a taxonomy-identification prompt against Flash first; escalates to
+// Pro if Flash throws or returns a low-confidence/empty result.
+const generateTaxonomyWithFallback = async (ai: GoogleGenAI, contents: any): Promise<{ result: TaxonomyResult, modelUsed: string }> => {
+    const config = {
+        responseMimeType: "application/json" as const,
+        responseSchema: {
+            type: Type.OBJECT,
+            properties: TAXONOMY_SCHEMA_PROPERTIES,
+            required: ["isNatureSubject", "taxonomy", "ecologic", "hashtags", "location"]
+        }
+    };
+
+    try {
+        const flashResponse = await ai.models.generateContent({ model: FLASH_MODEL, contents, config });
+        const result = JSON.parse(flashResponse.text || "{}") as TaxonomyResult;
+        if (!isLowConfidenceOrEmpty(result)) {
+            logUsage('taxonomy', FLASH_MODEL, flashResponse.usageMetadata);
+            return { result, modelUsed: FLASH_MODEL };
+        }
+        console.debug("[GenAiService] Flash result low-confidence/empty, escalating to Pro");
+    } catch (flashErr) {
+        console.warn("[GenAiService] Flash analysis call failed, escalating to Pro:", flashErr);
+    }
+
+    const proResponse = await ai.models.generateContent({ model: PRO_MODEL, contents, config });
+    const result = JSON.parse(proResponse.text || "{}") as TaxonomyResult;
+    logUsage('taxonomy', PRO_MODEL, proResponse.usageMetadata);
+    return { result, modelUsed: PRO_MODEL };
+};
+
+// Defense in depth for every analyzeMedia/analyzeMultimodal caller: even
+// though the prompt/schema already instruct the model not to invent a
+// natural reading of a non-nature scene, don't trust its free-text
+// taxonomy/insight in that case — override with a fixed, honest message.
+// Centralized here so every capture path (live tool call, upload, session
+// finalize) applies the same scope-gate handling instead of four separate
+// copies drifting apart.
+export const resolveNatureSubjectFields = (result: { taxonomy: string[], ecologic: string, isNatureSubject?: boolean }): { labels: string[], aiInsight: string, isNatureSubject: boolean } => {
+    const isNatureSubject = result.isNatureSubject !== false;
+    return {
+        isNatureSubject,
+        labels: isNatureSubject ? normalizeLabels(result.taxonomy) : ['No Nature Subject Detected'],
+        aiInsight: isNatureSubject ? result.ecologic : "This capture doesn't appear to contain a natural subject.",
+    };
+};
+
 export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
    */
-  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string }> => {
+  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
+    const startedAt = Date.now();
+    const traceId = TracingService.newTraceId();
+    const feature = opts?.feature || 'analyzeMedia';
     try {
+        // U1: on-device pre-filter — only ever short-circuits the OBVIOUS
+        // non-nature case (see onDeviceFilterService.ts's own extensive
+        // caveats); anything remotely ambiguous still goes to Gemini as
+        // normal. Image-only: MobileNet is an image classifier, and audio/
+        // video capture already goes through analyzeMultimodal instead.
+        if (type === 'image') {
+            const prefilter = await runOnDevicePrefilterOnBlob(blob);
+            if (!prefilter.isLikelyNatureSubject) {
+                console.debug('[GenAiService] On-device pre-filter skipped Gemini call:', prefilter.topPrediction);
+                if (opts?.snapshotId) {
+                    logQualityEvent({
+                        snapshotId: opts.snapshotId,
+                        mediaType: type,
+                        feature: opts.feature || 'analyzeMedia',
+                        modelUsed: 'on-device-mobilenet',
+                        latencyMs: Date.now() - startedAt,
+                        isNatureSubject: false,
+                        aiProposedLabels: [],
+                    });
+                }
+                TracingService.logAiCallTrace({
+                    traceId, feature, model: 'on-device-mobilenet',
+                    latencyMs: Date.now() - startedAt,
+                    isNatureSubject: false,
+                    outcome: 'prefiltered',
+                });
+                return {
+                    taxonomy: [],
+                    ecologic: "This capture doesn't appear to contain a natural subject.",
+                    hashtags: ["Nature"],
+                    location: location || "Unknown Location",
+                    isNatureSubject: false,
+                };
+            }
+        }
+
         const apiKey = await getApiKey();
-        const ai = new GoogleGenAI({ 
+        const ai = new GoogleGenAI({
             apiKey,
             httpOptions: { baseUrl: window.location.origin + '/api-proxy' }
         });
-        
+
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         await new Promise(resolve => reader.onload = resolve);
         const base64 = (reader.result as string).split(',')[1];
-        
-        const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}. 
+
+        const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}.
         Identify all species or natural phenomena present. If this is a video, you MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), an ecological insight covering all aspects, suggested hashtags, and the location.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: {
-                parts: [
-                    { inlineData: { data: base64, mimeType: blob.type } },
-                    { text: prompt }
-                ]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of identified species or sounds." },
-                        ecologic: { type: Type.STRING, description: "Detailed ecological insight, behavior, or habitat description." },
-                        hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of relevant hashtags without the # symbol." },
-                        location: { type: Type.STRING, description: "The location of the observation, inferred or provided." }
-                    },
-                    required: ["taxonomy", "ecologic", "hashtags", "location"]
-                }
-            }
+        Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), an ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
+        ${type !== 'image' ? `If this recording has multiple distinct, temporally distinguishable calls or sounds (e.g. two species calling at different times, or overlapping choruses), also include a soundscape breakdown with each call's approximate start/end time in seconds. Leave this empty for a single continuous/simple sound.` : ''}
+        ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear visual evidence over geography if they conflict.` : ''}
+        ${SAFETY_INSTRUCTIONS}`;
+
+        const { result, modelUsed } = await generateTaxonomyWithFallback(ai, {
+            parts: [
+                { inlineData: { data: base64, mimeType: blob.type } },
+                { text: prompt }
+            ]
         });
 
-        const text = response.text || "{}";
-        const result = JSON.parse(text);
+        if (opts?.snapshotId) {
+            logQualityEvent({
+                snapshotId: opts.snapshotId,
+                mediaType: type,
+                feature: opts.feature || 'analyzeMedia',
+                modelUsed,
+                latencyMs: Date.now() - startedAt,
+                isNatureSubject: result.isNatureSubject,
+                isHybrid: result.isHybrid,
+                isSensitiveSpecies: result.isSensitiveSpecies,
+                confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+                aiProposedLabels: result.taxonomy || [],
+            });
+        }
+        TracingService.logAiCallTrace({
+            traceId, feature, model: modelUsed,
+            latencyMs: Date.now() - startedAt,
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            outcome: 'success',
+        });
+
         return {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
             hashtags: result.hashtags || ["Nature"],
-            location: result.location || location || "Unknown Location"
+            location: result.location || location || "Unknown Location",
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            isHybrid: result.isHybrid,
+            isSensitiveSpecies: result.isSensitiveSpecies,
+            subjects: result.subjects,
+            candidates: result.candidates,
+            soundscape: result.soundscape
         };
     } catch (e) {
         console.error("Media analysis failed", e);
         const errMsg = e instanceof Error ? e.message : String(e);
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'blocked_referrer' });
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
         }
+        if (isQuotaExceededError(e)) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'quota_exceeded' });
+            return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
+        }
+        TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'error' });
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }
   },
@@ -81,7 +347,10 @@ export const GenAiService = {
    * Analyzes multiple modalities (audio + images) to extract deep ecological insights.
    * This prioritizes audio fidelity while using images for grounding.
    */
-  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string }> => {
+  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMultimodal' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
+    const startedAt = Date.now();
+    const traceId = TracingService.newTraceId();
+    const feature = opts?.feature || 'analyzeMultimodal';
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -106,46 +375,68 @@ export const GenAiService = {
             parts.push({ inlineData: { data: imgBase64, mimeType: imgBlob.type } });
         }
 
-        const prompt = `Analyze this field observation${location ? ` from ${location}` : ''}. 
+        const prompt = `Analyze this field observation${location ? ` from ${location}` : ''}.
         Focus on the high-fidelity media recording (audio or video) to identify species by sound and movement, and use the provided images to ground the visual context.
         Identify all species or natural phenomena present. You MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or evolutionary significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
-        Provide the taxonomy (species names of plants, animals, and sources of sounds), a deep ecological insight covering all aspects, suggested hashtags, and the location.`;
-        
+        Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), a deep ecological insight covering all aspects, suggested hashtags, and the location.
+        Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible/audible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
+        ${mediaBlob ? `If this recording has multiple distinct, temporally distinguishable calls or sounds (e.g. two species calling at different times, or overlapping choruses), also include a soundscape breakdown with each call's approximate start/end time in seconds. Leave this empty for a single continuous/simple sound.` : ''}
+        ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear audio/visual evidence over geography if they conflict.` : ''}
+        ${SAFETY_INSTRUCTIONS}`;
+
         parts.push({ text: prompt });
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: { parts },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        taxonomy: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Identified species or sounds." },
-                        ecologic: { type: Type.STRING, description: "Deep ecological insight." },
-                        hashtags: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Relevant hashtags." },
-                        location: { type: Type.STRING, description: "Inferred or provided location." }
-                    },
-                    required: ["taxonomy", "ecologic", "hashtags", "location"]
-                }
-            }
+        const { result, modelUsed } = await generateTaxonomyWithFallback(ai, { parts });
+
+        if (opts?.snapshotId) {
+            logQualityEvent({
+                snapshotId: opts.snapshotId,
+                mediaType: mediaBlob ? (mediaBlob.type.startsWith('video') ? 'video' : 'audio') : 'image',
+                feature: opts.feature || 'analyzeMultimodal',
+                modelUsed,
+                latencyMs: Date.now() - startedAt,
+                isNatureSubject: result.isNatureSubject,
+                isHybrid: result.isHybrid,
+                isSensitiveSpecies: result.isSensitiveSpecies,
+                confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+                aiProposedLabels: result.taxonomy || [],
+            });
+        }
+        TracingService.logAiCallTrace({
+            traceId, feature, model: modelUsed,
+            latencyMs: Date.now() - startedAt,
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            outcome: 'success',
         });
 
-        const text = response.text || "{}";
-        const result = JSON.parse(text);
         return {
             taxonomy: result.taxonomy || ["Unknown"],
             ecologic: result.ecologic || "Analysis pending.",
             hashtags: result.hashtags || ["Nature"],
-            location: result.location || location || "Unknown Location"
+            location: result.location || location || "Unknown Location",
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            isHybrid: result.isHybrid,
+            isSensitiveSpecies: result.isSensitiveSpecies,
+            subjects: result.subjects,
+            candidates: result.candidates,
+            soundscape: result.soundscape
         };
     } catch (e) {
         console.error("Multimodal analysis failed", e);
         const errMsg = e instanceof Error ? e.message : String(e);
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'blocked_referrer' });
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
         }
+        if (isQuotaExceededError(e)) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'quota_exceeded' });
+            return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
+        }
+        TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'error' });
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }
   },
@@ -165,27 +456,37 @@ export const GenAiService = {
         
         const prompt = `The user is posting a collection of nature observations. Here are the details of the items in the collection:
         ${summaryText}
-        
+
         Generate a unifying title (e.g., 'Morning Avian and Flora Observations') and a cohesive summary description for this entire collection.
         Do not mention "Item 1" or "Item 2". Speak generally about the collection of observations.`;
-        
-        const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        title: { type: Type.STRING, description: "A unifying title for the collection." },
-                        description: { type: Type.STRING, description: "A cohesive summary description." }
-                    },
-                    required: ["title", "description"]
-                }
-            }
-        });
 
-        const text = response.text || "{}";
+        const config = {
+            responseMimeType: "application/json" as const,
+            responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING, description: "A unifying title for the collection." },
+                    description: { type: Type.STRING, description: "A cohesive summary description." }
+                },
+                required: ["title", "description"]
+            }
+        };
+
+        // Pure text summarization of already-extracted taxonomy/insight
+        // strings — no vision/audio involved, so Flash is a safe direct
+        // swap here rather than needing a confidence-based escalation.
+        let text: string;
+        try {
+            const response = await ai.models.generateContent({ model: FLASH_MODEL, contents: prompt, config });
+            text = response.text || "{}";
+            logUsage('synthesizeCollection', FLASH_MODEL, response.usageMetadata);
+        } catch (flashErr) {
+            console.warn("[GenAiService] Flash synthesis call failed, falling back to Pro:", flashErr);
+            const response = await ai.models.generateContent({ model: PRO_MODEL, contents: prompt, config });
+            text = response.text || "{}";
+            logUsage('synthesizeCollection', PRO_MODEL, response.usageMetadata);
+        }
+
         const result = JSON.parse(text);
         return {
             title: result.title || "Field Collection",
@@ -198,6 +499,68 @@ export const GenAiService = {
             return { title: "API Key Blocked", description: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'." };
         }
         return { title: "Field Collection", description: "A collection of field observations." };
+    }
+  },
+
+  /**
+   * Automated content-safety pre-screen for a post's primary media, run at
+   * post-creation time. This is a triage filter, not a final moderation
+   * decision: flagged content is routed to reportStatus: 'pending' (the
+   * existing AdminConsole moderation queue) for human review rather than
+   * being blocked outright, and any error here fails OPEN (defaults to
+   * "safe") so a moderation-check outage can never block posting entirely
+   * — the tradeoff is that a transient failure means that one post skips
+   * screening, same as before this feature existed.
+   */
+  checkContentSafety: async (blob: Blob | undefined | null): Promise<{ isSafe: boolean, reason: string }> => {
+    if (!blob) return { isSafe: true, reason: 'No media to screen.' };
+    try {
+        const apiKey = await getApiKey();
+        const ai = new GoogleGenAI({
+            apiKey,
+            httpOptions: { baseUrl: window.location.origin + '/api-proxy' }
+        });
+
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        await new Promise(resolve => reader.onload = resolve);
+        const base64 = (reader.result as string).split(',')[1];
+
+        const prompt = `You are a content moderator for NatureGram, a nature/wildlife photography and field-journal community app.
+        Review this media and determine if it violates community guidelines: sexually explicit content, graphic violence or gore, hate symbols or harassment, or content that is clearly unrelated spam/abuse rather than a genuine nature/field observation.
+        Ordinary nature photography (including injured/dead wildlife documented for scientific or educational purposes, e.g. predation) is allowed and should be marked safe.
+        Respond with whether this is safe to publish and a brief reason.`;
+
+        const response = await ai.models.generateContent({
+            model: FLASH_MODEL,
+            contents: {
+                parts: [
+                    { inlineData: { data: base64, mimeType: blob.type } },
+                    { text: prompt }
+                ]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        isSafe: { type: Type.BOOLEAN, description: "False if this media violates community guidelines and needs human review." },
+                        reason: { type: Type.STRING, description: "Brief reason for the classification." }
+                    },
+                    required: ["isSafe", "reason"]
+                }
+            }
+        });
+
+        logUsage('contentSafety', FLASH_MODEL, response.usageMetadata);
+        const result = JSON.parse(response.text || "{}");
+        return {
+            isSafe: result.isSafe !== false,
+            reason: result.reason || (result.isSafe === false ? 'Flagged by automated screening.' : 'Passed automated screening.')
+        };
+    } catch (e) {
+        console.warn("[GenAiService] Content safety check failed, defaulting to safe (fail-open):", e);
+        return { isSafe: true, reason: 'Automated screening unavailable; not reviewed.' };
     }
   },
 

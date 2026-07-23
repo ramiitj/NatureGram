@@ -5,7 +5,7 @@ const ws = new WebSocket(url);
 ws.on('open', () => {
     console.log('Connected');
     ws.send(JSON.stringify({
-        setup: { model: "models/gemini-2.0-flash" }
+        setup: { model: "models/gemini-2.5-flash-native-audio-latest" }
     }));
 });
 ws.on('message', (msg) => {
@@ -14,4 +14,7 @@ ws.on('message', (msg) => {
 });
 ws.on('error', (err) => {
     console.error('Error:', err.message);
+});
+ws.on('unexpected-response', (req, res) => {
+    console.error('Unexpected response:', res.statusCode, res.statusMessage);
 });

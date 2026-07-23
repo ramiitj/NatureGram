@@ -7,8 +7,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // W3: was a hardcoded email (request.auth.token.email == 'ram@iitj.ac.in')
+    // — replaced with a real `admin` custom claim so granting/revoking admin
+    // access is a data change (see scripts/manageRoles.ts), not a rules
+    // deploy tied to one specific inbox. Custom claims are attacker-proof:
+    // they're set server-side via the Admin SDK and embedded in the signed
+    // ID token, never client-settable.
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'ram@iitj.ac.in';
+      return isSignedIn() && request.auth.token.admin == true;
     }
 
     function isOwner(userId) {
@@ -23,28 +29,99 @@ service cloud.firestore {
       return resource.data;
     }
 
+    // X1: a signed-in user may bump ANOTHER user's reputationScore by
+    // exactly +1 and nothing else — the write path behind
+    // ProfileService.incrementReputation, called when the crowd confirms an
+    // observation someone authored. Self-bumps are blocked (reputation
+    // comes from others). This shares the same soft-trust limitation as
+    // likes/confirmedBy — not forgery-proof without a Cloud Function that
+    // verifies the confirmation actually crossed the threshold — but the
+    // blast radius is bounded: reputation only ever adds up to +4 verifier
+    // weight (REPUTATION_WEIGHT_CAP), and can NEVER mint an expert claim or
+    // a research-grade promotion (those require the un-spoofable 'expert'
+    // token claim). So community-confirmed stays the same soft tier it
+    // always was; the scientifically-load-bearing tier (research-grade) is
+    // hard-gated elsewhere.
+    function reputationBump(userId) {
+      return isSignedIn()
+        && request.auth.uid != userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['reputationScore'])
+        && incoming().reputationScore == existing().get('reputationScore', 0) + 1;
+    }
+
+    // X1: the owner may edit their own profile, but (a) may never write
+    // reputationScore directly (it only moves via reputationBump above) and
+    // (b) if they touch isExpert, it must equal their real 'expert' token
+    // claim — so nobody can self-award a fake expert badge in the display
+    // mirror. Everything else (username, bio, avatar, stats, lastVisit,
+    // fcmTokens, follow counts) is unrestricted for the owner.
+    function ownerProfileUpdateOk() {
+      return !incoming().diff(existing()).affectedKeys().hasAny(['reputationScore'])
+        && (
+          !incoming().diff(existing()).affectedKeys().hasAny(['isExpert'])
+          || incoming().isExpert == (request.auth.token.expert == true)
+        );
+    }
+
     // 1. User profiles, drafts, and notifications
     match /users/{userId} {
       // Any signed-in user can list/read (needed for admin + social features)
       allow read: if isSignedIn();
-      allow write: if isOwner(userId) || isAdmin();
+      allow create, delete: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin()
+        || (isOwner(userId) && ownerProfileUpdateOk())
+        || reputationBump(userId);
 
       match /drafts/{draftId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
 
+      // Pre-existing bug fixed here: notifications are inherently created
+      // BY one user FOR another (liking/commenting on someone's post
+      // notifies them) — the previous "write: if isOwner(userId)" rule
+      // required the CALLER to be the recipient themselves, which a
+      // liker/commenter never is, so every cross-user addNotification()
+      // call should have been rejected with permission-denied (and
+      // toggleLike/addComment call it unguarded, not wrapped in try/catch).
+      // Reads/edits/deletes stay owner-only; creates are open to any
+      // signed-in user but must honestly claim their own uid as senderId,
+      // preventing impersonation/spoofed notifications.
       match /notifications/{notifId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, update, delete: if isOwner(userId) || isAdmin();
+        allow create: if isSignedIn() && incoming().senderId == request.auth.uid;
+      }
+
+      // Y1: the follow graph. Two halves of each edge:
+      //   users/{userId}/following/{targetId} — accounts userId follows;
+      //     only userId manages their own following list.
+      //   users/{userId}/followers/{followerId} — accounts following
+      //     userId; a follower may add/remove ONLY themselves (the doc id
+      //     must equal their uid), so nobody can forge someone else into a
+      //     follower relationship. Reads are open to signed-in users
+      //     (follower/following lists and counts are public social data).
+      match /following/{targetId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isOwner(userId);
+      }
+      match /followers/{followerId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isSignedIn() && request.auth.uid == followerId;
       }
     }
 
-    // 2. Daily themes & Seed Collections (Public Read)
+    // 2. Daily themes & Seed Collections.
+    // Public read (app-wide display config), but writes are admin-only:
+    // this is shared app configuration, not user data, and the client
+    // already falls back gracefully when a write is denied (auto-seed is
+    // a nice-to-have, not a requirement for normal use).
     match /themes/{themeId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /daily_themes/{dateStr} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // 3. Naturalist memories (Private history log)
@@ -55,32 +132,78 @@ service cloud.firestore {
     // 4. Ecosystem feed - Main Community Posts
     match /ecosystem_feed/{postId} {
       allow read: if true;
-      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || postId.matches("^seed_.*");
+      // Every real client session is signed in (anonymous auth included),
+      // so isSignedIn() already covers legitimate seed-post creation.
+      // There is no legitimate case for an unauthenticated write, so the
+      // previous "postId.matches('^seed_.*')" bypass (which allowed
+      // anyone, signed in or not, to create/overwrite/delete any post
+      // whose id happened to start with "seed_") has been removed.
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow update: if (
         isOwner(existing().userId) || isAdmin() ||
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic'])) ||
-        postId.matches("^seed_.*")
+        // Likes/comment-count are counters any signed-in user needs to
+        // bump; not forgery-proof without moving to Cloud Functions, but
+        // scoped narrowly. The verification fields (confirmedBy/disputes/
+        // verificationState and — X2 — the weighted totals
+        // confirmWeightTotal/disputeWeightTotal/hasExpertConfirmation, plus
+        // the reputationAwarded once-guard) are the SAME client-trust tier:
+        // a determined client could write verificationState:'research-grade'
+        // or hasExpertConfirmation:true directly, exactly as it always could
+        // set verificationState:'confirmed'. This layer is an honest
+        // aggregation of legitimate use, not a cryptographic guarantee — the
+        // documented hardening step for the whole verification loop (here
+        // and for likes) is a Cloud Function that recomputes state from the
+        // verifiers' real, server-read identities. X3's research export
+        // should therefore treat 'research-grade' as a strong-but-not-
+        // unspoofable signal, the same caveat S3's audio export already
+        // carries.
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'confirmedBy', 'disputes', 'verificationState', 'confirmWeightTotal', 'disputeWeightTotal', 'hasExpertConfirmation', 'reputationAwarded']))
+        // NOTE: 'reports'/'reportStatus'/'reportCount' are intentionally
+        // NOT in the non-owner allowlist above — there is currently no
+        // report-a-post UI, so only the post owner or an admin can touch
+        // those fields (which is how AdminConsole's dismissReports works).
+        // If a "report this post" feature is added, extend this rule with
+        // a narrow, validated allowance (e.g. only appending the caller's
+        // own uid to 'reports' and only setting reportStatus to 'pending'),
+        // not a blanket field-name allowlist.
       );
-      allow delete: if resource == null || isOwner(existing().userId) || isAdmin() || postId.matches("^seed_.*");
+      allow delete: if resource == null || isOwner(existing().userId) || isAdmin();
 
       // 5. Comments on posts
       match /comments/{commentId} {
         allow read: if true;
-        allow create, update: if isSignedIn();
+        allow create: if isSignedIn();
+        // Only the comment's author (or an admin) may edit it — previously
+        // any signed-in user could rewrite anyone else's comment.
+        allow update: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
         allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
       }
     }
 
-    // 6. Cached Post thumbnails
+    // 6. Cached Post thumbnails. This is what the public feed actually
+    // reads from (subscribeToFeed/getMorePosts), and now carries its own
+    // reportStatus/reports copy (mirrored from ecosystem_feed at post
+    // creation and by dismissReports) so flagged content stays out of the
+    // feed pending review. Without the update restriction below, any
+    // signed-in user — including the post's own author — could simply
+    // overwrite reportStatus back to 'safe' themselves, bypassing
+    // moderation entirely; only an admin (via dismissReports) may touch
+    // those two fields. Every other existing update pattern (likes,
+    // commentCount, an owner's own edits synced via updatePost) is
+    // unaffected.
     match /feed_thumbnails/{postId} {
       allow read: if true;
-      allow write: if isSignedIn() || postId.matches("^seed_.*");
+      allow create: if isSignedIn();
+      allow update: if isAdmin() ||
+        (isSignedIn() && !incoming().diff(existing()).affectedKeys().hasAny(['reports', 'reportStatus']));
+      allow delete: if isSignedIn();
     }
 
-    // 7. System configurations (admin_config)
+    // 7. System configurations (admin_config) - controls the Gemini
+    // system prompt/model used for every user; admin-only.
     match /admin_config/{configId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // 8. App config - public read
@@ -93,6 +216,59 @@ service cloud.firestore {
     match /naturalist_profiles/{profileId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // 10. AI usage telemetry (cost/token tracking for AdminConsole).
+    // Self-reported by each client about its own calls — write access is
+    // scoped to creating a record attributed to yourself, never editing or
+    // deleting one afterwards. Read access (aggregate viewing) is admin-only,
+    // since this can indirectly reveal per-user activity volume.
+    match /ai_usage_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // 11. Quality/identification-outcome telemetry (see QualityEvent in
+    // types.ts) — internal substrate for the eval harness and confidence
+    // calibration, not user-facing content, so reads are admin-only like
+    // ai_usage_logs above. The document id is always the snapshotId, one
+    // doc per identification, updated (never replaced) over its lifecycle:
+    //   - created by the analyzing client, claiming its own uid
+    //   - narrowly updated by that same uid on a later human correction
+    //   - narrowly updated by any other signed-in user on a community/
+    //     expert confirm-or-dispute (see confirmIdentification/
+    //     disputeIdentification in firebaseService.ts)
+    match /quality_events/{eventId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid && incoming().snapshotId == eventId;
+      allow update: if isSignedIn() && (
+        (existing().uid == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['finalLabels', 'humanCorrected', 'correctionCount', 'updatedAt'])) ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['verificationState', 'confirmations', 'disputeCount', 'updatedAt'])
+      );
+      allow delete: if false;
+    }
+
+    // 12. Live-session performance telemetry (see R1, LiveSessionMetricsEntry
+    // in types.ts) — same trust tier and access pattern as ai_usage_logs:
+    // self-reported, create-your-own-record-only, admin-only read.
+    match /live_session_metrics/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // 13. Live session quota/concurrency state (see T1, server/lib/
+    // liveQuota.js). Written exclusively by the server's Admin SDK, which
+    // bypasses these rules entirely — this block is defense-in-depth
+    // documentation, not the actual enforcement: no client should ever be
+    // able to read or write its own quota bookkeeping directly.
+    match /live_quota/{uid} {
+      allow read, write: if false;
+    }
+    match /live_connections/{uid} {
+      allow read, write: if false;
     }
   }
 }

@@ -2,12 +2,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AudioVisualizer from './AudioVisualizer.tsx';
+import Spectrogram from './Spectrogram.tsx';
 import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode } from '../types.ts';
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
-import { GenAiService } from '../services/genAiService.ts';
+import { GenAiService, resolveNatureSubjectFields, normalizeLabels } from '../services/genAiService.ts';
+import { getCalibratedConfidence } from '../services/calibrationService.ts';
+import { ConfidenceCalibration, TaxonomyCandidate } from '../types.ts';
+import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from '../services/uploadService.ts';
+import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
+import HelpSheet from './live/HelpSheet.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LiveLensProps {
@@ -52,6 +58,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const [aiOpticActive, setAiOpticActive] = useState(false);
   const [isFlashing, setIsFlashing] = useState(false);
+  const [micUnavailable, setMicUnavailable] = useState(false);
+  const micUnavailableRef = useRef(false);
 
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
@@ -68,7 +76,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
   const [isProcessingCapture, setIsProcessingCapture] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
-  const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string} | null>(null);
+  const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string, confidence?: 'high' | 'medium' | 'low', candidates?: TaxonomyCandidate[]} | null>(null);
 
   useEffect(() => {
     if (!latestSighting) return;
@@ -77,6 +85,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }, 15000);
     return () => clearTimeout(timer);
   }, [latestSighting]);
+
+  // R3: in-session trust surfacing — fetched once per session so the live
+  // sighting overlay can show calibrated confidence (see Q4) alongside the
+  // model's raw self-report, same public admin_config read Community.tsx
+  // uses for the post-capture view.
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+  useEffect(() => {
+    FirebaseService.getConfidenceCalibration().then(setCalibration).catch(() => {});
+  }, []);
 
   const showStatus = useCallback((type: 'success' | 'error' | 'processing', text: string) => {
       setAnalysisStatus({ type, text });
@@ -104,6 +121,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [isMuted, setIsMuted] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [showModalityTooltip, setShowModalityTooltip] = useState(false);
+  const [showHelpSheet, setShowHelpSheet] = useState(false);
+  const [showTourReplay, setShowTourReplay] = useState(false);
   const [lastAudioSnapshotId, setLastAudioSnapshotId] = useState<string | null>(null);
   const [lastAudioImages, setLastAudioImages] = useState<{url: string, blob: Blob}[]>([]);
   const pendingAssociatedImagesRef = useRef<{ url: string, blob: Blob }[]>([]);
@@ -117,38 +136,125 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const agentGainNodeRef = useRef<GainNode | null>(null);
   const recordingGainNodeRef = useRef<GainNode | null>(null);
   const recordingDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  // S1: taps the same signal recordingGainNode feeds to the recorder, so
+  // the spectrogram always reflects exactly what will end up in the
+  // captured audio clip.
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const [analyserReady, setAnalyserReady] = useState(false);
 
   const sessionStartMsRef = useRef<number>(Date.now());
   const retakesCountRef = useRef<number>(0);
   const rawLocationRef = useRef<{lat: number, lng: number} | null>(null);
 
+  // Idle-session auto-disconnect: a Live session is the most expensive
+  // thing this app does, and it's easy to leave one open (phone put down,
+  // tab left in the background). If there's been no speech from either
+  // side, no camera motion, and no manual recording activity for this
+  // long, end the session automatically — on top of (not instead of) the
+  // server's hard 3-minute cap.
+  const IDLE_SESSION_TIMEOUT_MS = 60000;
+  // A hard cap on total active session time, independent of the idle
+  // timeout above: the server already caps each WebSocket connection at 3
+  // minutes (geminiProxy.js), but GeminiLiveService just reconnects and
+  // continues, so a genuinely engaged user could otherwise run a session
+  // indefinitely. 15 minutes is a generous single-sitting budget.
+  const MAX_SESSION_DURATION_MS = 15 * 60 * 1000;
+  const lastActivityAtRef = useRef<number>(Date.now());
+  const isFinalizingRef = useRef(false);
+
+  // Adaptive streaming frame rate: skip sending a frame to the Live agent
+  // when the scene hasn't meaningfully changed since the last one sent
+  // (e.g. the user is holding the camera steady while the agent talks).
+  // A heartbeat still forces a send periodically so the agent's view never
+  // goes stale for long. This only affects the continuous 1fps stream —
+  // full-resolution capture for saved posts is unaffected.
+  const frameDiffCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastFrameSignatureRef = useRef<Uint8ClampedArray | null>(null);
+  const lastFrameSentAtRef = useRef<number>(0);
+  const FRAME_DIFF_SIZE = 12;
+  const FRAME_DIFF_THRESHOLD = 10; // avg per-channel delta (0-255) considered "changed"
+  const FRAME_HEARTBEAT_MS = 4000; // always send at least this often
+
+  const shouldSendStreamingFrame = useCallback((sourceCanvas: HTMLCanvasElement): boolean => {
+    try {
+      if (!frameDiffCanvasRef.current) {
+        frameDiffCanvasRef.current = document.createElement('canvas');
+        frameDiffCanvasRef.current.width = FRAME_DIFF_SIZE;
+        frameDiffCanvasRef.current.height = FRAME_DIFF_SIZE;
+      }
+      const diffCanvas = frameDiffCanvasRef.current;
+      const diffCtx = diffCanvas.getContext('2d');
+      if (!diffCtx) return true; // fail open: send if we can't evaluate
+
+      diffCtx.drawImage(sourceCanvas, 0, 0, FRAME_DIFF_SIZE, FRAME_DIFF_SIZE);
+      const { data } = diffCtx.getImageData(0, 0, FRAME_DIFF_SIZE, FRAME_DIFF_SIZE);
+
+      const now = Date.now();
+      const heartbeatDue = now - lastFrameSentAtRef.current >= FRAME_HEARTBEAT_MS;
+      const previous = lastFrameSignatureRef.current;
+      lastFrameSignatureRef.current = data;
+
+      if (!previous || heartbeatDue) {
+        lastFrameSentAtRef.current = now;
+        return true;
+      }
+
+      let diffSum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        diffSum += Math.abs(data[i] - previous[i]) + Math.abs(data[i + 1] - previous[i + 1]) + Math.abs(data[i + 2] - previous[i + 2]);
+      }
+      const avgDiff = diffSum / ((data.length / 4) * 3);
+
+      if (avgDiff >= FRAME_DIFF_THRESHOLD) {
+        lastFrameSentAtRef.current = now;
+        lastActivityAtRef.current = now; // real camera motion counts as activity (heartbeat sends don't)
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return true; // fail open: never let this block the actual stream
+    }
+  }, []);
+
   const captureFrame = useCallback((optimize: boolean = false): { dataUrl: string, blobPromise?: Promise<Blob> } | null => {
     if (!videoRef.current || !canvasRef.current || !isCameraActiveRef.current) return null;
     const canvas = canvasRef.current;
-    if (videoRef.current.videoWidth > 0) {
-        canvas.width = videoRef.current.videoWidth;
-        canvas.height = videoRef.current.videoHeight;
+    const nativeWidth = videoRef.current.videoWidth;
+    const nativeHeight = videoRef.current.videoHeight;
+    if (nativeWidth > 0) {
+        if (optimize) {
+            // Full-quality capture (used for saved posts) keeps native resolution.
+            canvas.width = nativeWidth;
+            canvas.height = nativeHeight;
+        } else {
+            // Frames streamed continuously to the Live agent don't need
+            // native resolution — downscale to cut vision-token cost.
+            const scale = Math.min(1, LIVE_STREAM_FRAME_MAX_DIMENSION / Math.max(nativeWidth, nativeHeight));
+            canvas.width = Math.max(1, Math.round(nativeWidth * scale));
+            canvas.height = Math.max(1, Math.round(nativeHeight * scale));
+        }
     }
     if (canvas.width === 0) return null;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', optimize ? 0.95 : 0.5);
-    
+
     if (optimize) {
         setIsFlashing(true);
         setTimeout(() => setIsFlashing(false), 150);
     }
 
-    return { 
-        dataUrl, 
-        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined 
+    return {
+        dataUrl,
+        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined
     };
   }, []);
 
   const startRecording = useCallback((type: 'audio' | 'video') => {
     if (!activeStreamRef.current) return;
-    
+    lastActivityAtRef.current = Date.now();
+
     let streamToRecord: MediaStream;
     if (type === 'audio') {
         if (recordingDestinationRef.current) {
@@ -240,20 +346,28 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
           
           GenAiService.analyzeMultimodal(
-              (type === 'audio' || type === 'video') ? mediaBlob : null, 
-              allImageBlobs, 
-              location
+              (type === 'audio' || type === 'video') ? mediaBlob : null,
+              allImageBlobs,
+              location,
+              { snapshotId: snapId }
           ).then(result => {
+              const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
               updateSnapshot(snapId, {
-                  aiInsight: result.ecologic,
-                  labels: result.taxonomy,
+                  aiInsight,
+                  labels,
                   locationArea: result.location,
                   isAnalyzing: false,
-                  aiProposedLabels: result.taxonomy,
-                  aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)' 
+                  isNatureSubject,
+                  confidence: result.confidence,
+                  isSensitiveSpecies: result.isSensitiveSpecies,
+                  subjects: result.subjects,
+                  candidates: result.candidates,
+                  soundscape: result.soundscape,
+                  aiProposedLabels: labels,
+                  aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
               });
               setIsProcessingCapture(false);
-              showStatus('success', 'Analysis complete. Saved to field notes.');
+              showStatus('success', isNatureSubject ? 'Analysis complete. Saved to field notes.' : 'No nature subject detected in this capture.');
           }).catch(err => {
               console.error("Background analysis failed", err);
               updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -384,17 +498,23 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       sessionRetakes: retakesCountRef.current
                   });
 
-                  GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
+                  GenAiService.analyzeMedia(compressedBlob, 'image', location, { snapshotId: snapId }).then(result => {
+                      const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
                       updateSnapshot(snapId, {
-                          aiInsight: result.ecologic,
-                          labels: result.taxonomy,
+                          aiInsight,
+                          labels,
                           locationArea: result.location,
                           isAnalyzing: false,
-                          aiProposedLabels: result.taxonomy,
-                          aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+                          isNatureSubject,
+                          confidence: result.confidence,
+                          isSensitiveSpecies: result.isSensitiveSpecies,
+                          subjects: result.subjects,
+                          candidates: result.candidates,
+                          aiProposedLabels: labels,
+                          aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
                       });
                       setIsProcessingCapture(false);
-                      showStatus('success', 'Analysis complete. Saved to field notes.');
+                      showStatus('success', isNatureSubject ? 'Analysis complete. Saved to field notes.' : 'No nature subject detected in this capture.');
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
                       updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -438,92 +558,62 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file) return;
-
-      const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/');
-      const isImage = file.type.startsWith('image/');
-
-      if (isVideo || isAudio) {
-          const media = isVideo ? document.createElement('video') : document.createElement('audio');
-          media.src = URL.createObjectURL(file);
-          
-          await new Promise((resolve) => {
-              media.onloadedmetadata = resolve;
-          });
-          
-          if (media.duration > 30) {
-              alert("Please select a file that is 30 seconds or shorter.");
-              return;
-          }
-      }
+      // Reset immediately so selecting the same file again still fires
+      // onChange, and so a second file can't be queued while one is in flight.
+      e.target.value = '';
+      if (!file || isProcessingCapture) return;
 
       setIsProcessingCapture(true);
       showStatus('processing', `Analyzing uploaded media...`);
-      const snapId = Date.now().toString();
-      const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
-      const mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
 
-      if (isImage) {
-          retakesCountRef.current += 1;
-          onCapture({
-              id: snapId,
-              url: URL.createObjectURL(file),
-              blob: file,
-              timestamp: new Date().toLocaleTimeString(),
-              labels: ['Uploaded Discovery'],
-              behavior: "Uploaded media.",
-              aiInsight: "Processing...",
-              type: 'image',
-              userId: userMode.userId,
-              isHybrid: false,
-              location: location,
-              isAnalyzing: true,
-              rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
-              timeToRecordMs: Date.now() - sessionStartMsRef.current,
-              sessionRetakes: retakesCountRef.current
-          });
-          const reader = new FileReader();
-          reader.onload = () => {
-              if (reader.result) {
-                   geminiServiceRef.current?.sendVideoFrame(reader.result as string);
-              }
-          };
-          reader.readAsDataURL(file);
-      } else {
-          retakesCountRef.current += 1;
-          onCapture({
-              id: snapId,
-              videoUrl: isVideo ? URL.createObjectURL(file) : undefined,
-              videoBlob: isVideo ? file : undefined,
-              audioUrl: isAudio ? URL.createObjectURL(file) : undefined,
-              audioBlob: isAudio ? file : undefined,
-              timestamp: new Date().toLocaleTimeString(),
-              labels: ['Uploaded Discovery'],
-              behavior: "Uploaded media.",
-              aiInsight: "Processing...",
-              type: mediaType,
-              userId: userMode.userId,
-              isHybrid: false,
-              location: location,
-              isAnalyzing: true,
-              rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
-              timeToRecordMs: Date.now() - sessionStartMsRef.current,
-              sessionRetakes: retakesCountRef.current
-          });
+      let prepared;
+      try {
+          prepared = await prepareUpload(file);
+      } catch (err) {
+          const message = err instanceof UploadValidationError ? err.message : "Couldn't process this file. Please try another.";
+          showStatus('error', message);
+          setIsProcessingCapture(false);
+          return;
       }
 
-      GenAiService.analyzeMedia(file, mediaType, location).then(result => {
+      const snapId = Date.now().toString();
+      const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
+
+      retakesCountRef.current += 1;
+      onCapture({
+          id: snapId,
+          ...prepared.snapshotFields,
+          timestamp: new Date().toLocaleTimeString(),
+          labels: ['Uploaded Discovery'],
+          behavior: "Uploaded media.",
+          aiInsight: "Processing...",
+          userId: userMode.userId,
+          isHybrid: false,
+          location: location,
+          isAnalyzing: true,
+          rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
+          timeToRecordMs: Date.now() - sessionStartMsRef.current,
+          sessionRetakes: retakesCountRef.current
+      });
+
+      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location, { snapshotId: snapId }).then(result => {
           updateSnapshot(snapId, {
-              aiInsight: result.ecologic,
-              labels: result.taxonomy,
-              locationArea: result.location,
+              aiInsight: result.aiInsight,
+              labels: result.labels,
+              locationArea: result.locationArea,
               isAnalyzing: false,
-              aiProposedLabels: result.taxonomy,
-              aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+              isNatureSubject: result.isNatureSubject,
+              isHybrid: result.isHybrid,
+              confidence: result.confidence,
+              isSensitiveSpecies: result.isSensitiveSpecies,
+              subjects: result.subjects,
+              candidates: result.candidates,
+              soundscape: result.soundscape,
+              aiProposedLabels: result.labels,
+              aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });
           setIsProcessingCapture(false);
-          showStatus('success', 'Upload analyzed. Saved to field notes.');
+          showStatus('success', result.isNatureSubject ? 'Upload analyzed. Saved to field notes.' : 'No nature subject detected in this upload.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
           updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
@@ -585,6 +675,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   };
 
   const finalizeSession = useCallback(async (summary?: string) => {
+    if (isFinalizingRef.current) return;
+    isFinalizingRef.current = true;
     setAgentState('FINALIZING');
     const finalSummary = summary || "Exploration concluded.";
     if (naturalistId) {
@@ -597,9 +689,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     setTimeout(() => onEndSession(finalSummary), 1200);
   }, [naturalistId, onEndSession]);
 
+  // initSession's own callback closure is recreated far less often than
+  // finalizeSession (which changes whenever naturalistId updates, e.g.
+  // right after a session starts), so the idle-check interval below reads
+  // through this ref instead of calling finalizeSession directly — that
+  // way it always finalizes with the current naturalistId, not whatever
+  // was set when initSession's closure was created.
+  const finalizeSessionRef = useRef(finalizeSession);
+  useEffect(() => { finalizeSessionRef.current = finalizeSession; }, [finalizeSession]);
+
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
+    if (role === 'user' || role === 'assistant') lastActivityAtRef.current = Date.now();
     setChatHistory(prev => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg && lastMsg.role === role && role !== 'system') {
@@ -673,25 +775,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             }
         };
 
-        // 1. Try preferred settings (Requested Mode + Audio Processing)
-        // Note: Removed sampleRate constraint as it causes failures on some hardware.
-        // Web Audio API will handle resampling later.
-        let stream = await getMedia({ 
-            video: { facingMode: mode }, 
-            audio: { echoCancellation: true, noiseSuppression: true } 
-        });
-
-        // 2. Fallback: Any Camera + Audio Processing (Fixes desktop/device specific facingMode issues)
-        if (!stream) {
-            stream = await getMedia({ 
-                video: true, 
-                audio: { echoCancellation: true, noiseSuppression: true } 
+        let stream: MediaStream | null = null;
+        try {
+            // 1. Try preferred settings (Requested Mode + Audio Processing)
+            // Note: Removed sampleRate constraint as it causes failures on some hardware.
+            // Web Audio API will handle resampling later.
+            stream = await getMedia({
+                video: { facingMode: mode },
+                audio: { echoCancellation: true, noiseSuppression: true }
             });
-        }
 
-        // 3. Fallback: Any Camera + Any Audio (Fixes audio constraint issues)
-        if (!stream) {
-            stream = await getMedia({ video: true, audio: true });
+            // 2. Fallback: Any Camera + Audio Processing (Fixes desktop/device specific facingMode issues)
+            if (!stream) {
+                stream = await getMedia({
+                    video: true,
+                    audio: { echoCancellation: true, noiseSuppression: true }
+                });
+            }
+
+            // 3. Fallback: Any Camera + Any Audio (Fixes audio constraint issues)
+            if (!stream) {
+                stream = await getMedia({ video: true, audio: true });
+            }
+        } catch (permErr: any) {
+            // The combined video+audio request was denied outright. Before
+            // giving up on the whole session, check whether the camera
+            // alone is still usable — a lot of the app (capture, framing)
+            // works fine without a microphone; only the agent's ability to
+            // hear the user is lost. This distinguishes "mic blocked" from
+            // "camera blocked" instead of failing the same way for both.
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode } });
+            } catch {
+                throw new Error("CAMERA_PERMISSION_DENIED");
+            }
         }
 
         if (!stream) {
@@ -699,7 +816,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
 
         activeStreamRef.current = stream;
-        if (videoRef.current) { 
+        const noMic = stream.getAudioTracks().length === 0;
+        if (noMic && !micUnavailableRef.current) {
+            showStatus('error', "Microphone unavailable — the agent can see but won't hear you. Enable mic access in your browser settings to talk with it.");
+        }
+        micUnavailableRef.current = noMic;
+        setMicUnavailable(noMic);
+        if (videoRef.current) {
             videoRef.current.srcObject = stream; 
             stream.getVideoTracks().forEach(t => t.enabled = isCameraActiveRef.current);
         }
@@ -789,34 +912,77 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (res && res.blobPromise) {
         res.blobPromise.then(compressedBlob => {
            const objUrl = URL.createObjectURL(compressedBlob);
-           const resolvedLabels = args.labels || (args.label ? [args.label] : ['Nature']);
-           const resolvedBehavior = args.behavior || "Manual observation captured by explorer.";
-           const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
-           
-           retakesCountRef.current += 1;
+           // Defense in depth: even though the prompt/schema instruct the
+           // model not to invent a natural reading when is_nature_subject
+           // is false, don't trust free-text labels/insight in that case —
+           // override with an honest, fixed message rather than whatever
+           // the model happened to emit.
+           const isNatureSubject = args.is_nature_subject !== false;
+           const resolvedLabels = isNatureSubject
+               ? normalizeLabels(args.labels || (args.label ? [args.label] : ['Nature']))
+               : ['No Nature Subject Detected'];
+           const resolvedBehavior = isNatureSubject
+               ? (args.behavior || "Manual observation captured by explorer.")
+               : "No plant, animal, or fungus detected in this frame.";
+           const resolvedAiInsight = isNatureSubject
+               ? (args.ai_insight || "Visual record for field study.")
+               : "This capture doesn't appear to contain a natural subject.";
+           const resolvedCandidates = isNatureSubject && Array.isArray(args.candidates)
+               ? args.candidates.map((c: any) => ({ label: c.label, distinguishingFeature: c.distinguishing_feature, confidence: c.confidence }))
+               : undefined;
 
-           onCapture({ 
-               id: Date.now().toString(), 
-               url: objUrl, 
-               blob: compressedBlob, 
-               timestamp: new Date().toLocaleTimeString(), 
+           retakesCountRef.current += 1;
+           const snapId = Date.now().toString();
+
+           onCapture({
+               id: snapId,
+               url: objUrl,
+               blob: compressedBlob,
+               timestamp: new Date().toLocaleTimeString(),
                labels: resolvedLabels,
-               behavior: resolvedBehavior, 
+               behavior: resolvedBehavior,
                aiInsight: resolvedAiInsight,
-               type: 'image', 
-               userId: userMode.userId, 
+               type: 'image',
+               userId: userMode.userId,
                isHybrid: args.is_hybrid,
+               isNatureSubject,
+               confidence: args.confidence,
+               isSensitiveSpecies: args.is_sensitive_species,
+               subjects: args.subjects,
+               candidates: resolvedCandidates,
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
                timeToRecordMs: Date.now() - sessionStartMsRef.current,
                sessionRetakes: retakesCountRef.current
            });
 
+           // The Live agent's own identification never goes through
+           // GenAiService (it's a direct tool-call result from the
+           // streaming model), so this is the one capture path that has to
+           // log its own quality event rather than relying on
+           // analyzeMedia/analyzeMultimodal's shared logging.
+           if (userMode.userId) {
+               FirebaseService.logQualityEvent({
+                   uid: userMode.userId,
+                   snapshotId: snapId,
+                   mediaType: 'image',
+                   feature: 'liveCapture',
+                   modelUsed: configModel,
+                   isNatureSubject,
+                   isHybrid: args.is_hybrid,
+                   isSensitiveSpecies: args.is_sensitive_species,
+                   confidence: args.confidence,
+                   aiProposedLabels: resolvedLabels,
+               }).catch(() => {});
+           }
+
            // Push sighting overlay on screen
            setLatestSighting({
                labels: resolvedLabels,
                behavior: resolvedBehavior,
-               aiInsight: resolvedAiInsight
+               aiInsight: resolvedAiInsight,
+               confidence: isNatureSubject ? args.confidence : undefined,
+               candidates: resolvedCandidates
            });
         });
         return { result: "ok" };
@@ -888,6 +1054,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       let inputCtx: AudioContext | null = null;
       let processor: ScriptProcessorNode | null = null;
       let videoInterval: number | null = null;
+      let idleCheckInterval: number | null = null;
+
+      lastActivityAtRef.current = Date.now();
+      isFinalizingRef.current = false;
 
       try {
         console.debug("initSession starting...");
@@ -923,7 +1093,30 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 const errMsg = err?.message || String(err);
                 if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
                     setSessionError("API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'. Also ensure empty referrers are allowed for WebSockets.");
+                } else if (errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.toLowerCase().includes("quota")) {
+                    setSessionError("You've reached today's usage limit for the Live Guide. Please try again in a little while.");
                 }
+            },
+            // R1: Live-session instrumentation — fired once from
+            // disconnect() with this session's accumulated latency/tool-call
+            // metrics. See LiveSessionMetrics in geminiLiveService.ts.
+            onSessionMetrics: (metrics) => {
+                const uid = userIdValue;
+                if (!uid) return;
+                const turnLatencies = metrics.turnLatenciesMs;
+                FirebaseService.logLiveSessionMetrics({
+                    uid,
+                    model: configModel,
+                    timeToFirstTokenMs: metrics.timeToFirstTokenMs ?? undefined,
+                    avgTurnLatencyMs: turnLatencies.length > 0 ? Math.round(turnLatencies.reduce((a, b) => a + b, 0) / turnLatencies.length) : undefined,
+                    maxTurnLatencyMs: turnLatencies.length > 0 ? Math.max(...turnLatencies) : undefined,
+                    turnCount: turnLatencies.length,
+                    toolCallCounts: metrics.toolCallCounts,
+                    reconnectCount: metrics.reconnectCount,
+                    sessionDurationMs: metrics.sessionDurationMs,
+                    totalOutputAudioSec: metrics.totalOutputAudioSec,
+                    videoFramesSent: metrics.videoFramesSent,
+                }).catch(() => {});
             }
         });
 
@@ -948,41 +1141,81 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             await inputCtx.resume();
         }
         
-        const sourceNode = inputCtx.createMediaStreamSource(stream);
-        
-        // --- Dual-Path Audio Routing Setup ---
-        // Path A: To Agent (always on)
-        const agentGainNode = inputCtx.createGain();
-        agentGainNode.gain.value = 1;
-        agentGainNodeRef.current = agentGainNode;
-        sourceNode.connect(agentGainNode);
+        // createMediaStreamSource throws on a track-less stream, so only
+        // wire up the mic-input graph when a microphone was actually
+        // granted — a camera-only stream (mic denied/unavailable) still
+        // runs the session, just without the agent hearing the user.
+        if (stream.getAudioTracks().length > 0) {
+            const sourceNode = inputCtx.createMediaStreamSource(stream);
 
-        // Path B: To Recording (can be muted)
-        const recordingGainNode = inputCtx.createGain();
-        recordingGainNode.gain.value = 1; // Default to unmuted
-        recordingGainNodeRef.current = recordingGainNode;
-        sourceNode.connect(recordingGainNode);
-        
-        const recordingDestination = inputCtx.createMediaStreamDestination();
-        recordingDestinationRef.current = recordingDestination;
-        recordingGainNode.connect(recordingDestination);
-        // -------------------------------------
+            // --- Dual-Path Audio Routing Setup ---
+            // Path A: To Agent (always on)
+            const agentGainNode = inputCtx.createGain();
+            agentGainNode.gain.value = 1;
+            agentGainNodeRef.current = agentGainNode;
+            sourceNode.connect(agentGainNode);
 
-        processor = inputCtx.createScriptProcessor(4096, 1, 1);
-        processor.onaudioprocess = (e) => { 
-            if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
-                service.sendAudioChunk(e.inputBuffer.getChannelData(0)); 
-            }
-        };
-        agentGainNode.connect(processor);
-        processor.connect(inputCtx.destination); 
+            // Path B: To Recording (can be muted)
+            const recordingGainNode = inputCtx.createGain();
+            recordingGainNode.gain.value = 1; // Default to unmuted
+            recordingGainNodeRef.current = recordingGainNode;
+            sourceNode.connect(recordingGainNode);
+
+            const recordingDestination = inputCtx.createMediaStreamDestination();
+            recordingDestinationRef.current = recordingDestination;
+            recordingGainNode.connect(recordingDestination);
+
+            // Path C: To the live spectrogram (S1) — taps the same signal
+            // that gets recorded, purely for analysis, so the visualization
+            // always matches what will actually be captured. connect()
+            // with no destination arg still lets the node process audio for
+            // getByteFrequencyData reads; it doesn't need to reach speakers.
+            const analyserNode = inputCtx.createAnalyser();
+            analyserNode.fftSize = 1024;
+            analyserNode.smoothingTimeConstant = 0.4;
+            recordingGainNode.connect(analyserNode);
+            analyserNodeRef.current = analyserNode;
+            setAnalyserReady(true);
+            // -------------------------------------
+
+            processor = inputCtx.createScriptProcessor(4096, 1, 1);
+            processor.onaudioprocess = (e) => {
+                if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
+                    service.sendAudioChunk(e.inputBuffer.getChannelData(0));
+                }
+            };
+            agentGainNode.connect(processor);
+            processor.connect(inputCtx.destination);
+        }
 
         videoInterval = window.setInterval(() => {
-             if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) { 
-                 const res = captureFrame(false); 
-                 if (res) service.sendVideoFrame(res.dataUrl); 
+             if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
+                 const res = captureFrame(false);
+                 if (res && canvasRef.current && shouldSendStreamingFrame(canvasRef.current)) {
+                     service.sendVideoFrame(res.dataUrl);
+                 }
              }
-        }, 1000); 
+        }, 1000);
+
+        idleCheckInterval = window.setInterval(() => {
+            if (isFinalizingRef.current) return;
+            const idleMs = Date.now() - lastActivityAtRef.current;
+            if (idleMs >= IDLE_SESSION_TIMEOUT_MS) {
+                console.debug(`[LiveLens] Ending session after ${Math.round(idleMs / 1000)}s of inactivity`);
+                finalizeSessionRef.current("Session ended automatically after a period of inactivity.");
+                return;
+            }
+            // The idle timeout alone doesn't cap a genuinely active session:
+            // the server's 3-minute-per-connection cap (geminiProxy.js) is
+            // invisible to the user because GeminiLiveService just
+            // reconnects and continues — an engaged user talking/capturing
+            // continuously could otherwise run (and bill) indefinitely.
+            const sessionMs = Date.now() - sessionStartMsRef.current;
+            if (sessionMs >= MAX_SESSION_DURATION_MS) {
+                console.debug(`[LiveLens] Ending session after reaching max duration (${Math.round(sessionMs / 60000)}min)`);
+                finalizeSessionRef.current("Session ended automatically after reaching its maximum length. Start a new expedition to keep exploring.");
+            }
+        }, 5000);
 
         console.debug("initSession complete.");
         return () => {
@@ -991,20 +1224,28 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 geminiServiceRef.current.disconnect();
                 geminiServiceRef.current = null;
             }
-            if (videoInterval) clearInterval(videoInterval); 
-            if (processor) processor.disconnect(); 
+            if (videoInterval) clearInterval(videoInterval);
+            if (idleCheckInterval) clearInterval(idleCheckInterval);
+            if (processor) processor.disconnect();
             if (inputCtx) inputCtx.close();
-            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()); 
+            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop());
+            analyserNodeRef.current = null;
+            setAnalyserReady(false);
         };
-      } catch (err) { 
+      } catch (err) {
           console.error("Session init failed:", err);
-          setAgentState('DISCONNECTED'); 
+          const errMsg = err instanceof Error ? err.message : String(err);
+          if (errMsg === "CAMERA_PERMISSION_DENIED") {
+              setSessionError("Camera access is required for the Live Lens. Please allow camera permissions for this site in your browser settings, then retry.");
+          }
+          setAgentState('DISCONNECTED');
           return () => {
               if (geminiServiceRef.current) {
                   geminiServiceRef.current.disconnect();
                   geminiServiceRef.current = null;
               }
               if (videoInterval) clearInterval(videoInterval);
+              if (idleCheckInterval) clearInterval(idleCheckInterval);
               if (processor) processor.disconnect();
               if (inputCtx) inputCtx.close();
           };
@@ -1046,6 +1287,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           }
           finalizeSession();
       }} className="absolute top-10 right-6 z-[120] w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg"><span className="material-symbols-outlined">close</span></button>
+
+      <button
+          onClick={() => setShowHelpSheet(true)}
+          aria-label="What can I ask or do?"
+          title="What can I ask or do?"
+          className="absolute top-10 left-6 z-[120] w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg"
+      >
+          <span className="material-symbols-outlined">help</span>
+      </button>
 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[120] pointer-events-auto flex flex-col items-center gap-2">
           {!analysisStatus && (
@@ -1121,7 +1371,17 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           </div>
       )}
 
+      {showHelpSheet && (
+          <HelpSheet
+              onClose={() => setShowHelpSheet(false)}
+              onReplayTour={() => { setShowHelpSheet(false); setShowTourReplay(true); }}
+          />
+      )}
+
       <OnboardingTour onComplete={() => setIsTourActive(false)} />
+      {showTourReplay && (
+          <OnboardingTour forceShow onComplete={() => setShowTourReplay(false)} />
+      )}
 
       {/* Sighting Insight Overlay Text Blob */}
       <AnimatePresence>
@@ -1148,6 +1408,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               {label}
                           </span>
                       ))}
+                      {latestSighting.confidence && (() => {
+                          const cal = getCalibratedConfidence(calibration, latestSighting.confidence);
+                          return (
+                              <span className="bg-white/10 border border-white/20 text-white/70 font-sans px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase">
+                                  {latestSighting.confidence}{cal?.isValidated ? ` · ${Math.round(cal.observedAccuracy! * 100)}% historically accurate` : ''}
+                              </span>
+                          );
+                      })()}
                   </div>
 
                   {/* Behavior text */}
@@ -1155,6 +1423,24 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       <p className="text-xs text-white/55 italic leading-snug">
                           {latestSighting.behavior}
                       </p>
+                  )}
+
+                  {/* Candidate alternatives (Q5) — only when the model reported
+                      genuine ambiguity between similar species. */}
+                  {latestSighting.candidates && latestSighting.candidates.length > 0 && (
+                      <div className="border-t border-white/15 pt-3">
+                          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/50 mb-1.5">Could Also Be</p>
+                          <div className="space-y-1.5">
+                              {latestSighting.candidates.map((cand, idx) => (
+                                  <div key={idx} className="text-xs">
+                                      <span className="font-bold text-white/80">{cand.label}</span>
+                                      {cand.distinguishingFeature && (
+                                          <span className="text-white/50"> — {cand.distinguishingFeature}</span>
+                                      )}
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
                   )}
 
                   {/* Ecological Insight detail */}
@@ -1220,10 +1506,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   <span className="text-[7px] font-black uppercase tracking-tighter">Flip</span>
               </button>
               
-              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
+              <label className={`w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all shadow-2xl ${isProcessingCapture ? 'opacity-40' : 'active:scale-95 cursor-pointer'}`}>
                   <span className="material-symbols-outlined text-xl">upload_file</span>
                   <span className="text-[7px] font-black uppercase tracking-tighter">Upload</span>
-                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={handleMediaUpload} />
+                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" disabled={isProcessingCapture} onChange={handleMediaUpload} />
               </label>
           </div>
       )}
@@ -1274,25 +1560,38 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   </div>
               </div>
           )}
+          {/* S1: dedicated sound-capture surface — a real scrolling
+              frequency-over-time spectrogram of the mic signal while
+              recording audio, not a decorative visualizer. */}
+          {isRecordingAudio && analyserReady && (
+              <div className="max-w-md mx-auto mb-4 pointer-events-none animate-fade-in">
+                  <div className="bg-black/50 backdrop-blur-xl p-3 rounded-2xl border border-white/10">
+                      <p className="text-[8px] font-black uppercase tracking-[0.2em] text-white/40 mb-1.5 px-1">Live Spectrogram</p>
+                      <Spectrogram analyser={analyserNodeRef.current} isActive={isRecordingAudio} className="h-24 w-full" />
+                  </div>
+              </div>
+          )}
+
           <div className="flex items-center justify-between max-w-md mx-auto pointer-events-auto">
               <div className="w-14 h-14" />
-              
+
               <div className="flex items-center gap-8">
                   <div className="flex flex-col items-center gap-2">
                       <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                          {isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening")}
+                          {micUnavailable ? "No Mic" : (isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening"))}
                       </span>
-                      <button 
+                      <button
                         onPointerDown={handleMicPress}
                         onPointerUp={handleMicRelease}
                         onPointerLeave={handleMicRelease}
-                        disabled={isProcessingCapture}
-                        className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl touch-none ${isRecordingAudio ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : (isMuted ? 'bg-white/5 border-white/10 text-white/20' : 'bg-theme-accent/20 border-theme-accent/30 text-theme-accent active:scale-95')} ${isProcessingCapture ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={isProcessingCapture || micUnavailable}
+                        title={micUnavailable ? "Microphone unavailable" : undefined}
+                        className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl touch-none ${isRecordingAudio ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : (isMuted || micUnavailable ? 'bg-white/5 border-white/10 text-white/20' : 'bg-theme-accent/20 border-theme-accent/30 text-theme-accent active:scale-95')} ${isProcessingCapture || micUnavailable ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                          <span className="material-symbols-outlined">{isRecordingAudio ? 'stop_circle' : (isMuted ? 'mic_off' : 'mic')}</span>
+                          <span className="material-symbols-outlined">{isRecordingAudio ? 'stop_circle' : (isMuted || micUnavailable ? 'mic_off' : 'mic')}</span>
                           {isRecordingAudio && <span className="text-[8px] font-black">{recordingTime}s</span>}
                       </button>
-                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-tighter">Tap: Mute • Hold: Rec</span>
+                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-tighter">{micUnavailable ? "Camera only" : "Tap: Mute • Hold: Rec"}</span>
                   </div>
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (

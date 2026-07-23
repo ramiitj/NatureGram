@@ -3,26 +3,12 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="referrer" content="no-referrer-when-downgrade" />
     <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;" />
     <title>NatureGram | AI-Powered Live Field Guide & Nature Community</title>
     <meta name="description" content="Explore the wild with NatureGram. Use our AI LiveLens to identify plants and animals in real-time, track your expeditions, and share discoveries with a global community of nature lovers." />
     <meta name="keywords" content="AI nature identifier, real-time plant identification app, identify wildlife with AI, digital field guide, nature photography community, naturalist app, biodiversity tracking, citizen science" />
-    
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://naturegram.app/" />
-    <meta property="og:title" content="NatureGram | AI-Powered Live Field Guide" />
-    <meta property="og:description" content="Explore the wild with NatureGram. Use our AI LiveLens to identify plants and animals in real-time." />
-    <meta property="og:image" content="https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&q=80&w=1200" />
-
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:url" content="https://naturegram.app/" />
-    <meta property="twitter:title" content="NatureGram | AI-Powered Live Field Guide" />
-    <meta property="twitter:description" content="Explore the wild with NatureGram. Use our AI LiveLens to identify plants and animals in real-time." />
-    <meta property="twitter:image" content="https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&q=80&w=1200" />
 
     <!-- Structured Data (JSON-LD) for SEO -->
     <script type="application/ld+json">
@@ -66,89 +52,28 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/192/000000/sun.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
     <script>
         // Shim process for browser environment to prevent SDK crash
         window.process = { env: { API_KEY: "" } };
-        
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        "primary": "var(--theme-primary, #44403c)",
-                        "accent": "var(--theme-accent, #ea580c)", 
-                        "day-bg": "#fcfaf8",
-                        "surface": "#ffffff", 
-                        "text-main": "#1c1917",
-                        "text-muted": "#78716c",
-                        "insight-bg": "#fdf8f1",
-                        "theme-primary": "rgb(var(--theme-primary-rgb, 68 64 60) / <alpha-value>)",
-                        "theme-primary-gradient": "var(--theme-primary-gradient, #ea580c)",
-                        "theme-shadow": "rgb(var(--theme-shadow-rgb, 0 0 0) / <alpha-value>)",
-                        "theme-text": "var(--theme-text, #ffffff)",
-                        "theme-accent": "rgb(var(--theme-accent-rgb, 234 88 12) / <alpha-value>)",
-                    },
-                    fontFamily: {
-                        "display": ["Playfair Display", "serif"],
-                        "body": ["Inter", "sans-serif"],
-                    },
-                    animation: {
-                        'wave-bar': 'wave 1s ease-in-out infinite',
-                        'fade-in': 'fadeIn 0.6s ease-out forwards',
-                        'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        'slide-in-right': 'slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        'float': 'float 6s ease-in-out infinite',
-                    },
-                    keyframes: {
-                        wave: { '0%, 100%': { height: '15%' }, '50%': { height: '100%' } },
-                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-                        slideUp: { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } },
-                        slideInRight: { '0%': { transform: 'translateX(20px)', opacity: '0' }, '100%': { transform: 'translateX(0)', opacity: '1' } },
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0)' },
-                            '50%': { transform: 'translateY(-20px)' },
-                        }
-                    }
-                },
-            },
-        }
     </script>
     <style>
         :root { --sab: env(safe-area-inset-bottom); --sat: env(safe-area-inset-top); }
-        body { background-color: #fcfaf8; height: 100dvh; width: 100vw; margin: 0; overflow: hidden; position: fixed; touch-action: none; -webkit-user-select: none; user-select: none; }
+        body { background-color: #fcfaf8; height: 100dvh; width: 100vw; margin: 0; overflow: hidden; position: fixed; touch-action: manipulation; }
         #root { height: 100%; width: 100%; display: flex; flex-direction: column; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .safe-pb { padding-bottom: calc(var(--sab) + 1rem); }
         .safe-pt { padding-top: var(--sat); }
-        .catalog-label { font-family: 'Inter', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.65rem; color: var(--theme-accent, #ea580c); }
+        /* V1: catalog-label is this app's "specimen tag" style — taxonomy
+         * chips, timestamps, confidence readouts — used throughout the
+         * community/journal views. JetBrains Mono gives it an instrument-
+         * panel feel instead of borrowing the body sans. */
+        .catalog-label { font-family: 'JetBrains Mono', monospace; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.65rem; color: var(--theme-accent, #3f7a54); }
     </style>
-    <script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
-    "firebase/storage": "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js",
-    "react": "https://esm.sh/react@19.0.0",
-    "react-dom": "https://esm.sh/react-dom@19.0.0",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "firebase/": "https://esm.sh/firebase@^12.8.0/",
-    "react/": "https://esm.sh/react@^19.2.4/"
-  }
-}
-</script>
   <link rel="stylesheet" href="/index.css">
 </head>
   <body class="text-theme-primary/90 font-body">
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
 </body>
 </html>

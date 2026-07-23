@@ -5,6 +5,18 @@ import { floatTo16BitPCM, arrayBufferToBase64, decodeAudioData, base64ToArrayBuf
 import { GroundingLink } from "../types";
 import { auth } from "../firebaseConfig";
 
+// Errors worth giving up on immediately rather than burning through the
+// bounded reconnect attempts: a blocked API key or an exhausted quota won't
+// resolve itself by retrying, so retrying just delays a message the user
+// actually needs to see.
+const isFatalLiveError = (errMsg: string): boolean =>
+    errMsg.includes("referer") ||
+    errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") ||
+    errMsg.includes("403") ||
+    errMsg.includes("RESOURCE_EXHAUSTED") ||
+    errMsg.includes("429") ||
+    errMsg.toLowerCase().includes("quota");
+
 interface GeminiLiveDelegate {
   onAudioData: (audioBuffer: AudioBuffer) => void;
   onInterrupted?: () => void;
@@ -13,6 +25,49 @@ interface GeminiLiveDelegate {
   onConnectionStateChange?: (state: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING') => void;
   onError?: (error: any) => void;
   onTurnComplete?: () => void;
+  // Fired once, from disconnect() (a genuine session end — never on an
+  // internal reconnect), with this session's accumulated performance
+  // metrics (see R1: "you can't optimize or pitch the real-time experience
+  // without measuring it").
+  onSessionMetrics?: (metrics: LiveSessionMetrics) => void;
+}
+
+const createEmptyMetrics = (): LiveSessionMetrics => ({
+  timeToFirstTokenMs: null,
+  turnLatenciesMs: [],
+  toolCallCounts: {},
+  reconnectCount: 0,
+  sessionDurationMs: 0,
+  totalOutputAudioSec: 0,
+  videoFramesSent: 0,
+});
+
+export interface LiveSessionMetrics {
+  // Wall-clock time from connect() to the first audio/transcript chunk of
+  // the model's very first response this session. Null if the session
+  // never got a single response (e.g. connection failed outright).
+  timeToFirstTokenMs: number | null;
+  // One entry per model turn after the first: time from the previous
+  // turn's completion to this turn's first response chunk. Excludes the
+  // very first turn (that's timeToFirstTokenMs, measured from connect
+  // rather than from a prior turnComplete).
+  turnLatenciesMs: number[];
+  toolCallCounts: Record<string, number>;
+  reconnectCount: number;
+  // The following three feed U2's cost model — real measurements, not
+  // estimates, since the Live API doesn't return per-turn usageMetadata
+  // the way generateContent does:
+  // Wall-clock connect-to-disconnect duration. The client streams mic
+  // audio continuously for this entire span (see sendAudioChunk), so this
+  // doubles directly as the audio-input duration for cost purposes.
+  sessionDurationMs: number;
+  // Sum of every decoded response AudioBuffer's .duration — the actual
+  // audio-output (voice response) seconds for this session, not inferred.
+  totalOutputAudioSec: number;
+  // Count of video frames actually sent (see sendVideoFrame) — the visual
+  // input volume, priced as discrete image tokens (still JPEGs at ~1fps),
+  // not a continuous video-token stream.
+  videoFramesSent: number;
 }
 
 export class GeminiLiveService {
@@ -26,15 +81,48 @@ export class GeminiLiveService {
   private reconnectTimeoutId: any = null;
   
   private systemInstruction: string = '';
-  private model: string = 'models/gemini-3.5-flash';
+  private model: string = 'models/gemini-2.5-flash-native-audio-latest';
   private latLng: { latitude: number, longitude: number } | null = null;
 
   private currentModelTurnText: string = "";
   private currentUserTurnText: string = "";
 
+  // R1: Live-session instrumentation (see LiveSessionMetrics doc comments).
+  private connectStartedAt: number | null = null;
+  private firstTokenReceived = false;
+  private turnResponseStarted = false;
+  private lastTurnCompleteAt: number | null = null;
+  private metrics: LiveSessionMetrics = createEmptyMetrics();
+
   constructor(audioContext: AudioContext, delegate: GeminiLiveDelegate) {
     this.delegate = delegate;
     this.outputAudioContext = audioContext;
+  }
+
+  // A defensive copy so callers can't mutate the service's live-tracked
+  // arrays/objects out from under it.
+  public getSessionMetrics(): LiveSessionMetrics {
+    return {
+      ...this.metrics,
+      turnLatenciesMs: [...this.metrics.turnLatenciesMs],
+      toolCallCounts: { ...this.metrics.toolCallCounts },
+    };
+  }
+
+  // Marks the first response chunk of a model turn — called from both the
+  // audio and output-transcript branches of handleMessage, since either
+  // can arrive first. Idempotent per turn (guarded by turnResponseStarted,
+  // reset on turnComplete).
+  private markTurnResponseStart() {
+    if (this.turnResponseStarted) return;
+    this.turnResponseStarted = true;
+
+    if (!this.firstTokenReceived) {
+      this.firstTokenReceived = true;
+      this.metrics.timeToFirstTokenMs = this.connectStartedAt !== null ? Date.now() - this.connectStartedAt : null;
+    } else if (this.lastTurnCompleteAt !== null) {
+      this.metrics.turnLatenciesMs.push(Date.now() - this.lastTurnCompleteAt);
+    }
   }
 
   public isConnected() {
@@ -59,6 +147,11 @@ export class GeminiLiveService {
 
   public async connect() {
     this.isManuallyClosed = false;
+    this.connectStartedAt = Date.now();
+    this.firstTokenReceived = false;
+    this.turnResponseStarted = false;
+    this.lastTurnCompleteAt = null;
+    this.metrics = createEmptyMetrics();
     await this.internalConnect();
   }
 
@@ -80,11 +173,20 @@ export class GeminiLiveService {
           }
       });
 
+      // Geo-grounds identification: setLocation() (called by LiveLens before
+      // connect(), whenever a geolocation fix is available) is otherwise
+      // just stored and never used. Appended here rather than baked into
+      // setSystemInstruction so a mid-session reconnect always carries
+      // whatever the latest known location is.
+      const geoContext = this.latLng
+          ? `\n[LOCATION CONTEXT: The explorer is near latitude ${this.latLng.latitude.toFixed(3)}, longitude ${this.latLng.longitude.toFixed(3)}. Use this to favor species plausible for this region's biome/climate — but trust clear visual evidence over geography if they conflict (e.g. an obviously captive/pet/aquarium/houseplant subject).]`
+          : '';
+
       console.debug("[GeminiLiveService] Initiating ai.live.connect...");
       this.sessionPromise = ai.live.connect({
         model: this.model,
         config: {
-          systemInstruction: { parts: [{ text: this.systemInstruction }] },
+          systemInstruction: { parts: [{ text: this.systemInstruction + geoContext }] },
           tools: [
               { functionDeclarations: tools }
           ],
@@ -120,7 +222,7 @@ export class GeminiLiveService {
                 console.error("[GeminiLiveService] Live Error (callback):", err);
                 this.delegate.onError?.(err);
                 const errMsg = err?.message || String(err);
-                const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+                const isFatal = isFatalLiveError(errMsg);
                 if (!this.connected && !this.isManuallyClosed && !isFatal) {
                     this.handleReconnect();
                 } else if (isFatal) {
@@ -134,7 +236,7 @@ export class GeminiLiveService {
           console.error("[GeminiLiveService] ai.live.connect promise rejected:", err);
           this.delegate.onError?.(err);
           const errMsg = err?.message || String(err);
-          const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+          const isFatal = isFatalLiveError(errMsg);
           if (!isFatal) {
               this.handleReconnect();
           } else {
@@ -146,7 +248,7 @@ export class GeminiLiveService {
       console.error("[GeminiLiveService] Connection failed:", error);
       this.delegate.onError?.(error);
       const errMsg = error instanceof Error ? error.message : String(error);
-      const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
+      const isFatal = isFatalLiveError(errMsg);
       if (!isFatal) {
           this.handleReconnect();
       } else {
@@ -163,6 +265,7 @@ export class GeminiLiveService {
     if (this.reconnectTimeoutId) return;
 
     this.reconnectAttempts++;
+    this.metrics.reconnectCount++;
     this.delegate.onConnectionStateChange?.('RECONNECTING');
     
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
@@ -175,6 +278,18 @@ export class GeminiLiveService {
   }
 
   public async disconnect() {
+    // A genuine session end (as opposed to the internal reconnect churn
+    // handled elsewhere) — the one place this session's accumulated
+    // performance metrics are reported, so every call site that ends a
+    // session gets this for free rather than needing its own logging call.
+    if (this.connectStartedAt !== null) {
+        this.metrics.sessionDurationMs = Date.now() - this.connectStartedAt;
+    }
+    const hadActivity = this.metrics.timeToFirstTokenMs !== null || Object.keys(this.metrics.toolCallCounts).length > 0;
+    if (hadActivity) {
+        this.delegate.onSessionMetrics?.(this.getSessionMetrics());
+    }
+
     this.isManuallyClosed = true;
     this.connected = false;
     if (this.reconnectTimeoutId) {
@@ -224,6 +339,7 @@ export class GeminiLiveService {
       return;
     }
     const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+    this.metrics.videoFramesSent++;
     this.sessionPromise.then(session => {
         if (!this.connected) return;
         try {
@@ -272,9 +388,11 @@ export class GeminiLiveService {
 
     const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (base64Audio) {
+      this.markTurnResponseStart();
       try {
         const audioBytes = new Uint8Array(base64ToArrayBuffer(base64Audio));
         const audioBuffer = await decodeAudioData(audioBytes, this.outputAudioContext);
+        this.metrics.totalOutputAudioSec += audioBuffer.duration;
         this.delegate.onAudioData(audioBuffer);
       } catch (e) {}
     }
@@ -306,13 +424,16 @@ export class GeminiLiveService {
 
     const outputTranscript = message.serverContent?.outputTranscription?.text;
     if (outputTranscript) {
+        this.markTurnResponseStart();
         this.currentModelTurnText += outputTranscript;
         if (this.delegate.onTranscript) this.delegate.onTranscript(this.currentModelTurnText, false, groundingLinks);
     }
-    
+
     if (message.serverContent?.turnComplete) {
         this.currentModelTurnText = "";
         this.currentUserTurnText = "";
+        this.lastTurnCompleteAt = Date.now();
+        this.turnResponseStarted = false;
         this.delegate.onTurnComplete?.();
     }
 
@@ -322,16 +443,17 @@ export class GeminiLiveService {
           const functionResponses = [];
 
           for (const fc of message.toolCall.functionCalls) {
+            this.metrics.toolCallCounts[fc.name] = (this.metrics.toolCallCounts[fc.name] || 0) + 1;
             let result: any = { result: "ok" };
             if (this.delegate.onToolCall) {
                 try {
                     const response = await this.delegate.onToolCall(fc.name, fc.args);
                     if (response) result = response;
-                } catch (e) { 
-                    result = { error: "Failed to execute field tool." }; 
+                } catch (e) {
+                    result = { error: "Failed to execute field tool." };
                 }
             }
-            
+
             functionResponses.push({
                 id: fc.id,
                 name: fc.name,

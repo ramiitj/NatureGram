@@ -20,7 +20,39 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "verificationState",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ecosystem_feed",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "ecosystem_feed",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "mediaType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "verificationState",
           "order": "ASCENDING"
         },
         {
@@ -35,6 +67,20 @@
       "fields": [
         {
           "fieldPath": "isPublic",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feed_thumbnails",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "userId",
           "order": "ASCENDING"
         },
         {

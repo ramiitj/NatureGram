@@ -53,7 +53,12 @@ export const ThemeService = {
         date: new Date().toISOString(),
         ...mergedTheme,
         searchQuery: "",
-        fontFamily: "Space Grotesk, sans-serif",
+        // V1: the app's own font pairing (see tailwind.config.js) — this
+        // used to hardcode "Space Grotesk, sans-serif" here, one of the
+        // exact "safe AI-app" font choices this pillar moved away from,
+        // silently overriding index.css's own default for any bare
+        // (un-Tailwind-classed) heading element.
+        fontFamily: "Fraunces, serif",
         status: 'ready'
       };
 

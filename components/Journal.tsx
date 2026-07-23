@@ -9,21 +9,23 @@ interface JournalProps {
   onPostOpen?: () => void;
   onPostClose?: () => void;
   onLogoClick?: () => void;
+  onStartExpedition?: () => void;
 }
 
-const Journal: React.FC<JournalProps> = ({ 
-  userId, 
-  activeDraftsCount, 
-  onViewDrafts, 
-  onViewProfile, 
-  onPostOpen, 
+const Journal: React.FC<JournalProps> = ({
+  userId,
+  activeDraftsCount,
+  onViewDrafts,
+  onViewProfile,
+  onPostOpen,
   onPostClose,
-  onLogoClick
+  onLogoClick,
+  onStartExpedition
 }) => {
   return (
-    <Community 
-      currentUserMode={{ type: 'community', userId }} 
-      isJournalOnly={true} 
+    <Community
+      currentUserMode={{ type: 'community', userId }}
+      isJournalOnly={true}
       backLabel="Profile"
       activeDraftsCount={activeDraftsCount}
       onViewDrafts={onViewDrafts}
@@ -31,6 +33,7 @@ const Journal: React.FC<JournalProps> = ({
       onPostOpen={onPostOpen}
       onPostClose={onPostClose}
       onLogoClick={onLogoClick}
+      onStartExpedition={onStartExpedition}
     />
   );
 };

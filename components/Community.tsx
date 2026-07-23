@@ -2,132 +2,23 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode, Comment } from '../types';
-import ShareStudio from './ShareStudio';
-import PublisherStudio from './PublisherStudio';
+import ShareSheet from './ShareSheet';
 import MediaEditor from './MediaEditor';
+import EditPostDetails from './EditPostDetails';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
+import FeedCard from './community/FeedCard';
+import SpeciesInfoModal from './community/SpeciesInfoModal';
+import DeleteConfirmModal from './community/DeleteConfirmModal';
+import CommentsDrawer from './community/CommentsDrawer';
+import SearchFiltersPanel from './community/SearchFiltersPanel';
+import DisputeIdentificationModal from './community/DisputeIdentificationModal';
 import { AnimatePresence, motion } from 'motion/react';
 import { hapticFeedback } from '../utils';
-
-const FeedCard: React.FC<{
-    post: CommunityPost;
-    onPostClick: (post: CommunityPost) => void;
-    loadedImages: Record<string, boolean>;
-    onImageLoad: (id: string) => void;
-}> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const isLoaded = post.mediaType === 'audio' ? true : loadedImages[post.id];
-    const [isHovered, setIsHovered] = useState(false);
-    const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
-    const cardRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const isMobile = window.matchMedia("(hover: none)").matches;
-        if (!isMobile || !cardRef.current) return;
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    // Start playing if at least 60% of the card is visible
-                    setIsHovered(entry.isIntersecting);
-                });
-            },
-            { threshold: 0.6 }
-        );
-        
-        observer.observe(cardRef.current);
-        return () => observer.disconnect();
-    }, []);
-
-    useEffect(() => {
-        let active = true;
-        if (isHovered && !post.videoUrl && !post.audioUrl && (post.mediaType === 'video' || post.mediaType === 'audio')) {
-            FirebaseService.getFullPost(post.id).then(full => {
-                if (active && full) {
-                    setFullMedia({ videoUrl: full.videoUrl, audioUrl: full.audioUrl });
-                }
-            });
-        }
-        return () => { active = false; };
-    }, [isHovered, post]);
-
-    const videoUrl = post.videoUrl || fullMedia?.videoUrl;
-    const audioUrl = post.audioUrl || fullMedia?.audioUrl;
-
-    return (
-        <div 
-            ref={cardRef}
-            onClick={() => { setIsHovered(false); onPostClick(post); }} 
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            className={`relative group cursor-pointer transition-all duration-700 break-inside-avoid ${isLoaded ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-[0.98]'}`}
-        >
-            <div className="relative overflow-hidden bg-theme-primary/10 shadow-sm border border-theme-primary/10 rounded-lg">
-                {post.mediaType === 'audio' ? (
-                    <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} />
-                        ) : null}
-                        <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
-                    </div>
-                ) : post.mediaType === 'video' ? (
-                    <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} />
-                        ) : (
-                            <div className="w-full h-full bg-stone-900 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
-                            </div>
-                        )}
-                        <span className="material-symbols-outlined text-white text-4xl absolute z-10 drop-shadow-md">play_circle</span>
-                    </div>
-                ) : (
-                    <img 
-                        src={post.thumbnailUrl || post.imageUrl} 
-                        alt="Observation" 
-                        loading="lazy" 
-                        onLoad={() => onImageLoad(post.id)}
-                        className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
-                    />
-                )}
-                {post.items && post.items.length > 1 && (
-                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center z-20">
-                        <span className="material-symbols-outlined text-white text-[12px]">filter_none</span>
-                    </div>
-                )}
-                {post.mediaType === 'video' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">play_arrow</span>
-                    </div>
-                ) : post.mediaType === 'audio' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">mic</span>
-                    </div>
-                ) : post.audioUrl ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">music_note</span>
-                    </div>
-                ) : null}
-            </div>
-            
-            <div className={`px-1 mt-2 text-center md:text-left transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h4 className="text-[10px] font-display font-bold italic text-theme-primary leading-tight truncate tracking-tight group-hover:text-theme-accent transition-colors">
-                    {post.title || post.labels?.[0] || "Specimen"}
-                </h4>
-                <div className="flex items-center justify-center md:justify-start gap-1 mt-1 opacity-40">
-                    <p className="catalog-label text-[6px] tracking-[0.2em] uppercase font-bold text-theme-primary/60">
-                        {post.locationArea || "Earth"}
-                    </p>
-                    <span className="w-0.5 h-0.5 rounded-full bg-theme-primary/30 shrink-0"></span>
-                    <div className="flex items-center gap-0.5">
-                            <span className="material-symbols-outlined text-[7px] text-theme-accent">favorite</span>
-                            <span className="text-[7px] font-bold text-theme-primary/60">{post.likes?.length || 0}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
+import { getCalibratedConfidence } from '../services/calibrationService';
+import { ConfidenceCalibration } from '../types';
+import { getRegionalCommonName } from '../services/taxonomyService';
+import { useI18n } from '../i18n/I18nContext';
 
 interface CommunityProps {
   currentUserMode: UserMode;
@@ -140,20 +31,23 @@ interface CommunityProps {
   activeDraftsCount?: number;
   onViewDrafts?: () => void;
   onLogoClick?: () => void;
+  onStartExpedition?: () => void;
 }
 
-const Community: React.FC<CommunityProps> = ({ 
-    currentUserMode, 
-    selectedPostId, 
-    onPostClose, 
-    onPostOpen, 
+const Community: React.FC<CommunityProps> = ({
+    currentUserMode,
+    selectedPostId,
+    onPostClose,
+    onPostOpen,
     backLabel = "Feed",
     onViewProfile,
     isJournalOnly = false,
     activeDraftsCount = 0,
     onViewDrafts,
-    onLogoClick
+    onLogoClick,
+    onStartExpedition
 }) => {
+  const { language: uiLanguage, t } = useI18n();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -166,6 +60,20 @@ const Community: React.FC<CommunityProps> = ({
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeSuggestedLabel, setDisputeSuggestedLabel] = useState("");
+  const [disputeReason, setDisputeReason] = useState("");
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+
+  // Fetched once per mount (public read, see admin_config rules) so the
+  // confidence badge in the detail view can show an observed accuracy
+  // alongside the model's raw self-reported confidence, when there's
+  // enough verified data to say something honest about it (see
+  // getCalibratedConfidence).
+  useEffect(() => {
+    FirebaseService.getConfidenceCalibration().then(setCalibration).catch(() => {});
+  }, []);
 
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
@@ -176,6 +84,9 @@ const Community: React.FC<CommunityProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
+  // Y2: feed scope — the global "Discover" feed vs. the personalized
+  // "Following" feed (posts from accounts the viewer follows).
+  const [feedScope, setFeedScope] = useState<'discover' | 'following'>('discover');
 
   // Dynamically generated Instagram-style search suggestions
   const dynamicSuggestions = React.useMemo(() => {
@@ -331,7 +242,42 @@ const Community: React.FC<CommunityProps> = ({
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const mediaScrollRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
+
+  // Pull-to-refresh (feed only — journal is a live subscription, always current)
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const pullStartY = useRef<number | null>(null);
+  const PULL_THRESHOLD = 70;
+  const PULL_MAX = 100;
+
+  const handlePullTouchStart = (e: React.TouchEvent) => {
+      if (isJournalOnly || activePost) return;
+      const container = scrollContainerRef.current;
+      pullStartY.current = (container && container.scrollTop <= 0) ? e.touches[0].clientY : null;
+  };
+
+  const handlePullTouchMove = (e: React.TouchEvent) => {
+      if (pullStartY.current === null || isRefreshing) return;
+      const delta = e.touches[0].clientY - pullStartY.current;
+      if (delta > 0) {
+          setPullDistance(Math.min(delta * 0.5, PULL_MAX));
+      } else {
+          setPullDistance(0);
+      }
+  };
+
+  const handlePullTouchEnd = () => {
+      if (pullStartY.current === null) return;
+      pullStartY.current = null;
+      if (pullDistance >= PULL_THRESHOLD && !isRefreshing) {
+          hapticFeedback(10);
+          setIsRefreshing(true);
+          fetchFeed({ silent: true }).finally(() => setIsRefreshing(false));
+      }
+      setPullDistance(0);
+  };
 
   const swipeTouchStartX = useRef(0);
   const swipeTouchStartY = useRef(0);
@@ -398,7 +344,6 @@ const Community: React.FC<CommunityProps> = ({
   }, [activePost]);
 
   const [sharingPost, setSharingPost] = useState<CommunityPost | null>(null);
-  const [publishingPost, setPublishingPost] = useState<CommunityPost | null>(null);
 
   const loadMore = useCallback(async () => {
       if (!hasMore || isLoading || isJournalOnly) return;
@@ -431,6 +376,7 @@ const Community: React.FC<CommunityProps> = ({
   }, [loadMore]);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingDetails, setIsEditingDetails] = useState(false);
   const [localFlipH, setLocalFlipH] = useState(false);
   const [localFlipV, setLocalFlipV] = useState(false);
   const [fetchedPostId, setFetchedPostId] = useState<string | null>(null);
@@ -499,31 +445,44 @@ const Community: React.FC<CommunityProps> = ({
     const unsubscribe = FirebaseService.subscribeToUserJournal(currentUserMode.userId, (data) => {
         setPosts(data);
         setIsLoading(false);
+    }, (err) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setIsLoading(false);
     });
-    
+
     return () => unsubscribe();
   }, [isJournalOnly, currentUserMode.userId]);
 
-  // Original Global Feed loaded paginated query
-  useEffect(() => {
-    if (isJournalOnly) return;
-    
-    window.scrollTo(0, 0);
-    const container = document.getElementById('community-scroll-container');
-    if (container) container.scrollTop = 0;
-    
-    setIsLoading(true);
-    setPosts([]);
+  // Fetches the first page of the global feed. `silent` skips the full
+  // skeleton-loading state (used by pull-to-refresh, which keeps the
+  // existing posts visible under a small top indicator instead of
+  // blanking the whole feed like the initial mount load does).
+  const fetchFeed = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+        setIsLoading(true);
+        setPosts([]);
+    }
     setLastVisible(null);
     setHasMore(true);
     setError(null);
-    
-    FirebaseService.getMorePosts(null, searchTag).then(({ posts: newPosts, lastVisible: newLastVisible }) => {
-        setPosts(newPosts);
-        setLastVisible(newLastVisible);
-        setHasMore(newLastVisible !== null);
-        setIsLoading(false);
-    }).catch(err => {
+
+    try {
+        if (feedScope === 'following') {
+            // Y2: personalized feed. No infinite-scroll pagination here (the
+            // capped `in`-query returns a single page) — hasMore stays false.
+            const uid = currentUserMode.userId;
+            const ids = uid ? await FirebaseService.getFollowingIds(uid) : [];
+            const { posts: newPosts } = await FirebaseService.getFollowingFeed(ids);
+            setPosts(newPosts);
+            setLastVisible(null);
+            setHasMore(false);
+        } else {
+            const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(null, searchTag);
+            setPosts(newPosts);
+            setLastVisible(newLastVisible);
+            setHasMore(newLastVisible !== null);
+        }
+    } catch (err: any) {
         console.error("Failed to load initial posts:", err);
         let msg = err.message || String(err);
         try {
@@ -531,9 +490,21 @@ const Community: React.FC<CommunityProps> = ({
             if (parsed && parsed.error) msg = parsed.error;
         } catch (e) {}
         setError(msg);
+    } finally {
         setIsLoading(false);
-    });
-  }, [searchTag, isJournalOnly]);
+    }
+  }, [searchTag, feedScope, currentUserMode.userId]);
+
+  // Original Global Feed loaded paginated query
+  useEffect(() => {
+    if (isJournalOnly) return;
+
+    window.scrollTo(0, 0);
+    const container = document.getElementById('community-scroll-container');
+    if (container) container.scrollTop = 0;
+
+    fetchFeed();
+  }, [searchTag, isJournalOnly, fetchFeed]);
 
   useEffect(() => {
     if (selectedPostId) {
@@ -608,10 +579,31 @@ const Community: React.FC<CommunityProps> = ({
           setShowAuthModal(true);
           return;
       }
-      if (!currentUserMode.userId) return;
+      const userId = currentUserMode.userId;
+      if (!userId) return;
       hapticFeedback(10);
-      const isLiked = post.likes?.includes(currentUserMode.userId);
-      await FirebaseService.toggleLike(post.id, currentUserMode.userId, !!isLiked);
+      const isLiked = !!post.likes?.includes(userId);
+
+      // Optimistic update: this feed's main view is a one-time fetch (not
+      // a live subscription), so without this, liking a post gave zero
+      // visual feedback at all — not just a lack of snappiness, the heart
+      // fill and like count genuinely never changed until a full reload.
+      const applyLikeState = (likes: string[] | undefined, shouldBeLiked: boolean) => {
+          const base = likes || [];
+          return shouldBeLiked
+              ? (base.includes(userId) ? base : [...base, userId])
+              : base.filter(id => id !== userId);
+      };
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: applyLikeState(p.likes, !isLiked) } : p));
+      setActivePost(prev => prev && prev.id === post.id ? { ...prev, likes: applyLikeState(prev.likes, !isLiked) } : prev);
+
+      try {
+          await FirebaseService.toggleLike(post.id, userId, isLiked);
+      } catch (err) {
+          console.error('Failed to toggle like, reverting:', err);
+          setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: applyLikeState(p.likes, isLiked) } : p));
+          setActivePost(prev => prev && prev.id === post.id ? { ...prev, likes: applyLikeState(prev.likes, isLiked) } : prev);
+      }
   };
 
   const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
@@ -623,7 +615,13 @@ const Community: React.FC<CommunityProps> = ({
               setShowAuthModal(true);
               return;
           }
-          handleLike(e as any, post);
+          // Double-tap only ever likes, never unlikes — matches the
+          // standard convention (re-double-tapping an already-liked post
+          // just replays the heart burst without unliking it).
+          const isLiked = currentUserMode.userId && post.likes?.includes(currentUserMode.userId);
+          if (!isLiked) {
+              handleLike(e as any, post);
+          }
           setShowHeartAnimation(true);
           setTimeout(() => setShowHeartAnimation(false), 800);
       }
@@ -715,13 +713,101 @@ const Community: React.FC<CommunityProps> = ({
         }
 
         if (Object.keys(updates).length > 0) {
-            await FirebaseService.updatePost(activePost.id, updates);
+            // Only re-screen when the actual media content changed (a new
+            // blob was produced) — a pure rotation-only edit doesn't need
+            // to go through content-safety again.
+            await FirebaseService.updatePost(activePost.id, updates, result.blob || null);
             setActivePost(prev => prev ? { ...prev, ...updates } : null);
         }
     } catch (e) {
         console.error("Failed to update post", e);
         alert("Failed to save edits.");
     }
+  };
+
+  const handleSaveDetails = async (updates: Partial<CommunityPost>) => {
+    if (!activePost) return;
+    setIsEditingDetails(false);
+    try {
+        await FirebaseService.updatePost(activePost.id, updates);
+        setActivePost(prev => prev ? { ...prev, ...updates } : null);
+
+        // Feed a post-publish correction back into the quality event (see
+        // QualityEvent in types.ts) this identification originated from —
+        // mirrors the equivalent publish-time check in createObservation/
+        // createSessionObservation, just triggered later by an edit instead.
+        const hasMultipleItems = !!activePost.items && activePost.items.length > 0;
+        const editedItem = hasMultipleItems ? updates.items?.[activeItemIndex] : undefined;
+        const humanDelta = hasMultipleItems ? editedItem?.humanDelta : updates.humanDelta;
+        const finalLabels = hasMultipleItems ? editedItem?.labels : updates.labels;
+        const snapshotId = hasMultipleItems ? activePost.items?.[activeItemIndex]?.snapshotId : activePost.snapshotId;
+        if (humanDelta && snapshotId && finalLabels) {
+            FirebaseService.recordQualityEventCorrection(snapshotId, finalLabels).catch(() => {});
+        }
+    } catch (e) {
+        console.error("Failed to update post details", e);
+        alert("Failed to save changes.");
+    }
+  };
+
+  // Community/expert verification loop (see confirmIdentification in
+  // firebaseService.ts): any signed-in non-owner viewer can vouch for or
+  // flag a post's AI identification. Optimistically reflected in
+  // activePost so the badge updates without a full reload, same pattern
+  // as handleLike above.
+  const handleConfirmIdentification = async () => {
+      if (currentUserMode.isAnonymous) { setShowAuthModal(true); return; }
+      const userId = currentUserMode.userId;
+      if (!activePost || !userId || activePost.userId === userId) return;
+      setIsSubmittingVerification(true);
+      try {
+          // X2: the service computes the weighted outcome (this verifier's
+          // reputation/expert weight, summed against existing confirm/
+          // dispute weight) and returns the resulting state, so the UI
+          // reflects the real result instead of re-deriving a head-count.
+          const result = await FirebaseService.confirmIdentification(activePost.id, userId);
+          setActivePost(prev => {
+              if (!prev) return prev;
+              const confirmedBy = [...(prev.confirmedBy || []), userId];
+              return result
+                  ? { ...prev, confirmedBy, verificationState: result.verificationState, confirmWeightTotal: result.confirmWeightTotal, hasExpertConfirmation: result.hasExpertConfirmation }
+                  : { ...prev, confirmedBy };
+          });
+      } catch (e) {
+          console.error("Failed to confirm identification:", e);
+      } finally {
+          setIsSubmittingVerification(false);
+      }
+  };
+
+  const handleOpenDisputeForm = () => {
+      if (currentUserMode.isAnonymous) { setShowAuthModal(true); return; }
+      setDisputeSuggestedLabel("");
+      setDisputeReason("");
+      setShowDisputeForm(true);
+  };
+
+  const handleSubmitDispute = async () => {
+      const userId = currentUserMode.userId;
+      if (!activePost || !userId || !disputeSuggestedLabel.trim()) return;
+      setIsSubmittingVerification(true);
+      try {
+          const result = await FirebaseService.disputeIdentification(activePost.id, userId, disputeSuggestedLabel.trim(), disputeReason.trim() || undefined);
+          setActivePost(prev => prev ? {
+              ...prev,
+              // X2: dispute is weighted too — the resulting state may or may
+              // not flip to 'disputed' depending on how the disputer's
+              // weight compares to the accumulated confirmations.
+              verificationState: result ? result.verificationState : prev.verificationState,
+              disputeWeightTotal: result ? result.disputeWeightTotal : prev.disputeWeightTotal,
+              disputes: [...(prev.disputes || []), { uid: userId, suggestedLabel: disputeSuggestedLabel.trim(), reason: disputeReason.trim(), timestamp: new Date().toISOString() }],
+          } : prev);
+          setShowDisputeForm(false);
+      } catch (e) {
+          console.error("Failed to submit dispute:", e);
+      } finally {
+          setIsSubmittingVerification(false);
+      }
   };
 
   const handleTagClick = (tag: string) => {
@@ -740,123 +826,97 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   return (
-    <div id="community-scroll-container" className="w-full relative min-h-screen max-h-screen overflow-y-auto no-scrollbar scroll-smooth">
-        {/* Advanced Species Intelligence Modal */}
-        {selectedSpecies && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-theme-shadow/80 backdrop-blur-sm" onClick={() => setSelectedSpecies(null)}></div>
-                <div className="relative w-full max-w-lg bg-day-bg rounded-3xl overflow-hidden shadow-2xl animate-slide-up border border-theme-primary/10 flex flex-col max-h-[80vh]">
-                    <div className="p-6 md:p-8 shrink-0 flex items-center justify-between border-b border-theme-primary/10">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-2xl">pest_control</span>
-                            </div>
-                            <div>
-                                <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{selectedSpecies.name}</h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
-                                    <span className="material-symbols-outlined text-[10px]">public</span>
-                                    {selectedSpecies.location}
-                                </p>
-                            </div>
-                        </div>
-                        <button onClick={() => setSelectedSpecies(null)} className="text-theme-primary/40 hover:text-theme-primary transition-colors">
-                            <span className="material-symbols-outlined text-2xl">close</span>
-                        </button>
-                    </div>
-                    
-                    <div className="p-6 md:p-8 overflow-y-auto hidden-scrollbar flex-1">
-                        {speciesData?.loading ? (
-                            <div className="flex flex-col items-center justify-center py-12 gap-4">
-                                <span className="material-symbols-outlined text-4xl text-theme-accent animate-spin">sync</span>
-                                <p className="text-theme-primary/40 font-black text-[10px] uppercase tracking-widest animate-pulse">Running Global Biological Sweep...</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-6">
-                                {speciesData?.thumbnail && (
-                                    <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden shadow-inner border border-theme-primary/10 shrink-0">
-                                        <img src={speciesData.thumbnail} className="w-full h-full object-cover" alt={selectedSpecies.name} />
-                                    </div>
-                                )}
-                                <div className="space-y-4">
-                                    <p className="catalog-label text-[9px] font-black tracking-[0.2em] text-theme-primary uppercase flex items-center gap-1.5 opacity-60">
-                                        <span className="material-symbols-outlined text-xs">science</span>
-                                        Encyclopedia Data
-                                    </p>
-                                    <p className="text-theme-primary/80 font-serif leading-relaxed text-sm text-justify">
-                                        {speciesData?.extract}
-                                    </p>
-                                </div>
-                                <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4 mt-2 relative overflow-hidden flex items-center gap-4">
-                                    <span className="material-symbols-outlined text-blue-500 text-3xl opacity-50">map</span>
-                                    <div>
-                                        <p className="text-blue-600 font-bold text-xs">Geo-Spatial Sighting</p>
-                                        <p className="text-blue-600/70 text-[10px] leading-relaxed mt-1">This species was encountered within the <strong>{selectedSpecies.location}</strong> ecological zone. Local coordinates match observation bounds.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+    <div
+        id="community-scroll-container"
+        ref={scrollContainerRef}
+        onTouchStart={handlePullTouchStart}
+        onTouchMove={handlePullTouchMove}
+        onTouchEnd={handlePullTouchEnd}
+        className="w-full relative min-h-screen max-h-screen overflow-y-auto overscroll-y-contain no-scrollbar scroll-smooth"
+    >
+        {!isJournalOnly && (pullDistance > 0 || isRefreshing) && (
+            <div
+                className="absolute top-0 left-0 right-0 flex justify-center z-40 pointer-events-none transition-[height] duration-200"
+                style={{ height: isRefreshing ? 56 : pullDistance }}
+            >
+                <div className="flex items-end pb-2">
+                    <span
+                        className={`material-symbols-outlined text-theme-accent text-2xl ${isRefreshing ? 'animate-spin' : ''}`}
+                        style={!isRefreshing ? { transform: `rotate(${Math.min(pullDistance / PULL_THRESHOLD, 1) * 180}deg)`, opacity: Math.min(pullDistance / PULL_THRESHOLD, 1) } : undefined}
+                    >
+                        {isRefreshing ? 'progress_activity' : 'arrow_downward'}
+                    </span>
                 </div>
             </div>
+        )}
+        {/* Advanced Species Intelligence Modal */}
+        {selectedSpecies && (
+            <SpeciesInfoModal
+                species={selectedSpecies}
+                data={speciesData}
+                onClose={() => setSelectedSpecies(null)}
+            />
         )}
 
         {/* Custom Confirmation Modal */}
         {confirmDeleteId && (
-            <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-theme-shadow/80 backdrop-blur-sm" onClick={() => setConfirmDeleteId(null)}></div>
-                <div className="relative w-full max-w-sm bg-white rounded-[2.5rem] p-8 shadow-2xl animate-slide-up border border-theme-primary/10">
-                    <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-6 mx-auto">
-                        <span className="material-symbols-outlined text-3xl">delete_forever</span>
-                    </div>
-                    <h3 className="text-2xl font-display font-black italic text-theme-primary text-center mb-3">Discard Specimen?</h3>
-                    <p className="text-sm text-theme-primary/60 text-center leading-relaxed mb-8">
-                        This observation will be permanently removed from the Living Field Guide and your personal archive.
-                    </p>
-                    <div className="flex flex-col gap-3">
-                        <button 
-                            onClick={executeDelete}
-                            className="w-full py-4 bg-red-600 text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
-                        >
-                            Confirm Deletion
-                        </button>
-                        <button 
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/40 font-black text-[10px] uppercase tracking-widest rounded-full active:scale-95 transition-all"
-                        >
-                            Keep Observation
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <DeleteConfirmModal
+                onConfirm={executeDelete}
+                onCancel={() => setConfirmDeleteId(null)}
+            />
         )}
 
         {/* Instagram/Explore Inspired Search Header */}
-        <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
+        <div className="w-full max-w-6xl mx-auto px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
             {/* Header branding & stats */}
             <div className="flex items-center justify-between gap-4">
-                <div 
+                <button
+                    type="button"
                     onClick={() => {
                         if (onLogoClick && !isJournalOnly) {
                             onLogoClick();
                         }
                     }}
-                    className={onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all outline-none" : ""}
+                    disabled={!onLogoClick || isJournalOnly}
+                    aria-label={onLogoClick && !isJournalOnly ? "Go to home" : undefined}
+                    className={`text-left ${onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all" : "cursor-default"}`}
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
-                        {isJournalOnly ? "My Journal" : "NatureGram"}
+                        {isJournalOnly ? "My Journal" : (
+                            <>
+                                {/* The desktop/tablet sidebar already shows the NatureGram
+                                    brand mark, so repeating it here would just duplicate it —
+                                    this shows a page-specific title there instead. On mobile,
+                                    where there's no sidebar, this is the only brand mark. */}
+                                <span className="md:hidden">NatureGram</span>
+                                <span className="hidden md:inline">Feed</span>
+                            </>
+                        )}
                     </h2>
                     <p className="text-[9px] md:text-[10px] font-black text-theme-primary/30 uppercase tracking-widest mt-0.5">
-                        {isJournalOnly ? "Personal species catalog" : "Living field guide"}
+                        {isJournalOnly ? "Personal species catalog" : (
+                            <>
+                                {/* Design pass: the mobile masthead subhead is the brand
+                                    tagline slot, so it now uses the single canonical tagline
+                                    (i18n appTagline) — matching the landing page exactly and
+                                    translating — instead of a near-miss hardcoded variant
+                                    ("Living field guide"). Desktop keeps a page-specific
+                                    descriptor since the wordmark lives in the sidebar there. */}
+                                <span className="md:hidden">{t('appTagline')}</span>
+                                <span className="hidden md:inline">What the community is discovering</span>
+                            </>
+                        )}
                     </p>
-                </div>
+                </button>
 
                 {/* Drafts Drawer Toggle Button */}
                 <div className="flex items-center gap-3">
                     {onViewDrafts && (
-                        <button 
-                            onClick={onViewDrafts} 
+                        <button
+                            onClick={onViewDrafts}
                             className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all"
                             title="Active drafts"
+                            aria-label={`Saved drafts${activeDraftsCount > 0 ? ` (${activeDraftsCount})` : ''}`}
                         >
                             <span className="material-symbols-outlined text-lg">inventory</span>
                             {activeDraftsCount > 0 ? (
@@ -868,6 +928,32 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* Y2: Discover vs. Following feed scope toggle. Hidden in the
+                journal view (which is inherently the owner's own posts). */}
+            {!isJournalOnly && (
+                <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-full w-full max-w-xs mx-auto md:mx-0">
+                    {([
+                        { id: 'discover', label: 'Discover', icon: 'public' },
+                        { id: 'following', label: 'Following', icon: 'group' },
+                    ] as const).map(scope => {
+                        const active = feedScope === scope.id;
+                        return (
+                            <button
+                                key={scope.id}
+                                onClick={() => { setFeedScope(scope.id); hapticFeedback(); }}
+                                aria-pressed={active}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 ${
+                                    active ? 'bg-white text-theme-primary shadow-sm' : 'text-stone-500 hover:text-theme-primary'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[14px] leading-none">{scope.icon}</span>
+                                {scope.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* Instagram Search Input with Cancel State transition */}
             <div className="relative flex flex-col gap-3">
@@ -896,8 +982,9 @@ const Community: React.FC<CommunityProps> = ({
                             className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-theme-primary/40 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
                         />
                         {searchQuery && (
-                            <button 
+                            <button
                                 onClick={() => setSearchQuery("")}
+                                aria-label="Clear search"
                                 className="absolute right-4 top-1/2 -translate-y-1/2 text-theme-primary/30 hover:text-theme-primary transition-colors flex items-center justify-center p-1"
                             >
                                 <span className="material-symbols-outlined text-sm font-bold">close</span>
@@ -1028,107 +1115,34 @@ const Community: React.FC<CommunityProps> = ({
 
                 {/* Dynamic Collapsible Advanced Filters Drawer */}
                 {showFilters && (
-                    <div className="p-6 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            {/* Format Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Category Format</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'image', 'video', 'audio'] as const).map((media) => (
-                                        <button
-                                            key={media}
-                                            onClick={() => setMediaFilter(media)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                mediaFilter === media 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {media === 'all' ? 'All' : media}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Timeline Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Timeline Range</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'today', 'week', 'month'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setDateFilter(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                dateFilter === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'all' ? 'All' : opt === 'today' ? 'Today' : opt === 'week' ? '1Wk' : '1Mo'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Ordering Selection */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Sort Sequence</label>
-                                <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['newest', 'likes', 'title'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setSortOrder(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                sortOrder === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'newest' ? 'Newest' : opt === 'likes' ? 'Likes' : 'A-Z'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Species taxonomic selection */}
-                        {allAvailableLabels.length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-theme-primary/5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Filter Specific Taxons Native</label>
-                                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-2 no-scrollbar">
-                                    {allAvailableLabels.map((lbl) => {
-                                        const isSelected = selectedLabels.includes(lbl);
-                                        return (
-                                            <button
-                                                key={lbl}
-                                                onClick={() => toggleLabelFilter(lbl)}
-                                                className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-widest rounded-full border transition-all ${
-                                                    isSelected 
-                                                        ? 'bg-theme-accent border-theme-accent text-white font-bold' 
-                                                        : 'bg-white border-theme-primary/10 text-theme-primary/60 hover:bg-stone-50'
-                                                }`}
-                                            >
-                                                {lbl}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <SearchFiltersPanel
+                        mediaFilter={mediaFilter}
+                        setMediaFilter={setMediaFilter}
+                        dateFilter={dateFilter}
+                        setDateFilter={setDateFilter}
+                        sortOrder={sortOrder}
+                        setSortOrder={setSortOrder}
+                        allAvailableLabels={allAvailableLabels}
+                        selectedLabels={selectedLabels}
+                        toggleLabelFilter={toggleLabelFilter}
+                    />
                 )}
             </div>
 
             {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
+                {/* Design pass: emoji category icons replaced with the app's
+                 * Material Symbols set — one consistent, cross-platform icon
+                 * language instead of emoji (which render differently per OS
+                 * and read as "indie app" against the field-guide voice). */}
                 {[
-                    { id: 'all', label: 'All Sighting', icon: '✨' },
-                    { id: 'flora', label: 'Flora', icon: '🌿' },
-                    { id: 'fauna', label: 'Fauna', icon: '🐦' },
-                    { id: 'fungi', label: 'Fungi / Spores', icon: '🍄' },
-                    { id: 'audio', label: 'Audio Reels', icon: '🎙️' },
-                    { id: 'video', label: 'Clip Reels', icon: '🎥' },
-                    { id: 'popular', label: 'Top Voted', icon: '🔥' },
+                    { id: 'all', label: 'All Sightings', icon: 'apps' },
+                    { id: 'flora', label: 'Flora', icon: 'eco' },
+                    { id: 'fauna', label: 'Fauna', icon: 'pets' },
+                    { id: 'fungi', label: 'Fungi / Spores', icon: 'grain' },
+                    { id: 'audio', label: 'Audio Reels', icon: 'graphic_eq' },
+                    { id: 'video', label: 'Clip Reels', icon: 'videocam' },
+                    { id: 'popular', label: 'Top Voted', icon: 'local_fire_department' },
                 ].map((tab) => {
                     const isActive = activeExploreTab === tab.id;
                     return (
@@ -1138,13 +1152,20 @@ const Community: React.FC<CommunityProps> = ({
                                 setActiveExploreTab(tab.id as any);
                                 hapticFeedback();
                             }}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
-                                isActive 
-                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]' 
-                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-theme-primary/60 hover:bg-stone-100'
+                            aria-pressed={isActive}
+                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 ${
+                                isActive
+                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]'
+                                    /* V4: was text-theme-primary/60 — opacity-blending a rotating
+                                     * daily theme color (some as light as amber/yellow-700) against
+                                     * bg-stone-50 measured as low as ~2.4:1, well under WCAG AA's
+                                     * 4.5:1 minimum for this text-[10px] normal-size text. A fixed
+                                     * stone-600 is theme-independent and holds ~7.3:1 across every
+                                     * daily naturalist palette. */
+                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-stone-600 hover:bg-stone-100'
                             }`}
                         >
-                            <span>{tab.icon}</span>
+                            <span className="material-symbols-outlined text-[14px] leading-none">{tab.icon}</span>
                             <span>{tab.label}</span>
                         </button>
                     );
@@ -1169,7 +1190,7 @@ const Community: React.FC<CommunityProps> = ({
             )}
         </div>
 
-        <div className="w-full px-4 md:px-12 py-8">
+        <div className="w-full max-w-6xl mx-auto px-4 md:px-12 py-8">
             {isLoading ? (
                 <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 pb-56 space-y-2 md:space-y-4">
                     {[...Array(10)].map((_, i) => <SkeletonPost key={i} />)}
@@ -1213,6 +1234,39 @@ const Community: React.FC<CommunityProps> = ({
                             </button>
                         )}
                     </div>
+                </div>
+            ) : posts.length === 0 && isJournalOnly ? (
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-accent/40 mb-6 select-none">science</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/70 mb-1 font-bold">No Observations Yet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Your personal species catalog is empty. Start an expedition with your camera, or upload a photo you already have — no camera required either way.</p>
+                    {onStartExpedition && (
+                        <button onClick={onStartExpedition} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                            Begin Expedition
+                        </button>
+                    )}
+                </div>
+            ) : posts.length === 0 && feedScope === 'following' ? (
+                // Y2: personalized-feed empty state — a teaching moment that
+                // routes the viewer to Discover to go find people to follow.
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-accent/40 mb-6 select-none">group</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/70 mb-1 font-bold">Your Following Feed Is Quiet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Follow explorers whose discoveries you want to keep up with — their sightings will collect here. Head to Discover to find naturalists worth following.</p>
+                    <button onClick={() => setFeedScope('discover')} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                        Explore Discover Feed
+                    </button>
+                </div>
+            ) : posts.length === 0 ? (
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">forest</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/60 mb-1 font-bold">No Sightings Yet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">The field guide is quiet right now — be the first to share a discovery. Point your camera at anything alive, or upload a photo you already have.</p>
+                    {onStartExpedition && (
+                        <button onClick={onStartExpedition} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                            Begin Expedition
+                        </button>
+                    )}
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
@@ -1260,19 +1314,21 @@ const Community: React.FC<CommunityProps> = ({
 
                     {/* Desktop floating navigation chevrons - replacing top header numbered pagination */}
                     {activePostIndex > 0 && (
-                        <button 
+                        <button
                             onClick={() => navigateSequential('prev')}
                             className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
                             title="Previous specimen"
+                            aria-label="Previous specimen"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_left</span>
                         </button>
                     )}
                     {activePostIndex !== -1 && activePostIndex < posts.length - 1 && (
-                        <button 
+                        <button
                             onClick={() => navigateSequential('next')}
                             className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
                             title="Next specimen"
+                            aria-label="Next specimen"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_right</span>
                         </button>
@@ -1281,22 +1337,18 @@ const Community: React.FC<CommunityProps> = ({
                     <div className="flex items-center gap-4">
                         {activePost.userId === currentUserMode.userId && (
                             <>
-                                <button 
-                                    onClick={() => setPublishingPost(activePost)} 
-                                    className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center text-emerald-700 transition-colors cursor-pointer"
-                                    title="Launch Publisher Studio"
-                                >
-                                    <span className="material-symbols-outlined text-xl">campaign</span>
-                                </button>
-                                <button onClick={() => setIsEditing(true)} className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
+                                <button onClick={() => setIsEditing(true)} aria-label="Edit media" title="Edit media" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
                                     <span className="material-symbols-outlined text-xl">edit</span>
                                 </button>
-                                <button onClick={() => handleDeletePost(activePost.id)} className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
+                                <button onClick={() => setIsEditingDetails(true)} aria-label="Edit details" title="Edit title, caption, taxonomy, tags" className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
+                                    <span className="material-symbols-outlined text-xl">text_fields</span>
+                                </button>
+                                <button onClick={() => handleDeletePost(activePost.id)} aria-label="Delete observation" className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
                                     <span className="material-symbols-outlined text-xl">delete</span>
                                 </button>
                             </>
                         )}
-                        <button onClick={() => setSharingPost(activePost)} className="w-10 h-10 rounded-full bg-theme-primary/5 flex items-center justify-center text-theme-accent">
+                        <button onClick={() => setSharingPost(activePost)} aria-label="Share observation" className="w-10 h-10 rounded-full bg-theme-primary/5 flex items-center justify-center text-theme-accent">
                             <span className="material-symbols-outlined text-xl">share</span>
                         </button>
                     </div>
@@ -1317,7 +1369,20 @@ const Community: React.FC<CommunityProps> = ({
                         
                         return (
                             <>
-                                <div className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden">
+                                <div onClick={(e) => handleDoubleTap(e, activePost)} className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden">
+                                    <AnimatePresence>
+                                        {showHeartAnimation && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.5 }}
+                                                animate={{ opacity: 1, scale: 1.15 }}
+                                                exit={{ opacity: 0, scale: 1.4 }}
+                                                transition={{ duration: 0.35, ease: 'easeOut' }}
+                                                className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+                                            >
+                                                <span className="material-symbols-outlined icon-fill text-white text-9xl drop-shadow-2xl">favorite</span>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                     {hasMultipleItems ? (
                                         <>
                                             <div 
@@ -1339,8 +1404,9 @@ const Community: React.FC<CommunityProps> = ({
                                                         ) : item.mediaType === 'audio' ? (
                                                             <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
                                                                 {item.thumbnailUrl || item.imageUrl ? (
-                                                                    <img 
-                                                                        src={item.thumbnailUrl || item.imageUrl} 
+                                                                    <img
+                                                                        src={item.thumbnailUrl || item.imageUrl}
+                                                                        alt={activePost.title || activePost.labels?.[0] || 'Nature sighting audio thumbnail'}
                                                                         className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                                     />
                                                                 ) : (
@@ -1351,10 +1417,10 @@ const Community: React.FC<CommunityProps> = ({
                                                                 <audio src={item.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                             </div>
                                                         ) : (
-                                                            <img 
-                                                                src={item.imageUrl || item.thumbnailUrl} 
+                                                            <img
+                                                                src={item.imageUrl || item.thumbnailUrl}
+                                                                alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                                onClick={() => window.open(item.imageUrl || item.thumbnailUrl, '_blank')}
                                                             />
                                                         )}
                                                     </div>
@@ -1363,8 +1429,9 @@ const Community: React.FC<CommunityProps> = ({
 
                                             {/* Left Arrow overlay visible on hover */}
                                             {activeItemIndex > 0 && (
-                                                <button 
+                                                <button
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }}
+                                                    aria-label="Previous item"
                                                     className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_left</span>
@@ -1373,8 +1440,9 @@ const Community: React.FC<CommunityProps> = ({
 
                                             {/* Right Arrow overlay visible on hover */}
                                             {activeItemIndex < (activePost.items?.length || 1) - 1 && (
-                                                <button 
+                                                <button
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }}
+                                                    aria-label="Next item"
                                                     className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_right</span>
@@ -1387,6 +1455,8 @@ const Community: React.FC<CommunityProps> = ({
                                                     <button
                                                         key={index}
                                                         onClick={() => scrollToItem(index)}
+                                                        aria-label={`Go to item ${index + 1} of ${activePost.items!.length}`}
+                                                        aria-current={index === activeItemIndex ? 'true' : undefined}
                                                         className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${index === activeItemIndex ? 'bg-white scale-110 opacity-100' : 'bg-white/40 hover:bg-white/60 opacity-30'}`}
                                                     />
                                                 ))}
@@ -1406,8 +1476,9 @@ const Community: React.FC<CommunityProps> = ({
                                             ) : currentItem.mediaType === 'audio' ? (
                                                 <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
                                                     {currentItem.thumbnailUrl || currentItem.imageUrl ? (
-                                                        <img 
-                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl} 
+                                                        <img
+                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl}
+                                                            alt={activePost.title || activePost.labels?.[0] || 'Nature sighting audio thumbnail'}
                                                             className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                         />
                                                     ) : (
@@ -1418,10 +1489,10 @@ const Community: React.FC<CommunityProps> = ({
                                                     <audio src={currentItem.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                 </div>
                                             ) : (
-                                                <img 
-                                                    src={currentItem.imageUrl || currentItem.thumbnailUrl} 
+                                                <img
+                                                    src={currentItem.imageUrl || currentItem.thumbnailUrl}
+                                                    alt={activePost.title || activePost.labels?.[0] || 'Nature sighting'}
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                    onClick={() => window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank')}
                                                 />
                                             )}
                                         </div>
@@ -1436,13 +1507,18 @@ const Community: React.FC<CommunityProps> = ({
                                             </div>
                                             <div>
                                                 <p className="font-black text-xs text-theme-primary tracking-tight leading-none mb-0.5 group-hover:text-theme-accent transition-colors">{activePost.userName}</p>
-                                                <p className="catalog-label text-[7px] opacity-40 lowercase tracking-[0.1em] font-bold">
-                                                    {currentItem.locationArea || "Wilderness"}
+                                                <p className="catalog-label text-[7px] opacity-40 lowercase tracking-[0.1em] font-bold flex items-center gap-1">
+                                                    {currentItem.isSensitiveSpecies && activePost.userId !== currentUserMode.userId ? (
+                                                        <>
+                                                            <span className="material-symbols-outlined text-[10px]">shield</span>
+                                                            Location Withheld
+                                                        </>
+                                                    ) : (currentItem.locationArea || "Wilderness")}
                                                 </p>
                                             </div>
                                         </div>
-                                        <button onClick={(e) => handleLike(e, activePost)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
-                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'fill-current' : ''}`}>favorite</span>
+                                        <button onClick={(e) => handleLike(e, activePost)} aria-label={activePost.likes?.includes(currentUserMode.userId!) ? 'Unlike' : 'Like'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
+                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'icon-fill' : ''}`}>favorite</span>
                                             <span className="text-[10px] font-black tracking-tighter">{activePost.likes?.length || 0}</span>
                                         </button>
                                     </div>
@@ -1471,11 +1547,165 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
 
+                                                {currentItem.subjects && currentItem.subjects.length > 1 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Multiple Subjects Detected</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.subjects.map((subj, i) => (
+                                                                <div key={i} className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                    <span className="text-[11px] font-bold text-theme-primary">{subj.label}</span>
+                                                                    <span className="flex items-center gap-2">
+                                                                        {subj.role && <span className="text-[8px] font-black uppercase tracking-widest text-theme-accent/70">{subj.role}</span>}
+                                                                        {subj.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{subj.confidence}</span>}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {currentItem.candidates && currentItem.candidates.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Could Also Be</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.candidates.map((cand, i) => (
+                                                                <div key={i} className="px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-[11px] font-bold text-theme-primary">{cand.label}</span>
+                                                                        {cand.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{cand.confidence}</span>}
+                                                                    </div>
+                                                                    {cand.distinguishingFeature && (
+                                                                        <p className="text-[10px] text-theme-primary/60 mt-1 leading-snug">{cand.distinguishingFeature}</p>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {currentItem.soundscape && currentItem.soundscape.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Soundscape</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.soundscape.map((event, i) => {
+                                                                const formatTime = (s?: number) => s === undefined ? null : `${Math.floor(s / 60)}:${Math.round(s % 60).toString().padStart(2, '0')}`;
+                                                                const start = formatTime(event.startSec);
+                                                                const end = formatTime(event.endSec);
+                                                                return (
+                                                                    <div key={i} className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                        <span className="text-[11px] font-bold text-theme-primary">{event.label}</span>
+                                                                        <span className="flex items-center gap-2 shrink-0">
+                                                                            {(start || end) && (
+                                                                                <span className="text-[8px] font-mono font-bold text-theme-primary/40">{start}{end ? `–${end}` : ''}</span>
+                                                                            )}
+                                                                            {event.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{event.confidence}</span>}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {activePost.canonicalTaxa && activePost.canonicalTaxa.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Canonical Taxonomy (GBIF)</p>
+                                                        <div className="space-y-1.5">
+                                                            {activePost.canonicalTaxa.map((taxon, i) => {
+                                                                const regionalName = getRegionalCommonName(taxon, uiLanguage);
+                                                                return (
+                                                                <a
+                                                                    key={i}
+                                                                    href={`https://www.gbif.org/species/${taxon.gbifKey}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg hover:bg-theme-primary/10 transition-colors"
+                                                                >
+                                                                    <div className="min-w-0">
+                                                                        <span className="text-[11px] font-bold italic text-theme-primary">{taxon.scientificName}</span>
+                                                                        {regionalName && <span className="text-[10px] font-medium text-theme-primary ml-1.5">"{regionalName}"</span>}
+                                                                        <p className="text-[9px] text-stone-600 mt-0.5 truncate">{[taxon.family, taxon.order, taxon.class].filter(Boolean).join(' · ')}</p>
+                                                                    </div>
+                                                                    {taxon.rank && <span className="text-[8px] font-black uppercase tracking-widest text-stone-600 shrink-0 ml-2">{taxon.rank}</span>}
+                                                                </a>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* X2: three verification tiers now — research-grade
+                                                    (expert-confirmed, the science-usable bar) sits above
+                                                    plain community-confirmed, with disputed orthogonal. */}
+                                                {activePost.verificationState === 'research-grade' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600/15 text-emerald-800 border border-emerald-600/20">
+                                                        <span className="material-symbols-outlined text-[14px] icon-fill">verified</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Research Grade · Expert Verified</span>
+                                                    </div>
+                                                )}
+                                                {activePost.verificationState === 'confirmed' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 text-emerald-700">
+                                                        <span className="material-symbols-outlined text-[14px]">verified</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Community Confirmed</span>
+                                                    </div>
+                                                )}
+                                                {activePost.verificationState === 'disputed' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-700">
+                                                        <span className="material-symbols-outlined text-[14px]">help</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Disputed — community suggests a different ID</span>
+                                                    </div>
+                                                )}
+
+                                                {activePost.verificationState === 'disputed' && activePost.disputes && activePost.disputes.length > 0 && (
+                                                    <div className="space-y-1.5">
+                                                        {activePost.disputes.map((d, i) => (
+                                                            <div key={i} className="px-3 py-2 bg-amber-500/5 rounded-lg text-[11px] text-theme-primary/80">
+                                                                <span className="font-bold">Suggested: {d.suggestedLabel}</span>
+                                                                {d.reason && <span className="text-theme-primary/50"> — {d.reason}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {currentUserMode.userId && activePost.userId !== currentUserMode.userId && (
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={handleConfirmIdentification}
+                                                            disabled={isSubmittingVerification || !!(currentUserMode.userId && activePost.confirmedBy?.includes(currentUserMode.userId))}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl border-2 border-emerald-500/20 text-emerald-700 font-black text-[9px] uppercase tracking-widest hover:bg-emerald-500/10 transition-all disabled:opacity-40"
+                                                        >
+                                                            {currentUserMode.userId && activePost.confirmedBy?.includes(currentUserMode.userId) ? 'Confirmed' : 'Confirm ID'}
+                                                        </button>
+                                                        <button
+                                                            onClick={handleOpenDisputeForm}
+                                                            disabled={isSubmittingVerification}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl border-2 border-theme-primary/10 text-theme-primary/60 font-black text-[9px] uppercase tracking-widest hover:bg-theme-primary/5 transition-all disabled:opacity-40"
+                                                        >
+                                                            Suggest Correction
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                                 {currentItem.aiInsight && (
-                                                    <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
-                                                        <p className="catalog-label text-[8px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
-                                                            <span className="material-symbols-outlined text-[11px]">auto_awesome</span>
-                                                            Ecologic Analysis
+                                                    <div className={`p-5 border rounded-xl space-y-3 ${currentItem.isNatureSubject === false ? 'bg-stone-50 border-stone-200' : 'bg-insight-bg border-theme-accent/30'}`}>
+                                                        <p className={`catalog-label text-[8px] font-black tracking-[0.25em] uppercase flex items-center justify-between gap-1.5 border-b pb-2 ${currentItem.isNatureSubject === false ? 'text-stone-400 border-stone-200' : 'text-theme-accent border-theme-accent/20'}`}>
+                                                            <span className="flex items-center gap-1.5">
+                                                                <span className="material-symbols-outlined text-[11px]">{currentItem.isNatureSubject === false ? 'info' : 'auto_awesome'}</span>
+                                                                {currentItem.isNatureSubject === false ? 'No Nature Subject' : 'Ecologic Analysis'}
+                                                            </span>
+                                                            {currentItem.confidence && currentItem.isNatureSubject !== false && (
+                                                                <span className={`normal-case tracking-normal font-bold text-[9px] px-2 py-0.5 rounded-full shrink-0 ${
+                                                                    currentItem.confidence === 'high' ? 'bg-emerald-500/10 text-emerald-700' :
+                                                                    currentItem.confidence === 'medium' ? 'bg-amber-500/10 text-amber-700' :
+                                                                    'bg-stone-400/10 text-stone-500'
+                                                                }`}>
+                                                                    {currentItem.confidence} confidence
+                                                                    {(() => {
+                                                                        const cal = getCalibratedConfidence(calibration, currentItem.confidence);
+                                                                        return cal?.isValidated ? ` · ${Math.round(cal.observedAccuracy! * 100)}% historically accurate` : '';
+                                                                    })()}
+                                                                </span>
+                                                            )}
                                                         </p>
                                                         <div className="space-y-3 mt-2">
                                                             {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (
@@ -1517,91 +1747,31 @@ const Community: React.FC<CommunityProps> = ({
     
     <AnimatePresence>
         {isCommentsOpen && (
-            <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 bg-black/60 backdrop-blur-sm font-body">
-                <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0" 
-                    onClick={() => setIsCommentsOpen(false)}
-                />
-                <motion.div 
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    drag="y"
-                    dragConstraints={{ top: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(e, { offset, velocity }) => {
-                        if (offset.y > 100 || velocity.y > 500) {
-                            setIsCommentsOpen(false);
-                        }
-                    }}
-                    className="w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
-                >
-                    <div className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
-                        <div className="w-12 h-1.5 bg-theme-primary/30 rounded-full"></div>
-                    </div>
-                    
-                    <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
-                        <h3 className="font-display font-black text-xl italic text-theme-primary">Field Notes</h3>
-                        <button onClick={() => setIsCommentsOpen(false)} className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
-                            <span className="material-symbols-outlined text-lg">close</span>
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        {comments.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-theme-primary/40">
-                                <span className="material-symbols-outlined text-4xl mb-2 opacity-50">forum</span>
-                                <p className="text-xs font-medium">No field notes yet.</p>
-                            </div>
-                        ) : (
-                            comments.map(c => (
-                                <div key={c.id} className="animate-fade-in group">
-                                    <p onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="text-[8px] font-black text-theme-primary/40 uppercase tracking-widest mb-1 leading-none cursor-pointer hover:text-theme-accent">{c.userName}</p>
-                                    <p className="text-[12px] text-theme-primary/80 leading-relaxed font-medium tracking-tight">{c.text}</p>
-                                </div>
-                            ))
-                        )}
-                    </div>
-
-                    <div className="p-4 border-t border-theme-primary/10 bg-white shrink-0">
-                        <form onSubmit={handleSendComment} className="flex gap-2.5">
-                            <input 
-                                value={newComment} 
-                                onChange={e => setNewComment(e.target.value)} 
-                                placeholder="Append field note..." 
-                                className="flex-1 bg-theme-primary/5 border border-theme-primary/10 rounded-lg px-4 py-3 text-xs outline-none focus:border-theme-accent transition-colors font-semibold"
-                            />
-                            <button type="submit" disabled={!newComment.trim()} className="px-5 py-3 bg-theme-primary text-white text-[9px] font-black uppercase tracking-widest rounded-lg disabled:opacity-30 transition-all active:scale-95">
-                                Log
-                            </button>
-                        </form>
-                    </div>
-                </motion.div>
-            </div>
+            <CommentsDrawer
+                comments={comments}
+                newComment={newComment}
+                onNewCommentChange={setNewComment}
+                onSendComment={handleSendComment}
+                onClose={() => setIsCommentsOpen(false)}
+                onProfileClick={handleProfileClick}
+            />
         )}
     </AnimatePresence>
 
     <AnimatePresence>
-        {sharingPost && <ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} />}
-    </AnimatePresence>
-
-    <AnimatePresence>
-        {publishingPost && (
-            <PublisherStudio 
-                post={publishingPost} 
-                activeItemIndex={activeItemIndex} 
-                onClose={() => setPublishingPost(null)} 
+        {sharingPost && (
+            <ShareSheet
+                post={sharingPost}
+                activeItemIndex={activeItemIndex}
+                isOwner={sharingPost.userId === currentUserMode.userId}
+                onClose={() => setSharingPost(null)}
             />
         )}
     </AnimatePresence>
                 {isEditing && activePost && (() => {
                     const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
                     return (
-                        <MediaEditor 
+                        <MediaEditor
                             type={currentItem.mediaType as any}
                             source={currentItem.mediaType === 'video' ? currentItem.videoUrl! : currentItem.mediaType === 'audio' ? currentItem.audioUrl! : currentItem.imageUrl!}
                             initialRotation={currentItem.rotation || 0}
@@ -1610,6 +1780,27 @@ const Community: React.FC<CommunityProps> = ({
                         />
                     );
                 })()}
+
+                {isEditingDetails && activePost && (
+                    <EditPostDetails
+                        post={activePost}
+                        activeItemIndex={activeItemIndex}
+                        onSave={handleSaveDetails}
+                        onCancel={() => setIsEditingDetails(false)}
+                    />
+                )}
+
+                {showDisputeForm && activePost && (
+                    <DisputeIdentificationModal
+                        disputeSuggestedLabel={disputeSuggestedLabel}
+                        setDisputeSuggestedLabel={setDisputeSuggestedLabel}
+                        disputeReason={disputeReason}
+                        setDisputeReason={setDisputeReason}
+                        isSubmittingVerification={isSubmittingVerification}
+                        onCancel={() => setShowDisputeForm(false)}
+                        onSubmit={handleSubmitDispute}
+                    />
+                )}
             </motion.div>
         )}
         </AnimatePresence>

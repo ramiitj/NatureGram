@@ -1,17 +1,128 @@
-
-:root {
-  --theme-primary: #44403c;
-  --theme-primary-gradient: #ea580c;
-  --theme-shadow: #000000;
-  --theme-text: #ffffff;
-  --theme-accent: #ea580c;
-  --font-display: "Playfair Display", serif;
-  --font-body: "Inter", sans-serif;
+/* Self-hosted fonts — previously loaded from fonts.googleapis.com at
+ * runtime. Only the latin + latin-ext subsets are included (the app has
+ * no cyrillic/greek/vietnamese content); these are variable fonts, so one
+ * file per subset/style covers their whole weight range instead of one
+ * file per discrete weight. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* V1: replaces Playfair Display (a common "elegant AI app" default) with
+ * Fraunces — a variable serif with real optical-size character (chunky and
+ * characterful at display sizes, refined at small sizes via the browser's
+ * automatic font-optical-sizing) — and adds JetBrains Mono for data/labels
+ * (specimen tags, timestamps, catalog numbers), giving the app's
+ * identification-heavy surfaces a field-instrument feel instead of a
+ * generic soft-SaaS one. */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('./fonts/fraunces-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('./fonts/fraunces-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: italic;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('./fonts/fraunces-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fraunces';
+  font-style: italic;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('./fonts/fraunces-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  src: url('./fonts/material-symbols-outlined.woff2') format('woff2');
+}
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+/* Toggles the icon font's own FILL axis for a "liked"/active state.
+ * `fill-current` (Tailwind's SVG fill utility) was being applied to
+ * these font-ligature icons throughout the app and doing nothing —
+ * font glyphs have no SVG fill attribute to set. */
+.icon-fill {
+  font-variation-settings: 'FILL' 1;
 }
 
-@theme {
-  --font-display: var(--font-display);
-  --font-body: var(--font-body);
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* V1: a deep pine/moss default — replaces the previous warm-orange
+   * (#ea580c) fallback, which is the exact "cream + terracotta" palette
+   * the artifact-design skill itself flags as an AI-generated-app cliché.
+   * The daily naturalist rotation (constants/naturalists.ts) overrides
+   * these at runtime; this is what's visible before that loads, and what
+   * the few non-theme-aware surfaces (AdminConsole, AuthModal) use
+   * directly. */
+  --theme-primary: #1c2b22;
+  --theme-primary-gradient: #2d4a36;
+  --theme-shadow: #0d1512;
+  --theme-text: #eef5ef;
+  --theme-accent: #3f7a54;
+  --font-display: "Fraunces", serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
 body {
@@ -31,4 +142,16 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
+}
+
+/* V4: app-wide keyboard-focus floor. Several inputs/buttons pair
+ * `outline-none` with a `focus:border-*` color change as their focus
+ * indicator, which is easy to lose track of amid this app's dense,
+ * rounded, overlapping surfaces; :focus-visible (keyboard/assistive-tech
+ * focus only, not mouse clicks) guarantees a visible ring everywhere,
+ * layered under any component that already sets its own focus-visible
+ * ring utility. */
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--theme-accent, #3f7a54);
+  outline-offset: 2px;
 }

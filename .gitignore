@@ -12,6 +12,22 @@ dist
 dist-ssr
 *.local
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Eval harness — generated reports and any locally-added real fixture corpus
+# (see evals/README.md; this is a local/CI-secret-injected corpus, not
+# something to commit)
+evals/results/
+evals/fixtures/custom/*
+!evals/fixtures/custom/.gitkeep
+
+# Warehouse export — generated NDJSON files (see warehouse/README.md)
+warehouse/exports/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig, CommunityPost, UserProfileData } from '../types';
+import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry, ConfidenceCalibration, LiveSessionMetricsEntry } from '../types';
+import { computeAiUsageCost, computeLiveSessionCost } from '../services/costModelService';
 import { auth } from '../firebaseConfig';
 
 interface AdminConsoleProps {
@@ -17,23 +18,49 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   const [status, setStatus] = useState('');
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'activity' | 'moderation'>('activity');
-  
+  const [activeTab, setActiveTab] = useState<'activity' | 'moderation' | 'usage' | 'quality'>('activity');
+
   // Moderation Data
   const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
-  
+
   // Activity / Log Tracking Data
   const [allUsers, setAllUsers] = useState<UserProfileData[]>([]);
   const [allPosts, setAllPosts] = useState<CommunityPost[]>([]);
 
-  // Automatic elevation check on mount
+  // AI Cost/Usage Telemetry Data
+  const [aiUsageLogs, setAiUsageLogs] = useState<AiUsageLogEntry[]>([]);
+
+  // Live Session Performance Data (R1)
+  const [liveSessionMetrics, setLiveSessionMetrics] = useState<LiveSessionMetricsEntry[]>([]);
+
+  // Confidence Calibration Data (Q4)
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+  const [isRecomputingCalibration, setIsRecomputingCalibration] = useState(false);
+
+  // Audio Dataset Export (S3)
+  const [isExportingAudioDataset, setIsExportingAudioDataset] = useState(false);
+  // X3: Darwin Core Archive export
+  const [isExportingDarwinCore, setIsExportingDarwinCore] = useState(false);
+
+  // Automatic elevation check on mount. W3: this used to compare
+  // currentUser.email against a single hardcoded address; it now checks the
+  // `admin` custom claim (see firestore.rules' isAdmin() and
+  // scripts/manageAdminRole.ts), forcing a token refresh so a claim granted
+  // moments ago — while this session is still open — takes effect without
+  // requiring a manual sign-out.
   useEffect(() => {
     const checkAdminAuth = async () => {
       const currentUser = auth.currentUser;
-      if (currentUser && currentUser.email === 'ram@iitj.ac.in') {
-        setIsAuthenticated(true);
-        loadConfig();
-        loadActivityLogs();
+      if (!currentUser) return;
+      try {
+        const tokenResult = await currentUser.getIdTokenResult(true);
+        if (tokenResult.claims.admin === true) {
+          setIsAuthenticated(true);
+          loadConfig();
+          loadActivityLogs();
+        }
+      } catch (e) {
+        console.warn('Admin claim check failed:', e);
       }
     };
     checkAdminAuth();
@@ -42,13 +69,14 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   // Login Handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email !== 'ram@iitj.ac.in') {
-      setStatus('Access Denied: Only ram@iitj.ac.in has administrative privileges.');
-      return;
-    }
-    
     try {
-      await FirebaseService.loginUser(email, password);
+      const cred = await FirebaseService.loginUser(email, password);
+      const tokenResult = await cred.user.getIdTokenResult(true);
+      if (tokenResult.claims.admin !== true) {
+        setStatus('Access Denied: this account does not have administrative privileges.');
+        await FirebaseService.logout();
+        return;
+      }
       setIsAuthenticated(true);
       loadConfig();
       loadActivityLogs();
@@ -84,12 +112,128 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       setStatus(`Found ${posts.length} reported items.`);
   };
 
+  const loadAiUsage = async () => {
+      setStatus('Loading AI usage telemetry...');
+      try {
+          const logs = await FirebaseService.getRecentAiUsage(500);
+          setAiUsageLogs(logs);
+          const liveMetrics = await FirebaseService.getRecentLiveSessionMetrics(500);
+          setLiveSessionMetrics(liveMetrics);
+          setStatus('');
+      } catch (e: any) {
+          setStatus('Failed loading AI usage telemetry: ' + e.message);
+      }
+  };
+
+  const loadCalibration = async () => {
+      setStatus('Loading confidence calibration...');
+      try {
+          const cal = await FirebaseService.getConfidenceCalibration();
+          setCalibration(cal);
+          setStatus('');
+      } catch (e: any) {
+          setStatus('Failed loading confidence calibration: ' + e.message);
+      }
+  };
+
+  const handleRecomputeCalibration = async () => {
+      setIsRecomputingCalibration(true);
+      setStatus('Recomputing from quality_events...');
+      try {
+          const cal = await FirebaseService.computeConfidenceCalibration();
+          setCalibration(cal);
+          setStatus(`Recomputed from ${cal.sampleSize} verified identification(s).`);
+      } catch (e: any) {
+          setStatus('Failed to recompute calibration: ' + e.message);
+      } finally {
+          setIsRecomputingCalibration(false);
+      }
+  };
+
+  // S3: research-grade export of community-verified audio observations.
+  // Precise coordinates are withheld for sensitive species — the same
+  // protection the community feed UI already applies at display time (see
+  // isSensitiveSpecies handling in Community.tsx) — since this file, once
+  // downloaded, can leave the app's own access controls entirely.
+  const handleExportAudioDataset = async () => {
+      setIsExportingAudioDataset(true);
+      setStatus('Fetching community-verified audio observations...');
+      try {
+          const posts = await FirebaseService.getVerifiedAudioObservations();
+          const records = posts.map(post => {
+              const isSensitive = !!post.isSensitiveSpecies;
+              const ts = (post.timestamp && typeof (post.timestamp as any).toDate === 'function')
+                  ? (post.timestamp as any).toDate().toISOString()
+                  : null;
+              return {
+                  id: post.id,
+                  labels: post.labels || [],
+                  soundscape: post.soundscape || undefined,
+                  confidence: post.confidence,
+                  locationArea: post.locationArea || undefined,
+                  lat: !isSensitive ? post.rawLocation?.lat : undefined,
+                  lng: !isSensitive ? post.rawLocation?.lng : undefined,
+                  timestamp: ts,
+                  audioUrl: post.audioUrl,
+                  tags: post.tags,
+              };
+          });
+
+          const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `naturegram-verified-audio-dataset-${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setStatus(`Exported ${records.length} community-verified audio observation(s).`);
+      } catch (e: any) {
+          setStatus('Failed to export audio dataset: ' + e.message);
+      } finally {
+          setIsExportingAudioDataset(false);
+      }
+  };
+
+  // X3: build and download a Darwin Core Archive of all verified
+  // observations. Sensitive-species coordinate withholding and the
+  // "verified only" gate live in darwinCoreService; this just fetches,
+  // builds the .zip bytes, and triggers the browser download.
+  const handleExportDarwinCore = async () => {
+      setIsExportingDarwinCore(true);
+      setStatus('Assembling Darwin Core Archive from verified observations...');
+      try {
+          const { buildDarwinCoreArchive } = await import('../services/darwinCoreService');
+          const posts = await FirebaseService.getContributableObservations();
+          if (posts.length === 0) {
+              setStatus('No community-verified observations to export yet.');
+              return;
+          }
+          const zipBytes = buildDarwinCoreArchive(posts);
+          const blob = new Blob([zipBytes as unknown as BlobPart], { type: 'application/zip' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `naturegram-darwin-core-archive-${new Date().toISOString().slice(0, 10)}.zip`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setStatus(`Exported ${posts.length} verified observation(s) as a Darwin Core Archive.`);
+      } catch (e: any) {
+          setStatus('Failed to export Darwin Core Archive: ' + e.message);
+      } finally {
+          setIsExportingDarwinCore(false);
+      }
+  };
+
   useEffect(() => {
       if (isAuthenticated) {
           if (activeTab === 'moderation') {
               loadReportedPosts();
           } else if (activeTab === 'activity') {
               loadActivityLogs();
+          } else if (activeTab === 'usage') {
+              loadAiUsage();
+          } else if (activeTab === 'quality') {
+              loadCalibration();
           }
       }
   }, [isAuthenticated, activeTab]);
@@ -277,13 +421,27 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     <span className="material-symbols-outlined text-sm">analytics</span>
                     Activity Logs
                 </button>
-                <button 
+                <button
                     onClick={() => setActiveTab('moderation')}
                     className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'moderation' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
                 >
                     <span className="material-symbols-outlined text-sm">gavel</span>
                     Moderation
                     {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 rounded-full">{reportedPosts.length}</span>}
+                </button>
+                <button
+                    onClick={() => setActiveTab('usage')}
+                    className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'usage' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">query_stats</span>
+                    AI Usage
+                </button>
+                <button
+                    onClick={() => setActiveTab('quality')}
+                    className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'quality' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">verified</span>
+                    ID Quality
                 </button>
             </div>
         </aside>
@@ -551,6 +709,355 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                             ))}
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* AI USAGE / COST TELEMETRY TAB */}
+            {activeTab === 'usage' && (() => {
+                const totalCalls = aiUsageLogs.length;
+                const totalTokens = aiUsageLogs.reduce((sum, l) => sum + (l.totalTokenCount || ((l.promptTokenCount || 0) + (l.candidatesTokenCount || 0))), 0);
+
+                const byModel = new Map<string, { count: number, tokens: number }>();
+                const byFeature = new Map<string, { count: number, tokens: number }>();
+                aiUsageLogs.forEach(l => {
+                    const tokens = l.totalTokenCount || ((l.promptTokenCount || 0) + (l.candidatesTokenCount || 0));
+                    const model = byModel.get(l.model) || { count: 0, tokens: 0 };
+                    model.count += 1;
+                    model.tokens += tokens;
+                    byModel.set(l.model, model);
+
+                    const feature = byFeature.get(l.feature) || { count: 0, tokens: 0 };
+                    feature.count += 1;
+                    feature.tokens += tokens;
+                    byFeature.set(l.feature, feature);
+                });
+
+                const formatTime = (ts: any) => {
+                    if (!ts) return 'Just now';
+                    if (typeof ts.toDate === 'function') return ts.toDate().toLocaleString();
+                    return new Date(ts).toLocaleString();
+                };
+
+                // U2: real unit-cost model computed from this same telemetry
+                // against published Gemini pricing — see costModelService.ts.
+                const aiUsageCost = computeAiUsageCost(aiUsageLogs);
+                const liveSessionCost = computeLiveSessionCost(liveSessionMetrics);
+
+                return (
+                    <div className="max-w-6xl mx-auto flex flex-col gap-8">
+                        <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
+                            <div>
+                                <h2 className="text-theme-primary text-2xl font-black tracking-tight flex items-center gap-2 font-display italic">
+                                    <span className="material-symbols-outlined text-theme-accent">query_stats</span>
+                                    AI Cost & Usage Telemetry
+                                </h2>
+                                <p className="text-theme-primary/50 text-xs mt-1">
+                                    Client-reported Gemini call volume and token usage (last {aiUsageLogs.length} calls). Self-reported, not an authoritative billing source — cross-check against Cloud Billing for real cost figures.
+                                </p>
+                            </div>
+                            <button
+                                onClick={loadAiUsage}
+                                className="bg-theme-primary/5 hover:bg-theme-primary/10 border border-theme-primary/10 text-theme-primary rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
+                            >
+                                <span className="material-symbols-outlined text-sm">sync</span>
+                                Refresh
+                            </button>
+                        </div>
+
+                        {/* SUMMARY STACK */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-theme-accent/10 flex items-center justify-center text-theme-accent shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">call</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">AI Calls Logged</p>
+                                    <p className="text-2xl font-black text-theme-primary">{totalCalls}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-teal-500/10 flex items-center justify-center text-teal-600 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">token</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Total Tokens</p>
+                                    <p className="text-2xl font-black text-theme-primary">{totalTokens.toLocaleString()}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">bolt</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Models In Use</p>
+                                    <p className="text-2xl font-black text-theme-primary">{byModel.size}</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0">
+                                    <span className="material-symbols-outlined text-2xl">category</span>
+                                </div>
+                                <div>
+                                    <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Features Tracked</p>
+                                    <p className="text-2xl font-black text-theme-primary">{byFeature.size}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* UNIT COST MODEL (U2) */}
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">payments</span>
+                                Estimated Unit Cost
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px] mb-4">
+                                Computed from the telemetry above against published Gemini pricing (sourced 2026-07-23) — a real calculation, not a placeholder, but still an estimate. See caveats below.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Analysis Calls (Flash/Pro)</p>
+                                    <p className="text-2xl font-black text-theme-primary mt-1">${aiUsageCost.totalCostUsd.toFixed(4)}</p>
+                                    <p className="text-[9px] text-theme-primary/40 mt-1">across {aiUsageLogs.length} logged call(s){aiUsageCost.unpricedModels.length > 0 ? ` · ${aiUsageCost.unpricedModels.length} unpriced model(s) excluded` : ''}</p>
+                                </div>
+                                <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Live Sessions (native audio)</p>
+                                    <p className="text-2xl font-black text-theme-primary mt-1">${liveSessionCost.totalCostUsd.toFixed(4)}</p>
+                                    <p className="text-[9px] text-theme-primary/40 mt-1">
+                                        {liveSessionCost.sessionsConsidered} session(s){liveSessionCost.avgCostPerSessionUsd !== null ? ` · avg $${liveSessionCost.avgCostPerSessionUsd.toFixed(4)}/session` : ''}
+                                    </p>
+                                </div>
+                            </div>
+                            <details className="mt-4">
+                                <summary className="text-[9px] font-bold uppercase tracking-widest text-theme-primary/40 cursor-pointer">Methodology & caveats</summary>
+                                <ul className="mt-2 space-y-1 list-disc list-inside">
+                                    {[...aiUsageCost.caveats, ...liveSessionCost.caveats].map((c, i) => (
+                                        <li key={i} className="text-[10px] text-theme-primary/50 leading-relaxed">{c}</li>
+                                    ))}
+                                </ul>
+                            </details>
+                        </div>
+
+                        {/* LIVE SESSION PERFORMANCE (R1) */}
+                        {(() => {
+                            const withFirstToken = liveSessionMetrics.filter(m => typeof m.timeToFirstTokenMs === 'number');
+                            const withTurnLatency = liveSessionMetrics.filter(m => typeof m.avgTurnLatencyMs === 'number');
+                            const avgTimeToFirstToken = withFirstToken.length > 0
+                                ? Math.round(withFirstToken.reduce((sum, m) => sum + (m.timeToFirstTokenMs || 0), 0) / withFirstToken.length)
+                                : null;
+                            const avgTurnLatency = withTurnLatency.length > 0
+                                ? Math.round(withTurnLatency.reduce((sum, m) => sum + (m.avgTurnLatencyMs || 0), 0) / withTurnLatency.length)
+                                : null;
+                            const toolCallTotals = new Map<string, number>();
+                            liveSessionMetrics.forEach(m => {
+                                const counts: Record<string, number> = m.toolCallCounts || {};
+                                Object.keys(counts).forEach((name) => {
+                                    toolCallTotals.set(name, (toolCallTotals.get(name) || 0) + counts[name]);
+                                });
+                            });
+                            const totalReconnects = liveSessionMetrics.reduce((sum, m) => sum + (m.reconnectCount || 0), 0);
+
+                            return (
+                                <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                                    <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-xs text-theme-primary/50">speed</span>
+                                        Live Session Performance
+                                    </h3>
+                                    <p className="text-theme-primary/40 text-[10px] mb-4">
+                                        {liveSessionMetrics.length} session(s) with recorded metrics.
+                                    </p>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Avg Time-to-First-Token</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{avgTimeToFirstToken !== null ? `${avgTimeToFirstToken}ms` : '—'}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Avg Turn Round-Trip</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{avgTurnLatency !== null ? `${avgTurnLatency}ms` : '—'}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Total Reconnects</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{totalReconnects}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Tool Calls Tracked</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{Array.from(toolCallTotals.values()).reduce((a, b) => a + b, 0)}</p>
+                                        </div>
+                                    </div>
+                                    {toolCallTotals.size > 0 && (
+                                        <div className="mt-4 flex flex-wrap gap-2">
+                                            {Array.from(toolCallTotals.entries()).sort((a, b) => b[1] - a[1]).map(([name, count]) => (
+                                                <span key={name} className="px-3 py-1.5 bg-theme-accent/5 border border-theme-accent/20 rounded-full text-[10px] font-bold text-theme-primary/70">
+                                                    {name}: {count}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
+
+                        {/* BREAKDOWN + RECENT CALLS */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            {/* Breakdown by model/feature */}
+                            <div className="lg:col-span-4 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">bar_chart</span>
+                                    Usage By Model
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
+                                    {Array.from(byModel.entries()).sort((a, b) => b[1].tokens - a[1].tokens).map(([model, stats]) => (
+                                        <div key={model} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-stone-800 font-bold text-xs truncate">{model}</p>
+                                            <p className="text-theme-primary/50 text-[9px] mt-1">{stats.count} calls • {stats.tokens.toLocaleString()} tokens</p>
+                                        </div>
+                                    ))}
+                                    {byModel.size === 0 && (
+                                        <div className="h-full flex items-center justify-center text-theme-primary/30 italic text-sm">No usage logged yet.</div>
+                                    )}
+                                </div>
+
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest my-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">category</span>
+                                    Usage By Feature
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
+                                    {Array.from(byFeature.entries()).sort((a, b) => b[1].tokens - a[1].tokens).map(([feature, stats]) => (
+                                        <div key={feature} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-stone-800 font-bold text-xs truncate">{feature}</p>
+                                            <p className="text-theme-primary/50 text-[9px] mt-1">{stats.count} calls • {stats.tokens.toLocaleString()} tokens</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Recent calls list */}
+                            <div className="lg:col-span-8 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
+                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">history</span>
+                                    Recent AI Calls ({aiUsageLogs.length})
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-1 no-scrollbar">
+                                    {aiUsageLogs.length === 0 ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 italic text-sm font-display tracking-wide">
+                                            No AI usage logged yet.
+                                        </div>
+                                    ) : (
+                                        aiUsageLogs.map((log, idx) => (
+                                            <div key={log.id || idx} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4 flex items-center justify-between gap-4">
+                                                <div className="min-w-0">
+                                                    <p className="text-stone-800 font-bold text-xs truncate">{log.feature} <span className="text-theme-primary/40 font-normal">via {log.model}</span></p>
+                                                    <p className="text-theme-primary/40 text-[9px] mt-0.5">{formatTime(log.timestamp)} • uid: {log.uid.slice(0, 8)}</p>
+                                                </div>
+                                                <span className="bg-white/5 border border-theme-primary/10 text-theme-primary/70 px-2 py-1 rounded text-[8px] font-bold shrink-0">
+                                                    {(log.totalTokenCount || ((log.promptTokenCount || 0) + (log.candidatesTokenCount || 0))).toLocaleString()} tok
+                                                </span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ID QUALITY / CONFIDENCE CALIBRATION TAB */}
+            {activeTab === 'quality' && (
+                <div className="max-w-4xl mx-auto flex flex-col gap-8">
+                    <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
+                        <div>
+                            <h2 className="text-theme-primary text-2xl font-black tracking-tight flex items-center gap-2 font-display italic">
+                                <span className="material-symbols-outlined text-theme-accent">verified</span>
+                                Identification Quality & Calibration
+                            </h2>
+                            <p className="text-theme-primary/50 text-xs mt-1">
+                                Observed correctness rate per confidence bucket, computed from community/expert-verified (confirmed or disputed) identifications and pre-publish human corrections. Buckets stay blank until there's enough verified data — never a fabricated number.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleRecomputeCalibration}
+                            disabled={isRecomputingCalibration}
+                            className="bg-theme-accent text-white rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isRecomputingCalibration ? 'hourglass_empty' : 'refresh'}</span>
+                            {isRecomputingCalibration ? 'Recomputing...' : 'Recompute'}
+                        </button>
+                    </div>
+
+                    {!calibration ? (
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-12 text-center text-theme-primary/40 italic font-display">
+                            No calibration computed yet. Click Recompute to build the table from current quality_events.
+                        </div>
+                    ) : (
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                            <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest mb-4">
+                                {calibration.sampleSize} verified identification(s) considered
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {(['high', 'medium', 'low'] as const).map(bucket => {
+                                    const b = calibration.buckets?.[bucket];
+                                    return (
+                                        <div key={bucket} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-5">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 mb-2">{bucket} confidence</p>
+                                            {b ? (
+                                                <>
+                                                    <p className="text-3xl font-black text-theme-primary">{Math.round(b.observedAccuracy * 100)}%</p>
+                                                    <p className="text-[10px] text-theme-primary/40 mt-1">observed accuracy · {b.sampleSize} sample(s)</p>
+                                                </>
+                                            ) : (
+                                                <p className="text-sm text-theme-primary/30 italic">Not enough verified data yet</p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* S3: research-grade audio dataset export */}
+                    <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm flex justify-between items-center gap-6">
+                        <div>
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">graphic_eq</span>
+                                Audio Dataset Export
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px]">
+                                Downloads community-verified (confirmed) audio observations — labels, soundscape breakdown, location, and timestamp — as JSON. Precise coordinates are withheld for sensitive species.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleExportAudioDataset}
+                            disabled={isExportingAudioDataset}
+                            className="bg-theme-primary/5 hover:bg-theme-primary/10 border border-theme-primary/10 text-theme-primary rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isExportingAudioDataset ? 'hourglass_empty' : 'download'}</span>
+                            {isExportingAudioDataset ? 'Exporting...' : 'Export'}
+                        </button>
+                    </div>
+
+                    {/* X3: Darwin Core Archive contribution export */}
+                    <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm flex justify-between items-center gap-6">
+                        <div>
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">public</span>
+                                Darwin Core Contribution Export
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px]">
+                                Packages community- & expert-verified observations (all media) into a standards-compliant Darwin Core Archive (.zip) — occurrence.txt + meta.xml + eml.xml — ready to publish to GBIF/iNaturalist. Scientific names & hierarchy come from the GBIF taxonomy backbone; coordinates are withheld for sensitive species.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleExportDarwinCore}
+                            disabled={isExportingDarwinCore}
+                            className="bg-theme-accent/10 hover:bg-theme-accent/20 border border-theme-accent/20 text-theme-accent rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isExportingDarwinCore ? 'hourglass_empty' : 'download'}</span>
+                            {isExportingDarwinCore ? 'Exporting...' : 'Export DwC-A'}
+                        </button>
+                    </div>
                 </div>
             )}
 
