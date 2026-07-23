@@ -16,76 +16,148 @@ import {
 import { db } from "../../firebaseConfig";
 import { CommunityPost, VerificationState } from "../../types";
 import { FirebaseService } from "../firebaseService";
+import {
+  getVerificationWeight,
+  verifierFromProfile,
+  computeVerificationState,
+  isVerifiedState,
+} from "../reputationService";
+
+// The verification fields a confirm/dispute call returns, so a caller can
+// optimistically update its local copy of the post without re-reading and
+// without re-deriving weights itself.
+export interface VerificationUpdate {
+  verificationState: VerificationState;
+  confirmWeightTotal: number;
+  disputeWeightTotal: number;
+  hasExpertConfirmation: boolean;
+}
+
+// Resolves the calling user's verifier weight from their own profile
+// (reputationScore) + their expert token claim. The claim is read from the
+// token (getMyRoleClaims), never trusted from a profile field.
+async function callerWeight(uid: string): Promise<{ weight: number; isExpert: boolean }> {
+  const [profile, claims] = await Promise.all([
+    FirebaseService.getUserProfile(uid),
+    FirebaseService.getMyRoleClaims(),
+  ]);
+  const weight = getVerificationWeight(verifierFromProfile(profile, claims.expert));
+  return { weight, isExpert: claims.expert };
+}
 
 export const ModerationService = {
-  // Unique confirmations required before a post's identification is
-  // promoted from 'unverified' to 'confirmed'. Scoped to the post's
-  // top-level identification only (the primary item) — a multi-item
-  // "stitched" collection's secondary items don't get independent
-  // verification state, matching how confidence/subjects already work
-  // at the post level for those posts.
+  // X2: replaced the flat "unique confirmations >= 3" count. Verification
+  // is now WEIGHTED (see reputationService): each verifier contributes
+  // their reputation/expertise weight, so three casual users no longer
+  // equal one qualified naturalist, and a single expert can promote an ID
+  // to research-grade. Kept as an exported constant for back-compat with
+  // any caller referencing it; the real threshold lives in
+  // REPUTATION_CONSTANTS.CONFIRM_THRESHOLD.
   CONFIRMATION_THRESHOLD: 3,
 
   // A non-owner signed-in user vouching that a post's AI identification
-  // looks right. arrayUnion so repeat clicks from the same user don't
-  // inflate the count. Once enough unique confirmations accumulate, the
-  // post is promoted to 'confirmed' and the outcome is mirrored into the
-  // underlying quality_events doc (keyed by the post's snapshotId) as a
-  // ground-truth signal for the confidence-calibration pipeline (Q4).
-  confirmIdentification: async (postId: string, uid: string): Promise<void> => {
+  // looks right. confirmedBy (uid list) dedupes repeat clicks; the
+  // verifier's WEIGHT accumulates into confirmWeightTotal, which — net of
+  // dispute weight — drives verificationState. An expert confirmation sets
+  // hasExpertConfirmation, gating the research-grade tier. When the post
+  // first reaches a verified state, the author's reputation is bumped once
+  // (reputationAwarded guard). The outcome is mirrored into quality_events
+  // (keyed by snapshotId) for the calibration pipeline (Q4). Returns the
+  // new verification fields for optimistic UI; returns null on no-op
+  // (missing post or already-confirmed by this user).
+  confirmIdentification: async (postId: string, uid: string): Promise<VerificationUpdate | null> => {
     const postRef = doc(db, "ecosystem_feed", postId);
     const postSnap = await getDoc(postRef);
-    if (!postSnap.exists()) return;
+    if (!postSnap.exists()) return null;
     const data = postSnap.data() as CommunityPost;
-    if ((data.confirmedBy || []).includes(uid)) return;
+    if ((data.confirmedBy || []).includes(uid)) return null;
 
-    const newConfirmedBy = [...(data.confirmedBy || []), uid];
-    const verificationState: VerificationState = data.verificationState === 'disputed'
-      ? 'disputed'
-      : (newConfirmedBy.length >= FirebaseService.CONFIRMATION_THRESHOLD ? 'confirmed' : 'unverified');
+    const { weight, isExpert } = await callerWeight(uid);
 
-    await updateDoc(postRef, { confirmedBy: arrayUnion(uid), verificationState });
+    const newConfirmTotal = (data.confirmWeightTotal || 0) + weight;
+    const disputeTotal = data.disputeWeightTotal || 0;
+    const hasExpert = data.hasExpertConfirmation === true || isExpert;
+    const verificationState = computeVerificationState(newConfirmTotal, disputeTotal, hasExpert);
+
+    const updates: Record<string, any> = {
+      confirmedBy: arrayUnion(uid),
+      confirmWeightTotal: increment(weight),
+      hasExpertConfirmation: hasExpert,
+      verificationState,
+    };
+    // Award the author reputation exactly once, the moment their post first
+    // crosses into a verified state (the crowd agreed with their ID).
+    const shouldAward = !isVerifiedState(data.verificationState)
+      && isVerifiedState(verificationState)
+      && !data.reputationAwarded
+      && !!data.userId
+      && data.userId !== uid;
+    if (shouldAward) updates.reputationAwarded = true;
+
+    await updateDoc(postRef, updates);
+
+    if (shouldAward && data.userId) {
+      FirebaseService.incrementReputation(data.userId, 1).catch(() => {});
+    }
 
     if (data.snapshotId) {
       try {
         await setDoc(doc(db, "quality_events", data.snapshotId), {
           verificationState,
           confirmations: increment(1),
+          confirmWeightTotal: increment(weight),
           updatedAt: serverTimestamp(),
         }, { merge: true });
       } catch (e) {
         console.warn("Failed to mirror confirmation into quality_events:", e);
       }
     }
+
+    return { verificationState, confirmWeightTotal: newConfirmTotal, disputeWeightTotal: disputeTotal, hasExpertConfirmation: hasExpert };
   },
 
   // A non-owner signed-in user flagging that a post's AI identification
-  // looks wrong, with what they think it actually is. A single dispute is
-  // enough to mark the post 'disputed' (surfacing possible
-  // misidentification promptly matters more here than requiring consensus
-  // first) — moderators/the poster can still see and weigh each dispute's
-  // suggestedLabel/reason individually rather than this silently
-  // overwriting anything.
-  disputeIdentification: async (postId: string, uid: string, suggestedLabel: string, reason?: string): Promise<void> => {
+  // looks wrong, with what they think it actually is. The dispute carries
+  // the disputer's weight (an expert's disagreement counts for a lot); the
+  // post is 'disputed' once dispute weight meets or beats confirm weight
+  // (see computeVerificationState). Each dispute's suggestedLabel/reason is
+  // still stored individually for moderators/the poster to weigh, rather
+  // than silently overwriting anything. Returns the new verification fields
+  // for optimistic UI.
+  disputeIdentification: async (postId: string, uid: string, suggestedLabel: string, reason?: string): Promise<VerificationUpdate | null> => {
     const postRef = doc(db, "ecosystem_feed", postId);
     const postSnap = await getDoc(postRef);
-    if (!postSnap.exists()) return;
+    if (!postSnap.exists()) return null;
     const data = postSnap.data() as CommunityPost;
 
-    const dispute = { uid, suggestedLabel, reason: reason || '', timestamp: new Date().toISOString() };
-    await updateDoc(postRef, { disputes: arrayUnion(dispute), verificationState: 'disputed' as VerificationState });
+    const { weight } = await callerWeight(uid);
+
+    const confirmTotal = data.confirmWeightTotal || 0;
+    const newDisputeTotal = (data.disputeWeightTotal || 0) + weight;
+    const hasExpert = data.hasExpertConfirmation === true;
+    const verificationState = computeVerificationState(confirmTotal, newDisputeTotal, hasExpert);
+
+    const dispute = { uid, suggestedLabel, reason: reason || '', weight, timestamp: new Date().toISOString() };
+    await updateDoc(postRef, {
+      disputes: arrayUnion(dispute),
+      disputeWeightTotal: increment(weight),
+      verificationState,
+    });
 
     if (data.snapshotId) {
       try {
         await setDoc(doc(db, "quality_events", data.snapshotId), {
-          verificationState: 'disputed',
+          verificationState,
           disputeCount: increment(1),
+          disputeWeightTotal: increment(weight),
           updatedAt: serverTimestamp(),
         }, { merge: true });
       } catch (e) {
         console.warn("Failed to mirror dispute into quality_events:", e);
       }
     }
+
+    return { verificationState, confirmWeightTotal: confirmTotal, disputeWeightTotal: newDisputeTotal, hasExpertConfirmation: hasExpert };
   },
 
   getReportedPosts: async (): Promise<CommunityPost[]> => {

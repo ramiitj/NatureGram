@@ -747,15 +747,17 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost || !userId || activePost.userId === userId) return;
       setIsSubmittingVerification(true);
       try {
-          await FirebaseService.confirmIdentification(activePost.id, userId);
+          // X2: the service computes the weighted outcome (this verifier's
+          // reputation/expert weight, summed against existing confirm/
+          // dispute weight) and returns the resulting state, so the UI
+          // reflects the real result instead of re-deriving a head-count.
+          const result = await FirebaseService.confirmIdentification(activePost.id, userId);
           setActivePost(prev => {
               if (!prev) return prev;
               const confirmedBy = [...(prev.confirmedBy || []), userId];
-              return {
-                  ...prev,
-                  confirmedBy,
-                  verificationState: prev.verificationState === 'disputed' ? 'disputed' : (confirmedBy.length >= 3 ? 'confirmed' : 'unverified'),
-              };
+              return result
+                  ? { ...prev, confirmedBy, verificationState: result.verificationState, confirmWeightTotal: result.confirmWeightTotal, hasExpertConfirmation: result.hasExpertConfirmation }
+                  : { ...prev, confirmedBy };
           });
       } catch (e) {
           console.error("Failed to confirm identification:", e);
@@ -776,10 +778,14 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost || !userId || !disputeSuggestedLabel.trim()) return;
       setIsSubmittingVerification(true);
       try {
-          await FirebaseService.disputeIdentification(activePost.id, userId, disputeSuggestedLabel.trim(), disputeReason.trim() || undefined);
+          const result = await FirebaseService.disputeIdentification(activePost.id, userId, disputeSuggestedLabel.trim(), disputeReason.trim() || undefined);
           setActivePost(prev => prev ? {
               ...prev,
-              verificationState: 'disputed',
+              // X2: dispute is weighted too — the resulting state may or may
+              // not flip to 'disputed' depending on how the disputer's
+              // weight compares to the accumulated confirmations.
+              verificationState: result ? result.verificationState : prev.verificationState,
+              disputeWeightTotal: result ? result.disputeWeightTotal : prev.disputeWeightTotal,
               disputes: [...(prev.disputes || []), { uid: userId, suggestedLabel: disputeSuggestedLabel.trim(), reason: disputeReason.trim(), timestamp: new Date().toISOString() }],
           } : prev);
           setShowDisputeForm(false);
@@ -1577,12 +1583,25 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
 
-                                                {(activePost.verificationState === 'confirmed' || activePost.verificationState === 'disputed') && (
-                                                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activePost.verificationState === 'confirmed' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>
-                                                        <span className="material-symbols-outlined text-[14px]">{activePost.verificationState === 'confirmed' ? 'verified' : 'help'}</span>
-                                                        <span className="text-[10px] font-black uppercase tracking-widest">
-                                                            {activePost.verificationState === 'confirmed' ? 'Community Confirmed' : 'Disputed — community suggests a different ID'}
-                                                        </span>
+                                                {/* X2: three verification tiers now — research-grade
+                                                    (expert-confirmed, the science-usable bar) sits above
+                                                    plain community-confirmed, with disputed orthogonal. */}
+                                                {activePost.verificationState === 'research-grade' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600/15 text-emerald-800 border border-emerald-600/20">
+                                                        <span className="material-symbols-outlined text-[14px] icon-fill">verified</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Research Grade · Expert Verified</span>
+                                                    </div>
+                                                )}
+                                                {activePost.verificationState === 'confirmed' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 text-emerald-700">
+                                                        <span className="material-symbols-outlined text-[14px]">verified</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Community Confirmed</span>
+                                                    </div>
+                                                )}
+                                                {activePost.verificationState === 'disputed' && (
+                                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 text-amber-700">
+                                                        <span className="material-symbols-outlined text-[14px]">help</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">Disputed — community suggests a different ID</span>
                                                     </div>
                                                 )}
 

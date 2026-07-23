@@ -21,7 +21,12 @@ export interface TaxonomyCandidate {
 // A post's identification can move from the AI's raw output toward
 // ground truth via community/expert agreement — this is that state, not a
 // moderation status (see CommunityPost.reportStatus for that).
-export type VerificationState = 'unverified' | 'confirmed' | 'disputed';
+// X2: 'research-grade' sits above 'confirmed' — reached only when a
+// qualified (expert) verifier has confirmed the ID, mirroring
+// iNaturalist's "research grade" bar. Ordering of trust, low to high:
+// unverified < confirmed < research-grade; 'disputed' is orthogonal
+// (a weighted disagreement outweighing the confirmations).
+export type VerificationState = 'unverified' | 'confirmed' | 'research-grade' | 'disputed';
 
 // One distinct call/vocalization event within an audio or video recording —
 // populated only when a recording has multiple temporally distinguishable
@@ -85,6 +90,18 @@ export interface UserProfileData {
     observations: number;
     species: number;
   }
+  // X1: track-record reputation. Incremented when one of this user's own
+  // observations reaches community-confirmed (see X2's confirm logic) —
+  // i.e. the crowd agreed with an ID they published. Feeds reputationTier
+  // and getVerificationWeight (reputationService.ts): a user who has been
+  // right before carries more weight when confirming others' IDs. Absent /
+  // 0 for new users; never negative.
+  reputationScore?: number;
+  // X1: mirror of the 'expert' custom claim, written for display only (the
+  // token claim remains the authority — see reputationService and
+  // firestore.rules). A qualified naturalist whose confirmation alone can
+  // promote an ID to research-grade.
+  isExpert?: boolean;
   // Web Push (FCM) registration tokens, one per device/browser that has
   // opted in. An array since a user can have multiple active devices.
   fcmTokens?: string[];
@@ -275,7 +292,18 @@ export interface CommunityPost extends FeedThumbnail {
   soundscape?: SoundscapeEvent[];
   verificationState?: VerificationState;
   confirmedBy?: string[];
-  disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
+  disputes?: { uid: string; suggestedLabel: string; reason?: string; weight?: number; timestamp: any }[];
+  // X2: weighted verification. confirmedBy stays the uid list (dedup +
+  // "you already confirmed" UI); these carry the summed verifier WEIGHTS
+  // (see reputationService.getVerificationWeight) that actually drive
+  // verificationState, so three casual users no longer equal one expert.
+  // hasExpertConfirmation gates the research-grade tier; reputationAwarded
+  // ensures the author's reputation is bumped at most once when their post
+  // first reaches confirmed.
+  confirmWeightTotal?: number;
+  disputeWeightTotal?: number;
+  hasExpertConfirmation?: boolean;
+  reputationAwarded?: boolean;
   snapshotId?: string;
   canonicalTaxa?: TaxonResolution[];
   // Geohash of rawLocation, computed at post-creation time (see T4) —

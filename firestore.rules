@@ -9,7 +9,7 @@ service cloud.firestore {
 
     // W3: was a hardcoded email (request.auth.token.email == 'ram@iitj.ac.in')
     // — replaced with a real `admin` custom claim so granting/revoking admin
-    // access is a data change (see scripts/manageAdminRole.ts), not a rules
+    // access is a data change (see scripts/manageRoles.ts), not a rules
     // deploy tied to one specific inbox. Custom claims are attacker-proof:
     // they're set server-side via the Admin SDK and embedded in the signed
     // ID token, never client-settable.
@@ -29,11 +29,48 @@ service cloud.firestore {
       return resource.data;
     }
 
+    // X1: a signed-in user may bump ANOTHER user's reputationScore by
+    // exactly +1 and nothing else — the write path behind
+    // ProfileService.incrementReputation, called when the crowd confirms an
+    // observation someone authored. Self-bumps are blocked (reputation
+    // comes from others). This shares the same soft-trust limitation as
+    // likes/confirmedBy — not forgery-proof without a Cloud Function that
+    // verifies the confirmation actually crossed the threshold — but the
+    // blast radius is bounded: reputation only ever adds up to +4 verifier
+    // weight (REPUTATION_WEIGHT_CAP), and can NEVER mint an expert claim or
+    // a research-grade promotion (those require the un-spoofable 'expert'
+    // token claim). So community-confirmed stays the same soft tier it
+    // always was; the scientifically-load-bearing tier (research-grade) is
+    // hard-gated elsewhere.
+    function reputationBump(userId) {
+      return isSignedIn()
+        && request.auth.uid != userId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['reputationScore'])
+        && incoming().reputationScore == existing().get('reputationScore', 0) + 1;
+    }
+
+    // X1: the owner may edit their own profile, but (a) may never write
+    // reputationScore directly (it only moves via reputationBump above) and
+    // (b) if they touch isExpert, it must equal their real 'expert' token
+    // claim — so nobody can self-award a fake expert badge in the display
+    // mirror. Everything else (username, bio, avatar, stats, lastVisit,
+    // fcmTokens, follow counts) is unrestricted for the owner.
+    function ownerProfileUpdateOk() {
+      return !incoming().diff(existing()).affectedKeys().hasAny(['reputationScore'])
+        && (
+          !incoming().diff(existing()).affectedKeys().hasAny(['isExpert'])
+          || incoming().isExpert == (request.auth.token.expert == true)
+        );
+    }
+
     // 1. User profiles, drafts, and notifications
     match /users/{userId} {
       // Any signed-in user can list/read (needed for admin + social features)
       allow read: if isSignedIn();
-      allow write: if isOwner(userId) || isAdmin();
+      allow create, delete: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin()
+        || (isOwner(userId) && ownerProfileUpdateOk())
+        || reputationBump(userId);
 
       match /drafts/{draftId} {
         allow read, write: if isOwner(userId) || isAdmin();
@@ -89,11 +126,21 @@ service cloud.firestore {
         isOwner(existing().userId) || isAdmin() ||
         // Likes/comment-count are counters any signed-in user needs to
         // bump; not forgery-proof without moving to Cloud Functions, but
-        // scoped narrowly to just those two fields. confirmedBy/disputes/
-        // verificationState are the same shape of trust tradeoff, for the
-        // community identification-verification loop (see
-        // confirmIdentification/disputeIdentification).
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'confirmedBy', 'disputes', 'verificationState']))
+        // scoped narrowly. The verification fields (confirmedBy/disputes/
+        // verificationState and — X2 — the weighted totals
+        // confirmWeightTotal/disputeWeightTotal/hasExpertConfirmation, plus
+        // the reputationAwarded once-guard) are the SAME client-trust tier:
+        // a determined client could write verificationState:'research-grade'
+        // or hasExpertConfirmation:true directly, exactly as it always could
+        // set verificationState:'confirmed'. This layer is an honest
+        // aggregation of legitimate use, not a cryptographic guarantee — the
+        // documented hardening step for the whole verification loop (here
+        // and for likes) is a Cloud Function that recomputes state from the
+        // verifiers' real, server-read identities. X3's research export
+        // should therefore treat 'research-grade' as a strong-but-not-
+        // unspoofable signal, the same caveat S3's audio export already
+        // carries.
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'confirmedBy', 'disputes', 'verificationState', 'confirmWeightTotal', 'disputeWeightTotal', 'hasExpertConfirmation', 'reputationAwarded']))
         // NOTE: 'reports'/'reportStatus'/'reportCount' are intentionally
         // NOT in the non-owner allowlist above — there is currently no
         // report-a-post UI, so only the post owner or an admin can touch

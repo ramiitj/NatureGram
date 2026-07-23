@@ -592,15 +592,36 @@ export const PostsService = {
   // buildable without the BigQuery warehouse pipeline (Pillar T2, not
   // built) — a direct Firestore read of community-verified (see Q3
   // confirmIdentification) audio observations, which the caller turns into
-  // a downloadable file. "Verified" here specifically means
-  // verificationState === 'confirmed' (Q3's promotion threshold), not
-  // merely posted — an unverified, possibly-wrong AI label has no place in
-  // a dataset meant to support a scientific claim.
+  // a downloadable file. "Verified" means a crowd-agreed identification —
+  // X2 widened this from just 'confirmed' to include the stronger
+  // 'research-grade' (expert-verified) tier — never a merely-posted,
+  // possibly-wrong AI label, which has no place in a dataset meant to
+  // support a scientific claim.
   getVerifiedAudioObservations: async (limitCount = 1000): Promise<CommunityPost[]> => {
     const q = query(
       collection(db, "ecosystem_feed"),
       where("mediaType", "==", "audio"),
-      where("verificationState", "==", "confirmed"),
+      where("verificationState", "in", ["confirmed", "research-grade"]),
+      orderBy("timestamp", "desc"),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    const posts: CommunityPost[] = [];
+    snapshot.forEach(doc => {
+      posts.push({ id: doc.id, ...doc.data() } as CommunityPost);
+    });
+    return posts;
+  },
+
+  // X3: all community/expert-verified observations (any media type),
+  // ordered newest-first — the source set for the Darwin Core contribution
+  // export (darwinCoreService). "Verified" is the crowd-agreed bar
+  // ('confirmed' or the stronger 'research-grade'), never a merely-posted
+  // AI label. Uses the (verificationState, timestamp) composite index.
+  getContributableObservations: async (limitCount = 5000): Promise<CommunityPost[]> => {
+    const q = query(
+      collection(db, "ecosystem_feed"),
+      where("verificationState", "in", ["confirmed", "research-grade"]),
       orderBy("timestamp", "desc"),
       limit(limitCount)
     );

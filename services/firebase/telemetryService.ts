@@ -129,9 +129,13 @@ export const TelemetryService = {
     let sampleSize = 0;
     events.forEach(e => {
       if (!e.confidence) return;
-      const hasGroundTruth = e.verificationState === 'confirmed' || e.verificationState === 'disputed' || e.humanCorrected;
+      // X2: 'research-grade' (expert-verified) is ground truth AND correct,
+      // same as 'confirmed' — the stronger tier must not be dropped from
+      // the calibration just because it's a newer state value.
+      const communityCorrect = e.verificationState === 'confirmed' || e.verificationState === 'research-grade';
+      const hasGroundTruth = communityCorrect || e.verificationState === 'disputed' || e.humanCorrected;
       if (!hasGroundTruth) return;
-      const isCorrect = e.verificationState === 'confirmed' && !e.humanCorrected;
+      const isCorrect = communityCorrect && !e.humanCorrected;
       buckets[e.confidence].total += 1;
       if (isCorrect) buckets[e.confidence].correct += 1;
       sampleSize += 1;

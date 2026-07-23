@@ -39,6 +39,8 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
 
   // Audio Dataset Export (S3)
   const [isExportingAudioDataset, setIsExportingAudioDataset] = useState(false);
+  // X3: Darwin Core Archive export
+  const [isExportingDarwinCore, setIsExportingDarwinCore] = useState(false);
 
   // Automatic elevation check on mount. W3: this used to compare
   // currentUser.email against a single hardcoded address; it now checks the
@@ -189,6 +191,36 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
           setStatus('Failed to export audio dataset: ' + e.message);
       } finally {
           setIsExportingAudioDataset(false);
+      }
+  };
+
+  // X3: build and download a Darwin Core Archive of all verified
+  // observations. Sensitive-species coordinate withholding and the
+  // "verified only" gate live in darwinCoreService; this just fetches,
+  // builds the .zip bytes, and triggers the browser download.
+  const handleExportDarwinCore = async () => {
+      setIsExportingDarwinCore(true);
+      setStatus('Assembling Darwin Core Archive from verified observations...');
+      try {
+          const { buildDarwinCoreArchive } = await import('../services/darwinCoreService');
+          const posts = await FirebaseService.getContributableObservations();
+          if (posts.length === 0) {
+              setStatus('No community-verified observations to export yet.');
+              return;
+          }
+          const zipBytes = buildDarwinCoreArchive(posts);
+          const blob = new Blob([zipBytes as unknown as BlobPart], { type: 'application/zip' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `naturegram-darwin-core-archive-${new Date().toISOString().slice(0, 10)}.zip`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setStatus(`Exported ${posts.length} verified observation(s) as a Darwin Core Archive.`);
+      } catch (e: any) {
+          setStatus('Failed to export Darwin Core Archive: ' + e.message);
+      } finally {
+          setIsExportingDarwinCore(false);
       }
   };
 
@@ -1003,6 +1035,27 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                         >
                             <span className="material-symbols-outlined text-sm">{isExportingAudioDataset ? 'hourglass_empty' : 'download'}</span>
                             {isExportingAudioDataset ? 'Exporting...' : 'Export'}
+                        </button>
+                    </div>
+
+                    {/* X3: Darwin Core Archive contribution export */}
+                    <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm flex justify-between items-center gap-6">
+                        <div>
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">public</span>
+                                Darwin Core Contribution Export
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px]">
+                                Packages community- & expert-verified observations (all media) into a standards-compliant Darwin Core Archive (.zip) — occurrence.txt + meta.xml + eml.xml — ready to publish to GBIF/iNaturalist. Scientific names & hierarchy come from the GBIF taxonomy backbone; coordinates are withheld for sensitive species.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleExportDarwinCore}
+                            disabled={isExportingDarwinCore}
+                            className="bg-theme-accent/10 hover:bg-theme-accent/20 border border-theme-accent/20 text-theme-accent rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isExportingDarwinCore ? 'hourglass_empty' : 'download'}</span>
+                            {isExportingDarwinCore ? 'Exporting...' : 'Export DwC-A'}
                         </button>
                     </div>
                 </div>
