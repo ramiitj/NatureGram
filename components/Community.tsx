@@ -47,7 +47,7 @@ const Community: React.FC<CommunityProps> = ({
     onLogoClick,
     onStartExpedition
 }) => {
-  const { language: uiLanguage } = useI18n();
+  const { language: uiLanguage, t } = useI18n();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -876,7 +876,13 @@ const Community: React.FC<CommunityProps> = ({
                     <p className="text-[9px] md:text-[10px] font-black text-theme-primary/30 uppercase tracking-widest mt-0.5">
                         {isJournalOnly ? "Personal species catalog" : (
                             <>
-                                <span className="md:hidden">Living field guide</span>
+                                {/* Design pass: the mobile masthead subhead is the brand
+                                    tagline slot, so it now uses the single canonical tagline
+                                    (i18n appTagline) — matching the landing page exactly and
+                                    translating — instead of a near-miss hardcoded variant
+                                    ("Living field guide"). Desktop keeps a page-specific
+                                    descriptor since the wordmark lives in the sidebar there. */}
+                                <span className="md:hidden">{t('appTagline')}</span>
                                 <span className="hidden md:inline">What the community is discovering</span>
                             </>
                         )}
@@ -1079,14 +1085,18 @@ const Community: React.FC<CommunityProps> = ({
 
             {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
+                {/* Design pass: emoji category icons replaced with the app's
+                 * Material Symbols set — one consistent, cross-platform icon
+                 * language instead of emoji (which render differently per OS
+                 * and read as "indie app" against the field-guide voice). */}
                 {[
-                    { id: 'all', label: 'All Sightings', icon: '✨' },
-                    { id: 'flora', label: 'Flora', icon: '🌿' },
-                    { id: 'fauna', label: 'Fauna', icon: '🐦' },
-                    { id: 'fungi', label: 'Fungi / Spores', icon: '🍄' },
-                    { id: 'audio', label: 'Audio Reels', icon: '🎙️' },
-                    { id: 'video', label: 'Clip Reels', icon: '🎥' },
-                    { id: 'popular', label: 'Top Voted', icon: '🔥' },
+                    { id: 'all', label: 'All Sightings', icon: 'apps' },
+                    { id: 'flora', label: 'Flora', icon: 'eco' },
+                    { id: 'fauna', label: 'Fauna', icon: 'pets' },
+                    { id: 'fungi', label: 'Fungi / Spores', icon: 'grain' },
+                    { id: 'audio', label: 'Audio Reels', icon: 'graphic_eq' },
+                    { id: 'video', label: 'Clip Reels', icon: 'videocam' },
+                    { id: 'popular', label: 'Top Voted', icon: 'local_fire_department' },
                 ].map((tab) => {
                     const isActive = activeExploreTab === tab.id;
                     return (
@@ -1109,7 +1119,7 @@ const Community: React.FC<CommunityProps> = ({
                                     : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-stone-600 hover:bg-stone-100'
                             }`}
                         >
-                            <span>{tab.icon}</span>
+                            <span className="material-symbols-outlined text-[14px] leading-none">{tab.icon}</span>
                             <span>{tab.label}</span>
                         </button>
                     );

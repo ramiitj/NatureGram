@@ -231,7 +231,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
 
                      {post.aiInsight && (
                          <div className="bg-theme-primary/5 rounded-xl p-5 border border-theme-primary/10 mt-6 relative">
-                             <span className="absolute -top-3 -right-2 text-2xl animate-bounce">✨</span>
+                             <span className="material-symbols-outlined absolute -top-3 -right-2 text-theme-accent bg-day-bg rounded-full p-1 text-lg shadow-sm">auto_awesome</span>
                              <h4 className="text-xs font-black uppercase tracking-widest text-theme-accent mb-2">Ecological Insight</h4>
                              <p className="text-sm leading-relaxed text-theme-primary/70">{post.aiInsight}</p>
                          </div>
