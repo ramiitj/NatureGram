@@ -553,6 +553,24 @@ const App: React.FC = () => {
     setCurrentView(AppView.COMMUNITY);
   };
 
+  // R2: the Live conversational naturalist — not the feed — is this app's
+  // actual differentiator, so it's the landing page's primary CTA. Mirrors
+  // selectMode's anonymous-auth bootstrapping, but opens the same
+  // mode-selection modal handleNavigationRequest(AppView.LENS) uses instead
+  // of dropping straight into the feed.
+  const beginLiveExpedition = async () => {
+    await initAudioContext();
+    if (!FirebaseService.getCurrentUserId()) {
+        try {
+            await FirebaseService.loginAnonymous();
+        } catch (e) {
+            console.error("Anonymous login failed, using guest fallback:", e);
+            setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
+        }
+    }
+    setShowModeSelection(true);
+  };
+
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS || currentView === AppView.USER_PROFILE;
 
   if (isInitializingDeepLink) {
@@ -681,18 +699,27 @@ const App: React.FC = () => {
                         <p className={`text-theme-text font-bold uppercase tracking-[0.4em] text-[10px] mt-2 drop-shadow-md`}>The Living Field Guide</p>
                     </div>
                     
-                    <button type="button" className="w-full max-w-xs px-6 cursor-pointer" onClick={() => selectMode('community')}>
-                        <div className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 group shadow-2xl border border-white/20">
-                            <div className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow">
-                                <span className="material-symbols-outlined text-3xl">explore</span>
+                    <div className="w-full max-w-xs px-6 flex flex-col items-center gap-4">
+                        <button type="button" className="w-full cursor-pointer" onClick={beginLiveExpedition}>
+                            <div className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 group shadow-2xl border border-white/20">
+                                <div className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow">
+                                    <span className="material-symbols-outlined text-3xl">forum</span>
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-2xl leading-tight font-display italic text-white">Talk to the Guide</h3>
+                                    <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Start a Live Expedition</p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 className="font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</h3>
-                                <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</p>
-                            </div>
-                        </div>
-                    </button>
-                    
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => selectMode('community')}
+                            className="text-white/60 hover:text-white text-[11px] font-bold uppercase tracking-widest transition-colors py-2"
+                        >
+                            Or Browse The Community Feed
+                        </button>
+                    </div>
+
                     <div className="text-center px-6 max-w-md mx-auto">
                         <p className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</p>
                         <div className="mt-6 flex flex-col items-center gap-1">

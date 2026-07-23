@@ -22,7 +22,7 @@ test('landing page renders the core hero and call-to-action', async ({ page }) =
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'NatureGram', exact: true })).toBeVisible();
-  await expect(page.getByText('Begin Expedition')).toBeVisible();
+  await expect(page.getByText('Start a Live Expedition')).toBeVisible();
 });
 
 test('community feed view (/feed) loads without an uncaught page error', async ({ page }) => {

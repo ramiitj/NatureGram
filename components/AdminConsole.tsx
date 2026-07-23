@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry, ConfidenceCalibration } from '../types';
+import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry, ConfidenceCalibration, LiveSessionMetricsEntry } from '../types';
 import { auth } from '../firebaseConfig';
 
 interface AdminConsoleProps {
@@ -28,6 +28,9 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
 
   // AI Cost/Usage Telemetry Data
   const [aiUsageLogs, setAiUsageLogs] = useState<AiUsageLogEntry[]>([]);
+
+  // Live Session Performance Data (R1)
+  const [liveSessionMetrics, setLiveSessionMetrics] = useState<LiveSessionMetricsEntry[]>([]);
 
   // Confidence Calibration Data (Q4)
   const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
@@ -96,6 +99,8 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       try {
           const logs = await FirebaseService.getRecentAiUsage(500);
           setAiUsageLogs(logs);
+          const liveMetrics = await FirebaseService.getRecentLiveSessionMetrics(500);
+          setLiveSessionMetrics(liveMetrics);
           setStatus('');
       } catch (e: any) {
           setStatus('Failed loading AI usage telemetry: ' + e.message);
@@ -704,6 +709,65 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* LIVE SESSION PERFORMANCE (R1) */}
+                        {(() => {
+                            const withFirstToken = liveSessionMetrics.filter(m => typeof m.timeToFirstTokenMs === 'number');
+                            const withTurnLatency = liveSessionMetrics.filter(m => typeof m.avgTurnLatencyMs === 'number');
+                            const avgTimeToFirstToken = withFirstToken.length > 0
+                                ? Math.round(withFirstToken.reduce((sum, m) => sum + (m.timeToFirstTokenMs || 0), 0) / withFirstToken.length)
+                                : null;
+                            const avgTurnLatency = withTurnLatency.length > 0
+                                ? Math.round(withTurnLatency.reduce((sum, m) => sum + (m.avgTurnLatencyMs || 0), 0) / withTurnLatency.length)
+                                : null;
+                            const toolCallTotals = new Map<string, number>();
+                            liveSessionMetrics.forEach(m => {
+                                const counts: Record<string, number> = m.toolCallCounts || {};
+                                Object.keys(counts).forEach((name) => {
+                                    toolCallTotals.set(name, (toolCallTotals.get(name) || 0) + counts[name]);
+                                });
+                            });
+                            const totalReconnects = liveSessionMetrics.reduce((sum, m) => sum + (m.reconnectCount || 0), 0);
+
+                            return (
+                                <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                                    <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-xs text-theme-primary/50">speed</span>
+                                        Live Session Performance
+                                    </h3>
+                                    <p className="text-theme-primary/40 text-[10px] mb-4">
+                                        {liveSessionMetrics.length} session(s) with recorded metrics.
+                                    </p>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Avg Time-to-First-Token</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{avgTimeToFirstToken !== null ? `${avgTimeToFirstToken}ms` : '—'}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Avg Turn Round-Trip</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{avgTurnLatency !== null ? `${avgTurnLatency}ms` : '—'}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Total Reconnects</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{totalReconnects}</p>
+                                        </div>
+                                        <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Tool Calls Tracked</p>
+                                            <p className="text-xl font-black text-theme-primary mt-1">{Array.from(toolCallTotals.values()).reduce((a, b) => a + b, 0)}</p>
+                                        </div>
+                                    </div>
+                                    {toolCallTotals.size > 0 && (
+                                        <div className="mt-4 flex flex-wrap gap-2">
+                                            {Array.from(toolCallTotals.entries()).sort((a, b) => b[1] - a[1]).map(([name, count]) => (
+                                                <span key={name} className="px-3 py-1.5 bg-theme-accent/5 border border-theme-accent/20 rounded-full text-[10px] font-bold text-theme-primary/70">
+                                                    {name}: {count}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {/* BREAKDOWN + RECENT CALLS */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

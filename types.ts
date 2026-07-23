@@ -244,6 +244,24 @@ export interface Comment {
 
 export type AudioMode = 'voice' | 'silent';
 
+// One completed Live session's performance summary (see R1 in the roadmap:
+// "you can't optimize or pitch the real-time experience without measuring
+// it"). Written once per session, when GeminiLiveService.disconnect() is
+// called manually (not on an internal reconnect). Self-reported by the
+// client, same trust tier as AiUsageLogEntry.
+export interface LiveSessionMetricsEntry {
+  id?: string;
+  uid: string;
+  model?: string;
+  timeToFirstTokenMs?: number;
+  avgTurnLatencyMs?: number;
+  maxTurnLatencyMs?: number;
+  turnCount: number;
+  toolCallCounts: Record<string, number>;
+  reconnectCount: number;
+  timestamp?: any;
+}
+
 // Client-reported record of a single Gemini call, written for cost/usage
 // visibility in AdminConsole. Self-reported by the calling client (like
 // likes/commentCount elsewhere in this app), not an authoritative billing

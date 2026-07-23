@@ -25,6 +25,25 @@ interface GeminiLiveDelegate {
   onConnectionStateChange?: (state: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING') => void;
   onError?: (error: any) => void;
   onTurnComplete?: () => void;
+  // Fired once, from disconnect() (a genuine session end — never on an
+  // internal reconnect), with this session's accumulated performance
+  // metrics (see R1: "you can't optimize or pitch the real-time experience
+  // without measuring it").
+  onSessionMetrics?: (metrics: LiveSessionMetrics) => void;
+}
+
+export interface LiveSessionMetrics {
+  // Wall-clock time from connect() to the first audio/transcript chunk of
+  // the model's very first response this session. Null if the session
+  // never got a single response (e.g. connection failed outright).
+  timeToFirstTokenMs: number | null;
+  // One entry per model turn after the first: time from the previous
+  // turn's completion to this turn's first response chunk. Excludes the
+  // very first turn (that's timeToFirstTokenMs, measured from connect
+  // rather than from a prior turnComplete).
+  turnLatenciesMs: number[];
+  toolCallCounts: Record<string, number>;
+  reconnectCount: number;
 }
 
 export class GeminiLiveService {
@@ -44,9 +63,42 @@ export class GeminiLiveService {
   private currentModelTurnText: string = "";
   private currentUserTurnText: string = "";
 
+  // R1: Live-session instrumentation (see LiveSessionMetrics doc comments).
+  private connectStartedAt: number | null = null;
+  private firstTokenReceived = false;
+  private turnResponseStarted = false;
+  private lastTurnCompleteAt: number | null = null;
+  private metrics: LiveSessionMetrics = { timeToFirstTokenMs: null, turnLatenciesMs: [], toolCallCounts: {}, reconnectCount: 0 };
+
   constructor(audioContext: AudioContext, delegate: GeminiLiveDelegate) {
     this.delegate = delegate;
     this.outputAudioContext = audioContext;
+  }
+
+  // A defensive copy so callers can't mutate the service's live-tracked
+  // arrays/objects out from under it.
+  public getSessionMetrics(): LiveSessionMetrics {
+    return {
+      ...this.metrics,
+      turnLatenciesMs: [...this.metrics.turnLatenciesMs],
+      toolCallCounts: { ...this.metrics.toolCallCounts },
+    };
+  }
+
+  // Marks the first response chunk of a model turn — called from both the
+  // audio and output-transcript branches of handleMessage, since either
+  // can arrive first. Idempotent per turn (guarded by turnResponseStarted,
+  // reset on turnComplete).
+  private markTurnResponseStart() {
+    if (this.turnResponseStarted) return;
+    this.turnResponseStarted = true;
+
+    if (!this.firstTokenReceived) {
+      this.firstTokenReceived = true;
+      this.metrics.timeToFirstTokenMs = this.connectStartedAt !== null ? Date.now() - this.connectStartedAt : null;
+    } else if (this.lastTurnCompleteAt !== null) {
+      this.metrics.turnLatenciesMs.push(Date.now() - this.lastTurnCompleteAt);
+    }
   }
 
   public isConnected() {
@@ -71,6 +123,11 @@ export class GeminiLiveService {
 
   public async connect() {
     this.isManuallyClosed = false;
+    this.connectStartedAt = Date.now();
+    this.firstTokenReceived = false;
+    this.turnResponseStarted = false;
+    this.lastTurnCompleteAt = null;
+    this.metrics = { timeToFirstTokenMs: null, turnLatenciesMs: [], toolCallCounts: {}, reconnectCount: 0 };
     await this.internalConnect();
   }
 
@@ -184,6 +241,7 @@ export class GeminiLiveService {
     if (this.reconnectTimeoutId) return;
 
     this.reconnectAttempts++;
+    this.metrics.reconnectCount++;
     this.delegate.onConnectionStateChange?.('RECONNECTING');
     
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
@@ -196,6 +254,15 @@ export class GeminiLiveService {
   }
 
   public async disconnect() {
+    // A genuine session end (as opposed to the internal reconnect churn
+    // handled elsewhere) — the one place this session's accumulated
+    // performance metrics are reported, so every call site that ends a
+    // session gets this for free rather than needing its own logging call.
+    const hadActivity = this.metrics.timeToFirstTokenMs !== null || Object.keys(this.metrics.toolCallCounts).length > 0;
+    if (hadActivity) {
+        this.delegate.onSessionMetrics?.(this.getSessionMetrics());
+    }
+
     this.isManuallyClosed = true;
     this.connected = false;
     if (this.reconnectTimeoutId) {
@@ -293,6 +360,7 @@ export class GeminiLiveService {
 
     const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (base64Audio) {
+      this.markTurnResponseStart();
       try {
         const audioBytes = new Uint8Array(base64ToArrayBuffer(base64Audio));
         const audioBuffer = await decodeAudioData(audioBytes, this.outputAudioContext);
@@ -327,13 +395,16 @@ export class GeminiLiveService {
 
     const outputTranscript = message.serverContent?.outputTranscription?.text;
     if (outputTranscript) {
+        this.markTurnResponseStart();
         this.currentModelTurnText += outputTranscript;
         if (this.delegate.onTranscript) this.delegate.onTranscript(this.currentModelTurnText, false, groundingLinks);
     }
-    
+
     if (message.serverContent?.turnComplete) {
         this.currentModelTurnText = "";
         this.currentUserTurnText = "";
+        this.lastTurnCompleteAt = Date.now();
+        this.turnResponseStarted = false;
         this.delegate.onTurnComplete?.();
     }
 
@@ -343,16 +414,17 @@ export class GeminiLiveService {
           const functionResponses = [];
 
           for (const fc of message.toolCall.functionCalls) {
+            this.metrics.toolCallCounts[fc.name] = (this.metrics.toolCallCounts[fc.name] || 0) + 1;
             let result: any = { result: "ok" };
             if (this.delegate.onToolCall) {
                 try {
                     const response = await this.delegate.onToolCall(fc.name, fc.args);
                     if (response) result = response;
-                } catch (e) { 
-                    result = { error: "Failed to execute field tool." }; 
+                } catch (e) {
+                    result = { error: "Failed to execute field tool." };
                 }
             }
-            
+
             functionResponses.push({
                 id: fc.id,
                 name: fc.name,

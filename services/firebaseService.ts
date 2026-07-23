@@ -37,7 +37,7 @@ import {
 } from "firebase/auth";
 import { getToken, onMessage, isSupported as isMessagingSupported, MessagePayload } from "firebase/messaging";
 import { auth, db, storage, getMessagingInstance } from "../firebaseConfig";
-import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, AiUsageLogEntry, QualityEvent, VerificationState, ConfidenceCalibration } from "../types";
+import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, AiUsageLogEntry, QualityEvent, VerificationState, ConfidenceCalibration, LiveSessionMetricsEntry } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { generateThumbnail, stripImageMetadata } from "../utils";
 import { NATURALIST_THEMES } from "../constants/naturalists";
@@ -1485,6 +1485,32 @@ export const FirebaseService = {
   getConfidenceCalibration: async (): Promise<ConfidenceCalibration | null> => {
     const docSnap = await getDoc(doc(db, "admin_config", "confidence_calibration"));
     return docSnap.exists() ? (docSnap.data() as ConfidenceCalibration) : null;
+  },
+
+  // One completed Live session's performance summary (see R1 and
+  // LiveSessionMetricsEntry in types.ts). Fire-and-forget, same contract as
+  // logAiUsage — a telemetry write failure never blocks session teardown.
+  logLiveSessionMetrics: async (entry: Omit<LiveSessionMetricsEntry, 'id' | 'timestamp'>): Promise<void> => {
+    try {
+      await addDoc(collection(db, "live_session_metrics"), {
+        ...entry,
+        timestamp: serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn("Failed to log Live session metrics:", e);
+    }
+  },
+
+  // Most recent Live session metrics, for the AdminConsole performance
+  // panel. Same capped/client-aggregated pattern as getRecentAiUsage.
+  getRecentLiveSessionMetrics: async (limitCount = 500): Promise<LiveSessionMetricsEntry[]> => {
+    const q = query(collection(db, "live_session_metrics"), orderBy("timestamp", "desc"), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const entries: LiveSessionMetricsEntry[] = [];
+    snapshot.forEach(doc => {
+      entries.push({ id: doc.id, ...doc.data() } as LiveSessionMetricsEntry);
+    });
+    return entries;
   },
 
   getReportedPosts: async (): Promise<CommunityPost[]> => {

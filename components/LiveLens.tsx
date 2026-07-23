@@ -7,6 +7,8 @@ import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { FingerprintService } from '../services/fingerprintService.ts';
 import { GenAiService, resolveNatureSubjectFields, normalizeLabels } from '../services/genAiService.ts';
+import { getCalibratedConfidence } from '../services/calibrationService.ts';
+import { ConfidenceCalibration, TaxonomyCandidate } from '../types.ts';
 import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from '../services/uploadService.ts';
 import { LIVE_STREAM_FRAME_MAX_DIMENSION } from '../constants.ts';
 import OnboardingTour from './OnboardingTour.tsx';
@@ -72,7 +74,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
   const [isProcessingCapture, setIsProcessingCapture] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
-  const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string} | null>(null);
+  const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string, confidence?: 'high' | 'medium' | 'low', candidates?: TaxonomyCandidate[]} | null>(null);
 
   useEffect(() => {
     if (!latestSighting) return;
@@ -81,6 +83,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }, 15000);
     return () => clearTimeout(timer);
   }, [latestSighting]);
+
+  // R3: in-session trust surfacing — fetched once per session so the live
+  // sighting overlay can show calibrated confidence (see Q4) alongside the
+  // model's raw self-report, same public admin_config read Community.tsx
+  // uses for the post-capture view.
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+  useEffect(() => {
+    FirebaseService.getConfidenceCalibration().then(setCalibration).catch(() => {});
+  }, []);
 
   const showStatus = useCallback((type: 'success' | 'error' | 'processing', text: string) => {
       setAnalysisStatus({ type, text });
@@ -960,7 +971,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            setLatestSighting({
                labels: resolvedLabels,
                behavior: resolvedBehavior,
-               aiInsight: resolvedAiInsight
+               aiInsight: resolvedAiInsight,
+               confidence: isNatureSubject ? args.confidence : undefined,
+               candidates: resolvedCandidates
            });
         });
         return { result: "ok" };
@@ -1074,6 +1087,24 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 } else if (errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.toLowerCase().includes("quota")) {
                     setSessionError("You've reached today's usage limit for the Live Guide. Please try again in a little while.");
                 }
+            },
+            // R1: Live-session instrumentation — fired once from
+            // disconnect() with this session's accumulated latency/tool-call
+            // metrics. See LiveSessionMetrics in geminiLiveService.ts.
+            onSessionMetrics: (metrics) => {
+                const uid = userIdValue;
+                if (!uid) return;
+                const turnLatencies = metrics.turnLatenciesMs;
+                FirebaseService.logLiveSessionMetrics({
+                    uid,
+                    model: configModel,
+                    timeToFirstTokenMs: metrics.timeToFirstTokenMs ?? undefined,
+                    avgTurnLatencyMs: turnLatencies.length > 0 ? Math.round(turnLatencies.reduce((a, b) => a + b, 0) / turnLatencies.length) : undefined,
+                    maxTurnLatencyMs: turnLatencies.length > 0 ? Math.max(...turnLatencies) : undefined,
+                    turnCount: turnLatencies.length,
+                    toolCallCounts: metrics.toolCallCounts,
+                    reconnectCount: metrics.reconnectCount,
+                }).catch(() => {});
             }
         });
 
@@ -1397,6 +1428,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               {label}
                           </span>
                       ))}
+                      {latestSighting.confidence && (() => {
+                          const cal = getCalibratedConfidence(calibration, latestSighting.confidence);
+                          return (
+                              <span className="bg-white/10 border border-white/20 text-white/70 font-sans px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase">
+                                  {latestSighting.confidence}{cal?.isValidated ? ` · ${Math.round(cal.observedAccuracy! * 100)}% historically accurate` : ''}
+                              </span>
+                          );
+                      })()}
                   </div>
 
                   {/* Behavior text */}
@@ -1404,6 +1443,24 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       <p className="text-xs text-white/55 italic leading-snug">
                           {latestSighting.behavior}
                       </p>
+                  )}
+
+                  {/* Candidate alternatives (Q5) — only when the model reported
+                      genuine ambiguity between similar species. */}
+                  {latestSighting.candidates && latestSighting.candidates.length > 0 && (
+                      <div className="border-t border-white/15 pt-3">
+                          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/50 mb-1.5">Could Also Be</p>
+                          <div className="space-y-1.5">
+                              {latestSighting.candidates.map((cand, idx) => (
+                                  <div key={idx} className="text-xs">
+                                      <span className="font-bold text-white/80">{cand.label}</span>
+                                      {cand.distinguishingFeature && (
+                                          <span className="text-white/50"> — {cand.distinguishingFeature}</span>
+                                      )}
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
                   )}
 
                   {/* Ecological Insight detail */}

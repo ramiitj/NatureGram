@@ -179,5 +179,14 @@ service cloud.firestore {
       );
       allow delete: if false;
     }
+
+    // 12. Live-session performance telemetry (see R1, LiveSessionMetricsEntry
+    // in types.ts) — same trust tier and access pattern as ai_usage_logs:
+    // self-reported, create-your-own-record-only, admin-only read.
+    match /live_session_metrics/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }
