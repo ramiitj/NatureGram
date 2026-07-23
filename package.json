@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit",
     "test:e2e": "playwright test",
     "eval": "tsx evals/runner.ts",
-    "export:warehouse": "tsx warehouse/export.ts"
+    "export:warehouse": "tsx warehouse/export.ts",
+    "admin:role": "tsx scripts/manageAdminRole.ts"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.3.1",

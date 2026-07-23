@@ -29,8 +29,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   const [stealthMode, setStealthMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  // W3: was a hardcoded `auth.currentUser?.email === 'ram@iitj.ac.in'`
+  // check — now reflects the same `admin` custom claim AdminConsole.tsx
+  // and firestore.rules check, resolved async since claims live in the ID
+  // token (getIdTokenResult), not on the currentUser object synchronously.
+  const [isAdminUser, setIsAdminUser] = useState(false);
 
   const isOwnProfile = userId === currentUserId;
+
+  useEffect(() => {
+    if (!isOwnProfile) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    currentUser.getIdTokenResult()
+      .then(tokenResult => setIsAdminUser(tokenResult.claims.admin === true))
+      .catch(() => setIsAdminUser(false));
+  }, [isOwnProfile]);
 
   const handleToggleNotifications = async () => {
     if (!currentUserId || isTogglingNotifications) return;
@@ -180,7 +194,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {isOwnProfile && (
                 <>
-                    {auth.currentUser?.email === 'ram@iitj.ac.in' && onAdminConsole && (
+                    {isAdminUser && onAdminConsole && (
                         <div className="mb-8">
                             <h3 className="catalog-label text-[9px] mb-4 ml-2 text-theme-accent font-bold">Admin Privileges</h3>
                             <div className="bg-stone-900 border border-white/10 rounded-3xl overflow-hidden shadow-xl shadow-stone-900/40">

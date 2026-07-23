@@ -4,6 +4,7 @@ import { auth } from "../firebaseConfig";
 import { FirebaseService } from "./firebaseService";
 import { TaxonomySubject, TaxonomyCandidate, QualityEvent, SoundscapeEvent } from "../types";
 import { runOnDevicePrefilterOnBlob } from "./onDeviceFilterService";
+import { TracingService } from "./tracingService";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -224,6 +225,8 @@ export const GenAiService = {
    */
   analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
     const startedAt = Date.now();
+    const traceId = TracingService.newTraceId();
+    const feature = opts?.feature || 'analyzeMedia';
     try {
         // U1: on-device pre-filter — only ever short-circuits the OBVIOUS
         // non-nature case (see onDeviceFilterService.ts's own extensive
@@ -245,6 +248,12 @@ export const GenAiService = {
                         aiProposedLabels: [],
                     });
                 }
+                TracingService.logAiCallTrace({
+                    traceId, feature, model: 'on-device-mobilenet',
+                    latencyMs: Date.now() - startedAt,
+                    isNatureSubject: false,
+                    outcome: 'prefiltered',
+                });
                 return {
                     taxonomy: [],
                     ecologic: "This capture doesn't appear to contain a natural subject.",
@@ -297,6 +306,13 @@ export const GenAiService = {
                 aiProposedLabels: result.taxonomy || [],
             });
         }
+        TracingService.logAiCallTrace({
+            traceId, feature, model: modelUsed,
+            latencyMs: Date.now() - startedAt,
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            outcome: 'success',
+        });
 
         return {
             taxonomy: result.taxonomy || ["Unknown"],
@@ -315,11 +331,14 @@ export const GenAiService = {
         console.error("Media analysis failed", e);
         const errMsg = e instanceof Error ? e.message : String(e);
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'blocked_referrer' });
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
         }
         if (isQuotaExceededError(e)) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'quota_exceeded' });
             return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
         }
+        TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'error' });
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }
   },
@@ -330,6 +349,8 @@ export const GenAiService = {
    */
   analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMultimodal' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
     const startedAt = Date.now();
+    const traceId = TracingService.newTraceId();
+    const feature = opts?.feature || 'analyzeMultimodal';
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -383,6 +404,13 @@ export const GenAiService = {
                 aiProposedLabels: result.taxonomy || [],
             });
         }
+        TracingService.logAiCallTrace({
+            traceId, feature, model: modelUsed,
+            latencyMs: Date.now() - startedAt,
+            confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+            isNatureSubject: result.isNatureSubject,
+            outcome: 'success',
+        });
 
         return {
             taxonomy: result.taxonomy || ["Unknown"],
@@ -401,11 +429,14 @@ export const GenAiService = {
         console.error("Multimodal analysis failed", e);
         const errMsg = e instanceof Error ? e.message : String(e);
         if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || JSON.stringify(e).includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'blocked_referrer' });
             return { taxonomy: ["Error"], ecologic: "API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'.", hashtags: ["Error"], location: location || "Unknown Location" };
         }
         if (isQuotaExceededError(e)) {
+            TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'quota_exceeded' });
             return { taxonomy: ["Unknown"], ecologic: "You've reached today's analysis limit. Please try again later.", hashtags: ["Nature"], location: location || "Unknown Location" };
         }
+        TracingService.logAiCallTrace({ traceId, feature, latencyMs: Date.now() - startedAt, outcome: 'error' });
         return { taxonomy: ["Unknown"], ecologic: "Analysis failed.", hashtags: ["Nature"], location: location || "Unknown Location" };
     }
   },

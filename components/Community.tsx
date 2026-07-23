@@ -11,6 +11,8 @@ import FeedCard from './community/FeedCard';
 import SpeciesInfoModal from './community/SpeciesInfoModal';
 import DeleteConfirmModal from './community/DeleteConfirmModal';
 import CommentsDrawer from './community/CommentsDrawer';
+import SearchFiltersPanel from './community/SearchFiltersPanel';
+import DisputeIdentificationModal from './community/DisputeIdentificationModal';
 import { AnimatePresence, motion } from 'motion/react';
 import { hapticFeedback } from '../utils';
 import { getCalibratedConfidence } from '../services/calibrationService';
@@ -1061,94 +1063,17 @@ const Community: React.FC<CommunityProps> = ({
 
                 {/* Dynamic Collapsible Advanced Filters Drawer */}
                 {showFilters && (
-                    <div className="p-6 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            {/* Format Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Category Format</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'image', 'video', 'audio'] as const).map((media) => (
-                                        <button
-                                            key={media}
-                                            onClick={() => setMediaFilter(media)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                mediaFilter === media 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {media === 'all' ? 'All' : media}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Timeline Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Timeline Range</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'today', 'week', 'month'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setDateFilter(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                dateFilter === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'all' ? 'All' : opt === 'today' ? 'Today' : opt === 'week' ? '1Wk' : '1Mo'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Ordering Selection */}
-                            <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Sort Sequence</label>
-                                <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['newest', 'likes', 'title'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setSortOrder(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                                                sortOrder === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'newest' ? 'Newest' : opt === 'likes' ? 'Likes' : 'A-Z'}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Species taxonomic selection */}
-                        {allAvailableLabels.length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-theme-primary/5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Filter Specific Taxons Native</label>
-                                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-2 no-scrollbar">
-                                    {allAvailableLabels.map((lbl) => {
-                                        const isSelected = selectedLabels.includes(lbl);
-                                        return (
-                                            <button
-                                                key={lbl}
-                                                onClick={() => toggleLabelFilter(lbl)}
-                                                className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-widest rounded-full border transition-all ${
-                                                    isSelected 
-                                                        ? 'bg-theme-accent border-theme-accent text-white font-bold' 
-                                                        : 'bg-white border-theme-primary/10 text-theme-primary/60 hover:bg-stone-50'
-                                                }`}
-                                            >
-                                                {lbl}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <SearchFiltersPanel
+                        mediaFilter={mediaFilter}
+                        setMediaFilter={setMediaFilter}
+                        dateFilter={dateFilter}
+                        setDateFilter={setDateFilter}
+                        sortOrder={sortOrder}
+                        setSortOrder={setSortOrder}
+                        allAvailableLabels={allAvailableLabels}
+                        selectedLabels={selectedLabels}
+                        toggleLabelFilter={toggleLabelFilter}
+                    />
                 )}
             </div>
 
@@ -1786,52 +1711,15 @@ const Community: React.FC<CommunityProps> = ({
                 )}
 
                 {showDisputeForm && activePost && (
-                    <div className="fixed inset-0 z-[260] flex items-center justify-center p-6 animate-fade-in">
-                        <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowDisputeForm(false)}></div>
-                        <div className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up p-8">
-                            <h2 className="text-2xl font-display font-black italic text-stone-900 mb-1">Suggest Correction</h2>
-                            <p className="text-xs text-stone-500 uppercase tracking-widest font-bold mb-6">What do you think this actually is?</p>
-
-                            <label className="block mb-4">
-                                <span className="catalog-label text-[9px] text-stone-500 block mb-1.5">Your Identification</span>
-                                <input
-                                    type="text"
-                                    value={disputeSuggestedLabel}
-                                    onChange={(e) => setDisputeSuggestedLabel(e.target.value)}
-                                    className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl text-sm font-medium outline-none focus:border-theme-accent/50 transition-all"
-                                    placeholder="e.g. Cooper's Hawk"
-                                />
-                            </label>
-
-                            <label className="block mb-6">
-                                <span className="catalog-label text-[9px] text-stone-500 block mb-1.5">Why? (optional)</span>
-                                <textarea
-                                    value={disputeReason}
-                                    onChange={(e) => setDisputeReason(e.target.value)}
-                                    rows={3}
-                                    className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl text-sm font-medium outline-none focus:border-theme-accent/50 transition-all resize-none"
-                                    placeholder="e.g. Barred tail and yellow eyes point to Cooper's, not Sharp-shinned"
-                                />
-                            </label>
-
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => setShowDisputeForm(false)}
-                                    disabled={isSubmittingVerification}
-                                    className="flex-1 py-4 rounded-2xl border-2 border-stone-100 text-stone-500 font-black text-xs uppercase tracking-widest hover:bg-stone-50 transition-all disabled:opacity-50"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleSubmitDispute}
-                                    disabled={isSubmittingVerification || !disputeSuggestedLabel.trim()}
-                                    className="flex-1 py-4 rounded-2xl bg-theme-accent text-white font-black text-xs uppercase tracking-widest hover:opacity-90 transition-all disabled:opacity-50"
-                                >
-                                    {isSubmittingVerification ? 'Submitting...' : 'Submit'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    <DisputeIdentificationModal
+                        disputeSuggestedLabel={disputeSuggestedLabel}
+                        setDisputeSuggestedLabel={setDisputeSuggestedLabel}
+                        disputeReason={disputeReason}
+                        setDisputeReason={setDisputeReason}
+                        isSubmittingVerification={isSubmittingVerification}
+                        onCancel={() => setShowDisputeForm(false)}
+                        onSubmit={handleSubmitDispute}
+                    />
                 )}
             </motion.div>
         )}

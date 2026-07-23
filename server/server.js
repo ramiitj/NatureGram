@@ -25,6 +25,15 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.join(__dirname, '..');
 
 const currentFirebaseProjectId = initFirebaseAdmin(REPO_ROOT);
+// W3: this used to fall back to a hardcoded project ID ('biostream-6490a')
+// wherever it was consumed (geminiProxy.js, pushNotifications.js) if this
+// came back null — silently correct for this one deployment, but a fork
+// pointed at a different Firebase project would have quietly verified
+// tokens against the wrong project's issuer/audience instead of failing
+// loudly. Now a missing project ID surfaces here, once, at boot.
+if (!currentFirebaseProjectId) {
+  console.error('WARNING: no Firebase project ID resolved from firebase-applet-config.json — token verification will reject every request until this is fixed.');
+}
 
 async function startServer() {
   const app = express();

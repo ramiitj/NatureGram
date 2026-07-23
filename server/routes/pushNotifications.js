@@ -21,7 +21,7 @@ export function registerPushNotificationRoute(app, { projectId }) {
     const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     try {
-      await verifyRequestToken(bearerToken, projectId || 'biostream-6490a');
+      await verifyRequestToken(bearerToken, projectId);
     } catch (e) {
       return res.status(401).json({ error: 'Unauthorized' });
     }

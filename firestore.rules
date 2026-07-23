@@ -7,8 +7,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // W3: was a hardcoded email (request.auth.token.email == 'ram@iitj.ac.in')
+    // — replaced with a real `admin` custom claim so granting/revoking admin
+    // access is a data change (see scripts/manageAdminRole.ts), not a rules
+    // deploy tied to one specific inbox. Custom claims are attacker-proof:
+    // they're set server-side via the Admin SDK and embedded in the signed
+    // ID token, never client-settable.
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'ram@iitj.ac.in';
+      return isSignedIn() && request.auth.token.admin == true;
     }
 
     function isOwner(userId) {

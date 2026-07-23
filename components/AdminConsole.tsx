@@ -40,14 +40,25 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   // Audio Dataset Export (S3)
   const [isExportingAudioDataset, setIsExportingAudioDataset] = useState(false);
 
-  // Automatic elevation check on mount
+  // Automatic elevation check on mount. W3: this used to compare
+  // currentUser.email against a single hardcoded address; it now checks the
+  // `admin` custom claim (see firestore.rules' isAdmin() and
+  // scripts/manageAdminRole.ts), forcing a token refresh so a claim granted
+  // moments ago — while this session is still open — takes effect without
+  // requiring a manual sign-out.
   useEffect(() => {
     const checkAdminAuth = async () => {
       const currentUser = auth.currentUser;
-      if (currentUser && currentUser.email === 'ram@iitj.ac.in') {
-        setIsAuthenticated(true);
-        loadConfig();
-        loadActivityLogs();
+      if (!currentUser) return;
+      try {
+        const tokenResult = await currentUser.getIdTokenResult(true);
+        if (tokenResult.claims.admin === true) {
+          setIsAuthenticated(true);
+          loadConfig();
+          loadActivityLogs();
+        }
+      } catch (e) {
+        console.warn('Admin claim check failed:', e);
       }
     };
     checkAdminAuth();
@@ -56,13 +67,14 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   // Login Handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email !== 'ram@iitj.ac.in') {
-      setStatus('Access Denied: Only ram@iitj.ac.in has administrative privileges.');
-      return;
-    }
-    
     try {
-      await FirebaseService.loginUser(email, password);
+      const cred = await FirebaseService.loginUser(email, password);
+      const tokenResult = await cred.user.getIdTokenResult(true);
+      if (tokenResult.claims.admin !== true) {
+        setStatus('Access Denied: this account does not have administrative privileges.');
+        await FirebaseService.logout();
+        return;
+      }
       setIsAuthenticated(true);
       loadConfig();
       loadActivityLogs();

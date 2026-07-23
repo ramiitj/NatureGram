@@ -32,20 +32,31 @@ export function registerSharePreviewRoute(app) {
       return res.redirect(302, appUrl);
     }
 
-    let firebaseApiKey = "AIzaSyBXq7Oxg8se5PVW-vWDlKK9NV81CFpIfYY"; // Public Firebase Key Fallback
-    let projectID = "biostream-6490a";
+    // W3: these used to default to this deployment's actual project ID/key
+    // as a hardcoded fallback — harmless only because it happened to match;
+    // a fork pointed at a different Firebase project that forgot to update
+    // firebase-applet-config.json would have silently queried someone
+    // else's project instead of failing. Now a missing/incomplete config
+    // just falls through to the existing catch-all redirect below.
+    let firebaseApiKey = null;
+    let projectID = null;
     let databaseID = "(default)";
 
     try {
       const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        projectID = config.projectId || projectID;
-        firebaseApiKey = config.apiKey || firebaseApiKey;
+        projectID = config.projectId || null;
+        firebaseApiKey = config.apiKey || null;
         databaseID = config.firestoreDatabaseId || databaseID;
       }
     } catch (e) {
       console.error("Failed to load Firebase config in server sharing route:", e);
+    }
+
+    if (!projectID || !firebaseApiKey) {
+      console.error('[SharePreview] No Firebase project config resolved — redirecting instead of rendering a preview.');
+      return res.redirect(302, appUrl);
     }
 
     try {
