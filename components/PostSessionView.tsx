@@ -122,11 +122,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                     result = await GenAiService.analyzeMultimodal(
                         current.videoBlob || current.audioBlob || null,
                         [current.blob, ...associatedImages].filter(Boolean) as Blob[],
-                        resolvedArea || current.location
+                        resolvedArea || current.location,
+                        { snapshotId: current.id }
                     );
                 } else {
                     const typeToAnalyze = current.videoBlob ? 'video' : (current.audioBlob ? 'audio' : 'image');
-                    result = await GenAiService.analyzeMedia(mainBlob!, typeToAnalyze, resolvedArea || current.location);
+                    result = await GenAiService.analyzeMedia(mainBlob!, typeToAnalyze, resolvedArea || current.location, { snapshotId: current.id });
                 }
                 
                 if (result) {
@@ -152,6 +153,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                         confidence: result.confidence,
                         isSensitiveSpecies: result.isSensitiveSpecies,
                         subjects: result.subjects,
+                        candidates: result.candidates,
                     } : s));
                 }
             } catch (e) {

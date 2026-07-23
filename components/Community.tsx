@@ -13,6 +13,8 @@ import DeleteConfirmModal from './community/DeleteConfirmModal';
 import CommentsDrawer from './community/CommentsDrawer';
 import { AnimatePresence, motion } from 'motion/react';
 import { hapticFeedback } from '../utils';
+import { getCalibratedConfidence } from '../services/calibrationService';
+import { ConfidenceCalibration } from '../types';
 
 interface CommunityProps {
   currentUserMode: UserMode;
@@ -53,6 +55,20 @@ const Community: React.FC<CommunityProps> = ({
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeSuggestedLabel, setDisputeSuggestedLabel] = useState("");
+  const [disputeReason, setDisputeReason] = useState("");
+  const [isSubmittingVerification, setIsSubmittingVerification] = useState(false);
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+
+  // Fetched once per mount (public read, see admin_config rules) so the
+  // confidence badge in the detail view can show an observed accuracy
+  // alongside the model's raw self-reported confidence, when there's
+  // enough verified data to say something honest about it (see
+  // getCalibratedConfidence).
+  useEffect(() => {
+    FirebaseService.getConfidenceCalibration().then(setCalibration).catch(() => {});
+  }, []);
 
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
@@ -696,10 +712,77 @@ const Community: React.FC<CommunityProps> = ({
     try {
         await FirebaseService.updatePost(activePost.id, updates);
         setActivePost(prev => prev ? { ...prev, ...updates } : null);
+
+        // Feed a post-publish correction back into the quality event (see
+        // QualityEvent in types.ts) this identification originated from —
+        // mirrors the equivalent publish-time check in createObservation/
+        // createSessionObservation, just triggered later by an edit instead.
+        const hasMultipleItems = !!activePost.items && activePost.items.length > 0;
+        const editedItem = hasMultipleItems ? updates.items?.[activeItemIndex] : undefined;
+        const humanDelta = hasMultipleItems ? editedItem?.humanDelta : updates.humanDelta;
+        const finalLabels = hasMultipleItems ? editedItem?.labels : updates.labels;
+        const snapshotId = hasMultipleItems ? activePost.items?.[activeItemIndex]?.snapshotId : activePost.snapshotId;
+        if (humanDelta && snapshotId && finalLabels) {
+            FirebaseService.recordQualityEventCorrection(snapshotId, finalLabels).catch(() => {});
+        }
     } catch (e) {
         console.error("Failed to update post details", e);
         alert("Failed to save changes.");
     }
+  };
+
+  // Community/expert verification loop (see confirmIdentification in
+  // firebaseService.ts): any signed-in non-owner viewer can vouch for or
+  // flag a post's AI identification. Optimistically reflected in
+  // activePost so the badge updates without a full reload, same pattern
+  // as handleLike above.
+  const handleConfirmIdentification = async () => {
+      if (currentUserMode.isAnonymous) { setShowAuthModal(true); return; }
+      const userId = currentUserMode.userId;
+      if (!activePost || !userId || activePost.userId === userId) return;
+      setIsSubmittingVerification(true);
+      try {
+          await FirebaseService.confirmIdentification(activePost.id, userId);
+          setActivePost(prev => {
+              if (!prev) return prev;
+              const confirmedBy = [...(prev.confirmedBy || []), userId];
+              return {
+                  ...prev,
+                  confirmedBy,
+                  verificationState: prev.verificationState === 'disputed' ? 'disputed' : (confirmedBy.length >= 3 ? 'confirmed' : 'unverified'),
+              };
+          });
+      } catch (e) {
+          console.error("Failed to confirm identification:", e);
+      } finally {
+          setIsSubmittingVerification(false);
+      }
+  };
+
+  const handleOpenDisputeForm = () => {
+      if (currentUserMode.isAnonymous) { setShowAuthModal(true); return; }
+      setDisputeSuggestedLabel("");
+      setDisputeReason("");
+      setShowDisputeForm(true);
+  };
+
+  const handleSubmitDispute = async () => {
+      const userId = currentUserMode.userId;
+      if (!activePost || !userId || !disputeSuggestedLabel.trim()) return;
+      setIsSubmittingVerification(true);
+      try {
+          await FirebaseService.disputeIdentification(activePost.id, userId, disputeSuggestedLabel.trim(), disputeReason.trim() || undefined);
+          setActivePost(prev => prev ? {
+              ...prev,
+              verificationState: 'disputed',
+              disputes: [...(prev.disputes || []), { uid: userId, suggestedLabel: disputeSuggestedLabel.trim(), reason: disputeReason.trim(), timestamp: new Date().toISOString() }],
+          } : prev);
+          setShowDisputeForm(false);
+      } catch (e) {
+          console.error("Failed to submit dispute:", e);
+      } finally {
+          setIsSubmittingVerification(false);
+      }
   };
 
   const handleTagClick = (tag: string) => {
@@ -1479,6 +1562,64 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
 
+                                                {currentItem.candidates && currentItem.candidates.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Could Also Be</p>
+                                                        <div className="space-y-1.5">
+                                                            {currentItem.candidates.map((cand, i) => (
+                                                                <div key={i} className="px-3 py-2 bg-theme-primary/5 rounded-lg">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-[11px] font-bold text-theme-primary">{cand.label}</span>
+                                                                        {cand.confidence && <span className="text-[8px] font-bold uppercase tracking-widest text-theme-primary/40">{cand.confidence}</span>}
+                                                                    </div>
+                                                                    {cand.distinguishingFeature && (
+                                                                        <p className="text-[10px] text-theme-primary/60 mt-1 leading-snug">{cand.distinguishingFeature}</p>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {(activePost.verificationState === 'confirmed' || activePost.verificationState === 'disputed') && (
+                                                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activePost.verificationState === 'confirmed' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>
+                                                        <span className="material-symbols-outlined text-[14px]">{activePost.verificationState === 'confirmed' ? 'verified' : 'help'}</span>
+                                                        <span className="text-[10px] font-black uppercase tracking-widest">
+                                                            {activePost.verificationState === 'confirmed' ? 'Community Confirmed' : 'Disputed — community suggests a different ID'}
+                                                        </span>
+                                                    </div>
+                                                )}
+
+                                                {activePost.verificationState === 'disputed' && activePost.disputes && activePost.disputes.length > 0 && (
+                                                    <div className="space-y-1.5">
+                                                        {activePost.disputes.map((d, i) => (
+                                                            <div key={i} className="px-3 py-2 bg-amber-500/5 rounded-lg text-[11px] text-theme-primary/80">
+                                                                <span className="font-bold">Suggested: {d.suggestedLabel}</span>
+                                                                {d.reason && <span className="text-theme-primary/50"> — {d.reason}</span>}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {currentUserMode.userId && activePost.userId !== currentUserMode.userId && (
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={handleConfirmIdentification}
+                                                            disabled={isSubmittingVerification || !!(currentUserMode.userId && activePost.confirmedBy?.includes(currentUserMode.userId))}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl border-2 border-emerald-500/20 text-emerald-700 font-black text-[9px] uppercase tracking-widest hover:bg-emerald-500/10 transition-all disabled:opacity-40"
+                                                        >
+                                                            {currentUserMode.userId && activePost.confirmedBy?.includes(currentUserMode.userId) ? 'Confirmed' : 'Confirm ID'}
+                                                        </button>
+                                                        <button
+                                                            onClick={handleOpenDisputeForm}
+                                                            disabled={isSubmittingVerification}
+                                                            className="flex-1 py-2.5 px-3 rounded-xl border-2 border-theme-primary/10 text-theme-primary/60 font-black text-[9px] uppercase tracking-widest hover:bg-theme-primary/5 transition-all disabled:opacity-40"
+                                                        >
+                                                            Suggest Correction
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                                 {currentItem.aiInsight && (
                                                     <div className={`p-5 border rounded-xl space-y-3 ${currentItem.isNatureSubject === false ? 'bg-stone-50 border-stone-200' : 'bg-insight-bg border-theme-accent/30'}`}>
                                                         <p className={`catalog-label text-[8px] font-black tracking-[0.25em] uppercase flex items-center justify-between gap-1.5 border-b pb-2 ${currentItem.isNatureSubject === false ? 'text-stone-400 border-stone-200' : 'text-theme-accent border-theme-accent/20'}`}>
@@ -1493,6 +1634,10 @@ const Community: React.FC<CommunityProps> = ({
                                                                     'bg-stone-400/10 text-stone-500'
                                                                 }`}>
                                                                     {currentItem.confidence} confidence
+                                                                    {(() => {
+                                                                        const cal = getCalibratedConfidence(calibration, currentItem.confidence);
+                                                                        return cal?.isValidated ? ` · ${Math.round(cal.observedAccuracy! * 100)}% historically accurate` : '';
+                                                                    })()}
                                                                 </span>
                                                             )}
                                                         </p>
@@ -1577,6 +1722,55 @@ const Community: React.FC<CommunityProps> = ({
                         onSave={handleSaveDetails}
                         onCancel={() => setIsEditingDetails(false)}
                     />
+                )}
+
+                {showDisputeForm && activePost && (
+                    <div className="fixed inset-0 z-[260] flex items-center justify-center p-6 animate-fade-in">
+                        <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowDisputeForm(false)}></div>
+                        <div className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up p-8">
+                            <h2 className="text-2xl font-display font-black italic text-stone-900 mb-1">Suggest Correction</h2>
+                            <p className="text-xs text-stone-500 uppercase tracking-widest font-bold mb-6">What do you think this actually is?</p>
+
+                            <label className="block mb-4">
+                                <span className="catalog-label text-[9px] text-stone-500 block mb-1.5">Your Identification</span>
+                                <input
+                                    type="text"
+                                    value={disputeSuggestedLabel}
+                                    onChange={(e) => setDisputeSuggestedLabel(e.target.value)}
+                                    className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl text-sm font-medium outline-none focus:border-theme-accent/50 transition-all"
+                                    placeholder="e.g. Cooper's Hawk"
+                                />
+                            </label>
+
+                            <label className="block mb-6">
+                                <span className="catalog-label text-[9px] text-stone-500 block mb-1.5">Why? (optional)</span>
+                                <textarea
+                                    value={disputeReason}
+                                    onChange={(e) => setDisputeReason(e.target.value)}
+                                    rows={3}
+                                    className="w-full p-4 bg-stone-50 border border-stone-100 rounded-2xl text-sm font-medium outline-none focus:border-theme-accent/50 transition-all resize-none"
+                                    placeholder="e.g. Barred tail and yellow eyes point to Cooper's, not Sharp-shinned"
+                                />
+                            </label>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowDisputeForm(false)}
+                                    disabled={isSubmittingVerification}
+                                    className="flex-1 py-4 rounded-2xl border-2 border-stone-100 text-stone-500 font-black text-xs uppercase tracking-widest hover:bg-stone-50 transition-all disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSubmitDispute}
+                                    disabled={isSubmittingVerification || !disputeSuggestedLabel.trim()}
+                                    className="flex-1 py-4 rounded-2xl bg-theme-accent text-white font-black text-xs uppercase tracking-widest hover:opacity-90 transition-all disabled:opacity-50"
+                                >
+                                    {isSubmittingVerification ? 'Submitting...' : 'Submit'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </motion.div>
         )}

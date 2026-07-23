@@ -391,7 +391,7 @@ const App: React.FC = () => {
       setIsProcessingStandaloneUpload(false);
       setCurrentView(AppView.POST_SESSION);
 
-      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location).then(result => {
+      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location, { snapshotId: snapId }).then(result => {
           updateSnapshot(snapId, {
               aiInsight: result.aiInsight,
               labels: result.labels,
@@ -402,6 +402,7 @@ const App: React.FC = () => {
               confidence: result.confidence,
               isSensitiveSpecies: result.isSensitiveSpecies,
               subjects: result.subjects,
+              candidates: result.candidates,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });

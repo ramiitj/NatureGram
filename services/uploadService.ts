@@ -1,4 +1,4 @@
-import { Snapshot, TaxonomySubject } from '../types';
+import { Snapshot, TaxonomySubject, TaxonomyCandidate } from '../types';
 import { compressImageToBlob } from './audioUtils';
 import { GenAiService, resolveNatureSubjectFields } from './genAiService';
 
@@ -98,17 +98,21 @@ export interface UploadAnalysisResult {
     locationArea: string;
     isSensitiveSpecies?: boolean;
     subjects?: TaxonomySubject[];
+    candidates?: TaxonomyCandidate[];
 }
 
 // Shared by every upload entry point (the standalone no-camera flow and the
 // in-session upload button) so scope-gate, confidence, and hybrid handling
-// can't drift between them.
+// can't drift between them. snapshotId, when passed, threads through to the
+// quality-telemetry write (see QualityEvent) so this upload's identification
+// outcome is trackable the same way a live/session capture's is.
 export const analyzeUploadedMedia = async (
     media: Blob,
     mediaType: UploadMediaType,
-    location?: string
+    location?: string,
+    opts?: { snapshotId?: string }
 ): Promise<UploadAnalysisResult> => {
-    const result = await GenAiService.analyzeMedia(media, mediaType, location);
+    const result = await GenAiService.analyzeMedia(media, mediaType, location, { snapshotId: opts?.snapshotId, feature: 'upload' });
     const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
     return {
         labels,
@@ -119,6 +123,7 @@ export const analyzeUploadedMedia = async (
         locationArea: result.location,
         isSensitiveSpecies: isNatureSubject ? result.isSensitiveSpecies : undefined,
         subjects: isNatureSubject ? result.subjects : undefined,
+        candidates: isNatureSubject ? result.candidates : undefined,
     };
 };
 

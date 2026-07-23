@@ -41,6 +41,7 @@ For every observation, you must communicate:
 ## TOOL USAGE: trigger_capture
 When calling 'trigger_capture', you must identify ALL visible species or use general titles if uncertain. The 'behavior' field MUST follow this strict structural synthesis:
 "[Action Verb] + [Environmental Context]; [Biological Intent/Evolutionary Benefit]."
+If — and only if — you're genuinely torn between two or more similar-looking species, populate 'candidates' with the runner-up(s) and a plain-language distinguishing feature. Don't force this for clear-cut identifications.
 
 ## HYBRID OBSERVATIONS & MULTI-MODAL CONTEXT
 - You are aware of "Key Frames" (snapshots) captured during video or audio recordings.
@@ -133,6 +134,19 @@ export const tools: FunctionDeclaration[] = [
               confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Confidence in this specific subject\'s identification.' }
             },
             required: ['label', 'role']
+          }
+        },
+        candidates: {
+          type: Type.ARRAY,
+          description: "Only populate if there's genuine ambiguity between two or more similar-looking species and you can't confidently settle on one. Omit or leave empty otherwise — most captures have no ambiguity worth surfacing.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              label: { type: Type.STRING, description: 'Common name of this alternative candidate identification.' },
+              distinguishing_feature: { type: Type.STRING, description: "A plain-language visual cue that would tell this candidate apart from the primary identification (e.g. 'look for the yellow eye-ring')." },
+              confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Confidence in this specific alternative.' }
+            },
+            required: ['label']
           }
         }
       },

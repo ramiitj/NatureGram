@@ -328,9 +328,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
           
           GenAiService.analyzeMultimodal(
-              (type === 'audio' || type === 'video') ? mediaBlob : null, 
-              allImageBlobs, 
-              location
+              (type === 'audio' || type === 'video') ? mediaBlob : null,
+              allImageBlobs,
+              location,
+              { snapshotId: snapId }
           ).then(result => {
               const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
               updateSnapshot(snapId, {
@@ -342,6 +343,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   confidence: result.confidence,
                   isSensitiveSpecies: result.isSensitiveSpecies,
                   subjects: result.subjects,
+                  candidates: result.candidates,
                   aiProposedLabels: labels,
                   aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
               });
@@ -477,7 +479,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       sessionRetakes: retakesCountRef.current
                   });
 
-                  GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
+                  GenAiService.analyzeMedia(compressedBlob, 'image', location, { snapshotId: snapId }).then(result => {
                       const { labels, aiInsight, isNatureSubject } = resolveNatureSubjectFields(result);
                       updateSnapshot(snapId, {
                           aiInsight,
@@ -488,6 +490,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           confidence: result.confidence,
                           isSensitiveSpecies: result.isSensitiveSpecies,
                           subjects: result.subjects,
+                          candidates: result.candidates,
                           aiProposedLabels: labels,
                           aiProposedBehavior: 'Analyzing... (from insight: ' + aiInsight.substring(0, 30) + '...)'
                       });
@@ -574,7 +577,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           sessionRetakes: retakesCountRef.current
       });
 
-      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location).then(result => {
+      analyzeUploadedMedia(prepared.analysisMedia, prepared.mediaType, location, { snapshotId: snapId }).then(result => {
           updateSnapshot(snapId, {
               aiInsight: result.aiInsight,
               labels: result.labels,
@@ -585,6 +588,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               confidence: result.confidence,
               isSensitiveSpecies: result.isSensitiveSpecies,
               subjects: result.subjects,
+              candidates: result.candidates,
               aiProposedLabels: result.labels,
               aiProposedBehavior: 'Analyzing... (from insight: ' + result.aiInsight.substring(0, 30) + '...)'
           });
@@ -903,11 +907,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            const resolvedAiInsight = isNatureSubject
                ? (args.ai_insight || "Visual record for field study.")
                : "This capture doesn't appear to contain a natural subject.";
+           const resolvedCandidates = isNatureSubject && Array.isArray(args.candidates)
+               ? args.candidates.map((c: any) => ({ label: c.label, distinguishingFeature: c.distinguishing_feature, confidence: c.confidence }))
+               : undefined;
 
            retakesCountRef.current += 1;
+           const snapId = Date.now().toString();
 
            onCapture({
-               id: Date.now().toString(),
+               id: snapId,
                url: objUrl,
                blob: compressedBlob,
                timestamp: new Date().toLocaleTimeString(),
@@ -921,11 +929,32 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                confidence: args.confidence,
                isSensitiveSpecies: args.is_sensitive_species,
                subjects: args.subjects,
+               candidates: resolvedCandidates,
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
                timeToRecordMs: Date.now() - sessionStartMsRef.current,
                sessionRetakes: retakesCountRef.current
            });
+
+           // The Live agent's own identification never goes through
+           // GenAiService (it's a direct tool-call result from the
+           // streaming model), so this is the one capture path that has to
+           // log its own quality event rather than relying on
+           // analyzeMedia/analyzeMultimodal's shared logging.
+           if (userMode.userId) {
+               FirebaseService.logQualityEvent({
+                   uid: userMode.userId,
+                   snapshotId: snapId,
+                   mediaType: 'image',
+                   feature: 'liveCapture',
+                   modelUsed: configModel,
+                   isNatureSubject,
+                   isHybrid: args.is_hybrid,
+                   isSensitiveSpecies: args.is_sensitive_species,
+                   confidence: args.confidence,
+                   aiProposedLabels: resolvedLabels,
+               }).catch(() => {});
+           }
 
            // Push sighting overlay on screen
            setLatestSighting({

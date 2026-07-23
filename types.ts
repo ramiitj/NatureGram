@@ -9,6 +9,20 @@ export interface TaxonomySubject {
   confidence?: string;
 }
 
+// One plausible alternative identification the model considered but didn't
+// settle on — populated only when there's genuine ambiguity between similar
+// species, alongside a plain-language way to tell them apart.
+export interface TaxonomyCandidate {
+  label: string;
+  distinguishingFeature?: string;
+  confidence?: string;
+}
+
+// A post's identification can move from the AI's raw output toward
+// ground truth via community/expert agreement — this is that state, not a
+// moderation status (see CommunityPost.reportStatus for that).
+export type VerificationState = 'unverified' | 'confirmed' | 'disputed';
+
 export interface FieldNotification {
   id: string;
   type: 'like' | 'comment' | 'sighting' | 'system';
@@ -69,6 +83,7 @@ export interface Snapshot {
   confidence?: 'high' | 'medium' | 'low';
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
+  candidates?: TaxonomyCandidate[];
 }
 
 export interface ExpeditionDraft {
@@ -158,6 +173,15 @@ export interface CommunityPostItem {
   confidence?: 'high' | 'medium' | 'low';
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
+  candidates?: TaxonomyCandidate[];
+  verificationState?: VerificationState;
+  confirmedBy?: string[];
+  disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
+  // The client-generated capture id (Snapshot.id) this item originated from —
+  // the thread back to its quality_events document, so a post-publish edit
+  // (EditPostDetails) can record a correction against the same record the
+  // analysis-time write created.
+  snapshotId?: string;
 }
 
 export interface FeedThumbnail {
@@ -203,6 +227,11 @@ export interface CommunityPost extends FeedThumbnail {
   confidence?: 'high' | 'medium' | 'low';
   isSensitiveSpecies?: boolean;
   subjects?: TaxonomySubject[];
+  candidates?: TaxonomyCandidate[];
+  verificationState?: VerificationState;
+  confirmedBy?: string[];
+  disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
+  snapshotId?: string;
 }
 
 export interface Comment {
@@ -228,4 +257,51 @@ export interface AiUsageLogEntry {
   candidatesTokenCount?: number;
   totalTokenCount?: number;
   timestamp?: any;
+}
+
+// One identification *outcome* — distinct from AiUsageLogEntry (which is
+// pure cost/token telemetry with no notion of whether the identification
+// was any good). This is the substrate the eval harness scores against,
+// the verification loop (Q3) updates, and the calibration pipeline (Q4)
+// aggregates over. snapshotId is the stable thread linking a live capture
+// through analysis, any human correction, and any later community/expert
+// verification — the same identification's full lifecycle in one record.
+export interface QualityEvent {
+  id?: string;
+  uid: string;
+  postId?: string;
+  snapshotId: string;
+  mediaType: 'image' | 'video' | 'audio';
+  feature: 'liveCapture' | 'analyzeMedia' | 'analyzeMultimodal' | 'upload';
+  modelUsed?: string;
+  latencyMs?: number;
+  isNatureSubject?: boolean;
+  isHybrid?: boolean;
+  isSensitiveSpecies?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
+  aiProposedLabels: string[];
+  finalLabels?: string[];
+  humanCorrected: boolean;
+  correctionCount: number;
+  verificationState: VerificationState;
+  confirmations: number;
+  disputeCount: number;
+  timestamp?: any;
+  updatedAt?: any;
+}
+
+// A calibration table mapping the model's raw self-reported confidence
+// ('high'/'medium'/'low') to the observed correctness rate for that bucket,
+// computed from confirmed/disputed QualityEvents. Stored at
+// admin_config/confidence_calibration. Empty/absent buckets mean there
+// isn't enough verified data yet — display code must treat that as
+// "unvalidated," never fabricate a number.
+export interface ConfidenceCalibration {
+  computedAt: any;
+  sampleSize: number;
+  buckets: {
+    high?: { observedAccuracy: number; sampleSize: number };
+    medium?: { observedAccuracy: number; sampleSize: number };
+    low?: { observedAccuracy: number; sampleSize: number };
+  };
 }

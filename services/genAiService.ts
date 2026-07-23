@@ -2,7 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
 import { FirebaseService } from "./firebaseService";
-import { TaxonomySubject } from "../types";
+import { TaxonomySubject, TaxonomyCandidate, QualityEvent } from "../types";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -54,6 +54,7 @@ interface TaxonomyResult {
     isHybrid?: boolean;
     isSensitiveSpecies?: boolean;
     subjects?: TaxonomySubject[];
+    candidates?: TaxonomyCandidate[];
 }
 
 const TAXONOMY_SCHEMA_PROPERTIES = {
@@ -76,6 +77,19 @@ const TAXONOMY_SCHEMA_PROPERTIES = {
                 confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific subject's identification." }
             },
             required: ['label', 'role']
+        }
+    },
+    candidates: {
+        type: Type.ARRAY,
+        description: "Only populate if there's genuine ambiguity between two or more similar-looking species and you can't confidently settle on one. Omit or leave empty otherwise — most identifications have no ambiguity worth surfacing.",
+        items: {
+            type: Type.OBJECT,
+            properties: {
+                label: { type: Type.STRING, description: "Common name of this alternative candidate identification." },
+                distinguishingFeature: { type: Type.STRING, description: "A plain-language visual/audible cue that would tell this candidate apart from the primary identification." },
+                confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: "Confidence in this specific alternative." }
+            },
+            required: ['label']
         }
     }
 };
@@ -109,6 +123,18 @@ const isLowConfidenceOrEmpty = (result: TaxonomyResult): boolean => {
     if (result.isNatureSubject === false) return false;
     const hasTaxonomy = Array.isArray(result.taxonomy) && result.taxonomy.length > 0 && result.taxonomy[0] !== "Unknown";
     return !hasTaxonomy || result.confidence === 'low';
+};
+
+// One identification outcome (see QualityEvent) — distinct from logUsage's
+// pure cost/token telemetry. Only written when the caller supplies a
+// snapshotId (the stable thread back to this identification's later human
+// correction and community verification); callers without one just skip
+// this, same fire-and-forget contract as logUsage.
+const logQualityEvent = (event: Omit<QualityEvent, 'id' | 'timestamp' | 'updatedAt' | 'humanCorrected' | 'correctionCount' | 'verificationState' | 'confirmations' | 'disputeCount' | 'uid'>) => {
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+        FirebaseService.logQualityEvent({ ...event, uid }).catch(() => {});
+    }
 };
 
 const logUsage = (feature: string, model: string, usage?: { promptTokenCount?: number, candidatesTokenCount?: number, totalTokenCount?: number }) => {
@@ -180,33 +206,50 @@ export const GenAiService = {
   /**
    * Analyzes an audio or image blob to extract ecological insights.
    */
-  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[] }> => {
+  analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[] }> => {
+    const startedAt = Date.now();
     try {
         const apiKey = await getApiKey();
-        const ai = new GoogleGenAI({ 
+        const ai = new GoogleGenAI({
             apiKey,
             httpOptions: { baseUrl: window.location.origin + '/api-proxy' }
         });
-        
+
         const reader = new FileReader();
         reader.readAsDataURL(blob);
         await new Promise(resolve => reader.onload = resolve);
         const base64 = (reader.result as string).split(',')[1];
-        
+
         const prompt = `Analyze this field observation${location ? ` from location: ${location}` : ''}.
         Identify all species or natural phenomena present. If this is a video, you MUST analyze all aspects: visible plants, visible animals, and any audible sounds or calls. Provide a deep ecological analysis of the subjects' behavior, habitat, interactions, or significance.
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
         Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), an ecological insight covering all aspects, suggested hashtags, and the location.
         Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
         ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
-        const { result } = await generateTaxonomyWithFallback(ai, {
+        const { result, modelUsed } = await generateTaxonomyWithFallback(ai, {
             parts: [
                 { inlineData: { data: base64, mimeType: blob.type } },
                 { text: prompt }
             ]
         });
+
+        if (opts?.snapshotId) {
+            logQualityEvent({
+                snapshotId: opts.snapshotId,
+                mediaType: type,
+                feature: opts.feature || 'analyzeMedia',
+                modelUsed,
+                latencyMs: Date.now() - startedAt,
+                isNatureSubject: result.isNatureSubject,
+                isHybrid: result.isHybrid,
+                isSensitiveSpecies: result.isSensitiveSpecies,
+                confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+                aiProposedLabels: result.taxonomy || [],
+            });
+        }
 
         return {
             taxonomy: result.taxonomy || ["Unknown"],
@@ -217,7 +260,8 @@ export const GenAiService = {
             isNatureSubject: result.isNatureSubject,
             isHybrid: result.isHybrid,
             isSensitiveSpecies: result.isSensitiveSpecies,
-            subjects: result.subjects
+            subjects: result.subjects,
+            candidates: result.candidates
         };
     } catch (e) {
         console.error("Media analysis failed", e);
@@ -236,7 +280,8 @@ export const GenAiService = {
    * Analyzes multiple modalities (audio + images) to extract deep ecological insights.
    * This prioritizes audio fidelity while using images for grounding.
    */
-  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[] }> => {
+  analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMultimodal' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[] }> => {
+    const startedAt = Date.now();
     try {
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({ 
@@ -267,12 +312,28 @@ export const GenAiService = {
         CRITICAL: Do not mention that this is an "image", "audio", or "video" in your description. Speak directly about the nature subject.
         Provide the taxonomy (species names of plants, animals, and sources of sounds, using standard common names in Title Case), a deep ecological insight covering all aspects, suggested hashtags, and the location.
         Also include your confidence ('high', 'medium', or 'low') in this identification, whether man-made structures are also visible/audible alongside the natural subject, whether any identified species is rare/protected/sensitive to location disclosure, and — only if multiple clearly distinct organisms are present — a subjects breakdown.
+        Only if you're genuinely torn between two or more similar-looking species, also include a candidates breakdown with the runner-up(s) and a plain-language distinguishing feature for each — leave this empty for a confident, unambiguous identification.
         ${location ? `If a location is given, favor species plausible for that region's biome/climate, but trust clear audio/visual evidence over geography if they conflict.` : ''}
         ${SAFETY_INSTRUCTIONS}`;
 
         parts.push({ text: prompt });
 
-        const { result } = await generateTaxonomyWithFallback(ai, { parts });
+        const { result, modelUsed } = await generateTaxonomyWithFallback(ai, { parts });
+
+        if (opts?.snapshotId) {
+            logQualityEvent({
+                snapshotId: opts.snapshotId,
+                mediaType: mediaBlob ? (mediaBlob.type.startsWith('video') ? 'video' : 'audio') : 'image',
+                feature: opts.feature || 'analyzeMultimodal',
+                modelUsed,
+                latencyMs: Date.now() - startedAt,
+                isNatureSubject: result.isNatureSubject,
+                isHybrid: result.isHybrid,
+                isSensitiveSpecies: result.isSensitiveSpecies,
+                confidence: result.confidence as 'high' | 'medium' | 'low' | undefined,
+                aiProposedLabels: result.taxonomy || [],
+            });
+        }
 
         return {
             taxonomy: result.taxonomy || ["Unknown"],
@@ -283,7 +344,8 @@ export const GenAiService = {
             isNatureSubject: result.isNatureSubject,
             isHybrid: result.isHybrid,
             isSensitiveSpecies: result.isSensitiveSpecies,
-            subjects: result.subjects
+            subjects: result.subjects,
+            candidates: result.candidates
         };
     } catch (e) {
         console.error("Multimodal analysis failed", e);

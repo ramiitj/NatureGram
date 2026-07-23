@@ -83,8 +83,11 @@ service cloud.firestore {
         isOwner(existing().userId) || isAdmin() ||
         // Likes/comment-count are counters any signed-in user needs to
         // bump; not forgery-proof without moving to Cloud Functions, but
-        // scoped narrowly to just those two fields.
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount']))
+        // scoped narrowly to just those two fields. confirmedBy/disputes/
+        // verificationState are the same shape of trust tradeoff, for the
+        // community identification-verification loop (see
+        // confirmIdentification/disputeIdentification).
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'confirmedBy', 'disputes', 'verificationState']))
         // NOTE: 'reports'/'reportStatus'/'reportCount' are intentionally
         // NOT in the non-owner allowlist above — there is currently no
         // report-a-post UI, so only the post owner or an admin can touch
@@ -154,6 +157,27 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isSignedIn() && incoming().uid == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // 11. Quality/identification-outcome telemetry (see QualityEvent in
+    // types.ts) — internal substrate for the eval harness and confidence
+    // calibration, not user-facing content, so reads are admin-only like
+    // ai_usage_logs above. The document id is always the snapshotId, one
+    // doc per identification, updated (never replaced) over its lifecycle:
+    //   - created by the analyzing client, claiming its own uid
+    //   - narrowly updated by that same uid on a later human correction
+    //   - narrowly updated by any other signed-in user on a community/
+    //     expert confirm-or-dispute (see confirmIdentification/
+    //     disputeIdentification in firebaseService.ts)
+    match /quality_events/{eventId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && incoming().uid == request.auth.uid && incoming().snapshotId == eventId;
+      allow update: if isSignedIn() && (
+        (existing().uid == request.auth.uid &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['finalLabels', 'humanCorrected', 'correctionCount', 'updatedAt'])) ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['verificationState', 'confirmations', 'disputeCount', 'updatedAt'])
+      );
+      allow delete: if false;
     }
   }
 }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry } from '../types';
+import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry, ConfidenceCalibration } from '../types';
 import { auth } from '../firebaseConfig';
 
 interface AdminConsoleProps {
@@ -17,7 +17,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   const [status, setStatus] = useState('');
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'activity' | 'moderation' | 'usage'>('activity');
+  const [activeTab, setActiveTab] = useState<'activity' | 'moderation' | 'usage' | 'quality'>('activity');
 
   // Moderation Data
   const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
@@ -28,6 +28,10 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
 
   // AI Cost/Usage Telemetry Data
   const [aiUsageLogs, setAiUsageLogs] = useState<AiUsageLogEntry[]>([]);
+
+  // Confidence Calibration Data (Q4)
+  const [calibration, setCalibration] = useState<ConfidenceCalibration | null>(null);
+  const [isRecomputingCalibration, setIsRecomputingCalibration] = useState(false);
 
   // Automatic elevation check on mount
   useEffect(() => {
@@ -98,6 +102,31 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       }
   };
 
+  const loadCalibration = async () => {
+      setStatus('Loading confidence calibration...');
+      try {
+          const cal = await FirebaseService.getConfidenceCalibration();
+          setCalibration(cal);
+          setStatus('');
+      } catch (e: any) {
+          setStatus('Failed loading confidence calibration: ' + e.message);
+      }
+  };
+
+  const handleRecomputeCalibration = async () => {
+      setIsRecomputingCalibration(true);
+      setStatus('Recomputing from quality_events...');
+      try {
+          const cal = await FirebaseService.computeConfidenceCalibration();
+          setCalibration(cal);
+          setStatus(`Recomputed from ${cal.sampleSize} verified identification(s).`);
+      } catch (e: any) {
+          setStatus('Failed to recompute calibration: ' + e.message);
+      } finally {
+          setIsRecomputingCalibration(false);
+      }
+  };
+
   useEffect(() => {
       if (isAuthenticated) {
           if (activeTab === 'moderation') {
@@ -106,6 +135,8 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
               loadActivityLogs();
           } else if (activeTab === 'usage') {
               loadAiUsage();
+          } else if (activeTab === 'quality') {
+              loadCalibration();
           }
       }
   }, [isAuthenticated, activeTab]);
@@ -307,6 +338,13 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                 >
                     <span className="material-symbols-outlined text-sm">query_stats</span>
                     AI Usage
+                </button>
+                <button
+                    onClick={() => setActiveTab('quality')}
+                    className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'quality' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-400 hover:bg-white/5'}`}
+                >
+                    <span className="material-symbols-outlined text-sm">verified</span>
+                    ID Quality
                 </button>
             </div>
         </aside>
@@ -731,6 +769,61 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     </div>
                 );
             })()}
+
+            {/* ID QUALITY / CONFIDENCE CALIBRATION TAB */}
+            {activeTab === 'quality' && (
+                <div className="max-w-4xl mx-auto flex flex-col gap-8">
+                    <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
+                        <div>
+                            <h2 className="text-theme-primary text-2xl font-black tracking-tight flex items-center gap-2 font-display italic">
+                                <span className="material-symbols-outlined text-theme-accent">verified</span>
+                                Identification Quality & Calibration
+                            </h2>
+                            <p className="text-theme-primary/50 text-xs mt-1">
+                                Observed correctness rate per confidence bucket, computed from community/expert-verified (confirmed or disputed) identifications and pre-publish human corrections. Buckets stay blank until there's enough verified data — never a fabricated number.
+                            </p>
+                        </div>
+                        <button
+                            onClick={handleRecomputeCalibration}
+                            disabled={isRecomputingCalibration}
+                            className="bg-theme-accent text-white rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
+                        >
+                            <span className="material-symbols-outlined text-sm">{isRecomputingCalibration ? 'hourglass_empty' : 'refresh'}</span>
+                            {isRecomputingCalibration ? 'Recomputing...' : 'Recompute'}
+                        </button>
+                    </div>
+
+                    {!calibration ? (
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-12 text-center text-theme-primary/40 italic font-display">
+                            No calibration computed yet. Click Recompute to build the table from current quality_events.
+                        </div>
+                    ) : (
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                            <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest mb-4">
+                                {calibration.sampleSize} verified identification(s) considered
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                {(['high', 'medium', 'low'] as const).map(bucket => {
+                                    const b = calibration.buckets?.[bucket];
+                                    return (
+                                        <div key={bucket} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-5">
+                                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 mb-2">{bucket} confidence</p>
+                                            {b ? (
+                                                <>
+                                                    <p className="text-3xl font-black text-theme-primary">{Math.round(b.observedAccuracy * 100)}%</p>
+                                                    <p className="text-[10px] text-theme-primary/40 mt-1">observed accuracy · {b.sampleSize} sample(s)</p>
+                                                </>
+                                            ) : (
+                                                <p className="text-sm text-theme-primary/30 italic">Not enough verified data yet</p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* MAINTENANCE DELETED */}
         </main>

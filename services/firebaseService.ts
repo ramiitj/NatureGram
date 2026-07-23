@@ -37,7 +37,7 @@ import {
 } from "firebase/auth";
 import { getToken, onMessage, isSupported as isMessagingSupported, MessagePayload } from "firebase/messaging";
 import { auth, db, storage, getMessagingInstance } from "../firebaseConfig";
-import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, AiUsageLogEntry } from "../types";
+import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, AiUsageLogEntry, QualityEvent, VerificationState, ConfidenceCalibration } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants";
 import { generateThumbnail, stripImageMetadata } from "../utils";
 import { NATURALIST_THEMES } from "../constants/naturalists";
@@ -407,6 +407,7 @@ export const FirebaseService = {
         timeToRecordMs: s.timeToRecordMs || 0,
         isSensitiveSpecies: s.isSensitiveSpecies ?? null,
         subjects: s.subjects || null,
+        candidates: s.candidates || null,
       };
   }),
 
@@ -661,8 +662,20 @@ export const FirebaseService = {
             confidence: snapshot.confidence || null,
             isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
             subjects: snapshot.subjects || null,
+            candidates: snapshot.candidates || null,
+            snapshotId: snapshot.id,
           };
       }));
+
+      // The AI-correction signal (humanDelta) is already computed per
+      // snapshot by the caller (PostSessionView); feed it back into that
+      // snapshot's quality event now, at the moment its final labels are
+      // known, rather than requiring a separate post-publish edit to do so.
+      snapshots.forEach(s => {
+        if (s.humanDelta && s.id) {
+          FirebaseService.recordQualityEventCorrection(s.id, s.labels || []).catch(() => {});
+        }
+      });
 
       if (items.length === 0) throw new Error("No items to upload.");
 
@@ -710,6 +723,8 @@ export const FirebaseService = {
         confidence: primaryItem.confidence || null,
         isSensitiveSpecies: snapshots.some(s => s.isSensitiveSpecies),
         subjects: primaryItem.subjects || null,
+        candidates: primaryItem.candidates || null,
+        snapshotId: primaryItem.snapshotId,
       };
 
       if (synthesizedData) {
@@ -844,7 +859,13 @@ export const FirebaseService = {
         confidence: snapshot.confidence || null,
         isSensitiveSpecies: snapshot.isSensitiveSpecies ?? null,
         subjects: snapshot.subjects || null,
+        candidates: snapshot.candidates || null,
+        snapshotId: snapshot.id,
       };
+
+      if (snapshot.humanDelta && snapshot.id) {
+        FirebaseService.recordQualityEventCorrection(snapshot.id, snapshot.labels || []).catch(() => {});
+      }
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
 
@@ -1286,6 +1307,184 @@ export const FirebaseService = {
       entries.push({ id: doc.id, ...doc.data() } as AiUsageLogEntry);
     });
     return entries;
+  },
+
+  // One identification outcome (see QualityEvent). Upserted by snapshotId
+  // (setDoc + merge, not addDoc) so the same document created at analysis
+  // time can later be updated in place by a human correction
+  // (recordQualityEventCorrection) or a community verification outcome
+  // (confirmIdentification/disputeIdentification) instead of creating a
+  // second record for the same identification. Fire-and-forget, same
+  // contract as logAiUsage: a telemetry write failure never blocks or fails
+  // the AI call it's describing.
+  logQualityEvent: async (event: Omit<QualityEvent, 'id' | 'timestamp' | 'updatedAt' | 'humanCorrected' | 'correctionCount' | 'verificationState' | 'confirmations' | 'disputeCount'>): Promise<void> => {
+    try {
+      await setDoc(doc(db, "quality_events", event.snapshotId), {
+        ...event,
+        humanCorrected: false,
+        correctionCount: 0,
+        verificationState: 'unverified',
+        confirmations: 0,
+        disputeCount: 0,
+        timestamp: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn("Failed to log quality event:", e);
+    }
+  },
+
+  // Records that a human's final labels diverged from the AI's proposal for
+  // a given snapshot — called both at publish time (PostSessionView's
+  // existing humanDelta computation, via createObservation/
+  // createSessionObservation below) and on a later post-publish edit
+  // (EditPostDetails, via Community.tsx). Uses set+merge rather than
+  // updateDoc so this never fails outright just because the analysis-time
+  // quality event doesn't exist for some reason (e.g. very old posts
+  // predating this feature) — it creates a minimal record instead of
+  // silently dropping the correction signal.
+  recordQualityEventCorrection: async (snapshotId: string, finalLabels: string[]): Promise<void> => {
+    if (!snapshotId) return;
+    try {
+      await setDoc(doc(db, "quality_events", snapshotId), {
+        finalLabels,
+        humanCorrected: true,
+        correctionCount: increment(1),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn("Failed to record quality event correction:", e);
+    }
+  },
+
+  // Most recent quality events, for the eval harness (Q2) and calibration
+  // pipeline (Q4) to read from. Capped and client-aggregated, same pattern
+  // as getRecentAiUsage above.
+  getRecentQualityEvents: async (limitCount = 2000): Promise<QualityEvent[]> => {
+    const q = query(collection(db, "quality_events"), orderBy("timestamp", "desc"), limit(limitCount));
+    const snapshot = await getDocs(q);
+    const events: QualityEvent[] = [];
+    snapshot.forEach(doc => {
+      events.push({ id: doc.id, ...doc.data() } as QualityEvent);
+    });
+    return events;
+  },
+
+  // Unique confirmations required before a post's identification is
+  // promoted from 'unverified' to 'confirmed'. Scoped to the post's
+  // top-level identification only (the primary item) — a multi-item
+  // "stitched" collection's secondary items don't get independent
+  // verification state, matching how confidence/subjects already work
+  // at the post level for those posts.
+  CONFIRMATION_THRESHOLD: 3,
+
+  // A non-owner signed-in user vouching that a post's AI identification
+  // looks right. arrayUnion so repeat clicks from the same user don't
+  // inflate the count. Once enough unique confirmations accumulate, the
+  // post is promoted to 'confirmed' and the outcome is mirrored into the
+  // underlying quality_events doc (keyed by the post's snapshotId) as a
+  // ground-truth signal for the confidence-calibration pipeline (Q4).
+  confirmIdentification: async (postId: string, uid: string): Promise<void> => {
+    const postRef = doc(db, "ecosystem_feed", postId);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) return;
+    const data = postSnap.data() as CommunityPost;
+    if ((data.confirmedBy || []).includes(uid)) return;
+
+    const newConfirmedBy = [...(data.confirmedBy || []), uid];
+    const verificationState: VerificationState = data.verificationState === 'disputed'
+      ? 'disputed'
+      : (newConfirmedBy.length >= FirebaseService.CONFIRMATION_THRESHOLD ? 'confirmed' : 'unverified');
+
+    await updateDoc(postRef, { confirmedBy: arrayUnion(uid), verificationState });
+
+    if (data.snapshotId) {
+      try {
+        await setDoc(doc(db, "quality_events", data.snapshotId), {
+          verificationState,
+          confirmations: increment(1),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Failed to mirror confirmation into quality_events:", e);
+      }
+    }
+  },
+
+  // A non-owner signed-in user flagging that a post's AI identification
+  // looks wrong, with what they think it actually is. A single dispute is
+  // enough to mark the post 'disputed' (surfacing possible
+  // misidentification promptly matters more here than requiring consensus
+  // first) — moderators/the poster can still see and weigh each dispute's
+  // suggestedLabel/reason individually rather than this silently
+  // overwriting anything.
+  disputeIdentification: async (postId: string, uid: string, suggestedLabel: string, reason?: string): Promise<void> => {
+    const postRef = doc(db, "ecosystem_feed", postId);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) return;
+    const data = postSnap.data() as CommunityPost;
+
+    const dispute = { uid, suggestedLabel, reason: reason || '', timestamp: new Date().toISOString() };
+    await updateDoc(postRef, { disputes: arrayUnion(dispute), verificationState: 'disputed' as VerificationState });
+
+    if (data.snapshotId) {
+      try {
+        await setDoc(doc(db, "quality_events", data.snapshotId), {
+          verificationState: 'disputed',
+          disputeCount: increment(1),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Failed to mirror dispute into quality_events:", e);
+      }
+    }
+  },
+
+  // Recomputes the confidence-calibration table (see ConfidenceCalibration
+  // in types.ts) from quality_events with actual ground truth: a confirmed
+  // (community-verified) or disputed identification, or one the original
+  // submitter corrected before publish. Everything still 'unverified' with
+  // no human correction is excluded — there's no ground truth for it yet,
+  // and this must never fabricate a number for a bucket with no verified
+  // samples (see the type's own doc comment). Admin-triggered (AdminConsole)
+  // rather than automatic, since there's no scheduled-function
+  // infrastructure in this project to run it periodically.
+  computeConfidenceCalibration: async (limitCount = 2000): Promise<ConfidenceCalibration> => {
+    const events = await FirebaseService.getRecentQualityEvents(limitCount);
+    const buckets: Record<'high' | 'medium' | 'low', { correct: number, total: number }> = {
+      high: { correct: 0, total: 0 },
+      medium: { correct: 0, total: 0 },
+      low: { correct: 0, total: 0 },
+    };
+
+    let sampleSize = 0;
+    events.forEach(e => {
+      if (!e.confidence) return;
+      const hasGroundTruth = e.verificationState === 'confirmed' || e.verificationState === 'disputed' || e.humanCorrected;
+      if (!hasGroundTruth) return;
+      const isCorrect = e.verificationState === 'confirmed' && !e.humanCorrected;
+      buckets[e.confidence].total += 1;
+      if (isCorrect) buckets[e.confidence].correct += 1;
+      sampleSize += 1;
+    });
+
+    const calibration: ConfidenceCalibration = {
+      computedAt: serverTimestamp(),
+      sampleSize,
+      buckets: {
+        high: buckets.high.total > 0 ? { observedAccuracy: buckets.high.correct / buckets.high.total, sampleSize: buckets.high.total } : undefined,
+        medium: buckets.medium.total > 0 ? { observedAccuracy: buckets.medium.correct / buckets.medium.total, sampleSize: buckets.medium.total } : undefined,
+        low: buckets.low.total > 0 ? { observedAccuracy: buckets.low.correct / buckets.low.total, sampleSize: buckets.low.total } : undefined,
+      },
+    };
+
+    await setDoc(doc(db, "admin_config", "confidence_calibration"), calibration);
+    return calibration;
+  },
+
+  getConfidenceCalibration: async (): Promise<ConfidenceCalibration | null> => {
+    const docSnap = await getDoc(doc(db, "admin_config", "confidence_calibration"));
+    return docSnap.exists() ? (docSnap.data() as ConfidenceCalibration) : null;
   },
 
   getReportedPosts: async (): Promise<CommunityPost[]> => {
