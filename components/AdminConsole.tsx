@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { GeminiConfig, CommunityPost, UserProfileData, AiUsageLogEntry, ConfidenceCalibration, LiveSessionMetricsEntry } from '../types';
+import { computeAiUsageCost, computeLiveSessionCost } from '../services/costModelService';
 import { auth } from '../firebaseConfig';
 
 interface AdminConsoleProps {
@@ -693,6 +694,11 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     return new Date(ts).toLocaleString();
                 };
 
+                // U2: real unit-cost model computed from this same telemetry
+                // against published Gemini pricing — see costModelService.ts.
+                const aiUsageCost = computeAiUsageCost(aiUsageLogs);
+                const liveSessionCost = computeLiveSessionCost(liveSessionMetrics);
+
                 return (
                     <div className="max-w-6xl mx-auto flex flex-col gap-8">
                         <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
@@ -755,6 +761,39 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                     <p className="text-2xl font-black text-theme-primary">{byFeature.size}</p>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* UNIT COST MODEL (U2) */}
+                        <div className="bg-white border border-theme-primary/10 rounded-3xl p-6 shadow-sm">
+                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-xs text-theme-primary/50">payments</span>
+                                Estimated Unit Cost
+                            </h3>
+                            <p className="text-theme-primary/40 text-[10px] mb-4">
+                                Computed from the telemetry above against published Gemini pricing (sourced 2026-07-23) — a real calculation, not a placeholder, but still an estimate. See caveats below.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Analysis Calls (Flash/Pro)</p>
+                                    <p className="text-2xl font-black text-theme-primary mt-1">${aiUsageCost.totalCostUsd.toFixed(4)}</p>
+                                    <p className="text-[9px] text-theme-primary/40 mt-1">across {aiUsageLogs.length} logged call(s){aiUsageCost.unpricedModels.length > 0 ? ` · ${aiUsageCost.unpricedModels.length} unpriced model(s) excluded` : ''}</p>
+                                </div>
+                                <div className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4">
+                                    <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/40">Live Sessions (native audio)</p>
+                                    <p className="text-2xl font-black text-theme-primary mt-1">${liveSessionCost.totalCostUsd.toFixed(4)}</p>
+                                    <p className="text-[9px] text-theme-primary/40 mt-1">
+                                        {liveSessionCost.sessionsConsidered} session(s){liveSessionCost.avgCostPerSessionUsd !== null ? ` · avg $${liveSessionCost.avgCostPerSessionUsd.toFixed(4)}/session` : ''}
+                                    </p>
+                                </div>
+                            </div>
+                            <details className="mt-4">
+                                <summary className="text-[9px] font-bold uppercase tracking-widest text-theme-primary/40 cursor-pointer">Methodology & caveats</summary>
+                                <ul className="mt-2 space-y-1 list-disc list-inside">
+                                    {[...aiUsageCost.caveats, ...liveSessionCost.caveats].map((c, i) => (
+                                        <li key={i} className="text-[10px] text-theme-primary/50 leading-relaxed">{c}</li>
+                                    ))}
+                                </ul>
+                            </details>
                         </div>
 
                         {/* LIVE SESSION PERFORMANCE (R1) */}

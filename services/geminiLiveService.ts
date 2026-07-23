@@ -32,6 +32,16 @@ interface GeminiLiveDelegate {
   onSessionMetrics?: (metrics: LiveSessionMetrics) => void;
 }
 
+const createEmptyMetrics = (): LiveSessionMetrics => ({
+  timeToFirstTokenMs: null,
+  turnLatenciesMs: [],
+  toolCallCounts: {},
+  reconnectCount: 0,
+  sessionDurationMs: 0,
+  totalOutputAudioSec: 0,
+  videoFramesSent: 0,
+});
+
 export interface LiveSessionMetrics {
   // Wall-clock time from connect() to the first audio/transcript chunk of
   // the model's very first response this session. Null if the session
@@ -44,6 +54,20 @@ export interface LiveSessionMetrics {
   turnLatenciesMs: number[];
   toolCallCounts: Record<string, number>;
   reconnectCount: number;
+  // The following three feed U2's cost model — real measurements, not
+  // estimates, since the Live API doesn't return per-turn usageMetadata
+  // the way generateContent does:
+  // Wall-clock connect-to-disconnect duration. The client streams mic
+  // audio continuously for this entire span (see sendAudioChunk), so this
+  // doubles directly as the audio-input duration for cost purposes.
+  sessionDurationMs: number;
+  // Sum of every decoded response AudioBuffer's .duration — the actual
+  // audio-output (voice response) seconds for this session, not inferred.
+  totalOutputAudioSec: number;
+  // Count of video frames actually sent (see sendVideoFrame) — the visual
+  // input volume, priced as discrete image tokens (still JPEGs at ~1fps),
+  // not a continuous video-token stream.
+  videoFramesSent: number;
 }
 
 export class GeminiLiveService {
@@ -68,7 +92,7 @@ export class GeminiLiveService {
   private firstTokenReceived = false;
   private turnResponseStarted = false;
   private lastTurnCompleteAt: number | null = null;
-  private metrics: LiveSessionMetrics = { timeToFirstTokenMs: null, turnLatenciesMs: [], toolCallCounts: {}, reconnectCount: 0 };
+  private metrics: LiveSessionMetrics = createEmptyMetrics();
 
   constructor(audioContext: AudioContext, delegate: GeminiLiveDelegate) {
     this.delegate = delegate;
@@ -127,7 +151,7 @@ export class GeminiLiveService {
     this.firstTokenReceived = false;
     this.turnResponseStarted = false;
     this.lastTurnCompleteAt = null;
-    this.metrics = { timeToFirstTokenMs: null, turnLatenciesMs: [], toolCallCounts: {}, reconnectCount: 0 };
+    this.metrics = createEmptyMetrics();
     await this.internalConnect();
   }
 
@@ -258,6 +282,9 @@ export class GeminiLiveService {
     // handled elsewhere) — the one place this session's accumulated
     // performance metrics are reported, so every call site that ends a
     // session gets this for free rather than needing its own logging call.
+    if (this.connectStartedAt !== null) {
+        this.metrics.sessionDurationMs = Date.now() - this.connectStartedAt;
+    }
     const hadActivity = this.metrics.timeToFirstTokenMs !== null || Object.keys(this.metrics.toolCallCounts).length > 0;
     if (hadActivity) {
         this.delegate.onSessionMetrics?.(this.getSessionMetrics());
@@ -312,6 +339,7 @@ export class GeminiLiveService {
       return;
     }
     const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
+    this.metrics.videoFramesSent++;
     this.sessionPromise.then(session => {
         if (!this.connected) return;
         try {
@@ -364,6 +392,7 @@ export class GeminiLiveService {
       try {
         const audioBytes = new Uint8Array(base64ToArrayBuffer(base64Audio));
         const audioBuffer = await decodeAudioData(audioBytes, this.outputAudioContext);
+        this.metrics.totalOutputAudioSec += audioBuffer.duration;
         this.delegate.onAudioData(audioBuffer);
       } catch (e) {}
     }

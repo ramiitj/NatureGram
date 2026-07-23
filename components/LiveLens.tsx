@@ -1112,6 +1112,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                     turnCount: turnLatencies.length,
                     toolCallCounts: metrics.toolCallCounts,
                     reconnectCount: metrics.reconnectCount,
+                    sessionDurationMs: metrics.sessionDurationMs,
+                    totalOutputAudioSec: metrics.totalOutputAudioSec,
+                    videoFramesSent: metrics.videoFramesSent,
                 }).catch(() => {});
             }
         });

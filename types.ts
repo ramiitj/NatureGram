@@ -304,6 +304,11 @@ export interface LiveSessionMetricsEntry {
   turnCount: number;
   toolCallCounts: Record<string, number>;
   reconnectCount: number;
+  // U2 cost-model inputs — real measurements, not estimates (see
+  // LiveSessionMetrics in geminiLiveService.ts for why these three exist).
+  sessionDurationMs?: number;
+  totalOutputAudioSec?: number;
+  videoFramesSent?: number;
   timestamp?: any;
 }
 

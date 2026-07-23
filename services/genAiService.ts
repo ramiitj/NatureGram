@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
 import { FirebaseService } from "./firebaseService";
 import { TaxonomySubject, TaxonomyCandidate, QualityEvent, SoundscapeEvent } from "../types";
+import { runOnDevicePrefilterOnBlob } from "./onDeviceFilterService";
 
 // The server's /api-proxy route now requires a verified Firebase ID token
 // (the same scheme used by the Live WebSocket proxy) before it will relay
@@ -224,6 +225,36 @@ export const GenAiService = {
   analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string, opts?: { snapshotId?: string, feature?: 'analyzeMedia' | 'upload' }): Promise<{ taxonomy: string[], ecologic: string, hashtags: string[], location: string, confidence?: 'high' | 'medium' | 'low', isNatureSubject?: boolean, isHybrid?: boolean, isSensitiveSpecies?: boolean, subjects?: TaxonomySubject[], candidates?: TaxonomyCandidate[], soundscape?: SoundscapeEvent[] }> => {
     const startedAt = Date.now();
     try {
+        // U1: on-device pre-filter — only ever short-circuits the OBVIOUS
+        // non-nature case (see onDeviceFilterService.ts's own extensive
+        // caveats); anything remotely ambiguous still goes to Gemini as
+        // normal. Image-only: MobileNet is an image classifier, and audio/
+        // video capture already goes through analyzeMultimodal instead.
+        if (type === 'image') {
+            const prefilter = await runOnDevicePrefilterOnBlob(blob);
+            if (!prefilter.isLikelyNatureSubject) {
+                console.debug('[GenAiService] On-device pre-filter skipped Gemini call:', prefilter.topPrediction);
+                if (opts?.snapshotId) {
+                    logQualityEvent({
+                        snapshotId: opts.snapshotId,
+                        mediaType: type,
+                        feature: opts.feature || 'analyzeMedia',
+                        modelUsed: 'on-device-mobilenet',
+                        latencyMs: Date.now() - startedAt,
+                        isNatureSubject: false,
+                        aiProposedLabels: [],
+                    });
+                }
+                return {
+                    taxonomy: [],
+                    ecologic: "This capture doesn't appear to contain a natural subject.",
+                    hashtags: ["Nature"],
+                    location: location || "Unknown Location",
+                    isNatureSubject: false,
+                };
+            }
+        }
+
         const apiKey = await getApiKey();
         const ai = new GoogleGenAI({
             apiKey,

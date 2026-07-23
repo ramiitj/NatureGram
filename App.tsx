@@ -14,6 +14,7 @@ import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, Expeditio
 import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
 import { prepareUpload, analyzeUploadedMedia, UploadValidationError } from './services/uploadService.ts';
+import { preloadOnDeviceModel } from './services/onDeviceFilterService.ts';
 import { AnimatePresence } from 'motion/react';
 import { hapticFeedback } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
@@ -491,6 +492,12 @@ const App: React.FC = () => {
 
       if (targetView === AppView.LENS) {
           await initAudioContext();
+          // U1: warm the on-device pre-filter model now, in the background,
+          // so it's likely ready by the time an actual capture happens
+          // instead of paying its load cost inline with the first shutter
+          // press. Fire-and-forget: a failure here just means the
+          // pre-filter no-ops for this session, same as always.
+          preloadOnDeviceModel().catch(() => {});
           setShowModeSelection(true);
           return;
       }
@@ -573,6 +580,7 @@ const App: React.FC = () => {
             setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
         }
     }
+    preloadOnDeviceModel().catch(() => {});
     setShowModeSelection(true);
   };
 
