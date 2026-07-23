@@ -80,6 +80,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "userId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feed_thumbnails",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "tags",
           "arrayConfig": "CONTAINS"
         },

@@ -488,6 +488,43 @@ export const PostsService = {
       }
   },
 
+  // Y2: the personalized "Following" feed — public posts authored by the
+  // accounts the viewer follows, newest first. Reads feed_thumbnails (the
+  // same read-optimized cache the global feed uses) via a `userId in [...]`
+  // query.
+  //
+  // Scaling caveat (documented, consistent with this app's "fine at current
+  // scale, fan-out is the next step" posture): Firestore's `in` operator
+  // caps at 30 values, so this covers the 30 most-recently-followed
+  // accounts. Beyond that, the right architecture is a per-user feed
+  // fan-out (writing each post's id into followers' feed docs on publish)
+  // — a Cloud Function job, out of scope here. reportStatus/isPublic are
+  // client-filtered for the same reasons subscribeToFeed documents.
+  getFollowingFeed: async (followedIds: string[], limitCount = 50): Promise<{ posts: CommunityPost[] }> => {
+    if (!followedIds || followedIds.length === 0) return { posts: [] };
+    const capped = followedIds.slice(0, 30);
+    try {
+      const q = query(
+        collection(db, "feed_thumbnails"),
+        where("userId", "in", capped),
+        orderBy("timestamp", "desc"),
+        limit(limitCount)
+      );
+      const snapshot = await getDocs(q);
+      const posts: CommunityPost[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data() as any;
+        if (data.isPublic !== false && data.reportStatus !== 'pending') {
+          posts.push({ id: doc.id, ...data, labels: data.labels || (data.label ? [data.label] : ["Nature"]) } as CommunityPost);
+        }
+      });
+      return { posts };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, "feed_thumbnails");
+      throw error;
+    }
+  },
+
   subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void, onError?: (error: unknown) => void) => {
     const q = query(
         collection(db, "ecosystem_feed"), 

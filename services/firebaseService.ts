@@ -28,6 +28,7 @@ import { NotificationsService } from "./firebase/notificationsService";
 import { TelemetryService } from "./firebase/telemetryService";
 import { ModerationService } from "./firebase/moderationService";
 import { MigrationService } from "./firebase/migrationService";
+import { FollowService } from "./firebase/followService";
 
 export { OperationType, handleFirestoreError, getCorsProxyUrl } from "./firebase/shared";
 export type { FirestoreErrorInfo } from "./firebase/shared";
@@ -44,4 +45,5 @@ export const FirebaseService = {
   ...TelemetryService,
   ...ModerationService,
   ...MigrationService,
+  ...FollowService,
 };

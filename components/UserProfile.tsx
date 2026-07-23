@@ -6,6 +6,7 @@ import { CommunityPost, UserProfileData } from '../types';
 import { FirebaseService } from '../services/firebaseService';
 import { auth } from '../firebaseConfig';
 import AuthModal from './AuthModal';
+import { reputationTier, REPUTATION_TIER_LABELS } from '../services/reputationService';
 
 interface UserProfileProps {
   userId: string;
@@ -19,7 +20,10 @@ interface UserProfileProps {
 
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole }) => {
   const [profileData, setProfileData] = useState<UserProfileData | null>(null);
-  const [journalStats, setJournalStats] = useState({ count: 0, species: 0 });
+  // Y3: contribution identity — beyond raw sightings, the stats that
+  // reward genuine contribution (community-confirmed IDs, rare/protected
+  // finds) and drive return.
+  const [journalStats, setJournalStats] = useState({ count: 0, species: 0, confirmed: 0, rare: 0 });
   // Reflects actual browser permission state rather than assuming enabled —
   // this toggle used to be purely cosmetic local state with no effect.
   const [notificationsEnabled, setNotificationsEnabled] = useState(
@@ -34,8 +38,53 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   // and firestore.rules check, resolved async since claims live in the ID
   // token (getIdTokenResult), not on the currentUser object synchronously.
   const [isAdminUser, setIsAdminUser] = useState(false);
+  // Y1: follow graph state — counts (computed server-side) + whether the
+  // viewer follows this profile.
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [showFollowAuth, setShowFollowAuth] = useState(false);
 
   const isOwnProfile = userId === currentUserId;
+
+  // Y1: load follower/following counts, and (for other people's profiles)
+  // whether the current viewer already follows them.
+  useEffect(() => {
+    if (isAnonymous && isOwnProfile) return;
+    let active = true;
+    FirebaseService.getFollowerCount(userId).then(c => { if (active) setFollowerCount(c); });
+    FirebaseService.getFollowingCount(userId).then(c => { if (active) setFollowingCount(c); });
+    if (currentUserId && !isOwnProfile) {
+      FirebaseService.isFollowing(currentUserId, userId).then(f => { if (active) setIsFollowing(f); });
+    }
+    return () => { active = false; };
+  }, [userId, currentUserId, isOwnProfile, isAnonymous]);
+
+  const handleToggleFollow = async () => {
+    if (isOwnProfile || followBusy || !currentUserId) return;
+    if (isAnonymous) { setShowFollowAuth(true); return; }
+    setFollowBusy(true);
+    try {
+      if (isFollowing) {
+        await FirebaseService.unfollowUser(currentUserId, userId);
+        setIsFollowing(false);
+        setFollowerCount(c => Math.max(0, c - 1));
+      } else {
+        const me = await FirebaseService.getUserProfile(currentUserId);
+        await FirebaseService.followUser(
+          { uid: currentUserId, username: me?.username || 'Explorer', avatarUrl: me?.avatarUrl },
+          { uid: userId, username: profileData?.username || 'Explorer', avatarUrl: profileData?.avatarUrl },
+        );
+        setIsFollowing(true);
+        setFollowerCount(c => c + 1);
+      }
+    } catch (e) {
+      console.error('Follow toggle failed:', e);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOwnProfile) return;
@@ -77,7 +126,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
     const unsubscribeJournal = FirebaseService.subscribeToUserJournal(userId, (posts) => {
         const filteredPosts = isOwnProfile ? posts : posts.filter(p => p.isPublic);
         const uniqueSpecies = new Set(filteredPosts.flatMap(p => p.labels || []).map(l => l.toLowerCase())).size;
-        setJournalStats({ count: filteredPosts.length, species: uniqueSpecies });
+        // Y3: count crowd-verified identifications (community-confirmed or
+        // the stronger research-grade) and rare/protected finds.
+        const confirmed = filteredPosts.filter(p => p.verificationState === 'confirmed' || p.verificationState === 'research-grade').length;
+        const rare = filteredPosts.filter(p => p.isSensitiveSpecies).length;
+        setJournalStats({ count: filteredPosts.length, species: uniqueSpecies, confirmed, rare });
         setIsLoading(false);
     });
 
@@ -172,14 +225,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                     )}
                 </div>
                 
-                <h2 className="text-2xl font-display font-black text-text-main italic">
+                <h2 className="text-2xl font-display font-black text-text-main italic flex items-center gap-1.5">
                     {profileData?.username || 'Explorer'}
+                    {profileData?.isExpert && (
+                        <span className="material-symbols-outlined text-theme-accent text-lg icon-fill" title="Verified Expert">verified</span>
+                    )}
                 </h2>
+                {/* Y3: real reputation tier (X1), replacing the old hardcoded
+                    "Expert Naturalist" label that mislabelled every user. */}
                 <p className="catalog-label text-[8px] opacity-60 mt-1">
-                    Expert Naturalist • Since {profileData?.joinedAt?.toDate?.()?.getFullYear() || 2025}
+                    {REPUTATION_TIER_LABELS[reputationTier(profileData?.reputationScore || 0, !!profileData?.isExpert)]} • Since {profileData?.joinedAt?.toDate?.()?.getFullYear() || 2025}
                 </p>
 
-                <div className="flex gap-8 mt-8 w-full justify-center">
+                <div className="flex gap-6 mt-8 w-full justify-center flex-wrap">
                     <div className="text-center cursor-pointer hover:opacity-70 transition-opacity" onClick={isOwnProfile ? onViewJournal : undefined}>
                         <div className="text-2xl font-black text-theme-accent">{journalStats.count}</div>
                         <div className="catalog-label text-[8px]">Sightings</div>
@@ -189,7 +247,51 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                         <div className="text-2xl font-black text-theme-accent">{journalStats.species}</div>
                         <div className="catalog-label text-[8px]">Species</div>
                     </div>
+                    <div className="w-px h-10 bg-theme-primary/10"></div>
+                    {/* Y3: community-verified identifications — the contribution
+                        that actually signals credibility, not just volume. */}
+                    <div className="text-center">
+                        <div className="text-2xl font-black text-theme-accent">{journalStats.confirmed}</div>
+                        <div className="catalog-label text-[8px]">Confirmed</div>
+                    </div>
+                    <div className="w-px h-10 bg-theme-primary/10"></div>
+                    {/* Y1: follow graph counts */}
+                    <div className="text-center">
+                        <div className="text-2xl font-black text-theme-accent">{followerCount}</div>
+                        <div className="catalog-label text-[8px]">Followers</div>
+                    </div>
+                    <div className="w-px h-10 bg-theme-primary/10"></div>
+                    <div className="text-center">
+                        <div className="text-2xl font-black text-theme-accent">{followingCount}</div>
+                        <div className="catalog-label text-[8px]">Following</div>
+                    </div>
                 </div>
+
+                {/* Y3: rare/protected finds — a badge of genuine field
+                    contribution, shown only when the explorer has any. */}
+                {journalStats.rare > 0 && (
+                    <div className="mt-5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 text-amber-700 border border-amber-500/20">
+                        <span className="material-symbols-outlined text-[14px]">shield</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest">{journalStats.rare} rare / protected find{journalStats.rare === 1 ? '' : 's'}</span>
+                    </div>
+                )}
+
+                {/* Y1: follow / unfollow — only on other people's profiles */}
+                {!isOwnProfile && (
+                    <button
+                        onClick={handleToggleFollow}
+                        disabled={followBusy}
+                        aria-pressed={isFollowing}
+                        className={`mt-6 px-8 py-3 rounded-full font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 flex items-center gap-2 ${
+                            isFollowing
+                                ? 'bg-theme-primary/5 text-theme-primary border border-theme-primary/15 hover:bg-theme-primary/10'
+                                : 'bg-theme-accent text-white shadow-lg shadow-theme-accent/20 hover:opacity-90'
+                        }`}
+                    >
+                        <span className="material-symbols-outlined text-sm">{isFollowing ? 'how_to_reg' : 'person_add'}</span>
+                        {isFollowing ? 'Following' : 'Follow'}
+                    </button>
+                )}
             </div>
 
             {isOwnProfile && (
@@ -279,6 +381,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 NatureGram v2.5.0 • Persistent Explorer
             </p>
         </main>
+
+        {/* Y1: anonymous viewers must sign in to follow — following is a
+            persistent social relationship, not an ephemeral guest action. */}
+        {showFollowAuth && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 animate-fade-in font-body">
+                <AuthModal
+                    onClose={() => setShowFollowAuth(false)}
+                    onSuccess={() => setShowFollowAuth(false)}
+                />
+            </div>
+        )}
     </div>
   );
 };

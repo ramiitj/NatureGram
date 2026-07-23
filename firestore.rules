@@ -90,6 +90,23 @@ service cloud.firestore {
         allow read, update, delete: if isOwner(userId) || isAdmin();
         allow create: if isSignedIn() && incoming().senderId == request.auth.uid;
       }
+
+      // Y1: the follow graph. Two halves of each edge:
+      //   users/{userId}/following/{targetId} — accounts userId follows;
+      //     only userId manages their own following list.
+      //   users/{userId}/followers/{followerId} — accounts following
+      //     userId; a follower may add/remove ONLY themselves (the doc id
+      //     must equal their uid), so nobody can forge someone else into a
+      //     follower relationship. Reads are open to signed-in users
+      //     (follower/following lists and counts are public social data).
+      match /following/{targetId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isOwner(userId);
+      }
+      match /followers/{followerId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isSignedIn() && request.auth.uid == followerId;
+      }
     }
 
     // 2. Daily themes & Seed Collections.

@@ -70,8 +70,10 @@ export interface TaxonResolution {
 }
 
 export interface FieldNotification {
+  // Y1: 'follow' — someone started following you. Taps through to the
+  // follower's profile (via senderId) rather than a post.
+  type: 'like' | 'comment' | 'sighting' | 'system' | 'follow';
   id: string;
-  type: 'like' | 'comment' | 'sighting' | 'system';
   message: string;
   timestamp: any;
   postId?: string;

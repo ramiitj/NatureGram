@@ -84,6 +84,9 @@ const Community: React.FC<CommunityProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
+  // Y2: feed scope — the global "Discover" feed vs. the personalized
+  // "Following" feed (posts from accounts the viewer follows).
+  const [feedScope, setFeedScope] = useState<'discover' | 'following'>('discover');
 
   // Dynamically generated Instagram-style search suggestions
   const dynamicSuggestions = React.useMemo(() => {
@@ -464,10 +467,21 @@ const Community: React.FC<CommunityProps> = ({
     setError(null);
 
     try {
-        const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(null, searchTag);
-        setPosts(newPosts);
-        setLastVisible(newLastVisible);
-        setHasMore(newLastVisible !== null);
+        if (feedScope === 'following') {
+            // Y2: personalized feed. No infinite-scroll pagination here (the
+            // capped `in`-query returns a single page) — hasMore stays false.
+            const uid = currentUserMode.userId;
+            const ids = uid ? await FirebaseService.getFollowingIds(uid) : [];
+            const { posts: newPosts } = await FirebaseService.getFollowingFeed(ids);
+            setPosts(newPosts);
+            setLastVisible(null);
+            setHasMore(false);
+        } else {
+            const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(null, searchTag);
+            setPosts(newPosts);
+            setLastVisible(newLastVisible);
+            setHasMore(newLastVisible !== null);
+        }
     } catch (err: any) {
         console.error("Failed to load initial posts:", err);
         let msg = err.message || String(err);
@@ -479,7 +493,7 @@ const Community: React.FC<CommunityProps> = ({
     } finally {
         setIsLoading(false);
     }
-  }, [searchTag]);
+  }, [searchTag, feedScope, currentUserMode.userId]);
 
   // Original Global Feed loaded paginated query
   useEffect(() => {
@@ -915,6 +929,32 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             </div>
 
+            {/* Y2: Discover vs. Following feed scope toggle. Hidden in the
+                journal view (which is inherently the owner's own posts). */}
+            {!isJournalOnly && (
+                <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-full w-full max-w-xs mx-auto md:mx-0">
+                    {([
+                        { id: 'discover', label: 'Discover', icon: 'public' },
+                        { id: 'following', label: 'Following', icon: 'group' },
+                    ] as const).map(scope => {
+                        const active = feedScope === scope.id;
+                        return (
+                            <button
+                                key={scope.id}
+                                onClick={() => { setFeedScope(scope.id); hapticFeedback(); }}
+                                aria-pressed={active}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 ${
+                                    active ? 'bg-white text-theme-primary shadow-sm' : 'text-stone-500 hover:text-theme-primary'
+                                }`}
+                            >
+                                <span className="material-symbols-outlined text-[14px] leading-none">{scope.icon}</span>
+                                {scope.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
             {/* Instagram Search Input with Cancel State transition */}
             <div className="relative flex flex-col gap-3">
                 {/* Backdrop overlay for focus state to make UX clean, elegant and focused */}
@@ -1205,6 +1245,17 @@ const Community: React.FC<CommunityProps> = ({
                             Begin Expedition
                         </button>
                     )}
+                </div>
+            ) : posts.length === 0 && feedScope === 'following' ? (
+                // Y2: personalized-feed empty state — a teaching moment that
+                // routes the viewer to Discover to go find people to follow.
+                <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
+                    <span className="material-symbols-outlined text-5xl text-theme-accent/40 mb-6 select-none">group</span>
+                    <h3 className="text-lg font-display italic text-theme-primary/70 mb-1 font-bold">Your Following Feed Is Quiet</h3>
+                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Follow explorers whose discoveries you want to keep up with — their sightings will collect here. Head to Discover to find naturalists worth following.</p>
+                    <button onClick={() => setFeedScope('discover')} className="px-8 py-3.5 bg-theme-accent text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
+                        Explore Discover Feed
+                    </button>
                 </div>
             ) : posts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
