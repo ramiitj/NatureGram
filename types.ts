@@ -56,6 +56,12 @@ export interface TaxonResolution {
   family?: string;
   genus?: string;
   taxonomicStatus?: string;
+  // V3: region-aware common names, best-effort — GBIF's vernacularNames
+  // are keyed by ISO 639-2/T language codes (e.g. "spa", "hin"), fetched
+  // separately from the GBIF Backbone Taxonomy usageKey since /species/search
+  // results (matched by freeform label) don't reliably carry the full
+  // vernacular list themselves. See taxonomyService.ts's getRegionalCommonName.
+  vernacularNames?: { language: string; name: string }[];
 }
 
 export interface FieldNotification {

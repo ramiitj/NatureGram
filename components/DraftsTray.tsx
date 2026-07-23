@@ -43,7 +43,7 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
             <div className="text-center py-20 px-8">
                 <span className="material-symbols-outlined text-5xl mb-4 opacity-30">inventory_2</span>
                 <p className="catalog-label opacity-30 mb-2">No Active Drafts</p>
-                <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mx-auto">
+                <p className="text-[10px] uppercase tracking-wider text-stone-600 max-w-xs mx-auto">
                     Your expeditions auto-save as you capture, so nothing's ever lost if you close the app mid-session — anything unfinished will show up here to pick back up.
                 </p>
             </div>
@@ -60,9 +60,9 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
                         </div>
                         <div className="flex-1">
                             <p className="font-bold text-theme-primary leading-none mb-1">{draft.snapshots.length} Observations</p>
-                            <p className="text-[10px] text-theme-primary/40 font-medium">Last active {new Date(draft.timestamp?.toDate?.() || Date.now()).toLocaleDateString()}</p>
+                            <p className="text-[10px] text-stone-600 font-medium">Last active {new Date(draft.timestamp?.toDate?.() || Date.now()).toLocaleDateString()}</p>
                         </div>
-                        <button onClick={(e) => handleDelete(e, draft.id)} aria-label="Discard draft" className="w-10 h-10 rounded-full hover:bg-red-50 text-theme-primary/30 hover:text-red-500 transition-colors">
+                        <button onClick={(e) => handleDelete(e, draft.id)} aria-label="Discard draft" className="w-10 h-10 rounded-full hover:bg-red-50 text-stone-500 hover:text-red-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2">
                             <span className="material-symbols-outlined">delete</span>
                         </button>
                     </div>

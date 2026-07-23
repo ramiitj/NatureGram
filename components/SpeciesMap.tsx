@@ -131,7 +131,7 @@ const SpeciesMap: React.FC<SpeciesMapProps> = ({ onBack, onSelectPost }) => {
         </button>
         <div className="text-center">
           <h2 className="text-xl font-display font-black italic text-theme-primary">Species Map</h2>
-          <p className="catalog-label text-[9px] text-theme-primary/40">{posts.length} public observation{posts.length === 1 ? '' : 's'} mapped{nearestCount > 0 ? ` · ${nearestCount} within 50km` : ''}</p>
+          <p className="catalog-label text-[9px] text-stone-600">{posts.length} public observation{posts.length === 1 ? '' : 's'} mapped{nearestCount > 0 ? ` · ${nearestCount} within 50km` : ''}</p>
         </div>
         <div className="w-10 h-10" />
       </header>
@@ -139,7 +139,7 @@ const SpeciesMap: React.FC<SpeciesMapProps> = ({ onBack, onSelectPost }) => {
       <div className="flex-1 relative">
         {isLoading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-day-bg">
-            <p className="text-xs font-bold uppercase tracking-widest text-theme-primary/40">Loading observations...</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-stone-600">Loading observations...</p>
           </div>
         )}
         {error && (

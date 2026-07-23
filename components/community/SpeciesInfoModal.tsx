@@ -19,13 +19,13 @@ const SpeciesInfoModal: React.FC<SpeciesInfoModalProps> = ({ species, data, onCl
                         </div>
                         <div>
                             <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{species.name}</h3>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-stone-600 flex items-center gap-1 mt-0.5">
                                 <span className="material-symbols-outlined text-[10px]">public</span>
                                 {species.location}
                             </p>
                         </div>
                     </div>
-                    <button onClick={onClose} aria-label="Close species details" className="text-theme-primary/40 hover:text-theme-primary transition-colors">
+                    <button onClick={onClose} aria-label="Close species details" className="text-stone-600 hover:text-theme-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 rounded-full">
                         <span className="material-symbols-outlined text-2xl">close</span>
                     </button>
                 </div>
@@ -34,7 +34,7 @@ const SpeciesInfoModal: React.FC<SpeciesInfoModalProps> = ({ species, data, onCl
                     {data?.loading ? (
                         <div className="flex flex-col items-center justify-center py-12 gap-4">
                             <span className="material-symbols-outlined text-4xl text-theme-accent animate-spin">sync</span>
-                            <p className="text-theme-primary/40 font-black text-[10px] uppercase tracking-widest animate-pulse">Running Global Biological Sweep...</p>
+                            <p className="text-stone-600 font-black text-[10px] uppercase tracking-widest animate-pulse">Running Global Biological Sweep...</p>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-6">
@@ -48,7 +48,7 @@ const SpeciesInfoModal: React.FC<SpeciesInfoModalProps> = ({ species, data, onCl
                                     <span className="material-symbols-outlined text-xs">science</span>
                                     Encyclopedia Data
                                 </p>
-                                <p className="text-theme-primary/80 font-serif leading-relaxed text-sm text-justify">
+                                <p className="text-theme-primary font-serif leading-relaxed text-sm text-justify">
                                     {data?.extract}
                                 </p>
                             </div>

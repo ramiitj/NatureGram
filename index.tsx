@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App.tsx';
+import { I18nProvider } from './i18n/I18nContext';
 
 // Error monitoring — inert unless VITE_SENTRY_DSN is set (nothing to send
 // errors to otherwise). Set it in your deploy environment to enable.
@@ -27,6 +28,8 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <I18nProvider>
+      <App />
+    </I18nProvider>
   </React.StrictMode>
 );

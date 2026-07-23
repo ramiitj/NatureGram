@@ -43,22 +43,22 @@ const CommentsDrawer: React.FC<CommentsDrawerProps> = ({ comments, newComment, o
 
                 <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
                     <h3 className="font-display font-black text-xl italic text-theme-primary">Field Notes</h3>
-                    <button onClick={onClose} aria-label="Close field notes" className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
+                    <button onClick={onClose} aria-label="Close field notes" className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-stone-600 hover:bg-theme-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2">
                         <span className="material-symbols-outlined text-lg">close</span>
                     </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     {comments.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-theme-primary/40">
+                        <div className="h-full flex flex-col items-center justify-center text-stone-500">
                             <span className="material-symbols-outlined text-4xl mb-2 opacity-50">forum</span>
                             <p className="text-xs font-medium">No field notes yet.</p>
                         </div>
                     ) : (
                         comments.map(c => (
                             <div key={c.id} className="animate-fade-in group">
-                                <p onClick={() => { onClose(); onProfileClick(c.userId); }} className="text-[8px] font-black text-theme-primary/40 uppercase tracking-widest mb-1 leading-none cursor-pointer hover:text-theme-accent">{c.userName}</p>
-                                <p className="text-[12px] text-theme-primary/80 leading-relaxed font-medium tracking-tight">{c.text}</p>
+                                <p onClick={() => { onClose(); onProfileClick(c.userId); }} className="text-[8px] font-black text-stone-600 uppercase tracking-widest mb-1 leading-none cursor-pointer hover:text-theme-accent">{c.userName}</p>
+                                <p className="text-[12px] text-theme-primary leading-relaxed font-medium tracking-tight">{c.text}</p>
                             </div>
                         ))
                     )}

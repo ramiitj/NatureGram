@@ -8,22 +8,32 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: 'var(--theme-primary, #44403c)',
-        accent: 'var(--theme-accent, #ea580c)',
+        // V1: deep pine/moss defaults (see index.css's :root for the
+        // rationale) — replaces the previous warm-orange-on-cream cliché
+        // fallback with something that reads as "field instrument," not
+        // "cozy blog."
+        primary: 'var(--theme-primary, #1c2b22)',
+        accent: 'var(--theme-accent, #3f7a54)',
         'day-bg': '#fcfaf8',
         surface: '#ffffff',
         'text-main': '#1c1917',
         'text-muted': '#78716c',
         'insight-bg': '#fdf8f1',
-        'theme-primary': 'rgb(var(--theme-primary-rgb, 68 64 60) / <alpha-value>)',
-        'theme-primary-gradient': 'var(--theme-primary-gradient, #ea580c)',
-        'theme-shadow': 'rgb(var(--theme-shadow-rgb, 0 0 0) / <alpha-value>)',
-        'theme-text': 'var(--theme-text, #ffffff)',
-        'theme-accent': 'rgb(var(--theme-accent-rgb, 234 88 12) / <alpha-value>)',
+        'theme-primary': 'rgb(var(--theme-primary-rgb, 28 43 34) / <alpha-value>)',
+        'theme-primary-gradient': 'var(--theme-primary-gradient, #2d4a36)',
+        'theme-shadow': 'rgb(var(--theme-shadow-rgb, 13 21 18) / <alpha-value>)',
+        'theme-text': 'var(--theme-text, #eef5ef)',
+        'theme-accent': 'rgb(var(--theme-accent-rgb, 63 122 84) / <alpha-value>)',
       },
       fontFamily: {
-        display: ['Playfair Display', 'serif'],
+        // V1: Fraunces (a variable serif with real optical-size character)
+        // replaces Playfair Display — a common "elegant AI app" default —
+        // and JetBrains Mono gives identification-heavy surfaces
+        // (specimen tags, timestamps, confidence readouts) a field-
+        // instrument feel instead of borrowing the body sans for numerals.
+        display: ['Fraunces', 'serif'],
         body: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
       },
       animation: {
         'wave-bar': 'wave 1s ease-in-out infinite',

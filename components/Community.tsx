@@ -15,6 +15,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { hapticFeedback } from '../utils';
 import { getCalibratedConfidence } from '../services/calibrationService';
 import { ConfidenceCalibration } from '../types';
+import { getRegionalCommonName } from '../services/taxonomyService';
+import { useI18n } from '../i18n/I18nContext';
 
 interface CommunityProps {
   currentUserMode: UserMode;
@@ -43,6 +45,7 @@ const Community: React.FC<CommunityProps> = ({
     onLogoClick,
     onStartExpedition
 }) => {
+  const { language: uiLanguage } = useI18n();
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -1168,10 +1171,17 @@ const Community: React.FC<CommunityProps> = ({
                                 setActiveExploreTab(tab.id as any);
                                 hapticFeedback();
                             }}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
-                                isActive 
-                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]' 
-                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-theme-primary/60 hover:bg-stone-100'
+                            aria-pressed={isActive}
+                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 ${
+                                isActive
+                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]'
+                                    /* V4: was text-theme-primary/60 — opacity-blending a rotating
+                                     * daily theme color (some as light as amber/yellow-700) against
+                                     * bg-stone-50 measured as low as ~2.4:1, well under WCAG AA's
+                                     * 4.5:1 minimum for this text-[10px] normal-size text. A fixed
+                                     * stone-600 is theme-independent and holds ~7.3:1 across every
+                                     * daily naturalist palette. */
+                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-stone-600 hover:bg-stone-100'
                             }`}
                         >
                             <span>{tab.icon}</span>
@@ -1609,7 +1619,9 @@ const Community: React.FC<CommunityProps> = ({
                                                     <div className="space-y-2">
                                                         <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Canonical Taxonomy (GBIF)</p>
                                                         <div className="space-y-1.5">
-                                                            {activePost.canonicalTaxa.map((taxon, i) => (
+                                                            {activePost.canonicalTaxa.map((taxon, i) => {
+                                                                const regionalName = getRegionalCommonName(taxon, uiLanguage);
+                                                                return (
                                                                 <a
                                                                     key={i}
                                                                     href={`https://www.gbif.org/species/${taxon.gbifKey}`}
@@ -1619,11 +1631,13 @@ const Community: React.FC<CommunityProps> = ({
                                                                 >
                                                                     <div className="min-w-0">
                                                                         <span className="text-[11px] font-bold italic text-theme-primary">{taxon.scientificName}</span>
-                                                                        <p className="text-[9px] text-theme-primary/40 mt-0.5 truncate">{[taxon.family, taxon.order, taxon.class].filter(Boolean).join(' · ')}</p>
+                                                                        {regionalName && <span className="text-[10px] font-medium text-theme-primary ml-1.5">"{regionalName}"</span>}
+                                                                        <p className="text-[9px] text-stone-600 mt-0.5 truncate">{[taxon.family, taxon.order, taxon.class].filter(Boolean).join(' · ')}</p>
                                                                     </div>
-                                                                    {taxon.rank && <span className="text-[8px] font-black uppercase tracking-widest text-theme-primary/40 shrink-0 ml-2">{taxon.rank}</span>}
+                                                                    {taxon.rank && <span className="text-[8px] font-black uppercase tracking-widest text-stone-600 shrink-0 ml-2">{taxon.rank}</span>}
                                                                 </a>
-                                                            ))}
+                                                                );
+                                                            })}
                                                         </div>
                                                     </div>
                                                 )}

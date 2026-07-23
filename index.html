@@ -64,7 +64,11 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .safe-pb { padding-bottom: calc(var(--sab) + 1rem); }
         .safe-pt { padding-top: var(--sat); }
-        .catalog-label { font-family: 'Inter', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.65rem; color: var(--theme-accent, #ea580c); }
+        /* V1: catalog-label is this app's "specimen tag" style — taxonomy
+         * chips, timestamps, confidence readouts — used throughout the
+         * community/journal views. JetBrains Mono gives it an instrument-
+         * panel feel instead of borrowing the body sans. */
+        .catalog-label { font-family: 'JetBrains Mono', monospace; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.65rem; color: var(--theme-accent, #3f7a54); }
     </style>
   <link rel="stylesheet" href="/index.css">
 </head>

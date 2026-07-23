@@ -128,9 +128,9 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete, forceShow =
              <div className="flex justify-between items-center mb-4 border-b border-theme-primary/10 pb-3">
                  <div className="flex items-center gap-2">
                      <span className="material-symbols-outlined text-[16px] text-theme-accent select-none">explore</span>
-                     <span className="text-[10px] uppercase tracking-widest font-bold text-theme-primary/40">Field Guide</span>
+                     <span className="text-[10px] uppercase tracking-widest font-bold text-stone-600">Field Guide</span>
                  </div>
-                 <button onClick={finishTour} className="text-theme-primary/40 hover:text-theme-accent transition-colors text-xs font-bold uppercase tracking-widest">
+                 <button onClick={finishTour} aria-label="Skip onboarding tour" className="text-stone-600 hover:text-theme-accent transition-colors text-xs font-bold uppercase tracking-widest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 rounded">
                      Skip
                  </button>
              </div>
@@ -139,7 +139,7 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete, forceShow =
              <h3 className="text-2xl font-display font-black text-theme-primary mb-2 tracking-tight">
                  {step.title}
              </h3>
-             <p className="text-theme-primary/70 text-sm leading-relaxed mb-6">
+             <p className="text-stone-700 text-sm leading-relaxed mb-6">
                  {step.description}
              </p>
 
@@ -150,9 +150,9 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete, forceShow =
                          <div key={i} className={`h-1 rounded-full transition-all duration-500 ${i === stepIndex ? 'w-8 bg-theme-accent' : 'w-2 bg-theme-primary/30'}`}></div>
                      ))}
                  </div>
-                 <button 
-                    onClick={handleNext} 
-                    className="flex items-center gap-2 bg-theme-primary text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-black transition-transform active:scale-95"
+                 <button
+                    onClick={handleNext}
+                    className="flex items-center gap-2 bg-theme-primary text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-black transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2"
                  >
                      <span>{stepIndex === STEPS.length - 1 ? "Start" : "Next"}</span>
                      <span className="material-symbols-outlined text-sm">arrow_forward</span>

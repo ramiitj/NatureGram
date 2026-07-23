@@ -107,14 +107,14 @@ const FeedCard: React.FC<{
                 <h4 className="text-[10px] font-display font-bold italic text-theme-primary leading-tight truncate tracking-tight group-hover:text-theme-accent transition-colors">
                     {post.title || post.labels?.[0] || "Specimen"}
                 </h4>
-                <div className="flex items-center justify-center md:justify-start gap-1 mt-1 opacity-40">
-                    <p className="catalog-label text-[6px] tracking-[0.2em] uppercase font-bold text-theme-primary/60">
+                <div className="flex items-center justify-center md:justify-start gap-1 mt-1">
+                    <p className="catalog-label text-[6px] tracking-[0.2em] uppercase font-bold text-stone-600">
                         {post.locationArea || "Earth"}
                     </p>
-                    <span className="w-0.5 h-0.5 rounded-full bg-theme-primary/30 shrink-0"></span>
+                    <span className="w-0.5 h-0.5 rounded-full bg-stone-400 shrink-0"></span>
                     <div className="flex items-center gap-0.5">
                             <span className="material-symbols-outlined text-[7px] text-theme-accent">favorite</span>
-                            <span className="text-[7px] font-bold text-theme-primary/60">{post.likes?.length || 0}</span>
+                            <span className="text-[7px] font-bold text-stone-600">{post.likes?.length || 0}</span>
                     </div>
                 </div>
             </div>

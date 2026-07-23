@@ -10,6 +10,8 @@ import DraftsTray from './components/DraftsTray.tsx';
 import SharedPostView from './components/SharedPostView.tsx';
 import SpeciesMap from './components/SpeciesMap.tsx';
 import AuthModal from './components/AuthModal.tsx';
+import LanguageSwitcher from './components/LanguageSwitcher.tsx';
+import { useI18n } from './i18n/I18nContext';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
@@ -35,6 +37,7 @@ const getInitialView = () => {
 };
 
 const App: React.FC = () => {
+  const { t } = useI18n();
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
   const currentViewRef = useRef<AppView>(currentView);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(new URLSearchParams(window.location.search).get('user') || null);
@@ -633,7 +636,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   onClick={() => handleNavigationRequest(AppView.LANDING)}
-                  aria-label="NatureGram home"
+                  aria-label={t('navHome')}
                   className="flex items-center gap-2 px-2 lg:px-3 mb-8 text-left cursor-pointer hover:opacity-80 active:scale-95 transition-all"
               >
                   <span className="material-symbols-outlined text-2xl text-theme-accent shrink-0">wb_sunny</span>
@@ -641,9 +644,9 @@ const App: React.FC = () => {
               </button>
 
               {[
-                  { view: AppView.COMMUNITY, icon: 'home', label: 'Feed' },
-                  { view: AppView.JOURNAL, icon: 'fingerprint', label: 'My Journal' },
-                  { view: AppView.MAP, icon: 'map', label: 'Species Map' },
+                  { view: AppView.COMMUNITY, icon: 'home', label: t('navFeed') },
+                  { view: AppView.JOURNAL, icon: 'fingerprint', label: t('navJournal') },
+                  { view: AppView.MAP, icon: 'map', label: t('navMap') },
               ].map(({ view, icon, label }) => (
                   <button
                       key={view}
@@ -659,11 +662,11 @@ const App: React.FC = () => {
 
               <button
                   onClick={() => handleNavigationRequest(AppView.LENS)}
-                  aria-label="Start new expedition"
+                  aria-label={t('navStartExpedition')}
                   className="flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl bg-theme-accent text-white font-bold shadow-lg shadow-theme-accent/20 hover:opacity-90 active:scale-[0.98] transition-all my-2"
               >
                   <span className="material-symbols-outlined text-2xl shrink-0 font-black">add</span>
-                  <span className="hidden lg:block text-sm truncate">New Expedition</span>
+                  <span className="hidden lg:block text-sm truncate">{t('navNewExpedition')}</span>
               </button>
 
               <button
@@ -674,25 +677,29 @@ const App: React.FC = () => {
                       }
                       setIsNotificationsOpen(true);
                   }}
-                  aria-label={`Field alerts${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`}
+                  aria-label={`${t('navFieldAlerts')}${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`}
                   className={`relative flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl transition-all duration-200 ${isNotificationsOpen ? 'bg-stone-100 text-stone-900 font-bold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'}`}
               >
                   <span className="relative shrink-0">
                       <span className={`material-symbols-outlined text-2xl ${isNotificationsOpen ? 'icon-fill' : ''}`}>favorite</span>
                       {notifications.filter(n => !n.isRead).length > 0 && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-theme-accent rounded-full"></span>}
                   </span>
-                  <span className="hidden lg:block text-sm truncate">Field Alerts</span>
+                  <span className="hidden lg:block text-sm truncate">{t('navFieldAlerts')}</span>
               </button>
 
               <button
                   onClick={() => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId })}
-                  aria-label="My Profile"
+                  aria-label={t('navMyProfile')}
                   aria-current={currentView === AppView.USER_PROFILE ? 'page' : undefined}
                   className={`flex items-center gap-4 px-2 lg:px-3 py-3 rounded-2xl transition-all duration-200 ${currentView === AppView.USER_PROFILE ? 'bg-stone-100 text-stone-900 font-bold' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-800'}`}
               >
                   <span className={`material-symbols-outlined text-2xl shrink-0 ${currentView === AppView.USER_PROFILE ? 'icon-fill' : ''}`}>person</span>
-                  <span className="hidden lg:block text-sm truncate">Profile</span>
+                  <span className="hidden lg:block text-sm truncate">{t('navProfile')}</span>
               </button>
+
+              <div className="mt-auto pt-2 px-2 lg:px-3">
+                  <LanguageSwitcher variant="light" />
+              </div>
           </aside>
       )}
 
@@ -703,16 +710,20 @@ const App: React.FC = () => {
                 <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${getCorsProxyUrl(dailyTheme.imageUrl)}')`, opacity: 0.6 }}></div>
                 <div className={`absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply`}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent"></div>
-                
+
+                <div className="absolute top-6 right-6 z-20">
+                    <LanguageSwitcher variant="dark" />
+                </div>
+
                 <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up h-full justify-between py-12">
                     <div className="text-center pb-[50px] pl-[2px]">
                         <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float`}>
                             <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
                         </div>
                         <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
-                        <p className={`text-theme-text font-bold uppercase tracking-[0.4em] text-[10px] mt-2 drop-shadow-md`}>The Living Field Guide</p>
+                        <p className={`text-theme-text font-bold uppercase tracking-[0.4em] text-[10px] mt-2 drop-shadow-md`}>{t('appTagline')}</p>
                     </div>
-                    
+
                     <div className="w-full max-w-xs px-6 flex flex-col items-center gap-4">
                         <button type="button" className="w-full cursor-pointer" onClick={beginLiveExpedition}>
                             <div className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 group shadow-2xl border border-white/20">
@@ -720,8 +731,8 @@ const App: React.FC = () => {
                                     <span className="material-symbols-outlined text-3xl">forum</span>
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-2xl leading-tight font-display italic text-white">Talk to the Guide</h3>
-                                    <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Start a Live Expedition</p>
+                                    <h3 className="font-bold text-2xl leading-tight font-display italic text-white">{t('talkToGuide')}</h3>
+                                    <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">{t('startLiveExpedition')}</p>
                                 </div>
                             </div>
                         </button>
@@ -730,7 +741,7 @@ const App: React.FC = () => {
                             onClick={() => selectMode('community')}
                             className="text-white/60 hover:text-white text-[11px] font-bold uppercase tracking-widest transition-colors py-2"
                         >
-                            Or Browse The Community Feed
+                            {t('browseCommunityFeed')}
                         </button>
                     </div>
 
@@ -785,8 +796,8 @@ const App: React.FC = () => {
                 <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)}></div>
                 <div className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
                     <div className="p-8 text-center">
-                        <h2 className="text-2xl font-display font-black italic text-stone-900 mb-2">Select Expedition Mode</h2>
-                        <p className="text-xs text-stone-500 mb-8 uppercase tracking-widest font-bold">How should the agent behave?</p>
+                        <h2 className="text-2xl font-display font-black italic text-stone-900 mb-2">{t('modeSelectTitle')}</h2>
+                        <p className="text-xs text-stone-600 mb-8 uppercase tracking-widest font-bold">{t('modeSelectSubtitle')}</p>
                         
                         <div className="space-y-4">
                             <button 
@@ -802,10 +813,10 @@ const App: React.FC = () => {
                                     <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
                                         <span className="material-symbols-outlined">visibility</span>
                                     </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Observation</h3>
+                                    <h3 className="font-bold text-lg text-stone-900">{t('modeObservationTitle')}</h3>
                                 </div>
                                 <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent acts as a silent observer, providing insights only when significant events occur or when asked.
+                                    {t('modeObservationDesc')}
                                 </p>
                             </button>
 
@@ -822,10 +833,10 @@ const App: React.FC = () => {
                                     <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
                                         <span className="material-symbols-outlined">forum</span>
                                     </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Conversation</h3>
+                                    <h3 className="font-bold text-lg text-stone-900">{t('modeConversationTitle')}</h3>
                                 </div>
                                 <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent is an active companion, engaging in real-time dialogue about your surroundings and findings.
+                                    {t('modeConversationDesc')}
                                 </p>
                             </button>
 
@@ -838,10 +849,10 @@ const App: React.FC = () => {
                                     <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
                                         <span className="material-symbols-outlined">{isProcessingStandaloneUpload ? 'hourglass_top' : 'upload_file'}</span>
                                     </div>
-                                    <h3 className="font-bold text-lg text-stone-900">{isProcessingStandaloneUpload ? 'Analyzing...' : 'Upload'}</h3>
+                                    <h3 className="font-bold text-lg text-stone-900">{isProcessingStandaloneUpload ? t('modeUploadAnalyzing') : t('modeUploadTitle')}</h3>
                                 </div>
                                 <p className="text-xs text-stone-600 leading-relaxed">
-                                    Analyze a photo, video, or sound file from your device — no camera or microphone needed.
+                                    {t('modeUploadDesc')}
                                 </p>
                             </button>
                             <input
@@ -859,9 +870,9 @@ const App: React.FC = () => {
 
                         <button
                             onClick={() => setShowModeSelection(false)}
-                            className="mt-8 text-xs font-bold text-stone-400 uppercase tracking-widest hover:text-stone-600 transition-colors"
+                            className="mt-8 text-xs font-bold text-stone-600 uppercase tracking-widest hover:text-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-theme-accent focus-visible:ring-offset-2 rounded"
                         >
-                            Cancel
+                            {t('modeCancel')}
                         </button>
                     </div>
                 </div>
@@ -949,16 +960,16 @@ const App: React.FC = () => {
       {isDashboardMode && !isDetailActive && (
           <div className="md:hidden absolute bottom-0 left-0 right-0 z-[40] pointer-events-none transition-all duration-300 translate-y-0 opacity-100 animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white border-t border-stone-100">
               <nav className="h-16 flex justify-around items-center px-2 pointer-events-auto max-w-md mx-auto transition-all">
-                <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} aria-label="Feed" aria-current={currentView === AppView.COMMUNITY ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'icon-fill' : ''}`}>home</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} aria-label="My Journal" aria-current={currentView === AppView.JOURNAL ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'icon-fill' : ''}`}>fingerprint</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.LENS)} aria-label="Start new expedition" className="group relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all"><span className="material-symbols-outlined text-2xl font-black">add</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} aria-label={t('navFeed')} aria-current={currentView === AppView.COMMUNITY ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'icon-fill' : ''}`}>home</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} aria-label={t('navJournal')} aria-current={currentView === AppView.JOURNAL ? 'page' : undefined} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'icon-fill' : ''}`}>fingerprint</span></button>
+                <button onClick={() => handleNavigationRequest(AppView.LENS)} aria-label={t('navStartExpedition')} className="group relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all"><span className="material-symbols-outlined text-2xl font-black">add</span></button>
                 <button onClick={() => {
                     if (userMode?.isAnonymous) {
                         setShowGlobalAuthModal(true);
                         return;
                     }
                     setIsNotificationsOpen(true);
-                }} aria-label={`Field alerts${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`} className={`relative flex flex-col items-center gap-1 transition-all duration-300 ${isNotificationsOpen ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}>
+                }} aria-label={`${t('navFieldAlerts')}${notifications.filter(n => !n.isRead).length > 0 ? ' (unread)' : ''}`} className={`relative flex flex-col items-center gap-1 transition-all duration-300 ${isNotificationsOpen ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}>
                     <span className={`material-symbols-outlined text-2xl ${isNotificationsOpen ? 'icon-fill' : ''}`}>favorite</span>
                     {notifications.filter(n => !n.isRead).length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-theme-accent rounded-full"></span>}
                 </button>
