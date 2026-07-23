@@ -43,6 +43,8 @@ import { generateThumbnail, stripImageMetadata } from "../utils";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
+import { resolveCanonicalTaxa } from "./taxonomyService";
+import { encodeGeohash } from "./geohashService";
 
 export enum OperationType {
   CREATE = 'create',
@@ -691,6 +693,14 @@ export const FirebaseService = {
         : primarySnapshot.blob;
       const moderation = await screenPostSafety(safetyCheckBlob);
 
+      // T4: geohash for the species map. Never computed for sensitive
+      // species — those posts simply don't appear on the map, same
+      // protection already applied to their locationArea display.
+      const isSensitiveForMap = snapshots.some(s => s.isSensitiveSpecies);
+      const mapGeohash = (!isSensitiveForMap && primaryItem.rawLocation)
+        ? encodeGeohash(primaryItem.rawLocation.lat, primaryItem.rawLocation.lng)
+        : null;
+
       const postData: any = {
         userId: effectiveUserId,
         userName: userName,
@@ -728,6 +738,7 @@ export const FirebaseService = {
         candidates: primaryItem.candidates || null,
         soundscape: primaryItem.soundscape || null,
         snapshotId: primaryItem.snapshotId,
+        geohash: mapGeohash,
       };
 
       if (synthesizedData) {
@@ -736,7 +747,8 @@ export const FirebaseService = {
       }
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
-      
+      FirebaseService.enrichPostTaxonomy(docRef.id, Array.from(allLabels)).catch(() => {});
+
       const thumbData = {
           id: docRef.id,
           mediaType: primaryItem.mediaType,
@@ -827,6 +839,12 @@ export const FirebaseService = {
         : snapshot.blob;
       const moderation = await screenPostSafety(safetyCheckBlob);
 
+      // T4: geohash for the species map — never computed for sensitive
+      // species (see createSessionObservation's identical rationale above).
+      const mapGeohash = (!snapshot.isSensitiveSpecies && snapshot.rawLocation)
+        ? encodeGeohash(snapshot.rawLocation.lat, snapshot.rawLocation.lng)
+        : null;
+
       const postData: any = {
         userId: effectiveUserId,
         userName: userName,
@@ -865,6 +883,7 @@ export const FirebaseService = {
         candidates: snapshot.candidates || null,
         soundscape: snapshot.soundscape || null,
         snapshotId: snapshot.id,
+        geohash: mapGeohash,
       };
 
       if (snapshot.humanDelta && snapshot.id) {
@@ -872,6 +891,7 @@ export const FirebaseService = {
       }
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
+      FirebaseService.enrichPostTaxonomy(docRef.id, snapshot.labels || []).catch(() => {});
 
       const thumbData = {
           id: docRef.id,
@@ -1537,6 +1557,49 @@ export const FirebaseService = {
     const posts: CommunityPost[] = [];
     snapshot.forEach(doc => {
       posts.push({ id: doc.id, ...doc.data() } as CommunityPost);
+    });
+    return posts;
+  },
+
+  // T3: taxonomy backbone. Best-effort, fire-and-forget enrichment run
+  // right after a post is created — resolves its freeform labels against
+  // GBIF's public taxonomic backbone and writes the result back onto the
+  // same post. Never blocks or fails post creation: a resolution failure
+  // (network error, no match) just means canonicalTaxa stays unset for
+  // that post, same as it always was before this feature existed.
+  enrichPostTaxonomy: async (postId: string, labels: string[]): Promise<void> => {
+    try {
+      const canonicalTaxa = await resolveCanonicalTaxa(labels);
+      if (canonicalTaxa.length > 0) {
+        await updateDoc(doc(db, "ecosystem_feed", postId), { canonicalTaxa });
+      }
+    } catch (e) {
+      console.warn("Failed to enrich post taxonomy:", e);
+    }
+  },
+
+  // T4: species map data source. Reuses the existing (isPublic ASC,
+  // timestamp DESC) composite index already built for the main feed — no
+  // new index needed — then filters client-side for posts that actually
+  // carry a geohash (sensitive-species posts never get one, see
+  // createObservation/createSessionObservation above). This reads directly
+  // from ecosystem_feed rather than the feed_thumbnails cache: the map is
+  // a secondary, lower-traffic surface, so it doesn't need the same
+  // read-optimization the main feed does.
+  getMappableObservations: async (limitCount = 500): Promise<CommunityPost[]> => {
+    const q = query(
+      collection(db, "ecosystem_feed"),
+      where("isPublic", "==", true),
+      orderBy("timestamp", "desc"),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    const posts: CommunityPost[] = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.geohash && data.rawLocation) {
+        posts.push({ id: doc.id, ...data } as CommunityPost);
+      }
     });
     return posts;
   },

@@ -1605,6 +1605,29 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
 
+                                                {activePost.canonicalTaxa && activePost.canonicalTaxa.length > 0 && (
+                                                    <div className="space-y-2">
+                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Canonical Taxonomy (GBIF)</p>
+                                                        <div className="space-y-1.5">
+                                                            {activePost.canonicalTaxa.map((taxon, i) => (
+                                                                <a
+                                                                    key={i}
+                                                                    href={`https://www.gbif.org/species/${taxon.gbifKey}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="flex items-center justify-between px-3 py-2 bg-theme-primary/5 rounded-lg hover:bg-theme-primary/10 transition-colors"
+                                                                >
+                                                                    <div className="min-w-0">
+                                                                        <span className="text-[11px] font-bold italic text-theme-primary">{taxon.scientificName}</span>
+                                                                        <p className="text-[9px] text-theme-primary/40 mt-0.5 truncate">{[taxon.family, taxon.order, taxon.class].filter(Boolean).join(' · ')}</p>
+                                                                    </div>
+                                                                    {taxon.rank && <span className="text-[8px] font-black uppercase tracking-widest text-theme-primary/40 shrink-0 ml-2">{taxon.rank}</span>}
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 {(activePost.verificationState === 'confirmed' || activePost.verificationState === 'disputed') && (
                                                     <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${activePost.verificationState === 'confirmed' ? 'bg-emerald-500/10 text-emerald-700' : 'bg-amber-500/10 text-amber-700'}`}>
                                                         <span className="material-symbols-outlined text-[14px]">{activePost.verificationState === 'confirmed' ? 'verified' : 'help'}</span>

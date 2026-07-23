@@ -6,13 +6,14 @@
 
 import https from 'https';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
 import { rateLimit } from 'express-rate-limit';
 import { parse } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { verifyRequestToken } from '../lib/auth.js';
 import {
-  activeConnections,
-  MAX_CONCURRENT_LIVE_SESSIONS,
+  tryReserveConnection,
+  releaseConnection,
   tryConsumeDailyLiveSession,
 } from '../lib/liveQuota.js';
 
@@ -149,27 +150,26 @@ export function registerGeminiProxyRoutes(app, server, { apiKey, projectId }) {
         }
 
         // Abuse/cost controls: cap concurrent and per-day Live sessions.
-        // Checked before handleUpgrade so a rejected request never reaches
-        // Gemini and never counts against activeConnections.
-        const existingConns = activeConnections.get(uid);
-        if (existingConns && existingConns.size >= MAX_CONCURRENT_LIVE_SESSIONS) {
+        // Checked (and, for concurrency, atomically reserved) before
+        // handleUpgrade so a rejected request never reaches Gemini. Both
+        // checks are now Firestore-backed (see liveQuota.js) so they hold
+        // correctly across multiple server replicas, not just within one.
+        const connectionId = randomUUID();
+        if (!(await tryReserveConnection(uid, connectionId))) {
            console.warn('[Proxy] Concurrent Live session limit reached for user', uid);
            socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
            socket.destroy();
            return;
         }
-        if (!tryConsumeDailyLiveSession(uid)) {
+        if (!(await tryConsumeDailyLiveSession(uid))) {
            console.warn('[Proxy] Daily Live session limit reached for user', uid);
            socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
            socket.destroy();
+           releaseConnection(uid, connectionId).catch(() => {});
            return;
         }
 
         wss.handleUpgrade(req, socket, head, (clientWs) => {
-
-          const userActiveConns = activeConnections.get(uid) || new Set();
-          userActiveConns.add(clientWs);
-          activeConnections.set(uid, userActiveConns);
 
           // 3 minutes session timeout
           const sessionTimeout = setTimeout(() => {
@@ -179,10 +179,7 @@ export function registerGeminiProxyRoutes(app, server, { apiKey, projectId }) {
 
           clientWs.on('close', () => {
               clearTimeout(sessionTimeout);
-              userActiveConns.delete(clientWs);
-              if (userActiveConns.size === 0) {
-                  activeConnections.delete(uid);
-              }
+              releaseConnection(uid, connectionId).catch(() => {});
           });
 
           if (!apiKey) {

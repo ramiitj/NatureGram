@@ -8,6 +8,7 @@ import PostSessionView from './components/PostSessionView.tsx';
 import UserProfile from './components/UserProfile.tsx';
 import DraftsTray from './components/DraftsTray.tsx';
 import SharedPostView from './components/SharedPostView.tsx';
+import SpeciesMap from './components/SpeciesMap.tsx';
 import AuthModal from './components/AuthModal.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
@@ -28,6 +29,7 @@ const getInitialView = () => {
   if (p.startsWith('/admin')) return AppView.ADMIN;
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
   if (p.startsWith('/lens')) return AppView.LENS;
+  if (p.startsWith('/map')) return AppView.MAP;
   return AppView.COMMUNITY; // fallback
 };
 
@@ -47,7 +49,8 @@ const App: React.FC = () => {
       [AppView.DRAFTS]: '/drafts',
       [AppView.LENS]: '/lens',
       [AppView.POST_SESSION]: '/post-session',
-      [AppView.SHARED_POST]: '/shared-post'
+      [AppView.SHARED_POST]: '/shared-post',
+      [AppView.MAP]: '/map'
     };
     
     if (currentView !== AppView.SHARED_POST) {
@@ -75,6 +78,7 @@ const App: React.FC = () => {
       else if (p.startsWith('/admin')) setCurrentView(AppView.ADMIN);
       else if (p.startsWith('/drafts')) setCurrentView(AppView.DRAFTS);
       else if (p.startsWith('/lens')) setCurrentView(AppView.LENS);
+      else if (p.startsWith('/map')) setCurrentView(AppView.MAP);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -631,6 +635,7 @@ const App: React.FC = () => {
               {[
                   { view: AppView.COMMUNITY, icon: 'home', label: 'Feed' },
                   { view: AppView.JOURNAL, icon: 'fingerprint', label: 'My Journal' },
+                  { view: AppView.MAP, icon: 'map', label: 'Species Map' },
               ].map(({ view, icon, label }) => (
                   <button
                       key={view}
@@ -897,6 +902,16 @@ const App: React.FC = () => {
         )}
 
         {currentView === AppView.ADMIN && <AdminConsole onBack={() => setCurrentView(AppView.USER_PROFILE)} />}
+
+        {currentView === AppView.MAP && (
+            <SpeciesMap
+                onBack={() => setCurrentView(AppView.COMMUNITY)}
+                onSelectPost={(postId) => {
+                    setSelectedPostId(postId);
+                    setCurrentView(AppView.COMMUNITY);
+                }}
+            />
+        )}
         
         <AnimatePresence>
         {currentView === AppView.POST_SESSION && userMode && (

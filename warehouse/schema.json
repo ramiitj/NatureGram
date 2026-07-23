@@ -1,0 +1,41 @@
+[
+  { "name": "observation_id", "type": "STRING", "mode": "REQUIRED" },
+  { "name": "media_type", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "labels", "type": "STRING", "mode": "REPEATED" },
+  {
+    "name": "canonical_taxa",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "gbif_key", "type": "INTEGER", "mode": "NULLABLE" },
+      { "name": "scientific_name", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "canonical_name", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "rank", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "kingdom", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "phylum", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "class_name", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "order_name", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "family", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "genus", "type": "STRING", "mode": "NULLABLE" }
+    ]
+  },
+  { "name": "confidence", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "verification_state", "type": "STRING", "mode": "NULLABLE" },
+  {
+    "name": "soundscape",
+    "type": "RECORD",
+    "mode": "REPEATED",
+    "fields": [
+      { "name": "label", "type": "STRING", "mode": "NULLABLE" },
+      { "name": "start_sec", "type": "FLOAT", "mode": "NULLABLE" },
+      { "name": "end_sec", "type": "FLOAT", "mode": "NULLABLE" },
+      { "name": "confidence", "type": "STRING", "mode": "NULLABLE" }
+    ]
+  },
+  { "name": "geohash", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "lat", "type": "FLOAT", "mode": "NULLABLE" },
+  { "name": "lng", "type": "FLOAT", "mode": "NULLABLE" },
+  { "name": "location_area", "type": "STRING", "mode": "NULLABLE" },
+  { "name": "is_sensitive_species", "type": "BOOLEAN", "mode": "NULLABLE" },
+  { "name": "observed_at", "type": "TIMESTAMP", "mode": "NULLABLE" }
+]

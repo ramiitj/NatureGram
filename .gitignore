@@ -25,6 +25,9 @@ evals/results/
 evals/fixtures/custom/*
 !evals/fixtures/custom/.gitkeep
 
+# Warehouse export — generated NDJSON files (see warehouse/README.md)
+warehouse/exports/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -43,6 +43,20 @@ test('community feed view (/feed) loads without an uncaught page error', async (
   expect(pageErrors, `Uncaught page errors: ${pageErrors.map(e => e.message).join('; ')}`).toEqual([]);
 });
 
+test('species map view (/map) loads without an uncaught page error', async ({ page }) => {
+  // Exercises components/SpeciesMap.tsx directly. Tolerant of the
+  // Firestore read failing/timing out against a live backend from this
+  // environment — the point is confirming Leaflet initializes and the
+  // component doesn't crash on mount, not that pins actually load.
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (err) => pageErrors.push(err));
+
+  await page.goto('/map');
+
+  await expect(page.getByRole('heading', { name: 'Species Map', exact: true })).toBeVisible();
+  expect(pageErrors, `Uncaught page errors: ${pageErrors.map(e => e.message).join('; ')}`).toEqual([]);
+});
+
 test('share route responds for a non-existent post without crashing the server', async ({ request }) => {
   // Exercises server/server.js's /s/:postId route (crawler-preview branch is
   // gated on User-Agent, so a plain request here takes the human-redirect

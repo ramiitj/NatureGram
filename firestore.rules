@@ -188,5 +188,17 @@ service cloud.firestore {
       allow create: if isSignedIn() && incoming().uid == request.auth.uid;
       allow update, delete: if false;
     }
+
+    // 13. Live session quota/concurrency state (see T1, server/lib/
+    // liveQuota.js). Written exclusively by the server's Admin SDK, which
+    // bypasses these rules entirely — this block is defense-in-depth
+    // documentation, not the actual enforcement: no client should ever be
+    // able to read or write its own quota bookkeeping directly.
+    match /live_quota/{uid} {
+      allow read, write: if false;
+    }
+    match /live_connections/{uid} {
+      allow read, write: if false;
+    }
   }
 }

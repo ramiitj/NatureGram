@@ -10,9 +10,11 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "eval": "tsx evals/runner.ts"
+    "eval": "tsx evals/runner.ts",
+    "export:warehouse": "tsx warehouse/export.ts"
   },
   "dependencies": {
+    "@google-cloud/bigquery": "^8.3.1",
     "@google/genai": "^1.39.0",
     "@sentry/node": "^10.67.0",
     "@sentry/react": "^10.67.0",
@@ -23,6 +25,7 @@
     "firebase": "^12.8.0",
     "firebase-admin": "^14.1.0",
     "http-proxy": "^1.18.1",
+    "leaflet": "^1.9.4",
     "motion": "^12.36.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -30,6 +33,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^22.14.0",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",

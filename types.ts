@@ -37,6 +37,27 @@ export interface SoundscapeEvent {
   confidence?: string;
 }
 
+// A freeform AI-proposed label resolved against GBIF's public taxonomic
+// backbone into a canonical, cross-referenceable species identity (see T3:
+// "canonical species IDs + hierarchy instead of freeform strings"). This is
+// best-effort enrichment computed after publish (see enrichPostTaxonomy in
+// firebaseService.ts) — a post is never blocked on it, and a label with no
+// confident GBIF match just never gets an entry here.
+export interface TaxonResolution {
+  matchedLabel: string;
+  gbifKey: number;
+  scientificName: string;
+  canonicalName: string;
+  rank?: string;
+  kingdom?: string;
+  phylum?: string;
+  class?: string;
+  order?: string;
+  family?: string;
+  genus?: string;
+  taxonomicStatus?: string;
+}
+
 export interface FieldNotification {
   id: string;
   type: 'like' | 'comment' | 'sighting' | 'system';
@@ -154,7 +175,8 @@ export enum AppView {
   JOURNAL = 'JOURNAL',
   USER_PROFILE = 'USER_PROFILE',
   DRAFTS = 'DRAFTS',
-  SHARED_POST = 'SHARED_POST'
+  SHARED_POST = 'SHARED_POST',
+  MAP = 'MAP'
 }
 
 export interface GeminiConfig {
@@ -249,6 +271,12 @@ export interface CommunityPost extends FeedThumbnail {
   confirmedBy?: string[];
   disputes?: { uid: string; suggestedLabel: string; reason?: string; timestamp: any }[];
   snapshotId?: string;
+  canonicalTaxa?: TaxonResolution[];
+  // Geohash of rawLocation, computed at post-creation time (see T4) —
+  // never set for sensitive-species posts, so they simply don't appear on
+  // the species map, consistent with the "Location Withheld" display
+  // policy already applied elsewhere for those posts.
+  geohash?: string;
 }
 
 export interface Comment {
