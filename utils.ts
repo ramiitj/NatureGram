@@ -100,3 +100,11 @@ export const looksLikeSpam = (text: string): boolean => {
   const hits = words.filter(w => PROMO_WORDS.has(w)).length;
   return words.length <= 8 && hits >= 1 && hits * 2 >= words.length;
 };
+
+/** True when the explorer has asked to save data, or the connection is very slow. */
+export const isDataSaver = (): boolean => {
+  try {
+    const c: any = (navigator as any).connection;
+    return !!c && (c.saveData === true || /(^|-)2g$/.test(String(c.effectiveType || '')));
+  } catch { return false; }
+};

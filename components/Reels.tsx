@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode } from '../types';
-import { likeTotal } from '../utils';
+import { likeTotal, isDataSaver } from '../utils';
 import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
 import { WonderBurst, WonderIcon, wonderLabel } from './Wonder';
@@ -48,7 +48,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
 
   // Resolve the playable URL for the active moment and its neighbours
   useEffect(() => {
-    [activeIdx, activeIdx + 1, activeIdx + 2].forEach(i => {
+    // On slow connections, fetch only the moment on screen
+    (isDataSaver() ? [activeIdx] : [activeIdx, activeIdx + 1, activeIdx + 2]).forEach(i => {
       const p = items[i];
       if (!p || videoUrls[p.id]) return;
       const direct = (p as any).videoUrl as string | undefined;
@@ -141,7 +142,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
                 <div className="absolute inset-0 flex items-center justify-center" onClick={(e) => onTap(e, p)}>
                   {near && src ? (
-                    <video data-idx={idx} src={src} poster={p.thumbnailUrl || undefined} muted={muted} loop playsInline preload={idx === activeIdx ? 'auto' : 'metadata'} controlsList="nodownload" onContextMenu={e => e.preventDefault()} className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))]" />
+                    <video data-idx={idx} src={src} poster={p.thumbnailUrl || undefined} muted={muted} loop playsInline preload={idx === activeIdx ? 'auto' : isDataSaver() ? 'none' : 'metadata'} controlsList="nodownload" onContextMenu={e => e.preventDefault()} className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))]" />
                   ) : p.thumbnailUrl ? (
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}

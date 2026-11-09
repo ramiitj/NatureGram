@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { apiUrl } from './apiOrigin';
 import { auth } from "../firebaseConfig";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
@@ -72,7 +71,32 @@ export const getApiKey = async (): Promise<string> => {
   return "PROXY";
 };
 
-const client = async () => new GoogleGenAI({ apiKey: await getApiKey(), httpOptions: { baseUrl: apiUrl('/api-proxy') } });
+// Schema shapes are kept for readability; the server applies its own schema to every task.
+const Type = { OBJECT: 'OBJECT', ARRAY: 'ARRAY', STRING: 'STRING', NUMBER: 'NUMBER', BOOLEAN: 'BOOLEAN' } as const;
+
+/**
+ * A few lines of fetch instead of the full Gemini SDK (about 280 KB), so the feed loads fast on
+ * slow connections. The server decides prompts, models and limits; the app only names the task.
+ */
+const client = async () => {
+  const token = await getApiKey();
+  return {
+    models: {
+      generateContent: async ({ model, contents }: { model: string; contents: string | { parts: any[] }; config?: unknown }) => {
+        const parts = typeof contents === 'string' ? [{ text: contents }] : contents.parts;
+        const res = await fetch(apiUrl(`/api-proxy/v1beta/models/${encodeURIComponent(model)}:generateContent`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
+        });
+        const json: any = await res.json().catch(() => ({}));
+        if (!res.ok) throw Object.assign(new Error(json?.error?.message || `Request failed (${res.status})`), { status: res.status });
+        const text = (json?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || '').join('');
+        return { text };
+      },
+    },
+  };
+};
 
 const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();

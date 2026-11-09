@@ -24,6 +24,7 @@ import {
   writeBatch,
   deleteField,
   collectionGroup,
+  Timestamp,
 } from "firebase/firestore";
 import {
   ref,
@@ -51,7 +52,7 @@ import { SYSTEM_INSTRUCTION } from "../constants/prompts";
 import { generateThumbnail, reencodeImage } from "../utils";
 
 export const AI_CLIENT_POLICY_VERSION = "2026.11-1";
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 18;
 const SEED_AUTHORS = ['Jane Goodall', 'Dian Fossey', 'Charles Darwin', 'David Attenborough', 'Jacques-Yves Cousteau'];
 /** Legacy demo posts attributed to real naturalists: never shown as genuine observations. */
 const isSeedPost = (id: string, data: any) => id.startsWith('seed_') || String(data?.userId || '').startsWith('system_seeder_') || SEED_AUTHORS.includes(data?.userName);
@@ -826,6 +827,23 @@ export const FirebaseService = {
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null, pageSize: number = PAGE_SIZE): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
+      // First page: plain JSON from the server (often already fetched by a preload in index.html)
+      if (!lastVisible && !searchTag) {
+          try {
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 4000);
+              const res = await fetch(apiUrl('/api/feed/first'), { signal: ctrl.signal });
+              clearTimeout(t);
+              if (res.ok) {
+                  const j = await res.json();
+                  if (Array.isArray(j.posts) && j.posts.length) {
+                      const posts = j.posts.filter((p: any) => !isSeedPost(p.id, p)).map((p: any) => ({ ...p, timestamp: Timestamp.fromMillis(p.ts || 0) })) as CommunityPost[];
+                      const last = j.posts[j.posts.length - 1];
+                      return { posts, lastVisible: j.more ? Timestamp.fromMillis(last.ts || 0) : null };
+                  }
+              }
+          } catch { /* fall back to the database */ }
+      }
       const normalizedTag = searchTag
           ? (searchTag.startsWith('#') ? searchTag : `#${searchTag}`).toLowerCase().replace(/\s+/g, '')
           : null;

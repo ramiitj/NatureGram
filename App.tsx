@@ -8,7 +8,6 @@ import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
-import { AnimatePresence } from 'motion/react';
 import { hapticFeedback, timeAgo } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
@@ -831,7 +830,6 @@ const App: React.FC = () => {
           </Suspense>
         )}
 
-        <AnimatePresence>
           {currentView === AppView.POST_SESSION && userMode && (
             <Suspense fallback={<ViewLoader />}>
               <ErrorBoundary label="review" onReset={() => setCurrentView(AppView.COMMUNITY)}>
@@ -853,7 +851,6 @@ const App: React.FC = () => {
               </ErrorBoundary>
             </Suspense>
           )}
-        </AnimatePresence>
 
         {authModal && (
           <AuthModal

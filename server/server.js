@@ -601,6 +601,33 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     proxyReq.end(payload);
   });
 
+  // First page of the feed as plain JSON: arrives before the database SDK has even started,
+  // and is shared by everyone for a few seconds (fast on slow connections, cheap to serve).
+  let firstPage = { at: 0, body: null };
+  app.get('/api/feed/first', async (req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=30, stale-while-revalidate=120');
+    if (firstPage.body && Date.now() - firstPage.at < 20_000) return res.type('json').send(firstPage.body);
+    if (!firestoreDb) return res.status(503).json({ posts: [] });
+    try {
+      const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
+      const posts = snap.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id, mediaType: x.mediaType || 'image', thumbnailUrl: x.thumbnailUrl || '', thumbSmallUrl: x.thumbSmallUrl || null, videoUrl: x.videoUrl || null,
+          title: x.title || null, caption: x.caption || null, userId: x.userId, userName: x.userName || null, userAvatar: x.userAvatar || null,
+          likes: x.likes || [], likeCount: x.likeCount || 0, commentCount: x.commentCount || 0, isPublic: true, tags: x.tags || [], labels: x.labels || [],
+          behavior: x.behavior || '', aiInsight: x.aiInsight || null, locationArea: x.locationArea || '', isHybrid: !!x.isHybrid, curatorNote: null,
+          ts: x.timestamp?.toMillis?.() || 0,
+        };
+      });
+      firstPage = { at: Date.now(), body: JSON.stringify({ posts, more: snap.size === 12 }) };
+      res.type('json').send(firstPage.body);
+    } catch (e) {
+      log('warn', 'first page failed', { error: String(e.message).slice(0, 120) });
+      res.status(503).json({ posts: [] });
+    }
+  });
+
   // What an explorer has left today (shown in the app)
   app.get('/api/me/allowance', async (req, res) => {
     let user;

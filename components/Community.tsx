@@ -8,16 +8,14 @@ import { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
-import { GenAiService } from '../services/genAiService';
 import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
-import ShareStudio from './ShareStudio';
-import PublisherStudio from './PublisherStudio';
+const ShareStudio = React.lazy(() => import('./ShareStudio'));
+const PublisherStudio = React.lazy(() => import('./PublisherStudio'));
 import MediaEditor from './MediaEditor';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
-import { AnimatePresence, motion } from 'motion/react';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
 
@@ -626,6 +624,8 @@ const Community: React.FC<CommunityProps> = ({
   const [lastTap, setLastTap] = useState<number>(0);
   const [wonderBurst, setWonderBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetDrag = useRef<{ y: number; t: number; on: boolean }>({ y: 0, t: 0, on: false });
   
   // Advanced Species Intelligence
   const [selectedSpecies, setSelectedSpecies] = useState<{name: string, location: string, id: string} | null>(null);
@@ -728,11 +728,13 @@ const Community: React.FC<CommunityProps> = ({
     if (curatedForRef.current === key) return;
     curatedForRef.current = key;
     const firstPage = posts.slice(0, 15);
-    GenAiService.curateAgenticFeed(userPersona, firstPage).then(curated => {
-      setPosts(prev => {
-        const ids = new Set(curated.map(p => p.id));
-        return [...curated, ...prev.filter(p => !ids.has(p.id))];
-      });
+    // Curator notes are added in place: the feed never reshuffles under the explorer's thumb
+    import('../services/genAiService').then(({ GenAiService }) => GenAiService.curateAgenticFeed(userPersona, firstPage)).then(curated => {
+      const byId = new Map(curated.map(p => [p.id, p]));
+      setPosts(prev => prev.map(p => {
+        const c: any = byId.get(p.id);
+        return c && c.curatorNote ? { ...p, curatorNote: c.curatorNote } as any : p;
+      }));
     }).catch(() => {});
   }, [userPersona, posts, isJournalOnly, feedMode, searchTag]);
 
@@ -1734,16 +1736,12 @@ const Community: React.FC<CommunityProps> = ({
             )}
         </div>
 
-        <AnimatePresence>
+        <>
         {activePost && (
-            <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.2 }}
+            <div 
                 onTouchStart={handleSwipeTouchStart}
                 onTouchEnd={handleSwipeTouchEnd}
-                className="fixed inset-0 z-[150] bg-white md:bg-theme-shadow flex flex-col h-full w-full overflow-hidden"
+                className="animate-in fade-in slide-in-from-bottom-4 duration-200 fixed inset-0 z-[150] bg-white md:bg-theme-shadow flex flex-col h-full w-full overflow-hidden"
             >
                 <header className="h-16 px-3 flex items-center justify-between bg-white border-b border-theme-primary/10 shrink-0 z-[160] shadow-sm safe-pt box-content">
                     <button onClick={closeDetail} aria-label={`Back to ${isJournalOnly ? 'journal' : (searchTag ? 'search' : backLabel.toLowerCase())}`} className="flex items-center gap-2 transition-all active:scale-95 h-11 pr-3 rounded-full">
@@ -1798,14 +1796,10 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                 </header>
 
-                <motion.div 
+                <div 
                     key={activePost.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.25 }}
                     ref={mainScrollRef}
-                    className="flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row overflow-hidden bg-white w-full h-full"
+                    className="animate-in fade-in slide-in-from-right-4 duration-200 flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row overflow-hidden bg-white w-full h-full"
                 >
                     {(() => {
                         const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
@@ -2017,34 +2011,23 @@ const Community: React.FC<CommunityProps> = ({
                             </>
                         );
                     })()}
-                </motion.div>
+                </div>
     
-    <AnimatePresence>
+    <>
         {isCommentsOpen && (
             <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 bg-black/60 backdrop-blur-sm font-body">
-                <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0" 
+                <div 
+                    className="absolute inset-0 animate-in fade-in duration-200" 
                     onClick={() => setIsCommentsOpen(false)}
                 />
-                <motion.div 
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    drag="y"
-                    dragConstraints={{ top: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(e, { offset, velocity }) => {
-                        if (offset.y > 100 || velocity.y > 500) {
-                            setIsCommentsOpen(false);
-                        }
-                    }}
-                    className="w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
+                <div 
+                    ref={sheetRef}
+                    onTouchStart={(e) => { sheetDrag.current = { y: e.touches[0].clientY, t: Date.now(), on: !!(e.target as HTMLElement).closest('[data-sheet-handle]') }; }}
+                    onTouchMove={(e) => { const d = e.touches[0].clientY - sheetDrag.current.y; if (sheetDrag.current.on && d > 0 && sheetRef.current) sheetRef.current.style.transform = `translateY(${d}px)`; }}
+                    onTouchEnd={(e) => { if (!sheetDrag.current.on) return; const d = e.changedTouches[0].clientY - sheetDrag.current.y; const v = d / Math.max(1, Date.now() - sheetDrag.current.t); if (sheetRef.current) sheetRef.current.style.transform = ''; if (d > 100 || v > 0.5) setIsCommentsOpen(false); }}
+                    className="animate-in slide-in-from-bottom duration-300 transition-transform w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
                 >
-                    <div className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
+                    <div data-sheet-handle className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
                         <div className="w-12 h-1.5 bg-theme-primary/30 rounded-full"></div>
                     </div>
                     
@@ -2101,24 +2084,24 @@ const Community: React.FC<CommunityProps> = ({
                             </button>
                         </form>
                     </div>
-                </motion.div>
+                </div>
             </div>
         )}
-    </AnimatePresence>
+    </>
 
-    <AnimatePresence>
-        {sharingPost && <ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} />}
-    </AnimatePresence>
+    <>
+        {sharingPost && <React.Suspense fallback={null}><ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} /></React.Suspense>}
+    </>
 
-    <AnimatePresence>
+    <>
         {publishingPost && (
-            <PublisherStudio 
+            <React.Suspense fallback={null}><PublisherStudio 
                 post={publishingPost} 
                 activeItemIndex={activeItemIndex} 
                 onClose={() => setPublishingPost(null)} 
-            />
+            /></React.Suspense>
         )}
-    </AnimatePresence>
+    </>
                 {isEditing && activePost && (() => {
                     const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
                     return (
@@ -2131,9 +2114,9 @@ const Community: React.FC<CommunityProps> = ({
                         />
                     );
                 })()}
-            </motion.div>
+            </div>
         )}
-        </AnimatePresence>
+        </>
 
         {reportOpen && activePost && (
             <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
