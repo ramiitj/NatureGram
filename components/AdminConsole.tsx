@@ -445,7 +445,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
         <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-theme-accent">psychology</span>
             <div>
-              <h1 className="text-xl font-bold font-display italic tracking-tight text-theme-primary">Admin & Research Console</h1>
+              <h1 className="text-xl font-semibold font-display text-theme-primary">Admin & Research Console</h1>
               <p className="text-[10px] text-theme-primary/50 font-mono">DeepMind Multimodal Data & Ethology Hub</p>
             </div>
         </div>
@@ -523,7 +523,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                 <div className="max-w-6xl mx-auto flex flex-col gap-8">
                     <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
                         <div>
-                            <h2 className="text-theme-primary text-2xl font-black tracking-tight flex items-center gap-2 font-display italic">
+                            <h2 className="text-theme-primary text-2xl font-semibold flex items-center gap-2 font-display">
                                 <span className="material-symbols-outlined text-theme-accent">monitoring</span>
                                 Platform Activity Analytics
                             </h2>
@@ -670,7 +670,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                             </h3>
                             <div className="flex-1 overflow-y-auto space-y-4 pr-1 no-scrollbar flex flex-col">
                                 {allPosts.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 italic text-sm font-display tracking-wide">
+                                    <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 text-sm font-display tracking-wide">
                                         No observations captured on the field yet.
                                     </div>
                                 ) : (
@@ -744,7 +744,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
                                 DeepMind & AI Research Engine
                             </div>
-                            <h2 className="text-3xl font-bold font-display italic tracking-tight">Ethology & Biodiversity AI Dataset Exporter</h2>
+                            <h2 className="text-3xl font-semibold font-display">Ethology & Biodiversity AI Dataset Exporter</h2>
                             <p className="text-stone-300 text-xs mt-2 max-w-2xl leading-relaxed">
                                 Formatted multimodal export pipeline for training foundation nature models (e.g. Gemini, DeepMind Bioacoustics, Computer Vision). Includes species taxonomy, behavioral ethograms, human-in-the-loop correction deltas, and spatial-temporal telemetry.
                             </p>
@@ -987,7 +987,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
             {/* MODERATION TAB */}
             {activeTab === 'moderation' && (
                 <div className="max-w-5xl mx-auto">
-                    <h2 className="text-theme-primary text-2xl font-bold mb-6 font-display">Reported Content Queue</h2>
+                    <h2 className="text-theme-primary text-2xl font-semibold mb-6 font-display">Reported Content Queue</h2>
                     
                     {reportedPosts.length === 0 ? (
                         <div className="text-center py-20 text-theme-primary/50 italic">

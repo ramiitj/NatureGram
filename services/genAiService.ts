@@ -15,7 +15,7 @@ import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from ".
  *    so models can be changed or rolled back without shipping a new client.
  */
 
-export const AI_PROMPT_VERSION = 'identify-2026.11-1';
+export const AI_PROMPT_VERSION = 'identify-2026.11-2';
 const MODEL_IDENTIFY = 'ng-identify';
 const MODEL_SYNTHESIZE = 'ng-synthesize';
 const MAX_INLINE_BYTES = 18 * 1024 * 1024;
@@ -116,7 +116,7 @@ Rules:
 2. For each organism, give "evidence": the specific visible or audible field marks you used (for example "red wattles, metallic blue neck, ocellated train").
 3. Confidence: "high" means diagnostic features are clearly visible or audible. "medium" means likely but look-alikes are possible. "low" means poor view, partial subject or many look-alikes. Overall confidence is that of the primary organism.
 4. Do not infer or state a location from the media. Do not describe people. If people are visible, set peopleVisible=true.
-5. "ecologic": 2–4 sentences on behaviour and ecology, written as observation then interpretation. Say "likely" or "possibly" when interpreting behaviour. Do not mention that this is a photo, video or recording.
+5. "ecologic": 2–3 short sentences on behaviour and ecology, written as observation then interpretation, the way a good field guide talks to a curious walker. Lead with the most surprising true thing. Plain words: no jargon such as "anthropogenic", "conspecifics", "microhabitat" or "vegetative"; if a technical term is essential, explain it in the same sentence. Say "likely" or "possibly" when interpreting behaviour. Do not mention that this is a photo, video or recording.
 6. Safety flags: fungi=true for any fungus. dangerous=true for venomous, toxic or dangerous organisms. sensitiveSpecies=true for threatened (IUCN VU/EN/CR), heavily poached or nesting-sensitive species whose exact location should not be shared. isNatureSubject=false if there is no natural subject (for example a screenshot, document or indoor object).
 7. safetyNote: one short sentence when fungi, dangerous or sensitiveSpecies is true (for example "Never eat wild mushrooms based on this ID."), otherwise "".
 8. needsExpertReview=true when confidence is low, when look-alikes are dangerous (for example toxic fungi or venomous snakes), or when the species is rare for typical observations.

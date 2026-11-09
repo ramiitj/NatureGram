@@ -38,7 +38,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
     <div className="flex-1 flex flex-col bg-day-bg min-h-0">
       <header className="h-14 px-2 flex items-center gap-2 border-b border-theme-primary/10 shrink-0 safe-pt box-content">
         <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <h1 className="flex-1 text-xl font-display italic font-bold text-theme-primary">Letters</h1>
+        <h1 className="flex-1 text-xl font-display font-semibold text-theme-primary">Letters</h1>
         <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-theme-primary/5 text-theme-primary"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
@@ -47,7 +47,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
         ) : convos.length === 0 ? (
           <div className="text-center py-20 px-8 text-stone-500">
             <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">mail</span>
-            <p className="font-display italic text-xl text-stone-800">No letters yet</p>
+            <p className="font-display text-xl text-stone-800">No letters yet</p>
             <p className="text-sm mt-1 max-w-xs mx-auto">Write to an explorer: ask what they saw, where to look, or plan a walk together.</p>
             <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-theme-primary text-white font-bold text-sm">Write a letter</button>
           </div>
@@ -129,11 +129,11 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           const mine = m.senderId === me;
           return (
             <React.Fragment key={m.id}>
-              {showTime && m.createdAt && <p className="text-center text-xs text-stone-500 font-display italic py-2">{timeAgo(m.createdAt)}</p>}
+              {showTime && m.createdAt && <p className="text-center text-xs text-stone-500 font-display py-2">{timeAgo(m.createdAt)}</p>}
               <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[80%] rounded-xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-words border ${mine ? 'bg-insight-bg border-theme-accent/25 text-stone-900' : 'bg-white border-theme-primary/10 text-stone-900'}`}>
                   {m.postId && (
-                    <button onClick={() => onOpenPost(m.postId!)} className="flex items-center gap-1.5 mb-1.5 text-sm font-display italic font-semibold text-theme-accent hover:underline"><span className="material-symbols-outlined text-[16px]" aria-hidden="true">park</span>Open the sighting</button>
+                    <button onClick={() => onOpenPost(m.postId!)} className="flex items-center gap-1.5 mb-1.5 text-sm font-display font-semibold text-theme-accent hover:underline"><span className="material-symbols-outlined text-[16px]" aria-hidden="true">park</span>Open the sighting</button>
                   )}
                   {m.text}
                 </div>
@@ -172,7 +172,7 @@ const NewChatSheet: React.FC<{ onClose: () => void; onPick: (uid: string) => voi
     <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Write a letter">
       <div className="w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 max-h-[80dvh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-display italic font-bold text-theme-primary">Write a letter</h2>
+          <h2 className="text-xl font-display font-semibold text-theme-primary">Write a letter</h2>
           <button onClick={onClose} aria-label="Close" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
         </div>
         <label className="block">

@@ -145,7 +145,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-emerald-700 text-2xl">campaign</span>
             <div>
-              <h3 className="text-sm font-black font-display text-stone-900 tracking-tight uppercase">Publisher Studio</h3>
+              <h3 className="text-sm font-semibold font-display text-stone-900 uppercase">Publisher Studio</h3>
               <p className="text-xs text-stone-500 font-medium tracking-wide">Optimize speciman for social distribution</p>
             </div>
           </div>

@@ -21,6 +21,16 @@ import { AnimatePresence, motion } from 'motion/react';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
 
+/** Tags worth showing a reader: not the app's own (#fieldguide, #naturegram) and not the species name already in the title. */
+const SYSTEM_TAGS = new Set(['fieldguide', 'naturegram', 'nature', 'wildlife']);
+const visibleTags = (post: CommunityPost): string[] => {
+    const species = (post.labels?.[0] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return (post.tags || []).filter(t => {
+        const k = t.replace(/^#/, '').toLowerCase();
+        return k && !SYSTEM_TAGS.has(k) && k.replace(/[^a-z0-9]/g, '') !== species;
+    });
+};
+
 const FeedCard: React.FC<{
     post: CommunityPost;
     onPostClick: (post: CommunityPost) => void;
@@ -29,7 +39,7 @@ const FeedCard: React.FC<{
 }> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
     const hasThumb = !!(post.thumbnailUrl || post.imageUrl);
     const isLoaded = post.mediaType === 'audio' || !hasThumb ? true : loadedImages[post.id];
-    const label = post.title || post.caption || post.labels?.[0] || 'Sighting';
+    const label = post.labels?.[0] || post.title || 'Sighting';
     const [isHovered, setIsHovered] = useState(false);
     const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
     const cardRef = useRef<HTMLDivElement>(null);
@@ -132,12 +142,9 @@ const FeedCard: React.FC<{
             </div>
             
             <div className={`px-1 mt-2 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h3 className="text-sm font-display font-bold italic text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
+                <h3 className="text-sm font-display italic font-semibold text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
                     {label}
                 </h3>
-                {observedBehaviour(post.behavior) && (
-                    <p className="text-xs text-theme-primary/75 leading-snug mt-0.5 line-clamp-2">{observedBehaviour(post.behavior)}</p>
-                )}
                 <div className="flex items-center gap-1 mt-1 text-[11px] text-stone-500 min-w-0">
                     {post.locationArea
                         ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{post.locationArea}</span></>
@@ -1136,7 +1143,7 @@ const Community: React.FC<CommunityProps> = ({
                             </div>
                             <div>
                                 <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{selectedSpecies.name}</h3>
-                                <p className="text-xs font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
+                                <p className="text-xs font-semibold text-theme-primary/50 flex items-center gap-1 mt-0.5">
                                     <span className="material-symbols-outlined text-xs">public</span>
                                     {selectedSpecies.location}
                                 </p>
@@ -1161,7 +1168,7 @@ const Community: React.FC<CommunityProps> = ({
                                     </div>
                                 )}
                                 <div className="space-y-4">
-                                    <p className="catalog-label text-xs font-black tracking-[0.2em] text-theme-primary uppercase flex items-center gap-1.5 opacity-60">
+                                    <p className="text-xs font-semibold tracking-[0.2em] text-theme-primary flex items-center gap-1.5 opacity-60">
                                         <span className="material-symbols-outlined text-xs">science</span>
                                         Encyclopedia Data
                                     </p>
@@ -1187,22 +1194,22 @@ const Community: React.FC<CommunityProps> = ({
                     <div className="w-16 h-16 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mb-6 mx-auto">
                         <span className="material-symbols-outlined text-3xl">delete_forever</span>
                     </div>
-                    <h3 className="text-2xl font-display font-black italic text-theme-primary text-center mb-3">Discard Specimen?</h3>
+                    <h3 className="text-2xl font-display font-semibold text-theme-primary text-center mb-3">Delete this sighting?</h3>
                     <p className="text-sm text-theme-primary/60 text-center leading-relaxed mb-8">
-                        This observation will be permanently removed from the Living Field Guide and your personal archive.
+                        It will be removed from the feed and your journal. This can't be undone.
                     </p>
                     <div className="flex flex-col gap-3">
                         <button 
                             onClick={executeDelete}
-                            className="w-full py-4 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
+                            className="w-full py-4 bg-red-600 text-white font-semibold text-sm rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
                         >
-                            Confirm Deletion
+                            Delete sighting
                         </button>
                         <button 
                             onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/60 font-black text-xs uppercase tracking-widest rounded-full active:scale-95 transition-all"
+                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/70 font-semibold text-sm rounded-full active:scale-95 transition-all"
                         >
-                            Keep Observation
+                            Keep it
                         </button>
                     </div>
                 </div>
@@ -1218,15 +1225,13 @@ const Community: React.FC<CommunityProps> = ({
                     aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, scroll to top'}
                     className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
-                    <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
+                    <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary">
                         {isJournalOnly ? "My Journal" : "NatureGram"}
                     </h2>
-                    {isJournalOnly ? (
-                        <p className="text-sm text-theme-primary/70 mt-0.5 font-display italic">Every sighting you've made</p>
-                    ) : (
-                        <p className="text-sm text-theme-primary/75 mt-1 flex items-start gap-1.5 max-w-md leading-snug">
-                            <span className="material-symbols-outlined text-[18px] text-theme-accent shrink-0 -mt-px" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{moment.icon}</span>
-                            <span><span className="font-display italic font-semibold text-theme-primary">{moment.name}.</span> <span className="[@media(max-height:500px)]:hidden">{moment.hint}</span></span>
+                    {!isJournalOnly && (
+                        <p className="text-sm text-theme-primary/70 mt-1 flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-[17px] text-theme-accent" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{moment.icon}</span>
+                            <span>{moment.name}: {moment.hint}</span>
                         </p>
                     )}
                 </button>
@@ -1244,7 +1249,7 @@ const Community: React.FC<CommunityProps> = ({
                             {unreadMessages > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
-                    {onViewDrafts && (
+                    {onViewDrafts && activeDraftsCount > 0 && (
                         <button 
                             onClick={onViewDrafts} 
                             className="relative w-11 h-11 rounded-full hover:bg-theme-primary/5 flex items-center justify-center text-theme-primary active:scale-95 transition-all"
@@ -1272,7 +1277,7 @@ const Community: React.FC<CommunityProps> = ({
                                 if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and gather their sightings here.'); return; }
                                 setFeedMode(key);
                             }}
-                            className={`relative py-2 text-base font-display italic transition-colors ${feedMode === key ? 'text-theme-primary font-bold' : 'text-theme-primary/55 hover:text-theme-primary/80'}`}
+                            className={`relative py-2 text-[15px] font-medium transition-colors ${feedMode === key ? 'text-theme-primary' : 'text-theme-primary/50 hover:text-theme-primary/80'}`}
                         >
                             {label}
                             <span className={`absolute left-0 -bottom-0.5 h-[2px] rounded-full bg-theme-accent transition-all duration-500 ${feedMode === key ? 'w-full opacity-100' : 'w-0 opacity-0'}`} aria-hidden="true" />
@@ -1283,7 +1288,7 @@ const Community: React.FC<CommunityProps> = ({
 
             {freshRail.length > 0 && feedMode === 'foryou' && (
                 <section aria-label="Fresh sightings from explorers you follow">
-                    <p className="text-sm text-theme-primary/70 mb-2 font-display italic">Fresh tracks from explorers you follow</p>
+                    <p className="text-sm font-medium text-theme-primary/70 mb-2">Fresh tracks</p>
                     <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" role="list">
                         {freshRail.map(r => (
                             <li key={r.userId} className="shrink-0">
@@ -1307,18 +1312,14 @@ const Community: React.FC<CommunityProps> = ({
                 <button
                     type="button"
                     onClick={() => { setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
-                    className="w-full text-left rounded-2xl p-4 bg-gradient-to-r from-theme-primary to-theme-primary-gradient text-white shadow-md flex items-start gap-3 active:scale-[0.99] transition-transform"
+                    aria-label={`${dailyTheme.naturalist}'s challenge: ${themeExtra.challenge} See sightings tagged ${themeExtra.challengeTag}.`}
+                    className="w-full text-left rounded-2xl px-4 py-3 border border-theme-primary/15 hover:bg-theme-primary/5 flex items-start gap-3 transition-colors"
                 >
-                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" style={challenge?.mine ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{challenge?.mine ? 'verified' : 'flag'}</span>
+                    <span className="material-symbols-outlined text-[22px] text-theme-accent shrink-0 mt-px" style={{ fontVariationSettings: challenge?.mine ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{challenge?.mine ? 'verified' : 'flag'}</span>
                     <span className="flex-1 min-w-0">
-                        <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white/80">{dailyTheme.naturalist}'s fortnight · {themePeriod.daysRemaining}d left</span>
-                        <span className="block text-sm font-semibold leading-snug mt-1">{themeExtra.challenge}</span>
-                        <span className="block text-xs text-white/85 mt-1.5 [@media(max-height:500px)]:hidden">
-                            {challenge?.mine
-                                ? `You've answered this one${challenge.explorers > 1 ? `, with ${challenge.capped ? 'many' : challenge.explorers - 1} other explorer${challenge.explorers - 1 === 1 ? '' : 's'}` : ''}. See everyone's finds.`
-                                : challenge && challenge.explorers > 0
-                                    ? `${challenge.capped ? 'Many' : challenge.explorers} explorer${challenge.explorers === 1 ? ' has' : 's have'} answered it. Tag yours ${themeExtra.challengeTag}.`
-                                    : `Be the first to answer it. Tag your sighting ${themeExtra.challengeTag}.`}
+                        <span className="block text-[15px] text-theme-primary leading-snug">{themeExtra.challenge}</span>
+                        <span className="block text-xs text-stone-500 mt-1">
+                            {[`${dailyTheme.naturalist}'s challenge`, `${themePeriod.daysRemaining} days left`, challenge?.mine ? 'you answered' : challenge?.explorers ? `${challenge.capped ? '60+' : challenge.explorers} answered` : null].filter(Boolean).join(' · ')}
                         </span>
                     </span>
                 </button>
@@ -1368,7 +1369,7 @@ const Community: React.FC<CommunityProps> = ({
                                 setIsSearchFocused(false);
                                 setSearchQuery("");
                             }}
-                            className="text-[11px] font-black text-theme-accent uppercase tracking-wider hover:opacity-70 transition-all cursor-pointer animate-fade-in px-1"
+                            className="text-sm font-medium text-theme-accent hover:opacity-70 transition-all cursor-pointer animate-fade-in px-1"
                         >
                             Cancel
                         </button>
@@ -1380,7 +1381,7 @@ const Community: React.FC<CommunityProps> = ({
                             setShowFilters(!showFilters);
                             setIsSearchFocused(false);
                         }}
-                        className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider cursor-pointer ${
+                        className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-medium text-sm cursor-pointer ${
                             showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag
                                 ? 'bg-theme-accent/15 text-theme-accent' 
                                 : 'bg-stone-100 text-theme-primary/60 hover:bg-stone-200/50'
@@ -1395,10 +1396,10 @@ const Community: React.FC<CommunityProps> = ({
                 {isSearchFocused && (
                     <div className="absolute top-[105%] left-0 right-0 bg-white border border-theme-primary/10 rounded-2xl p-5 shadow-2xl animate-slide-up flex flex-col gap-5 max-h-[380px] overflow-y-auto no-scrollbar z-[160]">
                         <div className="flex items-center justify-between border-b border-theme-primary/5 pb-2">
-                            <span className="text-sm font-display italic text-theme-primary/75">Where to look</span>
+                            <span className="text-sm font-display text-theme-primary/75">Where to look</span>
                             <button 
                                 onClick={() => setIsSearchFocused(false)} 
-                                className="text-xs font-black text-theme-primary/55 hover:text-theme-primary uppercase"
+                                className="text-xs font-semibold text-theme-primary/55 hover:text-theme-primary"
                             >
                                 Hide
                             </button>
@@ -1415,7 +1416,7 @@ const Community: React.FC<CommunityProps> = ({
                                 </button>
                                 {serverUsers.length > 0 && (
                                     <div>
-                                        <p className="text-sm font-display italic text-stone-600 mb-1.5">Explorers</p>
+                                        <p className="text-sm font-display text-stone-600 mb-1.5">Explorers</p>
                                         {serverUsers.map(u => (
                                             <button key={u.uid} onClick={() => { setIsSearchFocused(false); onViewProfile?.(u.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
                                                 {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary" aria-hidden="true">{u.username?.charAt(0).toUpperCase()}</span>}
@@ -1430,7 +1431,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Species & Hashtags Suggestions */}
                         {dynamicSuggestions.tags.length > 0 && (
                             <div className="space-y-2">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">local_offer</span>
                                     Popular tags
                                 </span>
@@ -1442,7 +1443,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 setSearchQuery(tag.startsWith('#') ? tag : `#${tag}`);
                                                 setIsSearchFocused(false);
                                             }}
-                                            className="px-3 py-1.5 bg-stone-50 hover:bg-theme-accent/5 hover:text-theme-accent border border-theme-primary/5 text-xs font-black uppercase tracking-wider rounded-lg transition-all text-theme-primary/60"
+                                            className="px-3 py-1.5 bg-stone-50 hover:bg-theme-accent/5 hover:text-theme-accent border border-theme-primary/5 text-sm rounded-lg transition-all text-theme-primary/75"
                                         >
                                             {tag}
                                         </button>
@@ -1454,7 +1455,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Creators & Observers list like IG find accounts */}
                         {dynamicSuggestions.creators.length > 0 && !isJournalOnly && (
                             <div className="space-y-2.5">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">alternate_email</span>
                                     Observers
                                 </span>
@@ -1481,7 +1482,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Recent Habitats & Places suggestions */}
                         {dynamicSuggestions.locations.length > 0 && (
                             <div className="space-y-2.5">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">distance</span>
                                     Recent habitats
                                 </span>
@@ -1511,15 +1512,15 @@ const Community: React.FC<CommunityProps> = ({
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {/* Format Filter */}
                             <div className="space-y-2.5">
-                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Category Format</label>
+                                <label className="block text-sm font-medium text-theme-primary/70">Kind of media</label>
                                 <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['all', 'image', 'video', 'audio'] as const).map((media) => (
                                         <button
                                             key={media}
                                             onClick={() => setMediaFilter(media)}
-                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
                                                 mediaFilter === media 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
+                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
                                             }`}
                                         >
@@ -1531,15 +1532,15 @@ const Community: React.FC<CommunityProps> = ({
 
                             {/* Timeline Filter */}
                             <div className="space-y-2.5">
-                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Timeline Range</label>
+                                <label className="block text-sm font-medium text-theme-primary/70">When</label>
                                 <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['all', 'today', 'week', 'month'] as const).map((opt) => (
                                         <button
                                             key={opt}
                                             onClick={() => setDateFilter(opt)}
-                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
                                                 dateFilter === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
+                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
                                             }`}
                                         >
@@ -1551,15 +1552,15 @@ const Community: React.FC<CommunityProps> = ({
 
                             {/* Ordering Selection */}
                             <div className="space-y-2.5">
-                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Sort Sequence</label>
+                                <label className="block text-sm font-medium text-theme-primary/70">Sort Sequence</label>
                                 <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['newest', 'likes', 'title'] as const).map((opt) => (
                                         <button
                                             key={opt}
                                             onClick={() => setSortOrder(opt)}
-                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
                                                 sortOrder === opt 
-                                                    ? 'bg-theme-primary text-white font-black shadow-sm' 
+                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
                                             }`}
                                         >
@@ -1573,7 +1574,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Species taxonomic selection */}
                         {allAvailableLabels.length > 0 && (
                             <div className="space-y-2 pt-2 border-t border-theme-primary/5">
-                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Filter Specific Taxons Native</label>
+                                <label className="block text-sm font-medium text-theme-primary/70">Filter Specific Taxons Native</label>
                                 <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-2 no-scrollbar">
                                     {allAvailableLabels.map((lbl) => {
                                         const isSelected = selectedLabels.includes(lbl);
@@ -1581,7 +1582,7 @@ const Community: React.FC<CommunityProps> = ({
                                             <button
                                                 key={lbl}
                                                 onClick={() => toggleLabelFilter(lbl)}
-                                                className={`px-2.5 py-1 text-[11px] font-black uppercase tracking-widest rounded-full border transition-all ${
+                                                className={`px-2.5 py-1 text-sm font-semibold rounded-full border transition-all ${
                                                     isSelected 
                                                         ? 'bg-theme-accent border-theme-accent text-white font-bold' 
                                                         : 'bg-white border-theme-primary/10 text-theme-primary/60 hover:bg-stone-50'
@@ -1601,13 +1602,13 @@ const Community: React.FC<CommunityProps> = ({
             {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
                 {[
-                    { id: 'all', label: 'All', icon: '✨' },
-                    { id: 'fauna', label: 'Animals', icon: '🐦' },
-                    { id: 'flora', label: 'Plants', icon: '🌿' },
-                    { id: 'fungi', label: 'Fungi', icon: '🍄' },
-                    { id: 'audio', label: 'Sounds', icon: '🎙️' },
-                    { id: 'video', label: 'Videos', icon: '🎥' },
-                    { id: 'popular', label: 'Popular', icon: '🔥' },
+                    { id: 'all', label: 'All' },
+                    { id: 'fauna', label: 'Animals' },
+                    { id: 'flora', label: 'Plants' },
+                    { id: 'fungi', label: 'Fungi' },
+                    { id: 'audio', label: 'Sounds' },
+                    { id: 'video', label: 'Videos' },
+                    { id: 'popular', label: 'Most marvelled' },
                 ].map((tab) => {
                     const isActive = activeExploreTab === tab.id;
                     return (
@@ -1617,14 +1618,14 @@ const Community: React.FC<CommunityProps> = ({
                                 setActiveExploreTab(tab.id as any);
                                 hapticFeedback();
                             }}
-                            className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
+                            aria-pressed={isActive}
+                            className={`px-3.5 py-1.5 text-sm font-medium rounded-full transition-colors shrink-0 border cursor-pointer ${
                                 isActive 
-                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]' 
-                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-theme-primary/60 hover:bg-stone-100'
+                                    ? 'bg-theme-primary text-white border-theme-primary' 
+                                    : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'
                             }`}
                         >
-                            <span aria-hidden="true">{tab.icon}</span>
-                            <span>{tab.label}</span>
+                            {tab.label}
                         </button>
                     );
                 })}
@@ -1640,13 +1641,13 @@ const Community: React.FC<CommunityProps> = ({
             {/* Reset status bar if any dynamic filter keyword is active */}
             {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-stone-50 border border-theme-primary/5 rounded-2xl">
-                    <div className="text-xs font-black text-theme-primary/60 uppercase tracking-widest flex items-center gap-1.5">
+                    <div className="text-xs font-semibold text-theme-primary/60 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-theme-accent rounded-full animate-pulse"></span>
                         <span>Filters on{posts.length && !isJournalOnly ? ` · searching ${posts.length} loaded posts` : ''}</span>
                     </div>
                     <button 
                         onClick={resetAllFilters}
-                        className="text-[11px] font-black uppercase tracking-wider text-theme-accent hover:opacity-80 transition-all flex items-center gap-1 cursor-pointer"
+                        className="text-sm font-semibold text-theme-accent hover:opacity-80 transition-all flex items-center gap-1 cursor-pointer"
                     >
                         <span className="material-symbols-outlined text-xs font-bold">restart_alt</span>
                         Clear
@@ -1663,7 +1664,7 @@ const Community: React.FC<CommunityProps> = ({
             ) : error ? (
                 <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
                     <span className="material-symbols-outlined text-5xl text-theme-primary/60 mb-6" aria-hidden="true">cloud_off</span>
-                    <h3 className="text-xl font-display font-bold text-stone-900 mb-3">The field guide didn't load</h3>
+                    <h3 className="text-xl font-display font-semibold text-stone-900 mb-3">The field guide didn't load</h3>
                     <p className="text-stone-600 text-base max-w-sm mb-8 leading-relaxed">
                         {typeof navigator !== 'undefined' && navigator.onLine === false
                             ? "You appear to be offline. Check your connection and try again."
@@ -1681,19 +1682,19 @@ const Community: React.FC<CommunityProps> = ({
                     <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : isJournalOnly && !searchQuery && !searchTag ? 'fingerprint' : 'travel_explore'}</span>
                     {feedMode === 'following' && !searchQuery ? (
                         <>
-                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">No fellow explorers yet</h3>
-                            <p className="text-base text-stone-600 max-w-xs mb-8">When a sighting makes you stop and look twice, open it and follow the explorer who found it.</p>
-                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Go wandering</button>
+                            <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">No fellow explorers yet</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">Follow explorers from their sightings.</p>
+                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Wander</button>
                         </>
                     ) : isJournalOnly && !searchQuery && !searchTag ? (
                         <>
-                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">Your journal starts outside</h3>
-                            <p className="text-base text-stone-600 max-w-xs">Open the Lens and point it at anything alive. Every sighting lands here, including the ones you keep to yourself.</p>
+                            <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">Your journal starts outside</h3>
+                            <p className="text-base text-stone-600 max-w-xs">Your sightings will gather here.</p>
                         </>
                     ) : (
                         <>
-                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">Nothing found here yet</h3>
-                            <p className="text-base text-stone-600 max-w-xs mb-8">No one has recorded that so far. Try another word, or clear the filters. Or be the first to find it.</p>
+                            <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">Nothing found here yet</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">Try another word.</p>
                             <button onClick={resetAllFilters} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Clear filters</button>
                         </>
                     )}
@@ -1718,7 +1719,7 @@ const Community: React.FC<CommunityProps> = ({
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span className="font-display italic text-base text-theme-primary/70">That's every sighting for now. The next one is outside.</span>
+                        <span className="font-display text-base text-theme-primary/70">That's every sighting for now. The next one is outside.</span>
                     ) : null}
                 </div>
             )}
@@ -1888,7 +1889,7 @@ const Community: React.FC<CommunityProps> = ({
                                         <button className="flex items-center gap-3 group text-left min-w-0" onClick={() => handleProfileClick(activePost.userId)}>
                                             {activePost.userAvatar
                                                 ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover border border-theme-primary/15" />
-                                                : <span className="w-10 h-10 rounded-full bg-theme-primary/10 border border-theme-primary/15 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(activePost.userName || '?').charAt(0)}</span>}
+                                                : <span className="w-10 h-10 rounded-full bg-theme-primary/10 border border-theme-primary/15 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(activePost.userName || '?').charAt(0).toUpperCase()}</span>}
                                             <span className="min-w-0">
                                                 <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}{sightingsLine(activePost.userId) && <span className="font-normal text-stone-500"> · {sightingsLine(activePost.userId)}</span>}</span>
                                                 <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
@@ -1910,63 +1911,57 @@ const Community: React.FC<CommunityProps> = ({
                                         {activePost.curatorNote && (
                                             <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
                                         )}
-                                        {(activePost.title || currentItem.labels?.[0]) && (
-                                            <div>
-                                                <h2 className="text-2xl font-display italic font-bold text-theme-primary leading-tight">{activePost.title || hedgedName(currentItem.labels?.[0], (currentItem as any).aiConfidence, !!(currentItem as any).humanDelta || !!activePost.humanDelta)}</h2>
-                                                {observedBehaviour(currentItem.behavior) && <p className="text-base text-theme-primary/80 mt-1 leading-snug">{observedBehaviour(currentItem.behavior)}</p>}
-                                            </div>
-                                        )}
-
-                                        {activePost.description && (
-                                            <p className="text-theme-primary/80 font-display font-medium leading-relaxed italic text-base">
-                                                {activePost.description}
-                                            </p>
-                                        )}
-
-                                        {activePost.caption && (
-                                            <figure className="border-l-2 border-theme-accent/40 pl-4">
-                                                <blockquote className="text-[15px] text-stone-800 leading-relaxed whitespace-pre-line"><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></blockquote>
-                                                <figcaption className="text-xs text-stone-500 mt-1.5">From <button onClick={() => handleProfileClick(activePost.userId)} className="font-semibold text-theme-primary hover:underline">{activePost.userName}</button>'s field notes</figcaption>
-                                            </figure>
-                                        )}
-                                        
-                                        {(currentItem.labels?.length || currentItem.aiInsight) && (
-                                            <div className="space-y-4 pt-2 border-t border-theme-primary/10">
-                                                {currentItem.labels && currentItem.labels.length > 0 && (
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                            <p className="text-sm font-display italic text-stone-600">What it is</p>
-                                                            <AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={!!(currentItem as any).humanDelta || !!activePost.humanDelta} />
-                                                        </div>
-                                                        {isFungiPost(currentItem as any) && <FungiWarning />}
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                            {currentItem.labels.map((l, i) => (
-                                                                <button key={i} onClick={() => handleSpeciesClick(l, currentItem.locationArea)} aria-label={`Learn about ${l}`} className="px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-bold text-sm rounded-lg hover:bg-theme-accent/20 transition-colors">
-                                                                    {l}
-                                                                </button>
-                                                            ))}
-                                                        </div>
+                                        {(() => {
+                                            const checked = !!(currentItem as any).humanDelta || !!activePost.humanDelta;
+                                            const species = currentItem.labels?.[0];
+                                            const behaviour = observedBehaviour(currentItem.behavior);
+                                            const alsoSeen = (currentItem.labels || []).slice(1);
+                                            const insight = currentItem.aiInsight ? (insightBeyond(currentItem.aiInsight, behaviour).length ? insightBeyond(currentItem.aiInsight, behaviour) : currentItem.aiInsight.split(/\n+/).filter(Boolean)) : [];
+                                            return (
+                                                <>
+                                                    <div>
+                                                        {species ? (
+                                                            <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${species}`}>
+                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{hedgedName(species, (currentItem as any).aiConfidence, checked)}</h2>
+                                                            </button>
+                                                        ) : activePost.title ? (
+                                                            <h2 className="text-[26px] font-display font-medium text-theme-primary leading-tight">{activePost.title}</h2>
+                                                        ) : null}
+                                                        {behaviour && <p className="text-base text-stone-700 mt-1.5 leading-snug">{behaviour}</p>}
+                                                        {species && <div className="mt-2"><AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={checked} /></div>}
+                                                        {alsoSeen.length > 0 && (
+                                                            <p className="text-sm text-stone-600 mt-1">Also in view: {alsoSeen.map((l, i) => (
+                                                                <React.Fragment key={l}>{i > 0 && ', '}<button onClick={() => handleSpeciesClick(l, currentItem.locationArea)} className="italic text-theme-primary hover:underline">{l}</button></React.Fragment>
+                                                            ))}</p>
+                                                        )}
                                                     </div>
-                                                )}
 
-                                                {currentItem.aiInsight && (
-                                                    <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
-                                                        <p className="catalog-label text-[11px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
-                                                            <span className="material-symbols-outlined text-[11px]" aria-hidden="true">auto_awesome</span>
-                                                            Why it does this
-                                                        </p>
-                                                        <div className="space-y-3 mt-2">
-                                                            {(insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)).length ? insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)) : currentItem.aiInsight.split(/\n+/).filter(Boolean)).map((para, idx) => (
-                                                                <p key={idx} className="text-[15px] font-serif text-stone-800 leading-relaxed">
-                                                                    {para}
-                                                                </p>
-                                                            ))}
-                                                        </div>
-                                                        <p className="text-xs font-display italic text-stone-500 pt-1">From your guide's notes. Seen it behave differently? Add a field note.</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
+                                                    {isFungiPost(currentItem as any) && <FungiWarning />}
+
+                                                    {activePost.caption && (
+                                                        <figure className="border-l-2 border-theme-accent/40 pl-4">
+                                                            <blockquote className="text-[15px] text-stone-800 leading-relaxed whitespace-pre-line"><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></blockquote>
+                                                            <figcaption className="text-xs text-stone-500 mt-1.5">{activePost.userName}</figcaption>
+                                                        </figure>
+                                                    )}
+
+                                                    {insight.length > 0 && (
+                                                        <section aria-labelledby={`why-${activePost.id}`} className="pt-5 border-t border-theme-primary/10">
+                                                            <h3 id={`why-${activePost.id}`} className="text-sm font-semibold text-theme-accent mb-2">Why it does this</h3>
+                                                            <div className="space-y-3">
+                                                                {insight.map((para, idx) => (
+                                                                    <p key={idx} className="text-[17px] font-display text-stone-800 leading-[1.6]">{para}</p>
+                                                                ))}
+                                                            </div>
+                                                        </section>
+                                                    )}
+
+                                                    {(activePost.items?.length || 0) > 1 && activePost.description && (
+                                                        <p className="text-[15px] text-stone-700 leading-relaxed">{activePost.description}</p>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
 
                                         {activePost.isPublic && (
                                             <CommunityId
@@ -1980,10 +1975,10 @@ const Community: React.FC<CommunityProps> = ({
                                             />
                                         )}
 
-                                        {activePost.tags && activePost.tags.length > 0 && (
-                                            <div className="flex flex-wrap gap-2 pt-2 border-t border-theme-primary/10">
-                                                {activePost.tags.map(tag => (
-                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-semibold italic text-sm rounded-md hover:bg-theme-accent/20 transition-colors">
+                                        {visibleTags(activePost).length > 0 && (
+                                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                                {visibleTags(activePost).map(tag => (
+                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="text-sm text-theme-accent hover:underline min-h-[32px]">
                                                         {tag.startsWith('#') ? tag : `#${tag}`}
                                                     </button>
                                                 ))}
@@ -1996,7 +1991,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 className="w-full py-3 px-4 bg-theme-primary/5 hover:bg-theme-primary/10 rounded-xl flex items-center gap-3 transition-colors text-left"
                                             >
                                                 <span className="material-symbols-outlined text-theme-accent text-xl" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
-                                                <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `Read ${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'What did you notice? Add a field note'}</span>
+                                                <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'Add a field note'}</span>
                                                 <span className="material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">chevron_right</span>
                                             </button>
                                             <div className="flex gap-2">
@@ -2047,7 +2042,7 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                     
                     <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
-                        <h3 id="comments-title" className="font-display font-black text-xl italic text-theme-primary">Field notes</h3>
+                        <h3 id="comments-title" className="font-display font-semibold text-xl text-theme-primary">Field notes</h3>
                         <button onClick={() => setIsCommentsOpen(false)} aria-label="Close field notes" className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center text-stone-700 hover:bg-stone-200">
                             <span className="material-symbols-outlined text-lg">close</span>
                         </button>
@@ -2057,14 +2052,13 @@ const Community: React.FC<CommunityProps> = ({
                         {visibleComments.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-stone-500 text-center">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-theme-accent/60" aria-hidden="true">history_edu</span>
-                                <p className="font-display italic text-lg text-stone-800">No field notes yet</p>
-                                <p className="text-sm mt-1 max-w-xs">Seen this before? Know why it behaves like this? Add what you've noticed.</p>
+                                <p className="font-display text-lg text-stone-800">No field notes yet</p>
                             </div>
                         ) : (
                             visibleComments.map(c => (
                                 <div key={c.id} className="flex gap-3 group animate-fade-in">
                                     <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
-                                        {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(c.userName || '?').charAt(0)}</span>}
+                                        {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(c.userName || '?').charAt(0).toUpperCase()}</span>}
                                     </button>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>

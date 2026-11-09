@@ -67,12 +67,12 @@ export const wonderLabel = (n: number) => n === 0 ? 'Be the first to marvel' : `
  */
 export const fieldMoment = (d: Date = new Date()): { name: string; hint: string; icon: string } => {
   const h = d.getHours();
-  if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'Birdsong peaks around first light. Step outside and just listen.', icon: 'wb_twilight' };
-  if (h >= 7 && h < 11) return { name: 'Morning', hint: 'Butterflies and bees take wing once the sun has warmed them.', icon: 'emoji_nature' };
-  if (h >= 11 && h < 15) return { name: 'Midday', hint: 'Look up: hawks and kites ride the rising warm air over open ground.', icon: 'flutter_dash' };
-  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'As the heat eases, many birds return to feed before dusk.', icon: 'forest' };
-  if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'Bats and nightjars begin hunting as the light fades.', icon: 'wb_twilight' };
-  return { name: 'Night', hint: 'Owls call and moths gather at lights. The night shift is on.', icon: 'dark_mode' };
+  if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'birdsong peaks now', icon: 'wb_twilight' };
+  if (h >= 7 && h < 11) return { name: 'Morning', hint: 'butterflies are warming up', icon: 'emoji_nature' };
+  if (h >= 11 && h < 15) return { name: 'Midday', hint: 'raptors ride the thermals', icon: 'flutter_dash' };
+  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'forest' };
+  if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'bats begin to hunt', icon: 'wb_twilight' };
+  return { name: 'Night', hint: 'owls are calling', icon: 'dark_mode' };
 };
 
 /** Capture placeholders ("Captured photo.", "Uploaded media.") aren't observations; don't show them as if they were. */
@@ -120,7 +120,6 @@ export const SoundScape: React.FC<{ label?: string | null; playing?: boolean; cl
         ))}
       </div>
       {label && <p className="font-display italic text-xl text-center leading-tight">{label}</p>}
-      <p className="text-sm text-white/75 text-center">{playing ? 'Listening…' : 'Press play, close your eyes, and listen.'}</p>
     </div>
   );
 };

@@ -260,7 +260,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className="material-symbols-outlined text-theme-accent text-xl shrink-0">upload_file</span>
-              <h2 className="text-2xl font-display font-black italic text-stone-900 truncate">Direct Media Upload</h2>
+              <h2 className="text-2xl font-display font-semibold text-stone-900 truncate">Direct Media Upload</h2>
             </div>
             <p className="text-[11px] text-stone-500 font-bold uppercase tracking-wider leading-snug">
               Photos, Audio & Video <span className="text-stone-300">•</span> Max 30s <span className="text-stone-300">•</span> Up to 5 files

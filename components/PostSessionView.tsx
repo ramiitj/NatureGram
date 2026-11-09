@@ -371,12 +371,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                        {newSpecies.length > 0 && <span className="absolute -inset-16"><WonderBurst count={24} /></span>}
                    </div>
                )}
-               <h2 className="text-3xl font-display italic text-theme-primary mb-2 font-bold tracking-tight">{postToFeed ? 'Shared with the field' : 'Saved to your journal'}</h2>
+               <h2 className="text-3xl font-display text-theme-primary mb-2 font-semibold">{postToFeed ? 'Shared with the field' : 'Saved to your journal'}</h2>
                <p className="text-stone-600 mb-6 text-base max-w-xs">{postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.'}</p>
                {newSpecies.length > 0 && (
                    <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
-                       <p className="text-sm font-display italic text-theme-accent mb-1">First time you've recorded</p>
-                       <p className="text-lg font-display font-bold text-stone-900">{newSpecies.join(', ')}</p>
+                       <p className="text-sm font-display text-theme-accent mb-1">First time you've recorded</p>
+                       <p className="text-lg font-display italic font-semibold text-stone-900">{newSpecies.join(', ')}</p>
                        {lifeListTotal > 0 && <p className="text-sm text-stone-700 mt-2">{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                    </div>
                )}
@@ -532,7 +532,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
               ) : (
                   <div className="text-center opacity-20">
                       <span className="material-symbols-outlined text-6xl text-white mb-4">landscape</span>
-                      <h3 className="text-xl font-display font-bold italic text-white">No captures in this session</h3>
+                      <h3 className="text-xl font-display font-semibold text-white">No captures in this session</h3>
                   </div>
               )}
           </div>
@@ -648,7 +648,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       value={aiInsight} 
                                       onChange={(e) => editInsight(e.target.value)} 
                                       placeholder="Describe the behaviour and why it matters…"
-                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display italic text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
+                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
                                   />
                                   {isAnalyzing && aiInsight === "Processing..." && (
                                       <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-3xl pointer-events-none" role="status">
@@ -761,7 +761,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       {showPostOptionsModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl">
-                  <h3 className="text-2xl font-display font-bold text-stone-900 mb-2">Share {selectedIndices.size} captures as…</h3>
+                  <h3 className="text-2xl font-display font-semibold text-stone-900 mb-2">Share {selectedIndices.size} captures as…</h3>
                   <p className="text-sm text-stone-600 mb-6">Your caption and hashtags apply to each post.</p>
                   
                   <div className="space-y-4">

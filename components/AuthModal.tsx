@@ -114,7 +114,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         <div className="w-14 h-14 rounded-full bg-theme-accent/10 flex items-center justify-center mx-auto mb-3 text-theme-accent" aria-hidden="true">
           <span className="material-symbols-outlined text-3xl">{mode === 'reset' ? 'key' : 'eco'}</span>
         </div>
-        <h2 id="auth-title" className="text-2xl font-display font-bold text-text-main">{title}</h2>
+        <h2 id="auth-title" className="text-2xl font-display font-semibold text-text-main">{title}</h2>
         <p className="text-stone-600 text-sm mt-2 leading-relaxed">{subtitle}</p>
       </div>
 

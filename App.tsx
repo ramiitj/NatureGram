@@ -536,7 +536,7 @@ const App: React.FC = () => {
           <section role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-in-right safe-pt">
             <header className="p-6 pb-4 flex items-center justify-between border-b border-stone-100 shrink-0">
               <div>
-                <h2 id="activity-title" className="text-2xl font-display font-bold text-text-main">Activity</h2>
+                <h2 id="activity-title" className="text-2xl font-display font-semibold text-text-main">Activity</h2>
                 <p className="text-sm text-stone-500">{unreadCount ? `${unreadCount} new` : 'You\'re all caught up'}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -551,24 +551,20 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
               <article aria-labelledby="field-letter-title" className="p-5 rounded-2xl bg-insight-bg border border-theme-accent/25">
                 <p className="text-xs text-stone-500">Week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
-                <h3 id="field-letter-title" className="font-display italic text-xl font-bold text-theme-primary mt-0.5">Your field letter</h3>
+                <h3 id="field-letter-title" className="font-display text-xl font-semibold text-theme-primary mt-0.5">Your field letter</h3>
                 <p className="text-[15px] font-display text-stone-800 mt-3 leading-relaxed">{seasonNote()}</p>
                 <p className="text-sm text-stone-700 mt-3 leading-relaxed">
                   {userMode?.isAnonymous
-                    ? 'With an account, your week outside is counted here.'
+                    ? null
                     : !myWeek ? 'Counting your week…'
                     : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
                     : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
                 </p>
-                {dailyTheme?.naturalist && extra?.challenge && (
-                  <p className="text-sm text-stone-700 mt-2 leading-relaxed"><span className="font-display italic font-semibold text-theme-primary">{dailyTheme.naturalist}'s challenge:</span> {extra.challenge}</p>
-                )}
               </article>
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-center px-8 text-stone-500">
                   <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
-                  <p className="font-display italic text-lg text-stone-800">Quiet in the woods</p>
-                  <p className="text-sm mt-1">When explorers marvel at your sightings, add field notes or follow your journal, it shows up here.</p>
+                  <p className="font-display text-lg text-stone-800">Quiet in the woods</p>
                 </div>
               ) : notifications.map(alert => (
                 <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
@@ -665,7 +661,7 @@ const App: React.FC = () => {
             <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)} aria-hidden="true"></div>
             <section role="dialog" aria-modal="true" aria-labelledby="mode-title" className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
               <div className="p-7 text-center">
-                <h2 id="mode-title" className="text-2xl font-display font-bold text-stone-900 mb-1">How should your guide behave?</h2>
+                <h2 id="mode-title" className="text-2xl font-display font-semibold text-stone-900 mb-1">How should your guide behave?</h2>
                 <p className="text-sm text-stone-500 mb-6">You can change this any time from the lens.</p>
                 <div className="space-y-3">
                   {([
@@ -887,7 +883,7 @@ const App: React.FC = () => {
                 className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
               >
                 <span className={`material-symbols-outlined text-[25px] transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} style={{ fontVariationSettings: item.active ? "'FILL' 1, 'wght' 400" : "'FILL' 0, 'wght' 300" }} aria-hidden="true">{item.icon}</span>
-                <span className={`text-[11px] leading-none ${item.active ? 'font-display italic font-semibold text-[12px]' : 'font-medium'}`}>{item.label}</span>
+                <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
                 {item.active && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
                 {!!item.badge && (
                   <span className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-white" aria-hidden="true" />

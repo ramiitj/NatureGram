@@ -54,17 +54,18 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
     } finally { setBusy(false); }
   };
 
+  // Nothing to show the author until someone else has weighed in
+  if (isAuthor && tally.length === 0) return null;
+
   return (
     <section aria-labelledby={`cid-${postId}`} className="rounded-2xl border border-theme-primary/15 p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 id={`cid-${postId}`} className="text-base font-display italic font-bold text-theme-primary">Is this right?</h3>
+        <h3 id={`cid-${postId}`} className="text-[15px] font-semibold text-theme-primary">{isAuthor ? 'What others say' : 'Is this right?'}</h3>
         {verified && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200"><span className="material-symbols-outlined text-sm" aria-hidden="true">verified</span>Confirmed by {agreeCount} explorers</span>}
         {disputed && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200">Explorers disagree</span>}
       </div>
 
-      {tally.length === 0 ? (
-        <p className="text-sm text-stone-600">No one has checked this yet.{!isAuthor && ' Know it? Say so.'}</p>
-      ) : (
+      {tally.length === 0 ? null : (
         <ul className="space-y-1.5" role="list">
           {tally.map(t => (
             <li key={t.name} className="flex items-center justify-between text-sm">

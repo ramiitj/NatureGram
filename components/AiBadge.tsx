@@ -38,11 +38,10 @@ const AiBadge: React.FC<{ confidence?: string | null; humanVerified?: boolean; c
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
         aria-expanded={open}
         aria-label={`Identified by your guide, an AI naturalist${humanVerified ? ', checked by the explorer' : ''}${sure && !compact ? `, ${sure}` : ''}. Tap for details.`}
-        className={`inline-flex items-center gap-1.5 text-[13px] font-display italic min-h-[28px] ${ink} hover:underline decoration-dotted underline-offset-4`}
+        className={`inline-flex items-center gap-1.5 text-[13px] min-h-[28px] ${ink} hover:underline decoration-dotted underline-offset-4`}
       >
         <span className="material-symbols-outlined text-[15px] not-italic" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{humanVerified ? 'how_to_reg' : 'auto_awesome'}</span>
-        {humanVerified ? "Your guide's ID, checked by the explorer" : "Your guide's suggestion"}
-        {sure && !compact && !humanVerified && <span className={dark ? 'text-white/60' : 'text-stone-500'}>({sure})</span>}
+        {humanVerified ? 'Named by your guide, checked by the explorer' : 'Named by your guide'}
       </button>
       {open && (
         <p className={`text-xs leading-relaxed rounded-xl p-3 max-w-md ${dark ? 'bg-black/40 text-white/90' : 'bg-stone-50 text-stone-600'}`}>
