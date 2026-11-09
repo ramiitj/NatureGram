@@ -133,7 +133,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({
               <span className="text-[9px] text-theme-accent font-bold uppercase tracking-widest block">
                 Personalized Discovery
               </span>
-              <h2 className="text-lg sm:text-xl font-display font-black text-stone-900 dark:text-stone-100">
+              <h2 className="text-lg sm:text-xl font-display font-semibold text-stone-900 dark:text-stone-100">
                 Naturalist Persona Profile
               </h2>
             </div>
@@ -176,7 +176,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({
                         : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/40 text-stone-800 dark:text-stone-200 hover:border-theme-primary/30'
                     }`}
                   >
-                    <span className="font-display font-bold text-xs line-clamp-1">{preset.title}</span>
+                    <span className="font-display font-semibold text-xs line-clamp-1">{preset.title}</span>
                     {isSelected && <Check className="w-4 h-4 text-theme-accent shrink-0" />}
                   </button>
                 );

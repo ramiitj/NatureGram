@@ -1265,7 +1265,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       {sessionError && (
           <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
               <span className="material-symbols-outlined text-theme-vivid text-6xl mb-4" aria-hidden="true">eco</span>
-              <h2 className="text-2xl font-display font-black text-white mb-4">{sessionError.title}</h2>
+              <h2 className="text-2xl font-display font-semibold text-white mb-4">{sessionError.title}</h2>
               <p className="text-base text-white/85 mb-8 max-w-md leading-relaxed">{sessionError.message}</p>
                <div className="flex gap-4">
                   <button 
@@ -1296,7 +1296,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       {agentState === 'FINALIZING' && (
           <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center">
               <div className="w-20 h-20 rounded-full border-4 border-theme-vivid border-t-transparent animate-spin mb-8"></div>
-              <h2 className="text-3xl font-display font-bold italic text-white mb-2">Gathering your sightings…</h2>
+              <h2 className="text-3xl font-display font-semibold text-white mb-2">Gathering your sightings…</h2>
           </div>
       )}
 
@@ -1413,7 +1413,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               {liveCaption && (
                   <div className="animate-fade-in bg-black/40 backdrop-blur-2xl px-8 py-5 rounded-[2.5rem] border border-white/10 max-w-sm mx-auto shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
                       <p className="text-[11px] font-bold uppercase tracking-[0.2em] mb-2 text-theme-vivid">Your guide</p>
-                      <p className="text-xl font-display italic font-medium text-white leading-tight">"{liveCaption}"</p>
+                      <p className="text-xl font-display font-medium text-white leading-tight">"{liveCaption}"</p>
                   </div>
               )}
           </div>
@@ -1424,7 +1424,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               <div className="absolute bottom-40 left-1/2 -translate-x-1/2 z-[60] w-full max-w-xs animate-slide-up pointer-events-auto">
                   <div className="bg-theme-accent text-white p-6 rounded-3xl shadow-2xl relative">
                       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-theme-accent rotate-45" />
-                      <h4 className="font-display font-black italic text-lg mb-2">Multi-Modal Mastery</h4>
+                      <h4 className="font-display font-semibold text-lg mb-2">Multi-Modal Mastery</h4>
                       <p className="text-xs leading-relaxed opacity-90 mb-4">
                           Capture <b>Video</b> for sight & sound. Tap the shutter during any recording to add <b>Key Frames</b>. The agent will analyze them as one unified observation.
                       </p>

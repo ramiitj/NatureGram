@@ -121,7 +121,7 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
              </div>
 
              {/* Content */}
-             <h3 id="tour-title" className="text-2xl font-display font-bold text-stone-900 mb-2 tracking-tight">
+             <h3 id="tour-title" className="text-2xl font-display font-semibold text-stone-900 mb-2">
                  {step.title}
              </h3>
              <p id="tour-desc" className="text-stone-700 text-base leading-relaxed mb-6">

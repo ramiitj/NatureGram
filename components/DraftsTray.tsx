@@ -34,7 +34,7 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
           <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
         </button>
         <div>
-          <h1 className="text-2xl font-display font-bold text-stone-900">Drafts</h1>
+          <h1 className="text-2xl font-display font-semibold text-stone-900">Drafts</h1>
           <p className="text-sm text-stone-500">Unfinished expeditions. Only you can see these.</p>
         </div>
       </div>

@@ -23,7 +23,7 @@ export default {
         'theme-vivid': 'rgb(var(--theme-accent-vivid-rgb, 234 88 12) / <alpha-value>)',
       },
       fontFamily: {
-        display: ['var(--font-display)', 'Playfair Display', 'serif'],
+        display: ['var(--font-display)', 'Newsreader', 'Georgia', 'serif'],
         body: ['Inter', 'system-ui', 'sans-serif'],
       },
       animation: {

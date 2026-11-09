@@ -33,7 +33,7 @@ type Tab = 'posts' | 'lifelist' | 'saved';
 const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = ({ url, name, size = 88 }) => (
   url
     ? <img src={url} alt={`${name || 'Explorer'}'s profile photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
-    : <div className="rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center font-display font-bold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
+    : <div className="rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
 );
 
 const Sheet: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
@@ -62,7 +62,7 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
 const lifeListSummary = (count: number, first: any, own: boolean): string => {
   const ms = first?.toMillis?.() ?? (typeof first?.seconds === 'number' ? first.seconds * 1000 : NaN);
   const since = Number.isFinite(ms) ? ` since ${new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
-  return `${count} species${since}. ${own ? 'Each one is something you saw with your own eyes.' : 'Each one seen first-hand.'}`;
+  return `${count} species${since}`;
 };
 
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
@@ -200,19 +200,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'wght' 200" }}>fingerprint</span>
             </span>
             <div>
-              <p className="text-2xl font-display italic font-bold text-theme-primary leading-tight">Your field page</p>
+              <p className="text-2xl font-display font-semibold text-theme-primary leading-tight">Your field page</p>
               <p className="text-sm text-stone-500 mt-0.5">Exploring as a guest</p>
             </div>
           </div>
           <dl className="mt-6 grid grid-cols-2 border-y border-theme-primary/10 divide-x divide-theme-primary/10">
-            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">species</dt></div>
-            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
+            <div className="py-3 text-center"><dd className="text-xl font-display font-semibold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">species</dt></div>
+            <div className="py-3 text-center"><dd className="text-xl font-display font-semibold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
           </dl>
-          <p className="text-[15px] font-display italic text-stone-700 mt-6 leading-relaxed">
-            Every creature you identify joins your life list, with the day you first saw it. Your journal keeps every sighting, including the ones you keep to yourself.
-          </p>
+          <p className="text-[15px] text-stone-700 mt-6">Your life list and journal will live here.</p>
           <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="mt-6 w-full py-3.5 rounded-2xl bg-theme-primary text-white font-bold">Start my field page</button>
-          <p className="text-xs text-stone-500 mt-3 text-center">Free. You can keep exploring as a guest.</p>
         </section>
       </div>
     );
@@ -226,7 +223,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </button>
         ) : <span className="w-11" />}
-        <h1 className="font-display italic font-bold text-lg text-theme-primary truncate">{username}</h1>
+        <h1 className="font-display font-semibold text-lg text-theme-primary truncate">{username}</h1>
         <button onClick={() => setSheet(isOwnProfile ? 'settings' : 'menu')} aria-label={isOwnProfile ? 'Settings' : 'More options'} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
           <span className="material-symbols-outlined" aria-hidden="true">{isOwnProfile ? 'menu' : 'more_horiz'}</span>
         </button>
@@ -239,18 +236,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
             <div className="min-w-0">
-              <p className="text-2xl font-display italic font-bold text-theme-primary leading-tight truncate">{profile?.displayName || username}</p>
+              <p className="text-2xl font-display font-semibold text-theme-primary leading-tight truncate">{profile?.displayName || username}</p>
               <p className="text-sm text-stone-500 mt-0.5">{exploringSince(profile?.joinedAt)}</p>
             </div>
           </div>
-          {profile?.bio ? <p className="text-[15px] font-display italic text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
-            <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a line about the wild things you love</button>
+          {profile?.bio ? <p className="text-[15px] font-display text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
+            <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a bio</button>
           )}
           <dl className="mt-5 grid grid-cols-4 border-y border-theme-primary/10 divide-x divide-theme-primary/10">
-            <button onClick={() => setTab('lifelist')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{lifeList.length}</dd><dt className="text-xs text-stone-500">species</dt></button>
-            <button onClick={() => setTab('posts')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{visiblePosts.length}</dd><dt className="text-xs text-stone-500">sightings</dt></button>
-            <button onClick={() => setSheet('followers')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{profile?.followersCount || 0}</dd><dt className="text-xs text-stone-500">followers</dt></button>
-            <button onClick={() => setSheet('following')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{profile?.followingCount || 0}</dd><dt className="text-xs text-stone-500">following</dt></button>
+            <button onClick={() => setTab('lifelist')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-semibold text-theme-primary tabular">{lifeList.length}</dd><dt className="text-xs text-stone-500">species</dt></button>
+            <button onClick={() => setTab('posts')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-semibold text-theme-primary tabular">{visiblePosts.length}</dd><dt className="text-xs text-stone-500">sightings</dt></button>
+            <button onClick={() => setSheet('followers')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-semibold text-theme-primary tabular">{profile?.followersCount || 0}</dd><dt className="text-xs text-stone-500">followers</dt></button>
+            <button onClick={() => setSheet('following')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-semibold text-theme-primary tabular">{profile?.followingCount || 0}</dd><dt className="text-xs text-stone-500">following</dt></button>
           </dl>
           <div className="flex gap-2 mt-4">
             {isOwnProfile ? (
@@ -290,7 +287,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 { key: 'lifelist', icon: 'eco', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-theme-primary font-display italic font-bold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
+                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-theme-primary font-display font-semibold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
                   <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: tab === t.key ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{t.icon}</span>{t.label}
                 </button>
               ))}
@@ -300,8 +297,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               visiblePosts.length === 0 ? (
                 <div className="text-center py-16 px-8 text-stone-500">
                   <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">camera</span>
-                  <p className="font-display italic text-xl text-stone-800">{isOwnProfile ? 'Your first sighting is out there' : 'No public sightings yet'}</p>
-                  {isOwnProfile && <p className="text-sm mt-1 max-w-xs mx-auto">Open the Lens and point it at anything alive. Your guide will tell you what it is and why it behaves that way.</p>}
+                  <p className="font-display text-xl text-stone-800">{isOwnProfile ? 'Your first sighting is out there' : 'No public sightings yet'}</p>
+                  {isOwnProfile && <p className="text-sm mt-1">Open the Lens and point it at something alive.</p>}
                 </div>
               ) : (
                 <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3" role="list">
@@ -327,7 +324,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <p className="text-center text-stone-500 py-16 px-8 max-w-sm mx-auto">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} is added here, with the day it was first seen.</p>
               ) : (
                 <>
-                <p className="px-5 pt-4 pb-2 text-sm font-display italic text-stone-600">{lifeListSummary(lifeList.length, lifeList[0]?.first, isOwnProfile)}</p>
+                <p className="px-5 pt-4 pb-2 text-sm font-display text-stone-600">{lifeListSummary(lifeList.length, lifeList[0]?.first, isOwnProfile)}</p>
                 <ul className="divide-y divide-theme-primary/10" role="list">
                   {lifeList.map((s, i) => (
                     <li key={s.name}>

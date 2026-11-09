@@ -95,7 +95,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
       <div className="fixed inset-0 bg-black text-white flex flex-col font-body md:flex-row overflow-hidden">
           {/* Header (Mobile) */}
           <div className="absolute top-0 left-0 right-0 p-4 md:p-6 z-50 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-              <div className="flex items-center gap-2 text-theme-accent italic font-black font-display text-xl drop-shadow-md">
+              <div className="flex items-center gap-2 text-theme-accent font-semibold font-display text-xl drop-shadow-md">
                  NatureGram
               </div>
           </div>
@@ -217,7 +217,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                  </div>
 
                  <div className="space-y-4">
-                     {post.title && <h2 className="text-2xl md:text-3xl font-display font-black tracking-tight">{post.title}</h2>}
+                     {post.title && <h2 className="text-2xl md:text-3xl font-display font-semibold">{post.title}</h2>}
                      
                      <div className="flex flex-wrap gap-2 mt-2">
                          {post.labels.slice(0, 4).map((label: string, i: number) => (

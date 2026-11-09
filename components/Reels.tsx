@@ -141,8 +141,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
       <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 bg-gradient-to-b from-black/60 to-transparent">
         <button onClick={onBack} aria-label="Back to the wild" className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
         <div className="text-center">
-          <h1 className="text-xl font-display italic font-bold leading-none">Moments</h1>
-          <p className="text-[11px] text-white/70 mt-1">{muted ? 'Tap to hear the wild' : 'Listening'}</p>
+          <h1 className="text-xl font-display font-semibold leading-none">Moments</h1>
         </div>
         <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'graphic_eq'}</span></button>
       </header>
@@ -150,15 +149,15 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
       {loading ? (
         <div className="h-full flex flex-col items-center justify-center gap-3" role="status">
           <span className="material-symbols-outlined text-4xl text-white/70 animate-pulse" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">wb_twilight</span>
-          <span className="font-display italic text-white/80">Waiting quietly…</span>
+          <span className="font-display text-white/80">Waiting quietly…</span>
         </div>
       ) : error ? (
-        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="font-display italic text-lg">Moments didn't load.</p><p className="text-sm text-white/70 -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(); }} className="px-6 py-3 rounded-full bg-white text-black font-bold">Try again</button></div>
+        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="font-display text-lg">Moments didn't load.</p><p className="text-sm text-white/70 -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(); }} className="px-6 py-3 rounded-full bg-white text-black font-bold">Try again</button></div>
       ) : items.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center">
           <span className="material-symbols-outlined text-4xl text-white/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">videocam</span>
-          <p className="font-display italic text-xl">No moments recorded yet</p>
-          <p className="text-white/75 max-w-xs">A bird bathing, a spider building, a frog calling. Hold the shutter in the lens to capture what happens next.</p>
+          <p className="font-display text-xl">No moments recorded yet</p>
+          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to record one.</p>
         </div>
       ) : (
         <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading}>
@@ -202,7 +201,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                 </div>
 
                 <div className="absolute left-0 right-16 bottom-0 z-10 p-4 lg:pl-28 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                  <h2 className="text-2xl font-display italic font-bold leading-tight drop-shadow">{species}</h2>
+                  <h2 className="text-2xl font-display italic font-semibold leading-tight drop-shadow">{species}</h2>
                   {observedBehaviour(p.behavior) && <p className="text-[15px] text-white/90 mt-1 leading-snug drop-shadow line-clamp-2">{observedBehaviour(p.behavior)}</p>}
 
                   {watchFor && (
@@ -212,7 +211,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                       aria-hidden={settledIdx !== idx}
                       tabIndex={settledIdx === idx ? 0 : -1}
                     >
-                      <span className="block text-[12px] font-display italic text-theme-vivid brightness-150 mb-0.5">Watch for this</span>
+                      <span className="block text-xs font-semibold text-white/70 mb-0.5">Watch for this</span>
                       <span className="block text-sm text-white/95 leading-snug">{watchFor}</span>
                     </button>
                   )}
@@ -226,7 +225,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
               </article>
             );
           })}
-          {hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-sm font-display italic">More moments coming…</div>}
+          {hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-sm font-display">More moments coming…</div>}
         </div>
       )}
     </div>
