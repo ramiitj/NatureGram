@@ -550,54 +550,40 @@ const App: React.FC = () => {
       <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24' : ''}`}>
         {currentView === AppView.LANDING && (
           <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
-            <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
+            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
             <div className="absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply" aria-hidden="true"></div>
             <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent" aria-hidden="true"></div>
 
-            <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up min-h-full justify-between py-10 gap-8 safe-pt">
-              <div className="text-center">
+            <div className="max-w-xl w-full flex flex-col items-center relative z-10 min-h-full justify-between py-12 safe-pt">
+              <div className="text-center pb-[50px]">
                 <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float" aria-hidden="true">
                   <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
                 </div>
                 <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
-                <p className="text-white/90 font-bold uppercase tracking-[0.3em] text-xs mt-2 drop-shadow-md">The Living Field Guide</p>
-                <p className="text-white/85 text-base mt-4 max-w-xs mx-auto leading-relaxed">Point your camera at nature. A live naturalist tells you what you're seeing and why.</p>
+                <p className="text-white/90 font-bold uppercase tracking-[0.4em] text-[11px] mt-2 drop-shadow-md">The Living Field Guide</p>
               </div>
 
-              <div className="w-full max-w-xs px-2 flex flex-col items-center gap-4">
-                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-7 rounded-[2.5rem] flex flex-col items-center gap-4 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
+              <div className="w-full max-w-xs px-6">
+                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
                   <span className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow" aria-hidden="true">
                     <span className="material-symbols-outlined text-3xl">explore</span>
                   </span>
                   <span>
                     <span className="block font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</span>
-                    <span className="block text-white/80 text-xs mt-2 tracking-[0.25em] uppercase font-bold">Enter the field guide</span>
+                    <span className="block text-white/75 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</span>
                   </span>
-                </button>
-                <button onClick={() => setAuthModal({ signUp: false })} className="text-white/90 text-sm font-semibold underline underline-offset-4 decoration-white/40 hover:decoration-white py-2">
-                  Already an explorer? Log in
                 </button>
               </div>
 
-              {/* Naturalist of the fortnight: the app's guiding philosophy, refreshed every ~15 days */}
-              <figure className="text-center px-4 max-w-md mx-auto">
-                <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white/80 bg-white/10 border border-white/15 rounded-full px-3 py-1.5 mb-5">
-                  <span className="material-symbols-outlined text-sm" aria-hidden="true">auto_stories</span>
-                  Naturalist of the fortnight · {period.daysRemaining} {period.daysRemaining === 1 ? 'day' : 'days'} left
-                </p>
-                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md">"{dailyTheme.quote}"</blockquote>
-                <figcaption className="mt-5 flex flex-col items-center gap-1">
-                  <p className="text-white font-bold tracking-widest uppercase text-sm">{dailyTheme.naturalist}{extra.lifespan && <span className="font-normal text-white/70 normal-case tracking-normal"> · {extra.lifespan}</span>}</p>
-                  <p className="text-white/80 text-sm leading-relaxed mt-1 max-w-sm">{extra.bio}</p>
-                  <div className="flex items-center gap-1 text-white/70 mt-2">
-                    <span className="material-symbols-outlined text-sm" aria-hidden="true">location_on</span>
-                    <p className="text-xs tracking-wider uppercase">{dailyTheme.locationName}</p>
-                  </div>
-                  <div className="mt-4 w-full rounded-2xl bg-white/10 border border-white/15 p-4 text-left backdrop-blur">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70 mb-1">This fortnight's field challenge</p>
-                    <p className="text-white text-sm leading-relaxed">{extra.challenge}</p>
-                    <p className="text-white/70 text-xs mt-2">Tag {extra.challengeTag} · Next: {period.next.naturalist}</p>
-                  </div>
+              <figure className="text-center px-6 max-w-md mx-auto">
+                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</blockquote>
+                <figcaption className="mt-6 flex flex-col items-center gap-1">
+                  <span className="text-white font-bold tracking-widest uppercase text-[11px]">{dailyTheme.naturalist}</span>
+                  <span className="flex items-center gap-1 text-white/70 mt-1">
+                    <span className="material-symbols-outlined text-[13px]" aria-hidden="true">location_on</span>
+                    <span className="text-[11px] tracking-wider uppercase">{dailyTheme.locationName}</span>
+                  </span>
+                  {dailyTheme.locationCaption && <span className="text-white/60 text-[11px] italic mt-1">{dailyTheme.locationCaption}</span>}
                 </figcaption>
               </figure>
             </div>
