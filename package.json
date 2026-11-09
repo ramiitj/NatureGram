@@ -19,6 +19,7 @@
     "firebase": "^12.8.0",
     "firebase-admin": "^14.1.0",
     "http-proxy": "^1.18.1",
+    "lucide-react": "^1.31.0",
     "motion": "^12.36.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

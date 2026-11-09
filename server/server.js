@@ -209,7 +209,7 @@ async function startServer() {
     const resolvedHost = (isLocalhost && process.env.NODE_ENV === 'production') ? 'thenaturegram.com' : rawHost;
     
     const siteUrl = `https://${resolvedHost}/s/${postId}`;
-    const appUrl = `https://${resolvedHost}/?post=${postId}`;
+    const appUrl = `https://${resolvedHost}/post/${postId}`;
 
     // Detect if this is a web scraping crawler/social bot or a real user browser
     const userAgent = req.headers['user-agent'] || '';
@@ -374,36 +374,39 @@ async function startServer() {
   });
 
   // HTTP Proxy for Gemini API
-  app.use('/api-proxy', cors(), async (req, res) => {
+  app.use('/api-proxy', cors(), apiProxyLimiter, async (req, res) => {
     // In app.use('/api-proxy'), req.url is relative to the mount point.
-    // So if the request is /api-proxy/v1beta/models..., req.url is /v1beta/models...
     let targetPath = req.url;
     
-    // Auth Validation for HTTP Proxy
-    let uid = null;
-    try {
-      const url = new URL(req.url, `https://${TARGET_HOST}`);
-      const providedKey = url.searchParams.get('key') || req.headers['x-goog-api-key'];
-      
-      if (!providedKey || providedKey === 'PROXY') {
-         return res.status(401).json({ error: 'Unauthorized: Missing or invalid Firebase ID token.' });
-      }
+    const urlObj = new URL(req.url, `https://${TARGET_HOST}`);
+    
+    // Whitelist Gemini API model endpoints
+    if (!urlObj.pathname.startsWith('/v1beta/models/') && !urlObj.pathname.startsWith('/v1alpha/models/')) {
+        return res.status(403).json({ error: 'Forbidden: Endpoint not allowed.' });
+    }
 
-      try {
-         const decodedToken = await getAuth().verifyIdToken(providedKey);
-         uid = decodedToken.uid;
-      } catch (e) {
-         const projectId = currentFirebaseProjectId || 'biostream-6490a';
-         const decodedFallback = await verifyFirebaseTokenFallback(providedKey, projectId);
-         uid = decodedFallback.sub;
-      }
+    // Auth Validation for HTTP Proxy
+    let uid = 'guest_' + (req.ip || 'anon');
+    try {
+      const providedKey = urlObj.searchParams.get('key') || req.headers['x-goog-api-key'];
       
-      if (!uid) {
-         return res.status(401).json({ error: 'Unauthorized: Invalid Firebase token.' });
+      if (providedKey && providedKey !== 'PROXY') {
+         try {
+            const decodedToken = await getAuth().verifyIdToken(providedKey);
+            uid = decodedToken.uid;
+         } catch (e) {
+            try {
+               const projectId = currentFirebaseProjectId || 'biostream-6490a';
+               const decodedFallback = await verifyFirebaseTokenFallback(providedKey, projectId);
+               uid = decodedFallback.sub;
+            } catch (fallbackError) {
+               // Fallback to guest IP scope if token is expired/invalid
+               uid = 'guest_' + (req.ip || 'anon');
+            }
+         }
       }
     } catch (e) {
-       console.error('[Proxy] Auth verification failed:', e.message);
-       return res.status(401).json({ error: 'Unauthorized', details: e.message });
+       console.warn('[Proxy] Auth check notice:', e.message);
     }
 
     // Inject/Replace API key in query params
@@ -539,8 +542,15 @@ async function startServer() {
         
         
         wss.handleUpgrade(req, socket, head, (clientWs) => {
+          clientWs.isAlive = true;
+          clientWs.on('pong', () => { clientWs.isAlive = true; });
           
           const userActiveConns = activeConnections.get(uid) || new Set();
+          if (userActiveConns.size >= 2) {
+             console.error('[Proxy] Max concurrent connections reached for UID:', uid);
+             clientWs.close(1008, "Too many concurrent connections");
+             return;
+          }
           userActiveConns.add(clientWs);
           activeConnections.set(uid, userActiveConns);
 
@@ -550,8 +560,14 @@ async function startServer() {
               clientWs.close(1008, "Session max duration reached (3 mins)");
           }, 3 * 60 * 1000);
 
+          let inactivityTimeout = setTimeout(() => {
+              console.log('[Proxy] Session inactivity timeout reached for user', uid);
+              clientWs.close(1008, "Session inactivity timeout (60s)");
+          }, 60 * 1000);
+
           clientWs.on('close', () => {
               clearTimeout(sessionTimeout);
+              clearTimeout(inactivityTimeout);
               userActiveConns.delete(clientWs);
               if (userActiveConns.size === 0) {
                   activeConnections.delete(uid);
@@ -590,6 +606,12 @@ async function startServer() {
         });
 
         clientWs.on('message', (data, isBinary) => {
+          clientWs.isAlive = true;
+          clearTimeout(inactivityTimeout);
+          inactivityTimeout = setTimeout(() => {
+              console.log('[Proxy] Session inactivity timeout reached for user', uid);
+              clientWs.close(1008, "Session inactivity timeout (60s)");
+          }, 60 * 1000);
           if (!isBinary) {
             console.log('[Proxy] Client WS Message:', data.toString()); fs.appendFileSync('proxy.log', '[Client WS] ' + data.toString() + '\n');
           }
@@ -601,8 +623,10 @@ async function startServer() {
         });
 
         targetWs.on('close', (code, reason) => {
-          console.log('[Proxy] Target WS closed', code, reason.toString()); fs.appendFileSync('proxy.log', '[Target WS CLOSE] ' + code + ' ' + reason.toString() + '\n');
-          clientWs.close(code, reason);
+          console.log('[Proxy] Target WS closed', code, reason ? reason.toString() : '');
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.close(code, reason);
+          }
         });
         
         targetWs.on('message', (data, isBinary) => {
@@ -615,21 +639,42 @@ async function startServer() {
         });
 
         clientWs.on('close', (code, reason) => {
-          console.log('[Proxy] Client WS closed', code, reason.toString()); fs.appendFileSync('proxy.log', '[Client WS CLOSE] ' + code + ' ' + reason.toString() + '\n');
-                  const safeCode = (code === 1005 || code < 1000 || code > 4999) ? 1000 : code;
-        targetWs.close(safeCode, reason);
+          console.log('[Proxy] Client WS closed', code, reason ? reason.toString() : '');
+          const safeCode = (code === 1005 || code < 1000 || code > 4999) ? 1000 : code;
+          if (targetWs.readyState === WebSocket.OPEN || targetWs.readyState === WebSocket.CONNECTING) {
+            targetWs.close(safeCode, reason);
+          }
         });
         
         clientWs.on('error', (err) => {
           console.error('[WS Proxy Client Error]', err.message);
           targetWs.terminate();
         });
-        targetWs.on('close', (c, r) => { fs.appendFileSync('proxy.log', '[Target WS CLOSE] ' + c + ' ' + r.toString() + '\n'); }); targetWs.on('error', (err) => {
+        
+        targetWs.on('error', (err) => {
           console.error('[WS Proxy Target Error]', err.message);
           clientWs.terminate();
         });
       });
     }
+  });
+
+  // Active sweep interval to terminate dead connections every 20s
+  const sweepInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        console.log('[Proxy Sweep] Terminating inactive/dead connection');
+        return ws.terminate();
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch (e) {}
+    });
+  }, 20000);
+
+  wss.on('close', () => {
+    clearInterval(sweepInterval);
   });
 
   server.listen(PORT, '0.0.0.0', () => {

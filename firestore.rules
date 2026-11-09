@@ -34,17 +34,19 @@ service cloud.firestore {
       }
 
       match /notifications/{notifId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read, update, delete: if isOwner(userId) || isAdmin();
+        allow create: if isSignedIn();
       }
     }
 
     // 2. Daily themes & Seed Collections (Public Read)
     match /themes/{themeId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
-
     match /daily_themes/{dateStr} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // 3. Naturalist memories (Private history log)
@@ -55,13 +57,12 @@ service cloud.firestore {
     // 4. Ecosystem feed - Main Community Posts
     match /ecosystem_feed/{postId} {
       allow read: if true;
-      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || postId.matches("^seed_.*");
+      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || (isAdmin() && postId.matches("^seed_.*"));
       allow update: if (
         isOwner(existing().userId) || isAdmin() ||
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic'])) ||
-        postId.matches("^seed_.*")
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic']))
       );
-      allow delete: if resource == null || isOwner(existing().userId) || isAdmin() || postId.matches("^seed_.*");
+      allow delete: if resource == null || isOwner(existing().userId) || isAdmin();
 
       // 5. Comments on posts
       match /comments/{commentId} {
@@ -74,7 +75,7 @@ service cloud.firestore {
     // 6. Cached Post thumbnails
     match /feed_thumbnails/{postId} {
       allow read: if true;
-      allow write: if isSignedIn() || postId.matches("^seed_.*");
+      allow write: if isSignedIn() || (isAdmin() && postId.matches("^seed_.*"));
     }
 
     // 7. System configurations (admin_config)

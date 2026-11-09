@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
+import NaturalistPersonaModal from './NaturalistPersonaModal';
 
 interface AuthModalProps {
   onClose?: () => void;
@@ -15,6 +16,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [createdUserId, setCreatedUserId] = useState<string | null>(null);
+  const [showPersonaStep, setShowPersonaStep] = useState(false);
 
   // Password Indicators
   const hasMinLength = password.length >= 6;
@@ -28,17 +31,35 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
     try {
       if (isSignUp) {
-        await FirebaseService.registerUser(email, password);
+        const userCred = await FirebaseService.registerUser(email, password);
+        if (userCred?.user?.uid) {
+          setCreatedUserId(userCred.user.uid);
+          setShowPersonaStep(true);
+        } else {
+          onSuccess();
+        }
       } else {
         await FirebaseService.loginUser(email, password);
+        onSuccess();
       }
-      onSuccess();
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
   };
+
+  if (showPersonaStep && createdUserId) {
+    return (
+      <NaturalistPersonaModal
+        userId={createdUserId}
+        isOpen={true}
+        showSkipOption={true}
+        onClose={() => onSuccess()}
+        onSave={() => onSuccess()}
+      />
+    );
+  }
 
   const content = (
       <div className={`w-full max-w-sm bg-white rounded-[2.5rem] p-8 ${inline ? '' : 'shadow-2xl relative overflow-hidden'}`}>
@@ -99,11 +120,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
            <button 
              type="submit" 
              disabled={loading}
-             onTouchEnd={(e) => {
-               // Prevent synthetic click generation which causes double submit / tap issues
-               e.preventDefault(); 
-               handleSubmit(e as unknown as React.FormEvent);
-             }}
              className="w-full py-4 bg-text-main text-white rounded-2xl font-bold shadow-xl shadow-theme-primary/40/20 mt-2 sm:hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-70"
            >
              {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
@@ -113,10 +129,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         <div className="mt-6 text-center">
           <button 
             type="button"
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              setIsSignUp(!isSignUp);
-            }}
             onClick={() => setIsSignUp(!isSignUp)} 
             className="text-xs text-theme-primary/60 font-bold sm:hover:text-primary transition-colors"
           >

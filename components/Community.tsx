@@ -1,7 +1,8 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
-import { CommunityPost, UserMode, Comment } from '../types';
+import { CommunityPost, UserMode, Comment, NaturalistPersona } from '../types';
+import { GenAiService } from '../services/genAiService';
 import ShareStudio from './ShareStudio';
 import PublisherStudio from './PublisherStudio';
 import MediaEditor from './MediaEditor';
@@ -16,7 +17,8 @@ const FeedCard: React.FC<{
     loadedImages: Record<string, boolean>;
     onImageLoad: (id: string) => void;
 }> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const isLoaded = post.mediaType === 'audio' ? true : loadedImages[post.id];
+    const hasImage = Boolean(post.thumbnailUrl || post.imageUrl);
+    const isLoaded = post.mediaType === 'audio' || !hasImage ? true : Boolean(loadedImages[post.id]);
     const [isHovered, setIsHovered] = useState(false);
     const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
     const cardRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,7 @@ const FeedCard: React.FC<{
         <div 
             ref={cardRef}
             onClick={() => { setIsHovered(false); onPostClick(post); }} 
+            onContextMenu={(e) => e.preventDefault()}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             className={`relative group cursor-pointer transition-all duration-700 break-inside-avoid ${isLoaded ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-[0.98]'}`}
@@ -66,14 +69,14 @@ const FeedCard: React.FC<{
                 {post.mediaType === 'audio' ? (
                     <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : null}
                         <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
                     </div>
                 ) : post.mediaType === 'video' ? (
                     <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : (
                             <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
@@ -81,14 +84,20 @@ const FeedCard: React.FC<{
                         )}
                         <span className="material-symbols-outlined text-white text-4xl absolute z-10 drop-shadow-md">play_circle</span>
                     </div>
-                ) : (
+                ) : hasImage ? (
                     <img 
                         src={post.thumbnailUrl || post.imageUrl} 
                         alt="Observation" 
                         loading="lazy" 
                         onLoad={() => onImageLoad(post.id)}
+                        onError={() => onImageLoad(post.id)}
                         className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
                     />
+                ) : (
+                    <div className="w-full h-48 bg-stone-900 flex flex-col items-center justify-center text-stone-400 p-4">
+                        <span className="material-symbols-outlined text-3xl mb-1 text-stone-500">photo</span>
+                        <span className="text-[9px] uppercase tracking-wider font-bold text-stone-400">Field Specimen</span>
+                    </div>
                 )}
                 {post.items && post.items.length > 1 && (
                     <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center z-20">
@@ -133,7 +142,7 @@ interface CommunityProps {
   currentUserMode: UserMode;
   selectedPostId?: string | null;
   onPostClose?: () => void;
-  onPostOpen?: () => void;
+  onPostOpen?: (postId?: string) => void;
   backLabel?: string;
   onViewProfile?: (userId: string) => void;
   isJournalOnly?: boolean;
@@ -177,6 +186,48 @@ const Community: React.FC<CommunityProps> = ({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
 
+  // Agentic Curation States
+  const [userPersona, setUserPersona] = useState<NaturalistPersona | null>(null);
+  const [curatedPosts, setCuratedPosts] = useState<CommunityPost[]>([]);
+  const [isCurating, setIsCurating] = useState(false);
+
+  useEffect(() => {
+    const fetchPersona = async () => {
+      if (currentUserMode.userId && currentUserMode.userId !== 'explorer_guest') {
+        const profile = await FirebaseService.getUserProfile(currentUserMode.userId);
+        if (profile?.naturalistPersona) {
+          setUserPersona(profile.naturalistPersona);
+        } else {
+          setUserPersona(null);
+        }
+      } else {
+        setUserPersona(null);
+      }
+    };
+    fetchPersona();
+  }, [currentUserMode.userId]);
+
+  useEffect(() => {
+    if (posts.length > 0) {
+      if (userPersona) {
+        setIsCurating(true);
+        GenAiService.curateAgenticFeed(userPersona, posts)
+          .then(curated => {
+            setCuratedPosts(curated);
+          })
+          .catch(err => {
+            console.warn("Feed curation fallback:", err);
+            setCuratedPosts(posts);
+          })
+          .finally(() => setIsCurating(false));
+      } else {
+        setCuratedPosts(posts);
+      }
+    } else {
+      setCuratedPosts([]);
+    }
+  }, [posts, userPersona]);
+
   // Dynamically generated Instagram-style search suggestions
   const dynamicSuggestions = React.useMemo(() => {
     const popularTags = new Set<string>();
@@ -203,7 +254,15 @@ const Community: React.FC<CommunityProps> = ({
 
   // Computes sorted and filtered posts in memory (allowing dynamic full-text and attribute search without Firestore indexing errors)
   const filteredAndSortedPosts = React.useMemo(() => {
-    return posts
+    const sourcePosts = curatedPosts.length > 0 ? curatedPosts : posts;
+    const seenIds = new Set<string>();
+    const uniquePosts = sourcePosts.filter(p => {
+      if (!p.id || seenIds.has(p.id)) return false;
+      seenIds.add(p.id);
+      return true;
+    });
+
+    return uniquePosts
       .filter(post => {
         // 1. Full-text search match (Titles, Labels, Descriptions, Locations, Insights)
         if (searchQuery.trim()) {
@@ -295,7 +354,7 @@ const Community: React.FC<CommunityProps> = ({
         }
         return 0;
       });
-  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels]);
+  }, [posts, curatedPosts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels]);
 
   // Extract all categories / species labels currently present in observations for selection
   const allAvailableLabels = React.useMemo(() => {
@@ -404,7 +463,11 @@ const Community: React.FC<CommunityProps> = ({
       if (!hasMore || isLoading || isJournalOnly) return;
       try {
           const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(lastVisible, searchTag);
-          setPosts(prev => [...prev, ...newPosts]);
+          setPosts(prev => {
+              const existingIds = new Set(prev.map(p => p.id));
+              const uniqueNew = newPosts.filter(p => !existingIds.has(p.id));
+              return [...prev, ...uniqueNew];
+          });
           setLastVisible(newLastVisible);
           setHasMore(newLastVisible !== null);
       } catch (err) {
@@ -491,18 +554,18 @@ const Community: React.FC<CommunityProps> = ({
     setError(null);
     setHasMore(false); // Subscriptions fetch everything at once
     
-    if (!currentUserMode.userId) {
+    if (!currentUserMode?.userId) {
         setIsLoading(false);
         return;
     }
     
-    const unsubscribe = FirebaseService.subscribeToUserJournal(currentUserMode.userId, (data) => {
+    const unsubscribe = FirebaseService.subscribeToUserJournal(currentUserMode?.userId, (data) => {
         setPosts(data);
         setIsLoading(false);
     });
     
     return () => unsubscribe();
-  }, [isJournalOnly, currentUserMode.userId]);
+  }, [isJournalOnly, currentUserMode?.userId]);
 
   // Original Global Feed loaded paginated query
   useEffect(() => {
@@ -541,14 +604,14 @@ const Community: React.FC<CommunityProps> = ({
         if (post) {
             setActivePost(post);
             setActiveItemIndex(0);
-            onPostOpen?.();
+            onPostOpen?.(post.id);
         } else if (!isLoading && fetchedPostId !== selectedPostId) {
             setFetchedPostId(selectedPostId);
             FirebaseService.getPost(selectedPostId).then(fetchedPost => {
                 if (fetchedPost) {
                     setActivePost(fetchedPost);
                     setActiveItemIndex(0);
-                    onPostOpen?.();
+                    onPostOpen?.(fetchedPost.id);
                 }
             });
         }
@@ -593,7 +656,7 @@ const Community: React.FC<CommunityProps> = ({
     hapticFeedback(10);
     setActivePost(post);
     setActiveItemIndex(0);
-    onPostOpen?.();
+    onPostOpen?.(post.id);
     try {
       const fullPost = await FirebaseService.getFullPost(post.id);
       if (fullPost) setActivePost(fullPost);
@@ -608,10 +671,10 @@ const Community: React.FC<CommunityProps> = ({
           setShowAuthModal(true);
           return;
       }
-      if (!currentUserMode.userId) return;
+      if (!currentUserMode?.userId) return;
       hapticFeedback(10);
-      const isLiked = post.likes?.includes(currentUserMode.userId);
-      await FirebaseService.toggleLike(post.id, currentUserMode.userId, !!isLiked);
+      const isLiked = post.likes?.includes(currentUserMode?.userId);
+      await FirebaseService.toggleLike(post.id, currentUserMode?.userId, !!isLiked);
   };
 
   const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
@@ -636,8 +699,8 @@ const Community: React.FC<CommunityProps> = ({
           setShowAuthModal(true);
           return;
       }
-      if (!newComment.trim() || !activePost || !currentUserMode.userId) return;
-      await FirebaseService.addComment(activePost.id, currentUserMode.userId, newComment);
+      if (!newComment.trim() || !activePost || !currentUserMode?.userId) return;
+      await FirebaseService.addComment(activePost.id, currentUserMode?.userId, newComment);
       setNewComment("");
   };
 
@@ -667,7 +730,7 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   const handleEditSave = async (result: { blob?: Blob, rotation?: number }) => {
-    if (!activePost || !currentUserMode.userId) return;
+    if (!activePost || !currentUserMode?.userId) return;
     setIsEditing(false);
     try {
         const updates: Partial<CommunityPost> = {};
@@ -677,7 +740,7 @@ const Community: React.FC<CommunityProps> = ({
 
         let newUrl: string | undefined;
         if (result.blob) {
-            newUrl = await FirebaseService.uploadMedia(result.blob, currentUserMode.userId, currentItem.mediaType as any);
+            newUrl = await FirebaseService.uploadMedia(result.blob, currentUserMode?.userId, currentItem.mediaType as any);
         }
 
         if (hasMultipleItems) {
@@ -850,20 +913,18 @@ const Community: React.FC<CommunityProps> = ({
                     </p>
                 </div>
 
-                {/* Drafts Drawer Toggle Button */}
+                {/* Drafts Drawer Toggle Button - Only show for logged in users with pending drafts */}
                 <div className="flex items-center gap-3">
-                    {onViewDrafts && (
+                    {onViewDrafts && currentUserMode.type !== 'anonymous' && !currentUserMode.isAnonymous && currentUserMode.userId && currentUserMode.userId !== 'guest' && activeDraftsCount > 0 && (
                         <button 
                             onClick={onViewDrafts} 
-                            className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all"
+                            className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all cursor-pointer"
                             title="Active drafts"
                         >
                             <span className="material-symbols-outlined text-lg">inventory</span>
-                            {activeDraftsCount > 0 ? (
-                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-theme-accent rounded-full border border-white flex items-center justify-center text-[8px] font-bold text-white animate-pulse">
-                                    {activeDraftsCount}
-                                </span>
-                            ) : null}
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-theme-accent rounded-full border border-white flex items-center justify-center text-[8px] font-bold text-white animate-pulse">
+                                {activeDraftsCount}
+                            </span>
                         </button>
                     )}
                 </div>
@@ -1119,37 +1180,7 @@ const Community: React.FC<CommunityProps> = ({
                 )}
             </div>
 
-            {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
-            <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
-                {[
-                    { id: 'all', label: 'All Sighting', icon: '✨' },
-                    { id: 'flora', label: 'Flora', icon: '🌿' },
-                    { id: 'fauna', label: 'Fauna', icon: '🐦' },
-                    { id: 'fungi', label: 'Fungi / Spores', icon: '🍄' },
-                    { id: 'audio', label: 'Audio Reels', icon: '🎙️' },
-                    { id: 'video', label: 'Clip Reels', icon: '🎥' },
-                    { id: 'popular', label: 'Top Voted', icon: '🔥' },
-                ].map((tab) => {
-                    const isActive = activeExploreTab === tab.id;
-                    return (
-                        <button
-                            key={tab.id}
-                            onClick={() => {
-                                setActiveExploreTab(tab.id as any);
-                                hapticFeedback();
-                            }}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
-                                isActive 
-                                    ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]' 
-                                    : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-theme-primary/60 hover:bg-stone-100'
-                            }`}
-                        >
-                            <span>{tab.icon}</span>
-                            <span>{tab.label}</span>
-                        </button>
-                    );
-                })}
-            </div>
+
 
             {/* Reset status bar if any dynamic filter keyword is active */}
             {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag) && (
@@ -1279,7 +1310,7 @@ const Community: React.FC<CommunityProps> = ({
                     )}
 
                     <div className="flex items-center gap-4">
-                        {activePost.userId === currentUserMode.userId && (
+                        {(activePost.userId === currentUserMode?.userId || currentUserMode.type === 'admin') && (
                             <>
                                 <button 
                                     onClick={() => setPublishingPost(activePost)} 
@@ -1314,6 +1345,7 @@ const Community: React.FC<CommunityProps> = ({
                     {(() => {
                         const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
                         const hasMultipleItems = activePost.items && activePost.items.length > 1;
+                        const canDownload = activePost.userId === currentUserMode?.userId || currentUserMode.type === 'admin';
                         
                         return (
                             <>
@@ -1332,6 +1364,8 @@ const Community: React.FC<CommunityProps> = ({
                                                                 src={item.videoUrl} 
                                                                 poster={item.thumbnailUrl} 
                                                                 controls 
+                                                                controlsList={!canDownload ? "nodownload" : undefined}
+                                                                onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                                                                 playsInline 
                                                                 preload='metadata' 
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
@@ -1341,6 +1375,8 @@ const Community: React.FC<CommunityProps> = ({
                                                                 {item.thumbnailUrl || item.imageUrl ? (
                                                                     <img 
                                                                         src={item.thumbnailUrl || item.imageUrl} 
+                                                                        onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
+                                                                        draggable={canDownload}
                                                                         className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                                     />
                                                                 ) : (
@@ -1348,13 +1384,15 @@ const Community: React.FC<CommunityProps> = ({
                                                                         <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                                     </div>
                                                                 )}
-                                                                <audio src={item.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                                <audio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                             </div>
                                                         ) : (
                                                             <img 
                                                                 src={item.imageUrl || item.thumbnailUrl} 
-                                                                className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                                onClick={() => window.open(item.imageUrl || item.thumbnailUrl, '_blank')}
+                                                                className={`w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl ${canDownload ? 'cursor-pointer' : ''}`}
+                                                                onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
+                                                                draggable={canDownload}
+                                                                onClick={() => { if (canDownload) window.open(item.imageUrl || item.thumbnailUrl, '_blank'); }}
                                                             />
                                                         )}
                                                     </div>
@@ -1399,6 +1437,8 @@ const Community: React.FC<CommunityProps> = ({
                                                     src={currentItem.videoUrl} 
                                                     poster={currentItem.thumbnailUrl} 
                                                     controls 
+                                                    controlsList={!canDownload ? "nodownload" : undefined}
+                                                    onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                                                     playsInline 
                                                     preload='metadata' 
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
@@ -1408,6 +1448,8 @@ const Community: React.FC<CommunityProps> = ({
                                                     {currentItem.thumbnailUrl || currentItem.imageUrl ? (
                                                         <img 
                                                             src={currentItem.thumbnailUrl || currentItem.imageUrl} 
+                                                            onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
+                                                            draggable={canDownload}
                                                             className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                         />
                                                     ) : (
@@ -1415,13 +1457,15 @@ const Community: React.FC<CommunityProps> = ({
                                                             <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                         </div>
                                                     )}
-                                                    <audio src={currentItem.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                    <audio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                 </div>
                                             ) : (
                                                 <img 
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl} 
-                                                    className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                    onClick={() => window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank')}
+                                                    className={`w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl ${canDownload ? 'cursor-pointer' : ''}`}
+                                                    onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
+                                                    draggable={canDownload}
+                                                    onClick={() => { if (canDownload) window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank'); }}
                                                 />
                                             )}
                                         </div>
@@ -1441,8 +1485,8 @@ const Community: React.FC<CommunityProps> = ({
                                                 </p>
                                             </div>
                                         </div>
-                                        <button onClick={(e) => handleLike(e, activePost)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
-                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'fill-current' : ''}`}>favorite</span>
+                                        <button onClick={(e) => handleLike(e, activePost)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode?.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
+                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode?.userId!) ? 'fill-current' : ''}`}>favorite</span>
                                             <span className="text-[10px] font-black tracking-tighter">{activePost.likes?.length || 0}</span>
                                         </button>
                                     </div>
@@ -1514,7 +1558,10 @@ const Community: React.FC<CommunityProps> = ({
                         );
                     })()}
                 </motion.div>
-    
+            </motion.div>
+        )}
+        </AnimatePresence>
+
     <AnimatePresence>
         {isCommentsOpen && (
             <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 bg-black/60 backdrop-blur-sm font-body">
@@ -1598,21 +1645,20 @@ const Community: React.FC<CommunityProps> = ({
             />
         )}
     </AnimatePresence>
-                {isEditing && activePost && (() => {
-                    const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
-                    return (
-                        <MediaEditor 
-                            type={currentItem.mediaType as any}
-                            source={currentItem.mediaType === 'video' ? currentItem.videoUrl! : currentItem.mediaType === 'audio' ? currentItem.audioUrl! : currentItem.imageUrl!}
-                            initialRotation={currentItem.rotation || 0}
-                            onSave={handleEditSave}
-                            onCancel={() => setIsEditing(false)}
-                        />
-                    );
-                })()}
-            </motion.div>
-        )}
-        </AnimatePresence>
+    <AnimatePresence>
+        {isEditing && activePost && (() => {
+            const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
+            return (
+                <MediaEditor 
+                    type={currentItem.mediaType as any}
+                    source={currentItem.mediaType === 'video' ? currentItem.videoUrl! : currentItem.mediaType === 'audio' ? currentItem.audioUrl! : currentItem.imageUrl!}
+                    initialRotation={currentItem.rotation || 0}
+                    onSave={handleEditSave}
+                    onCancel={() => setIsEditing(false)}
+                />
+            );
+        })()}
+    </AnimatePresence>
 
         {showAuthModal && (
             <AuthModal 

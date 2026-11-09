@@ -1,7 +1,7 @@
 
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, Firestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import firebaseConfig from "./firebase-applet-config.json";
 
@@ -23,8 +23,14 @@ const activeDbId = getActiveDatabaseId();
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
   db = activeDbId && activeDbId !== "(default)"
-    ? initializeFirestore(app, { experimentalForceLongPolling: true }, activeDbId)
-    : initializeFirestore(app, { experimentalForceLongPolling: true });
+    ? initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+      }, activeDbId)
+    : initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+      });
 } else {
   app = getApps()[0];
   db = activeDbId && activeDbId !== "(default)"

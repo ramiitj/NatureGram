@@ -9,6 +9,7 @@ import { FingerprintService } from '../services/fingerprintService.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
+import { RateLimitService } from '../services/rateLimitService.ts';
 
 interface LiveLensProps {
   onCapture: (snap: Snapshot) => void;
@@ -69,6 +70,18 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [isProcessingCapture, setIsProcessingCapture] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
   const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string} | null>(null);
+
+  useEffect(() => {
+      // Ping the rate limit service to keep the session alive while this component is mounted
+      const pingInterval = setInterval(() => {
+          RateLimitService.pingSessionActive();
+      }, 5000); // ping every 5s
+      
+      return () => {
+          clearInterval(pingInterval);
+          RateLimitService.clearSessionActive();
+      };
+  }, []);
 
   useEffect(() => {
     if (!latestSighting) return;
@@ -147,6 +160,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, []);
 
   const startRecording = useCallback((type: 'audio' | 'video') => {
+    if (selectedMode === 'observation' && retakesCountRef.current >= 3) {
+        alert("Observation limit reached. Please close this session to finalize the analysis.");
+        return;
+    }
     if (!activeStreamRef.current) return;
     
     let streamToRecord: MediaStream;
@@ -239,27 +256,32 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const associatedBlobs = pendingAssociatedImagesRef.current.map(i => i.blob);
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
           
-          GenAiService.analyzeMultimodal(
-              (type === 'audio' || type === 'video') ? mediaBlob : null, 
-              allImageBlobs, 
-              location
-          ).then(result => {
-              updateSnapshot(snapId, {
-                  aiInsight: result.ecologic,
-                  labels: result.taxonomy,
-                  locationArea: result.location,
-                  isAnalyzing: false,
-                  aiProposedLabels: result.taxonomy,
-                  aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)' 
+          if (selectedMode === 'observation') {
+              setIsProcessingCapture(false);
+              showStatus('success', 'Observation saved. It will be analyzed when you close the session.');
+          } else {
+              GenAiService.analyzeMultimodal(
+                  (type === 'audio' || type === 'video') ? mediaBlob : null, 
+                  allImageBlobs, 
+                  location
+              ).then(result => {
+                  updateSnapshot(snapId, {
+                      aiInsight: result.ecologic,
+                      labels: result.taxonomy,
+                      locationArea: result.location,
+                      isAnalyzing: false,
+                      aiProposedLabels: result.taxonomy,
+                      aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)' 
+                  });
+                  setIsProcessingCapture(false);
+                  showStatus('success', 'Analysis complete. Saved to field notes.');
+              }).catch(err => {
+                  console.error("Background analysis failed", err);
+                  updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+                  setIsProcessingCapture(false);
+                  showStatus('error', 'Analysis failed. Please try again.');
               });
-              setIsProcessingCapture(false);
-              showStatus('success', 'Analysis complete. Saved to field notes.');
-          }).catch(err => {
-              console.error("Background analysis failed", err);
-              updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-              setIsProcessingCapture(false);
-              showStatus('error', 'Analysis failed. Please try again.');
-          });
+          }
       };
 
       if (blobPromise) {
@@ -327,6 +349,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           stopRecording();
       } else if (isCameraActive && !wasHold) {
           // It was a tap, take a photo
+          if (selectedMode === 'observation' && retakesCountRef.current >= 3) {
+              alert("Observation limit reached. Please close this session to finalize the analysis.");
+              return;
+          }
           const res = captureFrame(true);
           if (res && res.blobPromise) {
               res.blobPromise.then(compressedBlob => {
@@ -384,23 +410,28 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       sessionRetakes: retakesCountRef.current
                   });
 
-                  GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
-                      updateSnapshot(snapId, {
-                          aiInsight: result.ecologic,
-                          labels: result.taxonomy,
-                          locationArea: result.location,
-                          isAnalyzing: false,
-                          aiProposedLabels: result.taxonomy,
-                          aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+                  if (selectedMode === 'observation') {
+                      setIsProcessingCapture(false);
+                      showStatus('success', 'Observation saved. It will be analyzed when you close the session.');
+                  } else {
+                      GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
+                          updateSnapshot(snapId, {
+                              aiInsight: result.ecologic,
+                              labels: result.taxonomy,
+                              locationArea: result.location,
+                              isAnalyzing: false,
+                              aiProposedLabels: result.taxonomy,
+                              aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+                          });
+                          setIsProcessingCapture(false);
+                          showStatus('success', 'Analysis complete. Saved to field notes.');
+                      }).catch(err => {
+                          console.error("Manual capture analysis failed", err);
+                          updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+                          setIsProcessingCapture(false);
+                          showStatus('error', 'Analysis failed. Please try again.');
                       });
-                      setIsProcessingCapture(false);
-                      showStatus('success', 'Analysis complete. Saved to field notes.');
-                  }).catch(err => {
-                      console.error("Manual capture analysis failed", err);
-                      updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-                      setIsProcessingCapture(false);
-                      showStatus('error', 'Analysis failed. Please try again.');
-                  });
+                  }
               });
           }
       }
@@ -513,27 +544,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           });
       }
 
-      GenAiService.analyzeMedia(file, mediaType, location).then(result => {
-          updateSnapshot(snapId, {
-              aiInsight: result.ecologic,
-              labels: result.taxonomy,
-              locationArea: result.location,
-              isAnalyzing: false,
-              aiProposedLabels: result.taxonomy,
-              aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+      if (selectedMode === 'observation') {
+          setIsProcessingCapture(false);
+          showStatus('success', 'Observation saved. It will be analyzed when you close the session.');
+      } else {
+          GenAiService.analyzeMedia(file, mediaType, location).then(result => {
+              updateSnapshot(snapId, {
+                  aiInsight: result.ecologic,
+                  labels: result.taxonomy,
+                  locationArea: result.location,
+                  isAnalyzing: false,
+                  aiProposedLabels: result.taxonomy,
+                  aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+              });
+              setIsProcessingCapture(false);
+              showStatus('success', 'Upload analyzed. Saved to field notes.');
+          }).catch(err => {
+              console.error("Upload analysis failed", err);
+              updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+              setIsProcessingCapture(false);
+              showStatus('error', 'Analysis failed. Please try again.');
           });
-          setIsProcessingCapture(false);
-          showStatus('success', 'Upload analyzed. Saved to field notes.');
-      }).catch(err => {
-          console.error("Upload analysis failed", err);
-          updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-          setIsProcessingCapture(false);
-          showStatus('error', 'Analysis failed. Please try again.');
-      });
+      }
   };
 
   const getStatusText = () => {
     if (agentState === 'FINALIZING') return "Archiving Field Data...";
+    if (selectedMode === 'observation') {
+        if (isProcessingCapture) return "Analyzing Observation...";
+        if (isRecordingAudio) return "Recording Field Audio...";
+        if (isRecordingVideo) return "Recording Field Video...";
+        if (isCameraActive) return "Observation Camera Active";
+        return "Observation Lens Ready";
+    }
+
     if (agentState === 'RECONNECTING') return "Lost Link - Syncing...";
     if (isCameraActive) {
         switch (agentState) {
@@ -560,6 +604,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const getPebbleStyle = () => {
     if (agentState === 'FINALIZING') return { color: "bg-theme-accent shadow-lg animate-pulse", icon: "save" };
+    if (selectedMode === 'observation') {
+        if (isProcessingCapture) return { color: "bg-theme-accent animate-pulse", icon: "smart_toy" };
+        if (isRecordingAudio) return { color: "bg-red-500 animate-pulse", icon: "mic" };
+        if (isRecordingVideo) return { color: "bg-red-500 animate-pulse", icon: "videocam" };
+        if (isCameraActive) return { color: "bg-theme-accent/40 animate-pulse-gentle", icon: "visibility" };
+        return { color: "bg-theme-accent/30", icon: "photo_camera" };
+    }
+
     if (agentState === 'RECONNECTING') return { color: "bg-theme-accent animate-pulse", icon: "sync" };
     if (isCameraActive) {
         switch (agentState) {
@@ -598,6 +650,54 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, [naturalistId, onEndSession]);
 
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
+
+  const lastInteractionRef = useRef<number>(Date.now());
+  const handleInteraction = useCallback(() => {
+      lastInteractionRef.current = Date.now();
+  }, []);
+
+  useEffect(() => {
+      window.addEventListener('mousemove', handleInteraction);
+      window.addEventListener('keydown', handleInteraction);
+      window.addEventListener('touchstart', handleInteraction);
+      window.addEventListener('click', handleInteraction);
+
+      const checkInactivity = setInterval(() => {
+          if (Date.now() - lastInteractionRef.current > 60000) {
+              console.log("Inactivity timeout reached (60s). Terminating session.");
+              finalizeSession("Session automatically terminated due to 60 seconds of inactivity to conserve resources.");
+          }
+      }, 5000);
+
+      const handleVisibilityChange = () => {
+          if (document.visibilityState === 'hidden') {
+              console.log("Page hidden. Terminating session.");
+              finalizeSession("Session automatically terminated because the browser tab was closed or hidden to conserve resources.");
+          }
+      };
+      
+      const handleBeforeUnload = () => {
+          if (cleanupRef.current) {
+              cleanupRef.current();
+              cleanupRef.current = null;
+          }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('pagehide', handleBeforeUnload);
+
+      return () => {
+          window.removeEventListener('mousemove', handleInteraction);
+          window.removeEventListener('keydown', handleInteraction);
+          window.removeEventListener('touchstart', handleInteraction);
+          window.removeEventListener('click', handleInteraction);
+          clearInterval(checkInactivity);
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+          window.removeEventListener('beforeunload', handleBeforeUnload);
+          window.removeEventListener('pagehide', handleBeforeUnload);
+      };
+  }, [finalizeSession, handleInteraction]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
     setChatHistory(prev => {
@@ -880,6 +980,20 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           return;
       }
       
+      if (selectedMode === 'observation') {
+          console.debug("Observation mode: Skipping Gemini Live API connection.");
+          // Still need to start media stream for camera to work
+          try {
+              const stream = await startMediaStream('environment');
+              return () => {
+                  stream.getTracks().forEach(t => t.stop());
+              };
+          } catch (err) {
+              console.error("Camera start failed", err);
+              return;
+          }
+      }
+      
       if (geminiServiceRef.current) {
           geminiServiceRef.current.disconnect();
           geminiServiceRef.current = null;
@@ -888,6 +1002,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       let inputCtx: AudioContext | null = null;
       let processor: ScriptProcessorNode | null = null;
       let videoInterval: number | null = null;
+      let hardLimitTimer: number | null = null;
 
       try {
         console.debug("initSession starting...");
@@ -913,7 +1028,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 console.debug("Connection state changed:", state);
                 if (agentState === 'FINALIZING') return;
                 switch (state) {
-                    case 'CONNECTED': setAgentState('IDLE'); break;
+                    case 'CONNECTED': 
+                        setAgentState('IDLE'); 
+                        // Start 60-second absolute limit for conversation
+                        hardLimitTimer = window.setTimeout(() => {
+                            finalizeSession("Conversation reached maximum duration (60 seconds).");
+                        }, 60000);
+                        break;
                     case 'RECONNECTING': setAgentState('RECONNECTING'); break;
                     case 'DISCONNECTED': setAgentState('DISCONNECTED'); break;
                 }
@@ -987,6 +1108,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         console.debug("initSession complete.");
         return () => {
             console.debug("initSession cleanup...");
+            if (hardLimitTimer) clearTimeout(hardLimitTimer);
             if (geminiServiceRef.current) {
                 geminiServiceRef.current.disconnect();
                 geminiServiceRef.current = null;
@@ -1219,12 +1341,6 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   <span className="material-symbols-outlined text-xl">cached</span>
                   <span className="text-[7px] font-black uppercase tracking-tighter">Flip</span>
               </button>
-              
-              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
-                  <span className="material-symbols-outlined text-xl">upload_file</span>
-                  <span className="text-[7px] font-black uppercase tracking-tighter">Upload</span>
-                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={handleMediaUpload} />
-              </label>
           </div>
       )}
 
@@ -1280,7 +1396,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               <div className="flex items-center gap-8">
                   <div className="flex flex-col items-center gap-2">
                       <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                          {isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening")}
+                          {isRecordingAudio ? "Recording..." : (selectedMode === 'observation' ? "Audio Rec" : (isMuted ? "Muted" : "Listening"))}
                       </span>
                       <button 
                         onPointerDown={handleMicPress}

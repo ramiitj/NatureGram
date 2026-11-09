@@ -2,10 +2,11 @@
 // @importmap-lock - DO NOT AUTO-ADD IMPORTS. All imports must remain below.
 
 import React, { useState, useEffect } from 'react';
-import { CommunityPost, UserProfileData } from '../types';
+import { CommunityPost, UserProfileData, NaturalistPersona } from '../types';
 import { FirebaseService } from '../services/firebaseService';
 import { auth } from '../firebaseConfig';
 import AuthModal from './AuthModal';
+import NaturalistPersonaModal from './NaturalistPersonaModal';
 
 interface UserProfileProps {
   userId: string;
@@ -24,6 +25,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   const [stealthMode, setStealthMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPersonaModalOpen, setIsPersonaModalOpen] = useState(false);
 
   const isOwnProfile = userId === currentUserId;
 
@@ -181,7 +183,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                     <div className="mb-8">
                         <h3 className="catalog-label text-[9px] mb-4 ml-2">Preferences</h3>
                         <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-theme-primary/10">
-                            <div className="p-4 flex items-center justify-between border-b border-theme-primary/5">
+                            <button 
+                                onClick={() => setIsPersonaModalOpen(true)} 
+                                className="w-full p-4 flex items-center gap-4 hover:bg-theme-primary/5 transition-colors text-left border-b border-theme-primary/5"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center">
+                                    <span className="material-symbols-outlined">psychology</span>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="font-bold text-sm text-text-main">Naturalist Persona & Curator Focus</p>
+                                    <p className="text-[10px] text-text-muted">
+                                        {profileData?.naturalistPersona?.archetype || 'Set up taxonomy & discovery preferences'}
+                                    </p>
+                                </div>
+                                <span className="material-symbols-outlined text-theme-accent/50">chevron_right</span>
+                            </button>
+
+                            <div className="p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center">
                                         <span className="material-symbols-outlined">notifications</span>
@@ -241,6 +259,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 NatureGram v2.5.0 • Persistent Explorer
             </p>
         </main>
+
+        <NaturalistPersonaModal
+            userId={userId}
+            initialPersona={profileData?.naturalistPersona}
+            isOpen={isPersonaModalOpen}
+            onClose={() => setIsPersonaModalOpen(false)}
+            onSave={(updated) => {
+                setProfileData(prev => prev ? { ...prev, naturalistPersona: updated } : null);
+            }}
+        />
     </div>
   );
 };

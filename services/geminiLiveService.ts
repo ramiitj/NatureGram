@@ -110,9 +110,11 @@ export class GeminiLiveService {
             onclose: (e) => {
                 console.debug(`[GeminiLiveService] onclose called. Code: ${e.code}, Reason: ${e.reason}, Clean: ${e.wasClean}`);
                 this.connected = false;
-                if (!this.isManuallyClosed) {
+                const isTimeoutOrPolicy = e.code === 1008 || (e.reason && (e.reason.includes("timeout") || e.reason.includes("Session"))) || document.visibilityState === 'hidden';
+                if (!this.isManuallyClosed && !isTimeoutOrPolicy) {
                     this.handleReconnect();
                 } else {
+                    this.isManuallyClosed = true;
                     this.delegate.onConnectionStateChange?.('DISCONNECTED');
                 }
             },

@@ -9,31 +9,54 @@ import UserProfile from './components/UserProfile.tsx';
 import DraftsTray from './components/DraftsTray.tsx';
 import SharedPostView from './components/SharedPostView.tsx';
 import AuthModal from './components/AuthModal.tsx';
+import UploadModal from './components/UploadModal.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
 import { AnimatePresence } from 'motion/react';
 import { hapticFeedback } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
+import { RateLimitService } from './services/rateLimitService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 
+const getInitialPostId = (): string | null => {
+  const p = window.location.pathname;
+  if (p.startsWith('/post/')) {
+    const id = p.replace('/post/', '').split('/')[0]?.trim();
+    if (id) return id;
+  }
+  return new URLSearchParams(window.location.search).get('post');
+};
+
+const getInitialProfileId = (): string | null => {
+  const p = window.location.pathname;
+  if (p.startsWith('/profile/')) {
+    const uid = p.replace('/profile/', '').split('/')[0]?.trim();
+    if (uid) return uid;
+  }
+  return new URLSearchParams(window.location.search).get('user');
+};
+
 const getInitialView = () => {
-  if (new URLSearchParams(window.location.search).has('post')) return AppView.SHARED_POST;
   const p = window.location.pathname;
   if (p === '/') return AppView.LANDING;
+  if (p.startsWith('/post/') || new URLSearchParams(window.location.search).has('post')) return AppView.COMMUNITY;
   if (p.startsWith('/feed')) return AppView.COMMUNITY;
   if (p.startsWith('/journal')) return AppView.JOURNAL;
   if (p.startsWith('/profile')) return AppView.USER_PROFILE;
   if (p.startsWith('/admin')) return AppView.ADMIN;
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
   if (p.startsWith('/lens')) return AppView.LENS;
+  if (p.startsWith('/post-session')) return AppView.POST_SESSION;
   return AppView.COMMUNITY; // fallback
 };
 
 const App: React.FC = () => {
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(getInitialPostId());
+  const [isDetailActive, setIsDetailActive] = useState<boolean>(!!getInitialPostId());
+  const [targetProfileId, setTargetProfileId] = useState<string | null>(getInitialProfileId());
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
   const currentViewRef = useRef<AppView>(currentView);
-  const [targetProfileId, setTargetProfileId] = useState<string | null>(new URLSearchParams(window.location.search).get('user') || null);
   
   useEffect(() => {
     currentViewRef.current = currentView;
@@ -46,34 +69,81 @@ const App: React.FC = () => {
       [AppView.DRAFTS]: '/drafts',
       [AppView.LENS]: '/lens',
       [AppView.POST_SESSION]: '/post-session',
-      [AppView.SHARED_POST]: '/shared-post'
+      [AppView.SHARED_POST]: '/feed'
     };
     
-    if (currentView !== AppView.SHARED_POST) {
-        let newPath = pathMap[currentView] || '/';
-        if (currentView === AppView.USER_PROFILE && targetProfileId) {
-            newPath += `?user=${targetProfileId}`;
-        }
-        if (window.location.pathname !== newPath && window.location.pathname + window.location.search !== newPath) {
-             window.history.pushState({}, '', newPath);
-        }
+    // When a specimen post is open, keep /post/:id as unique URL
+    if (isDetailActive && selectedPostId) {
+      const postPath = `/post/${selectedPostId}`;
+      if (window.location.pathname !== postPath) {
+        window.history.pushState({ postId: selectedPostId, view: currentView }, '', postPath);
+      }
+      return;
     }
-  }, [currentView, targetProfileId]);
+
+    let newPath = pathMap[currentView] || '/';
+    if (currentView === AppView.USER_PROFILE && targetProfileId) {
+      newPath = `/profile/${targetProfileId}`;
+    }
+    
+    // Check if the current browser pathname matches to avoid duplicate history pushes
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ view: currentView, targetProfileId }, '', newPath);
+    }
+  }, [currentView, targetProfileId, isDetailActive, selectedPostId]);
 
   useEffect(() => {
     const handlePopState = () => {
       const p = window.location.pathname;
-      if (p === '/') setCurrentView(AppView.LANDING);
-      else if (p.startsWith('/feed')) setCurrentView(AppView.COMMUNITY);
-      else if (p.startsWith('/journal')) setCurrentView(AppView.JOURNAL);
-      else if (p.startsWith('/profile')) {
-          const userParams = new URLSearchParams(window.location.search);
-          if (userParams.has('user')) setTargetProfileId(userParams.get('user'));
-          setCurrentView(AppView.USER_PROFILE);
+      const params = new URLSearchParams(window.location.search);
+      const queryPostId = params.get('post');
+
+      if (p === '/') {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.LANDING);
+      } else if (p.startsWith('/post/') || queryPostId) {
+        const directPostId = p.startsWith('/post/') ? p.replace('/post/', '').split('/')[0]?.trim() : queryPostId;
+        if (directPostId) {
+          setSelectedPostId(directPostId);
+          setIsDetailActive(true);
+        }
+        setCurrentView(AppView.COMMUNITY);
+      } else if (p.startsWith('/feed')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.COMMUNITY);
+      } else if (p.startsWith('/journal')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.JOURNAL);
+      } else if (p.startsWith('/profile')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        let uid = params.get('user');
+        if (p.startsWith('/profile/')) {
+          const pathUid = p.replace('/profile/', '').split('/')[0]?.trim();
+          if (pathUid) uid = pathUid;
+        }
+        setTargetProfileId(uid || null);
+        setCurrentView(AppView.USER_PROFILE);
+      } else if (p.startsWith('/admin')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.ADMIN);
+      } else if (p.startsWith('/drafts')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.DRAFTS);
+      } else if (p.startsWith('/lens')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.LENS);
+      } else if (p.startsWith('/post-session')) {
+        setIsDetailActive(false);
+        setSelectedPostId(null);
+        setCurrentView(AppView.POST_SESSION);
       }
-      else if (p.startsWith('/admin')) setCurrentView(AppView.ADMIN);
-      else if (p.startsWith('/drafts')) setCurrentView(AppView.DRAFTS);
-      else if (p.startsWith('/lens')) setCurrentView(AppView.LENS);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -95,8 +165,6 @@ const App: React.FC = () => {
   const [authType, setAuthType] = useState<'signin' | 'signup' | null>(null);
   const [showGlobalAuthModal, setShowGlobalAuthModal] = useState(false);
   const [notifications, setNotifications] = useState<FieldNotification[]>([]);
-  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
-  const [isDetailActive, setIsDetailActive] = useState(false);
   
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
@@ -121,6 +189,7 @@ const App: React.FC = () => {
   }, [userMode?.userId, refreshDraftsCount]);
 
   const [showModeSelection, setShowModeSelection] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('conversation');
 
   const geminiServiceRef = useRef<GeminiLiveService | null>(null);
@@ -202,33 +271,24 @@ const App: React.FC = () => {
     loadTheme();
   }, []);
 
-  // Robust Deep Link Handler: monitors the URL and displays SharedPostView immediately for deep links
+  // Robust Deep Link Handler: checks search query params (?post=...) and aligns with view state
   useEffect(() => {
     const checkDeepLink = () => {
       const params = new URLSearchParams(window.location.search);
       const postId = params.get('post');
       if (postId) {
         setSelectedPostId(postId);
-        setCurrentView(AppView.SHARED_POST);
+        setIsDetailActive(true);
+        setCurrentView(AppView.COMMUNITY);
         setIsInitializingDeepLink(false);
-        window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
 
-    // Run check immediately on mount/update
     checkDeepLink();
-
-    // Register listeners for dynamic history/navigation events
     window.addEventListener('popstate', checkDeepLink);
-    window.addEventListener('hashchange', checkDeepLink);
-
-    // Periodically monitor the URL at brief intervals in case transitions or proxy redirects are silent
-    const interval = setInterval(checkDeepLink, 300);
 
     return () => {
       window.removeEventListener('popstate', checkDeepLink);
-      window.removeEventListener('hashchange', checkDeepLink);
-      clearInterval(interval);
     };
   }, []);
 
@@ -366,7 +426,7 @@ const App: React.FC = () => {
         try {
             await FirebaseService.loginAnonymous();
         } catch (e) {
-            console.error("Anonymous login failed, using guest fallback:", e);
+            console.warn("Anonymous login failed, using guest fallback:", e);
             setUserMode({ type: mode, userId: 'explorer_guest', isAnonymous: true });
         }
     }
@@ -414,11 +474,11 @@ const App: React.FC = () => {
       <main className="flex-1 relative overflow-hidden flex flex-col">
          {currentView === AppView.LANDING && (
              <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-hidden">
-                <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${getCorsProxyUrl(dailyTheme.imageUrl)}')`, opacity: 0.6 }}></div>
+                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }}></div>
                 <div className={`absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply`}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent"></div>
                 
-                <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up h-full justify-between py-12">
+                <div className="max-w-xl w-full flex flex-col items-center relative z-10 h-full justify-between py-12">
                     <div className="text-center pb-[50px] pl-[2px]">
                         <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float`}>
                             <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
@@ -496,39 +556,77 @@ const App: React.FC = () => {
                         <div className="space-y-4">
                             <button 
                                 onClick={() => {
+                                    if (!userMode) return;
+                                    if (!RateLimitService.canStartObservation(userMode.userId)) {
+                                        alert("You have reached your daily limit of 3 Observation sessions.");
+                                        return;
+                                    }
+                                    if (RateLimitService.isSessionActive()) {
+                                        alert("Another session is already active.");
+                                        return;
+                                    }
+                                    RateLimitService.incrementObservation(userMode.userId);
                                     setSelectedMode('observation');
                                     setShowModeSelection(false);
                                     setCurrentView(AppView.LENS);
                                 }}
-                                className="w-full p-6 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
+                                className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
                             >
-                                <div className="flex items-center gap-4 mb-2">
-                                    <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
-                                        <span className="material-symbols-outlined">visibility</span>
+                                <div className="flex items-center gap-3 mb-1">
+                                    <div className="w-9 h-9 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
+                                        <span className="material-symbols-outlined text-lg">visibility</span>
                                     </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Observation</h3>
+                                    <h3 className="font-bold text-base text-stone-900">Observation</h3>
                                 </div>
                                 <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent acts as a silent observer, providing insights only when significant events occur or when asked.
+                                    Capture photos, video, and audio. The agent analyzes observations after you conclude the session. No live interaction.
                                 </p>
                             </button>
 
                             <button 
                                 onClick={() => {
+                                    if (!userMode) return;
+                                    if (!RateLimitService.canStartConversation(userMode.userId)) {
+                                        alert("You have reached your daily limit of 3 Conversation sessions.");
+                                        return;
+                                    }
+                                    if (RateLimitService.isSessionActive()) {
+                                        alert("Another session is already active.");
+                                        return;
+                                    }
+                                    RateLimitService.incrementConversation(userMode.userId);
                                     setSelectedMode('conversation');
                                     setShowModeSelection(false);
                                     setCurrentView(AppView.LENS);
                                 }}
-                                className="w-full p-6 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
+                                className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
                             >
-                                <div className="flex items-center gap-4 mb-2">
-                                    <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
-                                        <span className="material-symbols-outlined">forum</span>
+                                <div className="flex items-center gap-3 mb-1">
+                                    <div className="w-9 h-9 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
+                                        <span className="material-symbols-outlined text-lg">forum</span>
                                     </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Conversation</h3>
+                                    <h3 className="font-bold text-base text-stone-900">Conversation</h3>
                                 </div>
                                 <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent is an active companion, engaging in real-time dialogue about your surroundings and findings.
+                                    Engage in a live, real-time conversation with the agent as an active companion.
+                                </p>
+                            </button>
+
+                            <button 
+                                onClick={() => {
+                                    setShowModeSelection(false);
+                                    setShowUploadModal(true);
+                                }}
+                                className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
+                            >
+                                <div className="flex items-center gap-3 mb-1">
+                                    <div className="w-9 h-9 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
+                                        <span className="material-symbols-outlined text-lg">upload_file</span>
+                                    </div>
+                                    <h3 className="font-bold text-base text-stone-900">Direct Upload</h3>
+                                </div>
+                                <p className="text-xs text-stone-600 leading-relaxed">
+                                    Upload images, audio (&le;30s), or video (&le;30s) directly without live camera.
                                 </p>
                             </button>
                         </div>
@@ -544,8 +642,21 @@ const App: React.FC = () => {
             </div>
         )}
 
+        <UploadModal
+            isOpen={showUploadModal}
+            onClose={() => setShowUploadModal(false)}
+            userId={userMode?.userId || ""}
+            onProcessUploads={(processedSnapshots, summary) => {
+                setShowUploadModal(false);
+                setCurrentSessionSnapshots(processedSnapshots);
+                setSnapshots(processedSnapshots);
+                if (summary) setSessionSummary(summary);
+                setCurrentView(AppView.POST_SESSION);
+            }}
+        />
+
         {currentView === AppView.SHARED_POST && selectedPostId && (
-            <SharedPostView postId={selectedPostId} onGoToApp={() => {
+            <SharedPostView postId={selectedPostId} userMode={userMode} onGoToApp={() => {
                 setSelectedPostId(null);
                 setCurrentView(AppView.COMMUNITY);
                 window.history.replaceState({}, document.title, window.location.pathname);
@@ -559,7 +670,10 @@ const App: React.FC = () => {
                      currentUserMode={userMode} 
                      selectedPostId={selectedPostId} 
                      onPostClose={handlePostClose} 
-                     onPostOpen={() => setIsDetailActive(true)} 
+                     onPostOpen={(postId) => {
+                         if (postId) setSelectedPostId(postId);
+                         setIsDetailActive(true);
+                     }} 
                      backLabel={returnView === AppView.JOURNAL ? "Archive" : "Feed"} 
                      onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })} 
                      activeDraftsCount={activeDraftsCount}
@@ -572,7 +686,10 @@ const App: React.FC = () => {
                      activeDraftsCount={activeDraftsCount}
                      onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
                      onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
-                     onPostOpen={() => setIsDetailActive(true)}
+                     onPostOpen={(postId) => {
+                         if (postId) setSelectedPostId(postId);
+                         setIsDetailActive(true);
+                     }}
                      onPostClose={handlePostClose}
                      onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
                  />}

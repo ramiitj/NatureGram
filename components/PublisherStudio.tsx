@@ -33,14 +33,14 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
     : '#NatureGram #NatureDiscovery';
   
   const cleanText = (str: string) => str ? str.replace(/[*"]/g, '').trim() : '';
-  let formattedShareText = `🌿 ${cleanText(title)} on NatureGram`;
+  let formattedShareText = `${cleanText(title)} on NatureGram`;
 
   if (rawDescription.trim()) {
       formattedShareText += `\n\n${cleanText(rawDescription)}`;
   }
 
   if (ecologicalInsight && ecologicalInsight !== 'Processing...' && ecologicalInsight !== 'Audio analysis pending...') {
-    formattedShareText += `\n\n🔍 Ecological Analysis:\n${cleanText(ecologicalInsight)}`;
+    formattedShareText += `\n\nEcological Analysis:\n${cleanText(ecologicalInsight)}`;
   }
 
   formattedShareText += `\n\nTags: ${tagsStr}\n\nView original discovery log here:\n${shareUrl}`;
