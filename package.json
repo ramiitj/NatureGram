@@ -11,7 +11,9 @@
     "lint": "tsc --noEmit",
     "build:native": "vite build && cap sync",
     "open:ios": "cap open ios",
-    "open:android": "cap open android"
+    "open:android": "cap open android",
+    "test:server": "node --test server/test/governance.test.mjs",
+    "set-admin": "node scripts/set-admin.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.10",

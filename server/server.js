@@ -25,7 +25,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import admin from 'firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { governLiveSetup, governGenerateRequest, governGenerateBody, AI_POLICY_VERSION } from './aiGovernance.js';
+import { governLiveSetup, governGenerateRequest, governGenerateBody, modelFor, findPolicyBreach, allowedLiveMessage, AI_POLICY_VERSION } from './aiGovernance.js';
+import { initSettings, getFlags, getSettings, ipBlocked } from './settings.js';
+import { initLedger, charge, record, usageFor, globalTokensToday, addGlobalTokens, logAi, isSuspended, storeHealth } from './ledger.js';
+import { mountPublish } from './publish.js';
+import { mountAdmin } from './admin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,16 +55,9 @@ const PUBLIC_HOST = process.env.PUBLIC_HOST || 'thenaturegram.com';
 
 const num = (v, d) => (v !== undefined && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : d);
 const QUOTAS = {
-  user: {
-    httpPerDay: num(process.env.QUOTA_USER_HTTP_PER_DAY, 300),
-    liveMsPerDay: num(process.env.QUOTA_USER_LIVE_MIN_PER_DAY, 90) * 60_000,
-  },
-  anonymous: {
-    httpPerDay: num(process.env.QUOTA_ANON_HTTP_PER_DAY, 40),
-    liveMsPerDay: num(process.env.QUOTA_ANON_LIVE_MIN_PER_DAY, 20) * 60_000,
-  },
+  // Daily allowances and caps are admin settings (server/settings.js). These are technical limits.
   httpPerMinute: num(process.env.QUOTA_HTTP_PER_MIN, 20),
-  maxConcurrentLive: num(process.env.QUOTA_MAX_CONCURRENT_LIVE, 2),
+  maxConcurrentLive: num(process.env.QUOTA_MAX_CONCURRENT_LIVE, 1),
   liveSessionMaxMs: num(process.env.LIVE_SESSION_MAX_MIN, 15) * 60_000,
   maxBodyBytes: num(process.env.MAX_PROXY_BODY_MB, 25) * 1024 * 1024,
 };
@@ -107,11 +104,30 @@ try {
     firebaseWebConfig = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     firebaseProjectId = firebaseWebConfig.projectId || firebaseProjectId;
   }
-  admin.initializeApp({ projectId: firebaseProjectId });
+  // FIREBASE_SERVICE_ACCOUNT (JSON) is used when the server runs outside the Firebase project's
+  // Google Cloud project; otherwise the runtime's own service account is used.
+  const sa = process.env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) : null;
+  admin.initializeApp(sa ? { credential: admin.credential.cert(sa), projectId: firebaseProjectId } : { projectId: firebaseProjectId });
   log('info', 'Firebase Admin initialized', { projectId: firebaseProjectId });
 } catch (e) {
   log('error', 'Failed to initialize Firebase Admin', { error: e.message });
 }
+
+// Shared store for settings, allowances, logs and moderation (Admin SDK)
+let firestoreDb = null;
+try {
+  firestoreDb = getFirestore();
+  if (firebaseWebConfig?.firestoreDatabaseId && firebaseWebConfig.firestoreDatabaseId !== '(default)') {
+    firestoreDb = getFirestore(admin.app(), firebaseWebConfig.firestoreDatabaseId);
+  }
+  firestoreDb.settings({ ignoreUndefinedProperties: true });
+} catch (e) { log('warn', 'shared store not initialised', { error: e.message }); }
+initSettings(firestoreDb);
+initLedger(firestoreDb);
+
+// One stray error must never take the whole server down
+process.on('unhandledRejection', (e) => log('error', 'unhandled rejection', { error: String(e?.message || e).slice(0, 300) }));
+process.on('uncaughtException', (e) => log('error', 'uncaught exception', { error: String(e?.message || e).slice(0, 300) }));
 
 let publicKeysCache = null;
 let cacheExpiry = 0;
@@ -168,97 +184,62 @@ async function verifyIdToken(token) {
     decoded = await verifyTokenFallback(token);
   }
   const provider = decoded.firebase?.sign_in_provider || 'unknown';
-  return { uid: decoded.uid || decoded.sub, isAnonymous: provider === 'anonymous', provider };
+  return {
+    uid: decoded.uid || decoded.sub, isAnonymous: provider === 'anonymous', provider,
+    email: decoded.email || null, emailVerified: decoded.email_verified === true,
+    admin: decoded.admin === true, secondFactor: decoded.firebase?.sign_in_second_factor || null,
+    authTime: Number(decoded.auth_time) || 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Per-user quota ledger (per instance; set QUOTA_* env vars to tune)
+// Gatekeeping: admin switches, suspensions, blocked networks, spending ceiling,
+// per-minute bursts (per instance) and daily allowances (shared, fail closed)
 // ---------------------------------------------------------------------------
-const ledger = new Map(); // uid -> { day, http, liveMs, minuteWindow, minuteCount }
+const bursts = new Map(); // uid -> { minute, count }
 const activeLive = new Map(); // uid -> Set<{ startedAt }>
-const today = () => new Date().toISOString().slice(0, 10);
-function entry(uid) {
-  let e = ledger.get(uid);
-  if (!e || e.day !== today()) {
-    e = { day: today(), http: 0, liveMs: 0, minuteWindow: 0, minuteCount: 0 };
-    ledger.set(uid, e);
-  }
-  return e;
-}
+const networkLive = new Map(); // ip -> { hour, opened, concurrent }
 setInterval(() => {
-  const d = today();
-  for (const [uid, e] of ledger) if (e.day !== d && !activeLive.has(uid)) ledger.delete(uid);
-}, 60 * 60 * 1000).unref();
-
-// ---------------------------------------------------------------------------
-// Shared quota store: per-user daily usage in Firestore (ai_usage/{uid}_{day}) so limits
-// hold across all server instances. Falls back to the per-instance ledger if unavailable.
-// Needs the server's service account to have Firestore access on the Firebase project.
-// ---------------------------------------------------------------------------
-let quotaDb = null;
-let quotaDbHealthy = true;
-try {
-  quotaDb = getFirestore();
-  if (firebaseWebConfig?.firestoreDatabaseId && firebaseWebConfig.firestoreDatabaseId !== '(default)') {
-    quotaDb = getFirestore(admin.app(), firebaseWebConfig.firestoreDatabaseId);
-  }
-} catch (e) { log('warn', 'quota store not initialised', { error: e.message }); }
-
-/** Atomically add `amount` to a usage field if it stays within `limit`. Returns null when the store is unavailable. */
-async function sharedCharge(uid, field, amount, limit) {
-  if (!quotaDb || !quotaDbHealthy) return null;
-  const ref = quotaDb.doc(`ai_usage/${uid}_${today()}`);
-  try {
-    return await quotaDb.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const current = snap.exists ? (snap.get(field) || 0) : 0;
-      if (amount > 0 && current + amount > limit) return { ok: false, current };
-      tx.set(ref, {
-        uid, day: today(), [field]: current + amount,
-        updatedAt: FieldValue.serverTimestamp(),
-        // TTL policy on expireAt keeps the collection small (see docs/DEPLOYMENT.md)
-        expireAt: Timestamp.fromMillis(Date.now() + 3 * 86_400_000),
-      }, { merge: true });
-      return { ok: true, current: current + amount };
-    });
-  } catch (e) {
-    quotaDbHealthy = false;
-    log('warn', 'shared quota store unavailable; using per-instance quotas for 10 min', { error: e.message });
-    setTimeout(() => { quotaDbHealthy = true; }, 10 * 60_000).unref();
-    return null;
-  }
-}
-
-async function sharedUsage(uid, field) {
-  if (!quotaDb || !quotaDbHealthy) return null;
-  try {
-    const snap = await quotaDb.doc(`ai_usage/${uid}_${today()}`).get();
-    return snap.exists ? (snap.get(field) || 0) : 0;
-  } catch { return null; }
-}
-
-async function chargeHttpShared(user) {
-  const local = chargeHttp(user); // per-minute burst + local daily guard
-  if (!local.ok) return local;
-  const q = user.isAnonymous ? QUOTAS.anonymous : QUOTAS.user;
-  const shared = await sharedCharge(user.uid, 'http', 1, q.httpPerDay);
-  if (shared && !shared.ok) {
-    return { ok: false, reason: user.isAnonymous ? 'Daily AI limit reached for guests. Create a free account for more.' : 'Daily AI limit reached. It resets at midnight UTC.' };
-  }
-  return { ok: true };
-}
-
-function chargeHttp(user) {
-  const e = entry(user.uid);
-  const q = user.isAnonymous ? QUOTAS.anonymous : QUOTAS.user;
   const minute = Math.floor(Date.now() / 60_000);
-  if (e.minuteWindow !== minute) { e.minuteWindow = minute; e.minuteCount = 0; }
-  if (e.minuteCount >= QUOTAS.httpPerMinute) return { ok: false, reason: 'Too many requests. Please slow down.' };
-  if (e.http >= q.httpPerDay) {
-    return { ok: false, reason: user.isAnonymous ? 'Daily AI limit reached for guests. Create a free account for more.' : 'Daily AI limit reached. It resets at midnight UTC.' };
-  }
-  e.minuteCount++; e.http++;
-  return { ok: true };
+  for (const [k, v] of bursts) if (v.minute < minute - 1) bursts.delete(k);
+  const hour = Math.floor(Date.now() / 3_600_000);
+  for (const [k, v] of networkLive) if (v.hour < hour && !v.concurrent) networkLive.delete(k);
+}, 5 * 60_000).unref();
+
+function burstOk(uid) {
+  const minute = Math.floor(Date.now() / 60_000);
+  const b = bursts.get(uid);
+  if (!b || b.minute !== minute) { bursts.set(uid, { minute, count: 1 }); return true; }
+  if (b.count >= QUOTAS.httpPerMinute) return false;
+  b.count++;
+  return true;
+}
+
+/**
+ * Checks shared by every AI entry point. Returns null when the request may go ahead,
+ * or { status, message } explaining why not.
+ */
+async function gate(user, ip, { live = false } = {}) {
+  const [flags, settings] = await Promise.all([getFlags(), getSettings()]);
+  if (ipBlocked(settings, ip)) return { status: 403, message: 'Access from this network has been blocked.' };
+  if (await isSuspended(user.uid)) return { status: 403, message: 'This account is suspended.' };
+  if (!flags.aiEnabled) return { status: 503, message: 'AI features are paused right now. Please try again later.' };
+  if (live && !flags.liveEnabled) return { status: 503, message: 'The live guide is paused right now.' };
+  if (user.isAnonymous && !flags.guestsEnabled) return { status: 403, message: 'Create a free account to use the guide.' };
+  const ceiling = Number(settings.caps.dailyTokenCeiling) || 0;
+  if (ceiling > 0 && (await globalTokensToday()) >= ceiling) return { status: 503, message: 'AI features have reached today\'s limit for everyone. They resume tomorrow.' };
+  return null;
+}
+
+/** Daily allowance for one AI task, the same for every account. */
+async function chargeTask(user, spec) {
+  if (!burstOk(user.uid)) return { status: 429, message: 'Too many requests. Please slow down.' };
+  const [flags, settings] = await Promise.all([getFlags(), getSettings()]);
+  const limit = spec.counter === 'identify' ? Number(flags.allowances.identificationsPerDay) : Number(settings.caps.otherAiCallsPerDay);
+  const res = await charge(user.uid, spec.counter, 1, Math.max(0, limit || 0));
+  if (res.unavailable) return { status: 503, message: 'The guide is unavailable for a moment. Please try again.' };
+  if (!res.ok) return { status: 429, message: spec.counter === 'identify' ? `You've used today's ${limit} identifications. They reset at midnight UTC. You can still name sightings yourself.` : 'Daily AI limit reached. It resets at midnight UTC.' };
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +283,7 @@ async function startServer() {
       "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com",
       "worker-src 'self' blob:",
-      "frame-ancestors 'self' https://aistudio.google.com https://*.google.com",
+      "frame-ancestors 'self' https://aistudio.google.com",
       "base-uri 'self'",
       "form-action 'self'",
       "object-src 'none'",
@@ -324,7 +305,21 @@ async function startServer() {
   });
 
   // Health check (Cloud Run / load balancers)
-  app.get('/healthz', (req, res) => res.json({ ok: true, policy: AI_POLICY_VERSION }));
+  // Health: also says whether the shared store (allowances, settings, logs) is reachable,
+  // because the AI refuses requests when it isn't (limits fail closed).
+  let probe = { at: 0, ok: false, error: null };
+  app.get('/healthz', async (req, res) => {
+    if (Date.now() - probe.at > 30_000 && firestoreDb) {
+      try {
+        await Promise.race([firestoreDb.doc('app_config/flags').get(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]);
+        probe = { at: Date.now(), ok: true, error: null };
+      } catch (e) { probe = { at: Date.now(), ok: false, error: String(e.message).slice(0, 120) }; }
+    }
+    const store = storeHealth();
+    const ok = Boolean(firestoreDb && probe.ok && store.ok);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok, policy: AI_POLICY_VERSION, ai: Boolean(API_KEY), store: { connected: Boolean(firestoreDb), reachable: probe.ok, lastError: ok ? null : (probe.error || store.error) } });
+  });
 
   // First-party analytics + client error intake → structured logs (Cloud Logging / BigQuery sink)
   const eventsLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
@@ -479,37 +474,37 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
   });
 
   // -------------------------------------------------------------------------
-  // Gemini HTTP proxy: authenticated, allow-listed, quota-governed
+  // Gemini HTTP proxy: NatureGram tasks only, admin-governed, allowance-checked
   // -------------------------------------------------------------------------
   const ipLimiter = rateLimit({ windowMs: 15 * 60_000, max: 300, standardHeaders: true, legacyHeaders: false });
+  const bearer = (req) => {
+    const h = req.headers.authorization || '';
+    return (h.startsWith('Bearer ') ? h.slice(7) : null) || req.headers['x-goog-api-key'] || '';
+  };
   app.use('/api-proxy', ipLimiter, async (req, res) => {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     let url;
     try { url = new URL(req.url, `https://${TARGET_HOST}`); } catch { return res.status(400).json({ error: 'Bad request' }); }
+    const fail = (status, message) => res.status(status).json({ error: { code: status, message } });
 
-    const authHeader = req.headers.authorization || '';
-    const token = (authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null) || url.searchParams.get('key') || req.headers['x-goog-api-key'];
     let user;
-    try {
-      user = await verifyIdToken(String(token || ''));
-    } catch {
-      return res.status(401).json({ error: { code: 401, message: 'Please sign in again.' } });
-    }
+    try { user = await verifyIdToken(String(bearer(req))); } catch { return fail(401, 'Please sign in again.'); }
 
-    // Endpoint + model governance
     const verdict = governGenerateRequest(url.pathname);
     if (!verdict.ok) {
       log('warn', 'blocked gemini path', { uid: user.uid, reason: verdict.reason });
-      return res.status(403).json({ error: { code: 403, message: verdict.reason } });
+      logAi({ uid: user.uid, anon: user.isAnonymous, task: 'blocked', status: 403, flags: { offTask: true }, ip: clientIp(req) });
+      return fail(403, verdict.reason);
     }
     const len = Number(req.headers['content-length'] || 0);
-    if (len > QUOTAS.maxBodyBytes) return res.status(413).json({ error: { code: 413, message: 'Media too large to analyze.' } });
+    if (len > QUOTAS.maxBodyBytes) return fail(413, 'Media too large to analyze.');
 
-    const charge = await chargeHttpShared(user);
-    if (!charge.ok) return res.status(429).json({ error: { code: 429, message: charge.reason } });
-    if (!API_KEY) return res.status(503).json({ error: { code: 503, message: 'AI is not configured on the server.' } });
+    const blocked = await gate(user, clientIp(req));
+    if (blocked) return fail(blocked.status, blocked.message);
+    const over = await chargeTask(user, verdict.spec);
+    if (over) return fail(over.status, over.message);
+    if (!API_KEY) return fail(503, 'AI is not configured on the server.');
 
-    // Read the (size-capped) body so the governance layer can apply policy + safety settings
     let raw;
     try {
       raw = await new Promise((resolve, reject) => {
@@ -524,77 +519,106 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
         req.on('error', reject);
       });
     } catch (e) {
-      return res.status(e.message === 'too_large' ? 413 : 400).json({ error: { code: 413, message: 'Media too large to analyze.' } });
-    }
-    let payload = raw;
-    if (verdict.method !== 'countTokens') {
-      try {
-        payload = Buffer.from(JSON.stringify(governGenerateBody(JSON.parse(raw.toString('utf8') || '{}'), verdict.model)));
-      } catch {
-        return res.status(400).json({ error: { code: 400, message: 'Invalid request body.' } });
-      }
+      return fail(e.message === 'too_large' ? 413 : 400, 'Media too large to analyze.');
     }
 
-    const outParams = new URLSearchParams();
-    for (const [k, v] of url.searchParams) if (k === 'alt') outParams.set(k, v);
-    const targetPath = verdict.path + (outParams.toString() ? `?${outParams}` : '');
+    const settings = await getSettings();
+    const model = modelFor(settings, verdict.task);
+    let payload;
+    try {
+      payload = Buffer.from(JSON.stringify(governGenerateBody(verdict.task, JSON.parse(raw.toString('utf8') || '{}'), settings)));
+    } catch (e) {
+      return fail(e.status || 400, e.status ? e.message : 'Invalid request body.');
+    }
+
     const started = Date.now();
     const proxyReq = https.request({
-      hostname: TARGET_HOST,
-      port: 443,
-      path: targetPath,
-      method: 'POST',
-      timeout: 120_000,
+      hostname: TARGET_HOST, port: 443, method: 'POST', timeout: 120_000,
+      path: `/${verdict.version}/models/${encodeURIComponent(model)}:generateContent`,
       headers: {
-        host: TARGET_HOST,
-        'content-type': 'application/json',
-        'content-length': String(payload.length),
-        ...(req.headers['x-goog-api-client'] ? { 'x-goog-api-client': req.headers['x-goog-api-client'] } : {}),
-        origin: `https://${PUBLIC_HOST}`,
-        referer: `https://${PUBLIC_HOST}/`,
-        'x-goog-api-key': API_KEY,
+        host: TARGET_HOST, 'content-type': 'application/json', 'content-length': String(payload.length),
+        origin: `https://${PUBLIC_HOST}`, referer: `https://${PUBLIC_HOST}/`, 'x-goog-api-key': API_KEY,
       },
     }, (proxyRes) => {
-      const headers = { ...proxyRes.headers };
-      delete headers['set-cookie'];
-      const status = proxyRes.statusCode || 502;
-      const meta = { uid: user.uid, anon: user.isAnonymous, task: verdict.task, model: verdict.model, method: verdict.method, status };
-      if (verdict.method === 'generateContent') {
-        // Buffer unary responses to record token usage (cost telemetry per task/model)
-        const chunks = [];
-        proxyRes.on('data', (c) => chunks.push(c));
-        proxyRes.on('end', () => {
-          const buf = Buffer.concat(chunks);
-          let usage = null, finish = null, blocked = null;
-          try {
-            const json = JSON.parse(buf.toString('utf8'));
-            usage = json.usageMetadata || null;
-            finish = json.candidates?.[0]?.finishReason || null;
-            blocked = json.promptFeedback?.blockReason || null;
-          } catch { /* non-JSON */ }
-          delete headers['content-length'];
-          delete headers['transfer-encoding'];
-          res.writeHead(status, { ...headers, 'content-length': String(buf.length) });
-          res.end(buf);
-          log(status >= 400 ? 'warn' : 'info', 'gemini http', {
-            ...meta, ms: Date.now() - started,
-            promptTokens: usage?.promptTokenCount ?? null, outputTokens: usage?.candidatesTokenCount ?? null, totalTokens: usage?.totalTokenCount ?? null,
-            finishReason: finish, blockReason: blocked,
-          });
-        });
-        return;
-      }
-      res.writeHead(status, headers);
-      proxyRes.pipe(res);
-      proxyRes.on('end', () => log('info', 'gemini http', { ...meta, ms: Date.now() - started }));
+      const chunks = [];
+      proxyRes.on('data', (c) => chunks.push(c));
+      proxyRes.on('end', async () => {
+        const status = proxyRes.statusCode || 502;
+        let buf = Buffer.concat(chunks);
+        let usage = null, finish = null, blockReason = null;
+        const flags = {};
+        try {
+          const json = JSON.parse(buf.toString('utf8'));
+          usage = json.usageMetadata || null;
+          finish = json.candidates?.[0]?.finishReason || null;
+          blockReason = json.promptFeedback?.blockReason || null;
+          const part = json.candidates?.[0]?.content?.parts?.find(p => typeof p.text === 'string');
+          if (status < 400 && part && verdict.task === 'ng-identify') {
+            const out = JSON.parse(part.text);
+            // Enforce the policy on the answer, not just the prompt
+            const breach = findPolicyBreach(out.ecologic) || findPolicyBreach(out.safetyNote);
+            if (breach) { flags.policyBreach = breach; out.ecologic = ''; out.safetyNote = 'Never eat, touch or use a wild organism based on an AI identification.'; }
+            if (out.flags?.isNatureSubject === false) flags.notNature = true;
+            if (out.flags?.peopleVisible) flags.people = true;
+            // Remember what the guide actually said, so a post can only show the guide's real words
+            if (firestoreDb) {
+              const ref = firestoreDb.collection('ai_results').doc();
+              await ref.set({
+                uid: user.uid, ecologic: String(out.ecologic || '').slice(0, 2000),
+                confidence: out.overallConfidence || null,
+                labels: (out.identifications || []).slice(0, 6).map(i => String(i.commonName || i.scientificName || '').slice(0, 80)),
+                flags: out.flags || null, model, createdAt: FieldValue.serverTimestamp(),
+                expireAt: Timestamp.fromMillis(Date.now() + 3 * 86_400_000),
+              }).then(() => { out.ngResultId = ref.id; }).catch(() => {});
+            }
+            part.text = JSON.stringify(out);
+            buf = Buffer.from(JSON.stringify(json));
+          } else if (status < 400 && part && verdict.task === 'ng-curate') {
+            // Curator notes are shown to strangers: drop any that carry links or promotions
+            const out = JSON.parse(part.text);
+            out.curatedItems = (out.curatedItems || []).filter(i => !/https?:|www\.|\.(com|net|xyz|io)\b/i.test(String(i.curatorNote || '')));
+            part.text = JSON.stringify(out);
+            buf = Buffer.from(JSON.stringify(json));
+          }
+        } catch { /* non-JSON or unexpected shape: pass through untouched */ }
+        const headers = { ...proxyRes.headers };
+        delete headers['set-cookie']; delete headers['content-length']; delete headers['transfer-encoding']; delete headers['content-encoding'];
+        res.writeHead(status, { ...headers, 'content-length': String(buf.length) });
+        res.end(buf);
+        const total = usage?.totalTokenCount || 0;
+        addGlobalTokens(total);
+        logAi({ uid: user.uid, anon: user.isAnonymous, task: verdict.task, model, status, ms: Date.now() - started,
+          promptTokens: usage?.promptTokenCount ?? null, outputTokens: usage?.candidatesTokenCount ?? null, totalTokens: total || null,
+          finishReason: finish, blockReason, flags, ip: clientIp(req) });
+        log(status >= 400 ? 'warn' : 'info', 'gemini http', { uid: user.uid, task: verdict.task, model, status, ms: Date.now() - started, totalTokens: total || null, finishReason: finish, blockReason });
+      });
     });
     proxyReq.on('timeout', () => proxyReq.destroy(new Error('timeout')));
     proxyReq.on('error', (err) => {
       log('error', 'gemini http proxy error', { uid: user.uid, error: err.message });
-      if (!res.headersSent) res.status(502).json({ error: { code: 502, message: 'AI service unavailable. Please retry.' } });
+      if (!res.headersSent) fail(502, 'AI service unavailable. Please retry.');
     });
     proxyReq.end(payload);
   });
+
+  // What an explorer has left today (shown in the app)
+  app.get('/api/me/allowance', async (req, res) => {
+    let user;
+    try { user = await verifyIdToken(String(bearer(req))); } catch { return res.status(401).json({ error: 'Please sign in again.' }); }
+    const [flags, used] = await Promise.all([getFlags(), usageFor(user.uid)]);
+    const a = flags.allowances;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      available: used !== null,
+      posts: { limit: a.postsPerDay, used: used?.posts || 0 },
+      liveMinutes: { limit: a.liveMinutesPerDay, used: Math.ceil((used?.liveMs || 0) / 60_000) },
+      identifications: { limit: a.identificationsPerDay, used: used?.identify || 0 },
+      resetsAt: new Date(new Date().toISOString().slice(0, 10) + 'T24:00:00Z').toISOString(),
+    });
+  });
+
+  mountPublish(app, { verifyIdToken, bearer, gate, clientIp, log, db: () => firestoreDb, apiKey: API_KEY, targetHost: TARGET_HOST, publicHost: PUBLIC_HOST });
+  mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth() });
 
   // -------------------------------------------------------------------------
   // Frontend
@@ -640,25 +664,36 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return;
     }
 
-    user.sharedLiveMs = await sharedUsage(user.uid, 'liveMs');
+    const ip = clientIp(req);
+    const refuse = (code, message) => wss.handleUpgrade(req, socket, head, (ws) => { try { ws.close(code, message.slice(0, 120)); } catch { /* noop */ } });
+    const blocked = await gate(user, ip, { live: true });
+    if (blocked) return refuse(blocked.status === 503 ? 1013 : 4403, blocked.message);
+    const [flags, settings, used] = await Promise.all([getFlags(), getSettings(), usageFor(user.uid)]);
+    if (used === null) return refuse(1013, 'The guide is unavailable for a moment. Please try again.');
+    const dayMs = Math.max(0, Number(flags.allowances.liveMinutesPerDay) || 0) * 60_000;
+    const leftMs = dayMs - (used.liveMs || 0);
+    if (leftMs < 5_000) return refuse(4429, `You've used today's ${flags.allowances.liveMinutesPerDay} live minutes. They reset at midnight UTC.`);
+    // Per-network limits stop one person cycling guest accounts
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const net = networkLive.get(ip);
+    const n = net && net.hour === hour ? net : { hour, opened: 0, concurrent: net?.concurrent || 0 };
+    if (n.opened >= Number(settings.caps.liveSessionsPerNetworkPerHour || 20)) return refuse(4429, 'Too many live sessions from this network. Please try later.');
+    if (n.concurrent >= Number(settings.caps.liveConcurrentPerNetwork || 4)) return refuse(4429, 'Too many live sessions open on this network.');
+    if (!API_KEY) return refuse(1011, 'AI is not configured on the server.');
+
     wss.handleUpgrade(req, socket, head, (clientWs) => {
       const closeWith = (code, reason) => { try { clientWs.close(code, reason); } catch { /* noop */ } };
-      const q = user.isAnonymous ? QUOTAS.anonymous : QUOTAS.user;
-      const e = entry(user.uid);
       const conns = activeLive.get(user.uid) || new Set();
-      if (conns.size >= QUOTAS.maxConcurrentLive) return closeWith(4429, 'Too many live sessions open. Close other tabs and retry.');
-      if (typeof user.sharedLiveMs === 'number') e.liveMs = Math.max(e.liveMs, user.sharedLiveMs);
-      if (e.liveMs >= q.liveMsPerDay) {
-        return closeWith(4429, user.isAnonymous ? 'Daily live guide limit reached for guests. Create a free account for more.' : 'Daily live guide limit reached. It resets at midnight UTC.');
-      }
-      if (!API_KEY) return closeWith(1011, 'AI is not configured on the server.');
+      if (conns.size >= QUOTAS.maxConcurrentLive) return closeWith(4429, 'A live session is already open. Close other tabs and retry.');
 
       const session = { startedAt: Date.now() };
       conns.add(session);
       activeLive.set(user.uid, conns);
-      const remaining = Math.min(QUOTAS.liveSessionMaxMs, q.liveMsPerDay - e.liveMs);
-      const timeout = setTimeout(() => closeWith(4408, 'Live session time limit reached. Start a new session to continue.'), remaining);
-      // Close sessions that stop sending audio/video (closed tab, frozen device) to conserve quota
+      n.opened++; n.concurrent++;
+      networkLive.set(ip, n);
+      const remaining = Math.min(QUOTAS.liveSessionMaxMs, leftMs);
+      const timeout = setTimeout(() => closeWith(4408, 'That\'s today\'s live time. It resets at midnight UTC.'), remaining);
+      // Close sessions that stop sending audio/video (closed tab, frozen device) to conserve the allowance
       const IDLE_MS = num(process.env.LIVE_IDLE_TIMEOUT_SEC, 60) * 1000;
       let idleTimer = setTimeout(() => closeWith(4408, 'Session closed after inactivity.'), IDLE_MS);
       clientWs.isAlive = true;
@@ -669,17 +704,19 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       let targetOpen = false;
       let setupSeen = false;
       let finished = false;
+      let offTask = false;
       const finish = () => {
         if (finished) return;
         finished = true;
         clearTimeout(timeout);
         clearTimeout(idleTimer);
-        const used = Date.now() - session.startedAt;
-        e.liveMs += used;
-        sharedCharge(user.uid, 'liveMs', used, Number.MAX_SAFE_INTEGER).catch(() => {});
+        const ms = Date.now() - session.startedAt;
+        record(user.uid, 'liveMs', ms);
         conns.delete(session);
         if (!conns.size) activeLive.delete(user.uid);
-        log('info', 'live session ended', { uid: user.uid, anon: user.isAnonymous, ms: Date.now() - session.startedAt });
+        n.concurrent = Math.max(0, n.concurrent - 1);
+        logAi({ uid: user.uid, anon: user.isAnonymous, task: 'live', model: settings.models.live, status: 200, ms, flags: offTask ? { offTask: true } : {}, ip });
+        log('info', 'live session ended', { uid: user.uid, anon: user.isAnonymous, ms });
       };
       log('info', 'live session started', { uid: user.uid, anon: user.isAnonymous });
 
@@ -687,17 +724,22 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
         clientWs.isAlive = true;
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => closeWith(4408, 'Session closed after inactivity.'), IDLE_MS);
-        // Govern the first (setup) frame: pin model + inject AI policy
+        let msg;
+        try { msg = JSON.parse(isBinary ? Buffer.from(data).toString('utf8') : data.toString()); } catch { msg = null; }
         if (!setupSeen) {
+          // First frame: the admin's model, prompt, policy and tool list replace whatever the app sent
           setupSeen = true;
           try {
-            const msg = JSON.parse(isBinary ? Buffer.from(data).toString('utf8') : data.toString());
-            const governed = governLiveSetup(msg, { isAnonymous: user.isAnonymous });
-            data = Buffer.from(JSON.stringify(governed));
+            data = Buffer.from(JSON.stringify(governLiveSetup(msg, settings)));
             isBinary = false;
           } catch {
             return closeWith(1008, 'Invalid session setup');
           }
+        } else if (!allowedLiveMessage(msg)) {
+          // No second setup, no unknown message types
+          offTask = true;
+          log('warn', 'live message refused', { uid: user.uid, keys: msg ? Object.keys(msg).slice(0, 5) : null });
+          return closeWith(1008, 'Unsupported message');
         }
         if (targetOpen) target.send(data, { binary: isBinary });
         else if (queue.length < 64) queue.push({ data, isBinary });

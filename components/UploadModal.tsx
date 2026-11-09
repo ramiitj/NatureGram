@@ -35,6 +35,7 @@ const governedFields = (r: any): Pick<Snapshot, "labels" | "behavior" | "aiInsig
   aiSafetyNote: r.safetyNote,
   aiModel: r.model,
   aiPromptVersion: r.promptVersion,
+  aiResultId: r.resultId,
   aiError: null,
 };
 

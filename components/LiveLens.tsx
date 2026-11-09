@@ -281,6 +281,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   aiSafetyNote: result.safetyNote,
                   aiModel: result.model,
                   aiPromptVersion: result.promptVersion,
+                  aiResultId: result.resultId,
                   aiError: null
               });
               setPendingAnalyses(n => Math.max(0, n - 1));
@@ -437,6 +438,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           aiSafetyNote: result.safetyNote,
                           aiModel: result.model,
                           aiPromptVersion: result.promptVersion,
+                          aiResultId: result.resultId,
                           aiError: null
                       });
                       setPendingAnalyses(n => Math.max(0, n - 1));
@@ -563,6 +565,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           aiSafetyNote: result.safetyNote,
                           aiModel: result.model,
                           aiPromptVersion: result.promptVersion,
+                          aiResultId: result.resultId,
                           aiError: null
           });
           setPendingAnalyses(n => Math.max(0, n - 1));
@@ -896,6 +899,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                    aiSafetyNote: result.safetyNote,
                    aiModel: result.model,
                    aiPromptVersion: result.promptVersion,
+                   aiResultId: result.resultId,
                    isAnalyzing: false,
                    aiError: null,
                });

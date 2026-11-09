@@ -1,7 +1,9 @@
 rules_version = '2';
 // NatureGram Firestore security rules
 // Principles: least privilege, owner-only content edits, counters that can only
-// move by the caller's own contribution, admin via custom claim or verified email.
+// move by the caller's own contribution. Admin is the `admin` custom claim only, which
+// can be set only with server credentials (scripts/set-admin.mjs). New sightings are
+// created only by the server (/api/publish), after its checks and the daily allowance.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -10,10 +12,11 @@ service cloud.firestore {
     function isAnon() { return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous'; }
     function isMember() { return signedIn() && !isAnon(); }
     function isAdmin() {
-      return signedIn() && (
-        request.auth.token.admin == true ||
-        (request.auth.token.email == 'ram@iitj.ac.in' && request.auth.token.email_verified == true)
-      );
+      return signedIn() && request.auth.token.admin == true && request.auth.token.email_verified == true;
+    }
+    function flags() { return get(/databases/$(database)/documents/app_config/flags).data; }
+    function lettersOn() {
+      return !exists(/databases/$(database)/documents/app_config/flags) || flags().get('lettersEnabled', true) != false;
     }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
     function incoming() { return request.resource.data; }
@@ -68,6 +71,18 @@ service cloud.firestore {
     // Fields an author may never set/alter directly on a post
     function protectedPostKeys() {
       return ['userId', 'likes', 'likeCount', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'timestamp', 'moderation'];
+    }
+    // What an author may edit on their own sighting after publishing (words, not media or the guide's words)
+    function authorTextKeys() {
+      return ['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors',
+              'showLocation', 'locationArea', 'isJournal', 'userName', 'userAvatar'];
+    }
+    // Changing the picture takes the sighting out of the feed until the server checks it again
+    function authorMediaEdit() {
+      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'isPublic', 'moderation']))
+        && incoming().isPublic == false
+        && incoming().moderation.keys().hasOnly(['status'])
+        && incoming().moderation.status == 'edited';
     }
 
     // ------------------------------------------------------------------ users
@@ -159,22 +174,17 @@ service cloud.firestore {
     match /ecosystem_feed/{postId} {
       allow read: if existing().isPublic == true || isOwner(existing().userId) || isAdmin();
 
-      allow create: if isMember()
-        && incoming().userId == request.auth.uid
-        && incoming().isPublic is bool
-        && incoming().get('likes', []).size() == 0
-        && incoming().get('likeCount', 0) == 0
-        && incoming().get('commentCount', 0) == 0
-        && incoming().get('reports', []).size() == 0
-        && incoming().get('reportStatus', 'safe') == 'safe'
-        && !('rawLocation' in incoming())
-        && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000);
+      // Created only by the server, after its checks and the daily allowance
+      allow create: if false;
 
       allow update: if isAdmin()
         || (isOwner(existing().userId)
-            && !changedKeys().hasAny(protectedPostKeys())
-            && (incoming().get('rawLocation', null) == null || !('rawLocation' in changedKeys()))
-            && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000))
+            && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000)
+            && (
+              // words only; visibility may only be switched off here (on goes through the server)
+              (changedKeys().hasOnly(authorTextKeys().concat(['isPublic'])) && (!('isPublic' in changedKeys()) || incoming().isPublic == false))
+              || authorMediaEdit()
+            ))
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
         || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'))
@@ -247,12 +257,10 @@ service cloud.firestore {
     // ------------------------------------------------- lightweight feed index
     match /feed_thumbnails/{postId} {
       allow read: if existing().isPublic == true || isOwner(existing().userId) || isAdmin();
-      allow create: if isMember()
-        && incoming().userId == request.auth.uid
-        && incoming().id == postId
-        && get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId == request.auth.uid;
+      // Written by the server when a checked sighting joins the feed
+      allow create: if false;
       allow update: if isAdmin()
-        || (isOwner(existing().userId) && !changedKeys().hasAny(['userId', 'id', 'likes', 'likeCount', 'commentCount']))
+        || (isOwner(existing().userId) && changedKeys().hasOnly(['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar']))
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
         || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'));
@@ -262,9 +270,10 @@ service cloud.firestore {
     // ------------------------------------------------- direct messages
     // conversations/{a_b} where a < b are the two participants' uids
     function isParticipant(c) { return signedIn() && request.auth.uid in c.participants; }
+    // Admins never read letters here; reported conversations are read through the admin API only.
     match /conversations/{cid} {
-      allow read: if isParticipant(existing()) || isAdmin();
-      allow create: if isMember()
+      allow read: if isParticipant(existing());
+      allow create: if isMember() && lettersOn()
         && incoming().participants is list && incoming().participants.size() == 2
         && request.auth.uid in incoming().participants
         && incoming().participants[0] < incoming().participants[1]
@@ -274,8 +283,8 @@ service cloud.firestore {
         && incoming().participants == existing().participants;
 
       match /messages/{mid} {
-        allow read: if isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data) || isAdmin();
-        allow create: if isMember()
+        allow read: if isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data);
+        allow create: if isMember() && lettersOn()
           && isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data)
           && incoming().senderId == request.auth.uid
           && isStr(incoming().text, 2000)
@@ -287,6 +296,18 @@ service cloud.firestore {
                 : get(/databases/$(database)/documents/conversations/$(cid)).data.participants[0])/blocked/$(request.auth.uid));
         allow delete: if isOwner(existing().senderId) || isAdmin();
       }
+    }
+
+    // A participant can report a conversation; only then can the admin read it (through the server)
+    match /letter_reports/{reportId} {
+      allow create: if isMember()
+        && incoming().reporterId == request.auth.uid
+        && incoming().status == 'open'
+        && isStr(incoming().cid, 260)
+        && isStr(incoming().reason, 40) && optStr('details', 500)
+        && incoming().keys().hasOnly(['cid', 'reporterId', 'reason', 'details', 'status', 'createdAt'])
+        && isParticipant(get(/databases/$(database)/documents/conversations/$(incoming().cid)).data);
+      allow read, update, delete: if false;
     }
 
     // ------------------------------------------------- AI feedback (governance / evaluation)
@@ -304,14 +325,27 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------- configuration
+    // Legacy console settings (no longer used by the AI; prompts now live on the server)
     match /admin_config/{configId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
+    // Public switches and allowances. Changed only through the admin API, which keeps history and an audit trail.
     match /app_config/{configId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false;
     }
+
+    // ------------------------------------------------- server-only records
+    // Prompts, policy, models, history; usage counters; AI activity; the guide's answers;
+    // suspensions; review queue; audit log. Clients can neither read nor write them.
+    match /admin_private/{document=**} { allow read, write: if false; }
+    match /ai_usage/{id} { allow read, write: if false; }
+    match /usage_global/{id} { allow read, write: if false; }
+    match /ai_log/{id} { allow read, write: if false; }
+    match /ai_results/{id} { allow read, write: if false; }
+    match /suspended/{id} { allow read, write: if false; }
+    match /review_queue/{id} { allow read, write: if false; }
+    match /admin_audit/{id} { allow read, write: if false; }
     match /naturalist_profiles/{profileId} {
       allow read: if true;
       allow write: if isAdmin();

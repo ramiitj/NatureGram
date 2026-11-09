@@ -101,6 +101,7 @@ export interface Snapshot {
   aiSafetyNote?: string;
   aiModel?: string;
   aiPromptVersion?: string;
+  aiResultId?: string;
   aiError?: string | null;
 }
 

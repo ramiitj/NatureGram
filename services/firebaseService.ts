@@ -61,6 +61,25 @@ import { NATURALIST_THEMES } from "../constants/naturalists";
 import { DailyTheme } from "./themeService";
 import { looksLikeSpam } from '../utils';
 
+/** A sighting the server held back, with words the explorer can act on. */
+export class PublishError extends Error {
+  constructor(message: string, public readonly code: string, public readonly details: { reasons?: string[]; fix?: string; canRequestReview?: boolean } = {}) {
+    super(message);
+  }
+}
+
+/** What an explorer has left today (same allowance for everyone, set by the admin). */
+export const getMyAllowance = async (): Promise<null | { posts: { limit: number; used: number }; liveMinutes: { limit: number; used: number }; identifications: { limit: number; used: number }; resetsAt: string }> => {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return null;
+    const res = await fetch(apiUrl('/api/me/allowance'), { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const j = await res.json();
+    return j.available ? j : null;
+  } catch { return null; }
+};
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -585,6 +604,7 @@ export const FirebaseService = {
         aiSafetyNote: snapshot.aiSafetyNote || null,
         aiModel: snapshot.aiModel || null,
         aiPromptVersion: snapshot.aiPromptVersion || null,
+        aiResultId: snapshot.aiResultId || null,
         // Sensitive species are always obscured (governance rule), regardless of the toggle
         locationArea: ((snapshot as any).showLocation === false || snapshot.aiFlags?.sensitiveSpecies) ? "" : (snapshot.locationArea || ""),
         showLocation: (snapshot as any).showLocation ?? false,
@@ -617,95 +637,52 @@ export const FirebaseService = {
       userId: string,
       flags: { feed: boolean, journal: boolean },
       tags: string[],
-      extra: { caption?: string, title?: string, description?: string, behavior?: string } = {}
+      extra: { caption?: string, title?: string, description?: string, behavior?: string, requestReview?: boolean, reviewNote?: string } = {}
   ) => {
       const effectiveUserId = userId || auth.currentUser?.uid;
       if (!effectiveUserId) throw new Error("No user found.");
       if (!snapshots.length) throw new Error("Nothing to publish.");
 
-      const userProfile = await FirebaseService.getUserProfile(effectiveUserId);
-      const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${effectiveUserId.slice(0, 4)}`;
-
       const items = await Promise.all(snapshots.map(s => FirebaseService.uploadSnapshotItem(s, effectiveUserId)));
       const primaryItem = items[0];
       const allLabels = Array.from(new Set(items.flatMap(i => i.labels)));
-      const cleanTags = Array.from(new Set(tags.map(t => (t.startsWith('#') ? t : `#${t}`).toLowerCase().replace(/\s+/g, '')))).slice(0, 30);
       const caption = (extra.caption || '').trim().slice(0, 2200);
 
-      const postData: any = {
-        userId: effectiveUserId,
-        userName,
-        userAvatar: userProfile?.avatarUrl || null,
-        imageUrl: primaryItem.imageUrl,
-        thumbnailUrl: primaryItem.thumbnailUrl,
-        thumbSmallUrl: primaryItem.thumbSmallUrl,
-        originalImageUrl: primaryItem.originalImageUrl,
-        videoUrl: primaryItem.videoUrl,
-        audioUrl: primaryItem.audioUrl,
-        associatedImageUrls: primaryItem.associatedImageUrls,
-        mediaType: primaryItem.mediaType,
-        labels: allLabels,
-        behavior: extra.behavior || extra.description || primaryItem.behavior,
-        aiInsight: primaryItem.aiInsight,
-        aiConfidence: primaryItem.aiConfidence,
-        aiPolicyVersion: AI_CLIENT_POLICY_VERSION,
-        needsExpertReview: items.some(i => i.needsExpertReview),
-        aiFlags: {
-          isNatureSubject: items.every(i => i.aiFlags?.isNatureSubject !== false),
-          fungi: items.some(i => i.aiFlags?.fungi),
-          dangerous: items.some(i => i.aiFlags?.dangerous),
-          sensitiveSpecies: items.some(i => i.aiFlags?.sensitiveSpecies),
-          peopleVisible: items.some(i => i.aiFlags?.peopleVisible),
-        },
-        locationArea: primaryItem.locationArea,
-        showLocation: primaryItem.showLocation,
-        tags: cleanTags,
-        caption: caption || null,
-        timestamp: serverTimestamp(),
-        likes: [],
-        likeCount: 0,
-        commentCount: 0,
-        isPublic: flags.feed,
-        isJournal: flags.journal,
-        reportStatus: 'safe',
-        reports: [],
-        isHybrid: snapshots.some(s => s.isHybrid || (s.associatedImages && s.associatedImages.length > 0)),
-        items,
-        rotation: primaryItem.rotation || 0,
-        timeToRecordMs: primaryItem.timeToRecordMs || null,
-        sessionRetakes: primaryItem.sessionRetakes || null,
-        humanDelta: items.some(i => i.humanDelta),
-      };
-      if (extra.title) postData.title = extra.title.slice(0, 200);
-      if (extra.description) postData.description = extra.description.slice(0, 5000);
+      // The server checks the sighting, charges the daily allowance and writes it
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(apiUrl('/api/publish'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify({
+          items, tags, caption, feed: flags.feed, journal: flags.journal,
+          title: extra.title, description: extra.description, behavior: extra.behavior,
+          rawLocations: snapshots.map(s => s.rawLocation || null),
+          requestReview: !!extra.requestReview, reviewNote: extra.reviewNote,
+        }),
+      });
+      const out: any = await res.json().catch(() => ({ ok: false, message: 'Could not share right now. Please try again.' }));
+      if (!res.ok || !out.ok) throw new PublishError(out.message || 'Could not share right now. Please try again.', out.code || 'unavailable', out);
+      const postId: string = out.id;
 
-      const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
-
-      if (flags.feed) {
-        await FirebaseService.upsertThumbnail(docRef.id, { ...postData, timestamp: postData.timestamp });
-      }
-      await FirebaseService.savePrivateObservationData(effectiveUserId, docRef.id, snapshots);
-      if (caption && flags.feed) FirebaseService.notifyMentions(caption, docRef.id, 'caption').catch(() => {});
+      if (caption && out.isPublic) FirebaseService.notifyMentions(caption, postId, 'caption').catch(() => {});
       // Research descriptors are generated after publishing so they never delay the explorer
       import('./genAiService').then(({ GenAiService }) =>
-        GenAiService.generateEthologicalDescriptors(allLabels, postData.behavior || '', primaryItem.mediaType, primaryItem.locationArea)
+        GenAiService.generateEthologicalDescriptors(allLabels, extra.behavior || extra.description || primaryItem.behavior || '', primaryItem.mediaType, primaryItem.locationArea)
       ).then(async (desc) => {
         if (!desc) return;
-        await updateDoc(doc(db, "ecosystem_feed", docRef.id), { ethologicalDescriptors: desc }).catch(() => {});
-        if (flags.feed) await updateDoc(doc(db, "feed_thumbnails", docRef.id), { ethologicalDescriptors: desc }).catch(() => {});
+        await updateDoc(doc(db, "ecosystem_feed", postId), { ethologicalDescriptors: desc }).catch(() => {});
+        if (out.isPublic) await updateDoc(doc(db, "feed_thumbnails", postId), { ethologicalDescriptors: desc }).catch(() => {});
       }).catch(() => {});
 
       try {
         // Species = distinct primary labels across the explorer's sightings (the life list), not labels per post
         const lifeList = await FirebaseService.getMySpeciesSet();
-        await updateDoc(doc(db, "users", effectiveUserId), {
-          "stats.observations": increment(items.length),
-          "stats.species": lifeList.size
-        });
+        await updateDoc(doc(db, "users", effectiveUserId), { "stats.species": lifeList.size });
       } catch (statsErr) {
         console.warn("Failed to update user stats:", statsErr);
       }
-      return { id: docRef.id, url: primaryItem.imageUrl || undefined, videoUrl: primaryItem.videoUrl || undefined, audioUrl: primaryItem.audioUrl || undefined };
+      return { id: postId, url: primaryItem.imageUrl || undefined, videoUrl: primaryItem.videoUrl || undefined, audioUrl: primaryItem.audioUrl || undefined,
+        held: !!out.held, isPublic: !!out.isPublic, message: out.message as string | undefined, note: out.note as string | undefined, left: out.left as number | undefined };
   },
 
   /**
@@ -1726,38 +1703,43 @@ export const FirebaseService = {
       return null;
     }
   },
+  /** Share to the feed or keep journal-only. Joining the feed goes through the server's checks. */
+  setPostVisibility: async (postId: string, isPublic: boolean): Promise<void> => {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(postId)}/visibility`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify({ isPublic }),
+      });
+      const out: any = await res.json().catch(() => ({}));
+      if (!res.ok || !out.ok) throw new PublishError(out.message || 'Could not change visibility.', out.code || 'unavailable', out);
+  },
+
   updatePost: async (postId: string, updates: Partial<CommunityPost>) => {
-      await updateDoc(doc(db, "ecosystem_feed", postId), updates);
-      if (updates.isPublic === false) {
-          try { await deleteDoc(doc(db, "feed_thumbnails", postId)); } catch (e) { /* may not exist */ }
+      const MEDIA = ['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation'];
+      const mediaChanged = Object.keys(updates).some(k => MEDIA.includes(k));
+      if ('isPublic' in updates && !mediaChanged) {
+          const { isPublic, ...rest } = updates as any;
+          if (Object.keys(rest).length) await FirebaseService.updatePost(postId, rest);
+          return FirebaseService.setPostVisibility(postId, !!isPublic);
+      }
+      if (mediaChanged) {
+          // A changed picture leaves the feed until the server has checked it again
+          const before = await getDoc(doc(db, "ecosystem_feed", postId));
+          const wasPublic = before.exists() && before.data().isPublic === true;
+          await updateDoc(doc(db, "ecosystem_feed", postId), { ...updates, isPublic: false, moderation: { status: 'edited' } } as any);
+          try { await deleteDoc(doc(db, "feed_thumbnails", postId)); } catch { /* may not exist */ }
+          if (wasPublic) await FirebaseService.setPostVisibility(postId, true);
           return;
       }
-      if (updates.isPublic === true) {
-          const fresh = await getDoc(doc(db, "ecosystem_feed", postId));
-          const thumb = await getDoc(doc(db, "feed_thumbnails", postId)).catch(() => null);
-          if (fresh.exists() && !(thumb && thumb.exists())) {
-              await FirebaseService.upsertThumbnail(postId, fresh.data());
-              return;
-          }
-      }
+      await updateDoc(doc(db, "ecosystem_feed", postId), updates);
       try {
-          const thumbUpdates = { ...updates };
-          delete thumbUpdates.items;
-          delete thumbUpdates.imageUrl;
-          delete thumbUpdates.videoUrl;
-          delete thumbUpdates.audioUrl;
-          delete thumbUpdates.originalImageUrl;
-          delete thumbUpdates.associatedImageUrls;
-          delete thumbUpdates.reports;
-          delete thumbUpdates.reportStatus;
-          delete thumbUpdates.showLocation;
-          delete thumbUpdates.isJournal;
-          delete (thumbUpdates as any).rawLocation;
+          const allowed = ['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar'];
+          const thumbUpdates: any = Object.fromEntries(Object.entries(updates).filter(([k]) => allowed.includes(k)));
           if (Object.keys(thumbUpdates).length > 0) {
               await updateDoc(doc(db, "feed_thumbnails", postId), thumbUpdates);
           }
       } catch (e) {
-          console.warn("Could not update feed_thumbnails:", e);
+          /* journal-only sightings have no feed entry */
       }
   }
 };
