@@ -5,7 +5,6 @@ import AudioVisualizer from './AudioVisualizer.tsx';
 import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode } from '../types.ts';
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
-import { FingerprintService } from '../services/fingerprintService.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -89,7 +88,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           }, 5000);
       }
   }, []);
-  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<{ title: string; message: string } | null>(null);
 
   const nextStartTimeRef = useRef<number>(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -895,9 +894,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             console.debug("Resuming audioContext...");
             await audioContext.resume();
         }
-        const nId = userIdValue || await FingerprintService.getFingerprint();
+        // Personal memory only for signed-in explorers (no device fingerprinting)
+        const nId = userIdValue && userIdValue !== 'explorer_guest' ? userIdValue : "";
         setNaturalistId(nId);
-        const memory = await FirebaseService.getNaturalistMemory(nId);
+        const memory = nId ? await FirebaseService.getNaturalistMemory(nId) : null;
         
         console.debug("Starting media stream...");
         const stream = await startMediaStream('environment');
@@ -918,11 +918,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                     case 'DISCONNECTED': setAgentState('DISCONNECTED'); break;
                 }
             },
-            onError: (err) => {
+            onError: (err: any) => {
                 console.error("GeminiLiveService error delegate:", err);
-                const errMsg = err?.message || String(err);
-                if (errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED")) {
-                    setSessionError("API Key Referrer Blocked: Please update your Google Cloud Console API key restrictions to allow 'https://aistudio.google.com/*' and 'https://*.run.app/*'. Also ensure empty referrers are allowed for WebSockets.");
+                if (err?.governed) {
+                    const limit = err.code === 4429 || err.code === 4408;
+                    setSessionError({
+                        title: limit ? "Time for a field break" : "Live guide paused",
+                        message: err.message || "The live guide session ended. You can keep capturing; your sightings are still analysed.",
+                    });
                 }
             }
         });
@@ -996,9 +999,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             if (inputCtx) inputCtx.close();
             if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()); 
         };
-      } catch (err) { 
+      } catch (err: any) { 
           console.error("Session init failed:", err);
           setAgentState('DISCONNECTED'); 
+          const name = err?.name || '';
+          if (name === 'NotAllowedError' || name === 'SecurityError') {
+              setSessionError({ title: "Camera & microphone needed", message: "NatureGram needs camera and microphone access to see and hear nature with you. Allow access in your browser's site settings (the icon next to the address bar), then tap Retry." });
+          } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+              setSessionError({ title: "No camera found", message: "We couldn't find a camera on this device. You can still upload photos, videos or audio from your gallery." });
+          } else if (name === 'NotReadableError') {
+              setSessionError({ title: "Camera is busy", message: "Another app is using your camera. Close it and tap Retry." });
+          } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+              setSessionError({ title: "You're offline", message: "The live guide needs an internet connection. You can keep capturing; we'll analyse your sightings when you're back online." });
+          }
           return () => {
               if (geminiServiceRef.current) {
                   geminiServiceRef.current.disconnect();
@@ -1085,9 +1098,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {sessionError && (
           <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
-              <span className="material-symbols-outlined text-red-500 text-6xl mb-4">error</span>
-              <h2 className="text-2xl font-display font-black text-white mb-4">Connection Blocked</h2>
-              <p className="text-sm text-white/80 mb-8 max-w-md leading-relaxed">{sessionError}</p>
+              <span className="material-symbols-outlined text-theme-accent text-6xl mb-4" aria-hidden="true">eco</span>
+              <h2 className="text-2xl font-display font-black text-white mb-4">{sessionError.title}</h2>
+              <p className="text-base text-white/85 mb-8 max-w-md leading-relaxed">{sessionError.message}</p>
                <div className="flex gap-4">
                   <button 
                       onClick={() => {
@@ -1102,7 +1115,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       }}
                       className="px-6 py-3 bg-theme-accent text-white rounded-full font-bold uppercase tracking-widest text-xs active:scale-95 transition-transform"
                   >
-                      Retry Connection
+                      Retry
                   </button>
                   <button 
                       onClick={() => setSessionError(null)}

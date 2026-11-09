@@ -13,8 +13,12 @@ export interface FieldNotification {
 export interface UserProfileData {
   uid: string;
   username: string;
+  displayName?: string;
   bio?: string;
   avatarUrl?: string;
+  isAnonymous?: boolean;
+  followersCount?: number;
+  followingCount?: number;
   joinedAt: any;
   stats?: {
     observations: number;
@@ -50,6 +54,8 @@ export interface Snapshot {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  aiConfidence?: 'high' | 'medium' | 'low' | null;
+  showLocation?: boolean;
 }
 
 export interface ExpeditionDraft {
@@ -135,6 +141,7 @@ export interface CommunityPostItem {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  aiConfidence?: 'high' | 'medium' | 'low' | null;
 }
 
 export interface FeedThumbnail {
@@ -153,8 +160,11 @@ export interface FeedThumbnail {
   labels: string[]; // required for UI sometimes
   behavior?: string; // used in feed optionally?
   aiInsight?: string;
+  aiConfidence?: 'high' | 'medium' | 'low' | null;
   locationArea?: string;
   isHybrid?: boolean;
+  caption?: string | null;
+  userAvatar?: string | null;
 }
 
 export interface CommunityPost extends FeedThumbnail {
@@ -166,8 +176,10 @@ export interface CommunityPost extends FeedThumbnail {
   showLocation?: boolean;
   isJournal?: boolean;
   associatedImageUrls?: string[];
-  reports?: { reason: string; timestamp: any }[];
+  reports?: string[];
   reportStatus?: string;
+  reportCount?: number;
+  aiPolicyVersion?: string;
   items?: CommunityPostItem[];
   rotation?: number;
   rawLocation?: { lat: number; lng: number } | null;
@@ -184,6 +196,9 @@ export interface Comment {
   userName: string;
   text: string;
   timestamp: any;
+  avatarUrl?: string;
+  parentId?: string;
+  editedAt?: any;
 }
 
 export type AudioMode = 'voice' | 'silent';

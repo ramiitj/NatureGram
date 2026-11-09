@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { NATURALIST_THEMES } from './constants/naturalists.ts';
+import { NATURALIST_THEMES } from '../../constants/naturalists.ts';
 
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));

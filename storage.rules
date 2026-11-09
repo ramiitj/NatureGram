@@ -1,0 +1,42 @@
+rules_version = '2';
+// NatureGram Cloud Storage rules
+// - Users can only write into their own folders, only media types, with size caps.
+// - Media is publicly readable (posts are shared publicly via download URLs).
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        (request.auth.token.email == 'ram@iitj.ac.in' && request.auth.token.email_verified == true)
+      );
+    }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function underMB(mb) { return request.resource.size < mb * 1024 * 1024; }
+
+    match /snapshots/{uid}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp|gif|heic|heif)') && underMB(15);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    match /videos/{uid}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('video/.*') && underMB(100);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    match /audio/{uid}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('audio/.*|video/webm') && underMB(30);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    match /avatars/{uid}/{file} {
+      allow read: if true;
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp)') && underMB(5);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    match /themes/{file} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

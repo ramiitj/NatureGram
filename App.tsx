@@ -150,17 +150,6 @@ const App: React.FC = () => {
             });
             FirebaseService.getDrafts(user.uid).then(d => setActiveDraftsCount(d.length));
             
-            // Background migration
-            import('./firebaseConfig').then(({ auth }) => {
-                if (auth.currentUser) {
-                    FirebaseService.runThumbnailMigration().then(count => {
-                        if (count && count > 0) {
-                            console.log(`Migrated ${count} missing thumbnails in background.`);
-                        }
-                    }).catch(e => console.warn("Silent thumbnail migration failed:", e));
-                }
-            });
-
             // Auto-redirect from landing to community if already logged in (only on initial load)
             if (currentViewRef.current === AppView.LANDING && !user.isAnonymous) {
                 setCurrentView(AppView.COMMUNITY);
@@ -186,10 +175,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const loadTheme = async () => {
-      // Background full seed
-      ThemeService.seedAllThemes().catch(console.error);
-      FirebaseService.seedDefaultObservationsIfNeeded().catch(console.error);
-
       let theme = await ThemeService.getDailyTheme();
       if (!theme) {
         theme = await ThemeService.generateAndSaveDailyTheme();

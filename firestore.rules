@@ -1,95 +1,226 @@
 rules_version = '2';
+// NatureGram Firestore security rules
+// Principles: least privilege, owner-only content edits, counters that can only
+// move by the caller's own contribution, admin via custom claim or verified email.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
+    // ---------------------------------------------------------------- helpers
+    function signedIn() { return request.auth != null; }
+    function isAnon() { return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous'; }
+    function isMember() { return signedIn() && !isAnon(); }
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'ram@iitj.ac.in';
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        (request.auth.token.email == 'ram@iitj.ac.in' && request.auth.token.email_verified == true)
+      );
+    }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function changedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function isStr(v, max) { return v is string && v.size() <= max; }
+    function optStr(field, max) { return !(field in incoming()) || incoming()[field] == null || isStr(incoming()[field], max); }
+
+    // Counter may move by exactly +/-1 and never below zero
+    function stepOne(field) {
+      let before = existing().get(field, 0);
+      let after = incoming().get(field, 0);
+      return after is int && after >= 0 && (after == before + 1 || after == before - 1);
     }
 
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    // The likes array may only gain or lose the caller's own uid
+    function ownLikeToggle() {
+      let before = existing().get('likes', []).toSet();
+      let after = incoming().get('likes', []).toSet();
+      let added = after.difference(before);
+      let removed = before.difference(after);
+      return incoming().get('likes', []).size() == after.size() && (
+        (added == [request.auth.uid].toSet() && removed.size() == 0) ||
+        (removed == [request.auth.uid].toSet() && added.size() == 0)
+      );
     }
 
-    function incoming() {
-      return request.resource.data;
+    // A report may only add the caller's own uid and mark the post pending
+    function ownReport() {
+      let before = existing().get('reports', []).toSet();
+      let after = incoming().get('reports', []).toSet();
+      return after.difference(before) == [request.auth.uid].toSet()
+        && before.difference(after).size() == 0
+        && incoming().reportStatus == 'pending';
     }
 
-    function existing() {
-      return resource.data;
+    // Fields an author may never set/alter directly on a post
+    function protectedPostKeys() {
+      return ['userId', 'likes', 'likeCount', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'timestamp', 'moderation'];
     }
 
-    // 1. User profiles, drafts, and notifications
+    // ------------------------------------------------------------------ users
     match /users/{userId} {
-      // Any signed-in user can list/read (needed for admin + social features)
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId) || isAdmin();
+      allow get: if signedIn();
+      allow list: if isAdmin() || (signedIn() && request.query.limit <= 50);
+      allow create: if isOwner(userId)
+        && incoming().uid == userId
+        && !incoming().keys().hasAny(['admin', 'role', 'verified', 'followersCount', 'followingCount'])
+        && isStr(incoming().username, 40)
+        && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60);
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount'])
+            && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
+            && optStr('username', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
+        // Followers counter: only moves with the caller's own follower doc (batched write)
+        || (isMember() && !isOwner(userId)
+            && changedKeys().hasOnly(['followersCount'])
+            && stepOne('followersCount')
+            && (
+              (incoming().followersCount > existing().get('followersCount', 0)
+                && existsAfter(/databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid))
+                && !exists(/databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid)))
+              ||
+              (incoming().followersCount < existing().get('followersCount', 0)
+                && !existsAfter(/databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid))
+                && exists(/databases/$(database)/documents/users/$(userId)/followers/$(request.auth.uid)))
+            ));
+      allow delete: if isOwner(userId) || isAdmin();
 
       match /drafts/{draftId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
 
-      match /notifications/{notifId} {
+      // Private per-user data (settings, precise locations, consent)
+      match /private/{docId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
-    }
 
-    // 2. Daily themes & Seed Collections (Public Read)
-    match /themes/{themeId} {
-      allow read, write: if true;
-    }
+      match /notifications/{notifId} {
+        allow read, delete: if isOwner(userId) || isAdmin();
+        allow update: if isOwner(userId) && changedKeys().hasOnly(['isRead']);
+        allow create: if isAdmin() || (
+          isMember() && !isOwner(userId)
+          && incoming().senderId == request.auth.uid
+          && incoming().type in ['like', 'comment', 'follow', 'mention', 'reply']
+          && isStr(incoming().message, 300)
+          && optStr('senderName', 60) && optStr('postId', 128) && optStr('senderAvatar', 2048)
+          && incoming().isRead == false
+          && incoming().keys().hasOnly(['type', 'message', 'postId', 'senderId', 'senderName', 'senderAvatar', 'timestamp', 'isRead'])
+        );
+      }
 
-    match /daily_themes/{dateStr} {
-      allow read, write: if true;
-    }
+      // Social graph: users/{A}/following/{B} and users/{B}/followers/{A}
+      match /following/{targetId} {
+        allow read: if signedIn();
+        allow create, delete: if isOwner(userId) && isMember() && targetId != userId;
+      }
+      match /followers/{followerId} {
+        allow read: if signedIn();
+        allow create, delete: if isOwner(followerId) && isMember() && followerId != userId;
+      }
 
-    // 3. Naturalist memories (Private history log)
-    match /naturalist_memories/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-
-    // 4. Ecosystem feed - Main Community Posts
-    match /ecosystem_feed/{postId} {
-      allow read: if true;
-      allow create: if (isSignedIn() && incoming().userId == request.auth.uid) || postId.matches("^seed_.*");
-      allow update: if (
-        isOwner(existing().userId) || isAdmin() ||
-        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'isPublic'])) ||
-        postId.matches("^seed_.*")
-      );
-      allow delete: if resource == null || isOwner(existing().userId) || isAdmin() || postId.matches("^seed_.*");
-
-      // 5. Comments on posts
-      match /comments/{commentId} {
-        allow read: if true;
-        allow create, update: if isSignedIn();
-        allow delete: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      match /blocked/{targetId} {
+        allow read, write: if isOwner(userId);
+      }
+      match /saved/{postId} {
+        allow read, write: if isOwner(userId);
       }
     }
 
-    // 6. Cached Post thumbnails
-    match /feed_thumbnails/{postId} {
+    // ------------------------------------------------- themes (public, admin-managed)
+    match /themes/{themeId} {
       allow read: if true;
-      allow write: if isSignedIn() || postId.matches("^seed_.*");
+      allow write: if isAdmin();
     }
-
-    // 7. System configurations (admin_config)
-    match /admin_config/{configId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // 8. App config - public read
-    match /app_config/{configId} {
+    match /daily_themes/{dateStr} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 9. Naturalist profiles - public read
+    // ------------------------------------------------- naturalist memories (private)
+    match /naturalist_memories/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // ------------------------------------------------- posts
+    match /ecosystem_feed/{postId} {
+      allow read: if existing().isPublic == true || isOwner(existing().userId) || isAdmin();
+
+      allow create: if isMember()
+        && incoming().userId == request.auth.uid
+        && incoming().isPublic is bool
+        && incoming().get('likes', []).size() == 0
+        && incoming().get('commentCount', 0) == 0
+        && incoming().get('reports', []).size() == 0
+        && incoming().get('reportStatus', 'safe') == 'safe'
+        && !('rawLocation' in incoming())
+        && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000);
+
+      allow update: if isAdmin()
+        || (isOwner(existing().userId)
+            && !changedKeys().hasAny(protectedPostKeys())
+            && (incoming().get('rawLocation', null) == null || !('rawLocation' in changedKeys()))
+            && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000))
+        || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
+        || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'))
+        || (isMember() && changedKeys().hasOnly(['reports', 'reportStatus', 'reportCount']) && ownReport());
+
+      allow delete: if isOwner(existing().userId) || isAdmin();
+
+      match /comments/{commentId} {
+        allow read: if get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.isPublic == true
+          || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
+          || isAdmin();
+        allow create: if isMember()
+          && incoming().userId == request.auth.uid
+          && isStr(incoming().text, 1000) && incoming().text.size() > 0
+          && optStr('userName', 60) && optStr('parentId', 128) && optStr('avatarUrl', 2048)
+          && incoming().keys().hasOnly(['userId', 'userName', 'text', 'timestamp', 'parentId', 'avatarUrl']);
+        allow update: if isOwner(existing().userId)
+          && changedKeys().hasOnly(['text', 'editedAt'])
+          && isStr(incoming().text, 1000) && incoming().text.size() > 0;
+        allow delete: if isOwner(existing().userId)
+          || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
+          || isAdmin();
+      }
+
+      // One report per user per post (reason kept private to moderators)
+      match /reports/{reporterId} {
+        allow create: if isOwner(reporterId) && isMember()
+          && isStr(incoming().reason, 40) && optStr('details', 500);
+        allow read, delete: if isAdmin();
+      }
+    }
+
+    // ------------------------------------------------- lightweight feed index
+    match /feed_thumbnails/{postId} {
+      allow read: if existing().isPublic == true || isOwner(existing().userId) || isAdmin();
+      allow create: if isMember()
+        && incoming().userId == request.auth.uid
+        && incoming().id == postId
+        && get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId == request.auth.uid;
+      allow update: if isAdmin()
+        || (isOwner(existing().userId) && !changedKeys().hasAny(['userId', 'id', 'likes', 'commentCount']))
+        || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
+        || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'));
+      allow delete: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // ------------------------------------------------- AI feedback (governance / evaluation)
+    match /ai_feedback/{feedbackId} {
+      allow create: if signedIn() && incoming().userId == request.auth.uid
+        && incoming().kind in ['correction', 'confirmation', 'flag']
+        && optStr('note', 500);
+      allow read: if isAdmin();
+    }
+
+    // ------------------------------------------------- configuration
+    match /admin_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /app_config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     match /naturalist_profiles/{profileId} {
       allow read: if true;
       allow write: if isAdmin();

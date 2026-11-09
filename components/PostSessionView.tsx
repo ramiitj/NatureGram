@@ -1,4 +1,5 @@
 
+import { getShareUrl } from '../utils';
 import React, { useState, useEffect, useRef } from 'react';
 import { Snapshot, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
@@ -218,11 +219,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
   const handleCopyLink = async () => {
     if (!createdPostId) return;
-    let origin = window.location.origin;
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      origin = 'https://ais-pre-jzuicxor5ykd57l4xuevq4-414779155775.asia-east1.run.app';
-    }
-    const shareUrl = `${origin}/s/${createdPostId}`;
+    const shareUrl = getShareUrl(createdPostId);
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -550,16 +547,30 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               <section>
-                                  <label className="catalog-label text-[9px] mb-3 block opacity-50">Location</label>
-                                  <div className="relative">
-                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/40 text-sm">location_on</span>
+                                  <div className="flex items-center justify-between mb-3">
+                                      <label htmlFor="post-location" className="text-xs font-bold text-theme-primary/70">Location</label>
+                                      <label className="flex items-center gap-2 text-xs font-semibold text-theme-primary/70 cursor-pointer">
+                                          <input
+                                              type="checkbox"
+                                              checked={showLocation}
+                                              onChange={(e) => setShowLocation(e.target.checked)}
+                                              className="w-4 h-4 accent-[rgb(var(--theme-accent-rgb))]"
+                                          />
+                                          Show area
+                                      </label>
+                                  </div>
+                                  <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
+                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/40 text-sm" aria-hidden="true">location_on</span>
                                       <input 
+                                          id="post-location"
                                           type="text" 
                                           value={resolvedArea} 
+                                          disabled={!showLocation}
                                           onChange={(e) => setResolvedArea(e.target.value)} 
                                           className="w-full pl-11 pr-4 py-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
                                       />
                                   </div>
+                                  <p className="text-xs text-theme-primary/50 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your private records.</p>
                               </section>
 
                               <section>

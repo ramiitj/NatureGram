@@ -1,3 +1,4 @@
+import { getShareUrl, openExternal } from '../utils';
 import React, { useState } from 'react';
 import { CommunityPost } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,11 +18,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
   const currentItem = post.items && post.items.length > 0 ? post.items[activeItemIndex] : post;
   
   // Construct URL
-  let origin = window.location.origin;
-  if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-    origin = 'https://ais-pre-jzuicxor5ykd57l4xuevq4-414779155775.asia-east1.run.app';
-  }
-  const shareUrl = post.sourceUrl || `${origin}/s/${post.id}`;
+  const shareUrl = post.sourceUrl || getShareUrl(post.id);
 
   const title = post.title || 'Specimen Discovery';
   const rawDescription = post.description || '';
@@ -107,23 +104,23 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
   // Launch Socials
   const launchWhatsApp = () => {
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(formattedShareText)}`;
-    window.open(url, '_blank');
+    openExternal(url);
   };
 
   const launchFacebook = () => {
     const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank');
+    openExternal(url);
   };
 
   const launchLinkedIn = () => {
     const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank');
+    openExternal(url);
   };
 
   const launchInstagram = () => {
     // Open instagram.com and notify user to paste
     const url = 'https://www.instagram.com/';
-    window.open(url, '_blank');
+    openExternal(url);
   };
 
   return (

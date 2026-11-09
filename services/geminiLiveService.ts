@@ -110,7 +110,14 @@ export class GeminiLiveService {
             onclose: (e) => {
                 console.debug(`[GeminiLiveService] onclose called. Code: ${e.code}, Reason: ${e.reason}, Clean: ${e.wasClean}`);
                 this.connected = false;
-                if (!this.isManuallyClosed) {
+                // 4xxx = governed by the server (quota, time limit, policy) and 1008 = policy violation:
+                // these must not auto-reconnect; surface the reason to the explorer instead.
+                const governed = e.code === 1008 || (e.code >= 4000 && e.code <= 4999);
+                if (governed && !this.isManuallyClosed) {
+                    this.isManuallyClosed = true;
+                    this.delegate.onError?.(Object.assign(new Error(e.reason || 'The live guide session ended.'), { code: e.code, governed: true }));
+                    this.delegate.onConnectionStateChange?.('DISCONNECTED');
+                } else if (!this.isManuallyClosed) {
                     this.handleReconnect();
                 } else {
                     this.delegate.onConnectionStateChange?.('DISCONNECTED');

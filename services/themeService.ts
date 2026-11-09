@@ -28,22 +28,6 @@ export const ThemeService = {
             ...data,
             colors: data.colors ? { ...mergedTheme.colors, ...data.colors } : mergedTheme.colors
           };
-        } else {
-          try {
-            await setDoc(themeDocRef, {
-              id: mergedTheme.id,
-              naturalist: mergedTheme.naturalist,
-              quote: mergedTheme.quote,
-              locationName: mergedTheme.locationName,
-              locationCaption: mergedTheme.locationCaption,
-              imageUrl: mergedTheme.imageUrl || "",
-              colors: mergedTheme.colors,
-              updatedAt: new Date().toISOString()
-            });
-            console.log(`Auto-seeded theme ${mergedTheme.id} to Firestore`);
-          } catch (seedErr) {
-            console.warn("Could not auto-seed theme details (silent on landing):", seedErr);
-          }
         }
       } catch (fbError) {
         console.warn("Firebase theme fetch skipped due to error (e.g. auth):", fbError);

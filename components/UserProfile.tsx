@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CommunityPost, UserProfileData } from '../types';
-import { FirebaseService } from '../services/firebaseService';
+import { ADMIN_EMAIL, FirebaseService } from '../services/firebaseService';
 import { auth } from '../firebaseConfig';
 import AuthModal from './AuthModal';
 
@@ -157,7 +157,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {isOwnProfile && (
                 <>
-                    {auth.currentUser?.email === 'ram@iitj.ac.in' && onAdminConsole && (
+                    {auth.currentUser?.email === ADMIN_EMAIL && onAdminConsole && (
                         <div className="mb-8">
                             <h3 className="catalog-label text-[9px] mb-4 ml-2 text-theme-accent font-bold">Admin Privileges</h3>
                             <div className="bg-stone-900 border border-white/10 rounded-3xl overflow-hidden shadow-xl shadow-stone-900/40">

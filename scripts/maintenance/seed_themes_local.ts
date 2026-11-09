@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, setDoc } from "firebase/firestore";
 import { getAuth, signInAnonymously } from "firebase/auth";
-import { NATURALIST_THEMES } from "./constants/naturalists.ts";
+import { NATURALIST_THEMES } from "../../constants/naturalists.ts";
 import { readFileSync } from "fs";
 
 const configParams = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf8'));

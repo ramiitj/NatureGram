@@ -1,4 +1,4 @@
-import { NATURALIST_THEMES } from './constants/naturalists.ts';
+import { NATURALIST_THEMES } from '../../constants/naturalists.ts';
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -10,7 +10,7 @@ async function checkUrls() {
       const resp = await fetch(theme.imageUrl, {
         method: 'HEAD',
         headers: {
-          'User-Agent': 'NatureGram Test Script (researchsme2020@gmail.com)'
+          'User-Agent': 'NatureGram Maintenance Script (+https://thenaturegram.com)'
         }
       });
       console.log(theme.id, resp.status);

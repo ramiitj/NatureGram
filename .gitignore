@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets & runtime logs
+.env
+.env.*
+!.env.example
+server_env.log
+proxy.log

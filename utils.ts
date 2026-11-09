@@ -4,21 +4,62 @@ export const hapticFeedback = (pattern: number | number[] = 50) => {
     }
 };
 
-export const generateThumbnail = async (blob: Blob, maxWidth = 800): Promise<Blob> => {
-    if (!blob.type.startsWith('image/')) return blob;
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const scale = Math.min(1, maxWidth / img.width);
-            if (scale >= 1) return resolve(blob); // No need to upscale
-            canvas.width = img.width * scale;
-            canvas.height = img.height * scale;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-            canvas.toBlob((b) => resolve(b || blob), 'image/webp', 0.8);
-        };
-        img.onerror = () => resolve(blob);
-        img.src = URL.createObjectURL(blob);
-    });
+/**
+ * Re-encodes an image through a canvas. This always strips EXIF/GPS metadata
+ * (privacy) and bounds the longest side to `maxDim` pixels.
+ * Non-image blobs are returned unchanged.
+ */
+export const reencodeImage = async (
+    blob: Blob,
+    maxDim = 2048,
+    type: 'image/jpeg' | 'image/webp' = 'image/jpeg',
+    quality = 0.88
+): Promise<Blob> => {
+    if (!blob.type.startsWith('image/') || blob.type === 'image/gif') return blob;
+    const url = URL.createObjectURL(blob);
+    try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const el = new Image();
+            el.onload = () => resolve(el);
+            el.onerror = reject;
+            el.src = url;
+        });
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) return blob;
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return blob;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+        return out || blob;
+    } catch {
+        return blob;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+};
+
+/** Feed thumbnail: metadata-free WebP, longest side <= maxWidth. */
+export const generateThumbnail = (blob: Blob, maxWidth = 800): Promise<Blob> =>
+    reencodeImage(blob, maxWidth, 'image/webp', 0.8);
+
+/** Round coordinates to ~1 km so approximate location never reveals a home or nest. */
+export const coarsenCoordinate = (v: number, decimals = 2) => Math.round(v * 10 ** decimals) / 10 ** decimals;
+
+/** Canonical public origin used for share links (never a preview or localhost URL). */
+export const PUBLIC_ORIGIN = 'https://thenaturegram.com';
+export const getShareUrl = (postId: string) => `${PUBLIC_ORIGIN}/s/${encodeURIComponent(postId)}`;
+
+/** Only open http(s) URLs, and always without giving the new page access to this one. */
+export const openExternal = (url?: string | null) => {
+    if (!url) return;
+    try {
+        const u = new URL(url, window.location.href);
+        if (u.protocol !== 'https:' && u.protocol !== 'http:' && u.protocol !== 'blob:') return;
+        window.open(u.toString(), '_blank', 'noopener,noreferrer');
+    } catch { /* ignore malformed */ }
 };

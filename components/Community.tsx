@@ -1,4 +1,5 @@
 
+import { openExternal } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode, Comment } from '../types';
@@ -1175,44 +1176,20 @@ const Community: React.FC<CommunityProps> = ({
                     {[...Array(10)].map((_, i) => <SkeletonPost key={i} />)}
                 </div>
             ) : error ? (
-                <div className="py-20 flex flex-col items-center justify-center text-center px-8 bg-red-50/50 rounded-3xl border border-red-100 max-w-xl mx-auto my-12 animate-fade-in shadow-sm">
-                    <span className="material-symbols-outlined text-5xl text-red-500 mb-6 font-black animate-pulse">cloud_off</span>
-                    <h3 className="text-xl font-display font-medium text-stone-900 mb-3">Database Connection Alert</h3>
-                    <p className="text-stone-600/80 text-sm max-w-sm mb-6 leading-relaxed">
-                        We encountered an issue while loading the field guide. This can happen if the selected Firestore database is still in a cold start state or requires initializing rules.
+                <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/40 mb-6" aria-hidden="true">cloud_off</span>
+                    <h3 className="text-xl font-display font-bold text-stone-900 mb-3">The field guide didn't load</h3>
+                    <p className="text-stone-600 text-base max-w-sm mb-8 leading-relaxed">
+                        {typeof navigator !== 'undefined' && navigator.onLine === false
+                            ? "You appear to be offline. Check your connection and try again."
+                            : "Something went wrong on our side. Please try again in a moment."}
                     </p>
-                    <div className="bg-white/90 border border-stone-200 p-4 rounded-xl font-mono text-left text-xs text-stone-600 overflow-x-auto w-full max-w-md max-h-32 mb-8 shadow-inner select-all no-scrollbar">
-                        {error}
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
-                        <button 
-                            onClick={() => window.location.reload()} 
-                            className="px-6 py-3.5 bg-stone-900 text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg active:scale-95 transition-all"
-                        >
-                            Retry Request
-                        </button>
-                        {localStorage.getItem('firestore_db_override') ? (
-                            <button 
-                                onClick={() => {
-                                    localStorage.removeItem('firestore_db_override');
-                                    window.location.reload();
-                                }} 
-                                className="px-6 py-3.5 bg-orange-600 text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg active:scale-95 transition-all"
-                            >
-                                Reset Config to File ID
-                            </button>
-                        ) : (
-                            <button 
-                                onClick={() => {
-                                    localStorage.setItem('firestore_db_override', '(default)');
-                                    window.location.reload();
-                                }} 
-                                className="px-6 py-3.5 bg-theme-primary text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg active:scale-95 transition-all"
-                            >
-                                Force Default Database
-                            </button>
-                        )}
-                    </div>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full shadow-lg active:scale-95 transition-all"
+                    >
+                        Try again
+                    </button>
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
@@ -1354,7 +1331,7 @@ const Community: React.FC<CommunityProps> = ({
                                                             <img 
                                                                 src={item.imageUrl || item.thumbnailUrl} 
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                                onClick={() => window.open(item.imageUrl || item.thumbnailUrl, '_blank')}
+                                                                onClick={() => openExternal(item.imageUrl || item.thumbnailUrl)}
                                                             />
                                                         )}
                                                     </div>
@@ -1421,7 +1398,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 <img 
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl} 
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                    onClick={() => window.open(currentItem.imageUrl || currentItem.thumbnailUrl, '_blank')}
+                                                    onClick={() => openExternal(currentItem.imageUrl || currentItem.thumbnailUrl)}
                                                 />
                                             )}
                                         </div>

@@ -21,6 +21,8 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   
   // Moderation Data
   const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
+  const [reportReasons, setReportReasons] = useState<Record<string, { reason: string; details?: string }[]>>({});
+  const [needsVerification, setNeedsVerification] = useState(false);
   
   // Activity / Log Tracking Data
   const [allUsers, setAllUsers] = useState<UserProfileData[]>([]);
@@ -29,11 +31,12 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   // Automatic elevation check on mount
   useEffect(() => {
     const checkAdminAuth = async () => {
-      const currentUser = auth.currentUser;
-      if (currentUser && currentUser.email === 'ram@iitj.ac.in') {
+      const { isAdmin, needsVerification } = await FirebaseService.getAdminStatus();
+      setNeedsVerification(needsVerification);
+      if (isAdmin || needsVerification) {
         setIsAuthenticated(true);
         loadConfig();
-        loadActivityLogs();
+        if (isAdmin) loadActivityLogs();
       }
     };
     checkAdminAuth();
@@ -42,16 +45,17 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   // Login Handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email !== 'ram@iitj.ac.in') {
-      setStatus('Access Denied: Only ram@iitj.ac.in has administrative privileges.');
-      return;
-    }
-    
     try {
       await FirebaseService.loginUser(email, password);
+      const { isAdmin, needsVerification } = await FirebaseService.getAdminStatus();
+      if (!isAdmin && !needsVerification) {
+        setStatus('Access denied: this account does not have administrative privileges.');
+        return;
+      }
+      setNeedsVerification(needsVerification);
       setIsAuthenticated(true);
       loadConfig();
-      loadActivityLogs();
+      if (isAdmin) loadActivityLogs();
     } catch (err: any) {
       setStatus('Login failed: ' + err.message);
     }
@@ -81,6 +85,9 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       setStatus('Fetching reports...');
       const posts = await FirebaseService.getReportedPosts();
       setReportedPosts(posts);
+      const reasons: Record<string, { reason: string; details?: string }[]> = {};
+      await Promise.all(posts.map(async p => { reasons[p.id] = await FirebaseService.getReportReasons(p.id); }));
+      setReportReasons(reasons);
       setStatus(`Found ${posts.length} reported items.`);
   };
 
@@ -265,6 +272,17 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
         </div>
       </header>
 
+      {needsVerification && (
+        <div role="alert" className="bg-amber-50 border-b border-amber-200 px-6 py-4 flex flex-wrap items-center gap-4 text-amber-900">
+          <span className="material-symbols-outlined" aria-hidden="true">verified_user</span>
+          <p className="text-sm flex-1 min-w-[240px]">Admin access now requires a verified email. Verify this address, then sign out and back in to unlock moderation and configuration.</p>
+          <button
+            onClick={async () => { await FirebaseService.sendVerificationEmail(); setStatus('Verification email sent. Check your inbox.'); }}
+            className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-bold"
+          >Send verification email</button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 border-r border-theme-primary/10 bg-black/[0.02] p-4 shrink-0">
@@ -303,6 +321,19 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                             <p className="text-theme-primary/50 text-xs mt-1">Live tracking of active explorers, encounters and client contributions</p>
                         </div>
                         <div className="flex items-center gap-3">
+                            <button
+                                onClick={async () => {
+                                    if (!window.confirm('Move precise GPS coordinates from public posts into each owner\'s private storage? Nothing is deleted.')) return;
+                                    try {
+                                        const n = await FirebaseService.migratePublicLocationsToPrivate((d, t) => setStatus(`Privacy migration ${d}/${t}...`));
+                                        setStatus(`Privacy migration complete: ${n} posts secured.`);
+                                    } catch (e: any) { setStatus('Privacy migration failed: ' + e.message); }
+                                }}
+                                className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
+                            >
+                                <span className="material-symbols-outlined text-sm" aria-hidden="true">shield_lock</span>
+                                Secure locations
+                            </button>
                             <button 
                                 onClick={downloadMetadataCSV}
                                 className="bg-theme-accent/5 hover:bg-theme-accent/10 border border-theme-accent/20 text-theme-accent rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
@@ -523,13 +554,16 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
 
                                         <div className="mb-4">
                                             <h4 className="text-theme-primary/50 text-xs font-bold uppercase mb-2">Report Reasons:</h4>
-                                            {post.reports?.map((r, i) => (
+                                            {(reportReasons[post.id] || []).map((r, i) => (
                                                 <div key={i} className="text-red-600 text-sm flex gap-2 items-center">
-                                                    <span className="material-symbols-outlined text-xs">flag</span>
-                                                    {r.reason} 
-                                                    <span className="text-theme-primary/40 text-xs ml-2">({new Date(r.timestamp).toLocaleDateString()})</span>
+                                                    <span className="material-symbols-outlined text-xs" aria-hidden="true">flag</span>
+                                                    {r.reason}
+                                                    {r.details && <span className="text-theme-primary/60 text-xs ml-2">"{r.details}"</span>}
                                                 </div>
                                             ))}
+                                            {!(reportReasons[post.id] || []).length && (
+                                                <div className="text-red-600 text-sm">{post.reportCount || post.reports?.length || 0} report(s)</div>
+                                            )}
                                         </div>
 
                                         <div className="flex gap-4">

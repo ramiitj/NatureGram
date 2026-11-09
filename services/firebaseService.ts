@@ -18,6 +18,8 @@ import {
   arrayUnion,
   arrayRemove,
   increment,
+  writeBatch,
+  deleteField,
 } from "firebase/firestore";
 import {
   ref,
@@ -32,11 +34,16 @@ import {
   onAuthStateChanged,
   deleteUser,
   updateProfile,
+  sendEmailVerification,
 } from "firebase/auth";
 import { auth, db, storage } from "../firebaseConfig";
 import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants";
-import { generateThumbnail } from "../utils";
+import { generateThumbnail, reencodeImage } from "../utils";
+
+export const AI_CLIENT_POLICY_VERSION = "2026.11-1";
+const PAGE_SIZE = 30;
+export const ADMIN_EMAIL = "ram@iitj.ac.in";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
@@ -142,17 +149,16 @@ export const FirebaseService = {
     });
   },
 
-  ensureUserProfile: async (userId: string, email?: string | null, isAnonymous: boolean = false, locationData: string = "") => {
+  ensureUserProfile: async (userId: string, email?: string | null, isAnonymous: boolean = false) => {
     const docRef = doc(db, "users", userId);
     try {
       const docSnap = await getDoc(docRef);
       if (!docSnap.exists()) {
-        const username = email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`;
+        const username = (email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`).slice(0, 30);
         const profile: any = {
           uid: userId,
           username,
           isAnonymous,
-          location: locationData,
           joinedAt: serverTimestamp(),
           lastVisit: serverTimestamp(),
           stats: { observations: 0, species: 0 }
@@ -170,9 +176,7 @@ export const FirebaseService = {
         // update last visit and location if anonymous
         const data = docSnap.data();
         const updates: any = { lastVisit: serverTimestamp() };
-        if (locationData && data.isAnonymous) {
-            updates.location = locationData;
-        }
+        if (data.isAnonymous && !isAnonymous) updates.isAnonymous = false;
         try {
           await updateDoc(docRef, updates);
         } catch (updErr) {
@@ -182,12 +186,11 @@ export const FirebaseService = {
       }
     } catch (e) {
       console.warn("Failed to retrieve user profile in ensureUserProfile:", e);
-      const username = email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`;
+      const username = (email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`).slice(0, 30);
       return {
         uid: userId,
         username,
         isAnonymous,
-        location: locationData,
         stats: { observations: 0, species: 0 }
       } as any;
     }
@@ -220,20 +223,8 @@ export const FirebaseService = {
 
   loginAnonymous: async () => {
     const cred = await signInAnonymously(auth);
-    let locationData = "Unknown Location";
     try {
-        const res = await fetch('https://ipapi.co/json/');
-        if (res.ok) {
-            const data = await res.json();
-            if (data && data.city) {
-                locationData = `${data.city}, ${data.region}, ${data.country_name}`;
-            }
-        }
-    } catch(e) {
-        console.warn("Could not fetch geolocation.", e);
-    }
-    try {
-        await FirebaseService.ensureUserProfile(cred.user.uid, "Anonymous", true, locationData);
+        await FirebaseService.ensureUserProfile(cred.user.uid, "Anonymous", true);
     } catch (err) {
         console.warn("Silent profile creation error caught during loginAnonymous:", err);
     }
@@ -278,16 +269,13 @@ export const FirebaseService = {
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
         const data = docSnap.data() as GeminiConfig;
-        // Migration: Update old model name to supported version
+        // The server pins the actual Live model; this is only a requested preference.
         if (data.model && (data.model.includes('gemini-2.5-flash-native') || data.model === 'gemini-2.0-flash')) {
           data.model = 'gemini-2.5-flash-native-audio-latest';
-          await updateDoc(docRef, { model: data.model });
         }
-        return data;
-      } else {
-        await setDoc(docRef, DEFAULT_CONFIG);
-        return DEFAULT_CONFIG;
+        return { ...DEFAULT_CONFIG, ...data };
       }
+      return DEFAULT_CONFIG;
     } catch (e) {
       return DEFAULT_CONFIG;
     }
@@ -444,99 +432,112 @@ export const FirebaseService = {
   uploadMedia: async (data: Blob | string, userId: string, type: 'image' | 'video' | 'audio'): Promise<string> => {
     let blob: Blob;
     if (typeof data === 'string') {
+        // Already-hosted media: reuse it instead of re-uploading
+        if (/^https:\/\/firebasestorage\.googleapis\.com\//.test(data)) return data;
         const response = await fetch(getCorsProxyUrl(data));
         blob = await response.blob();
     } else { blob = data; }
 
-    const mime = blob.type;
-    let ext = 'jpg'; 
-    if (type === 'video') ext = 'mp4';
+    // Privacy: strip EXIF/GPS from every still image before it leaves the device
+    if (type === 'image') blob = await reencodeImage(blob);
+
+    const mime = blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm');
+    let ext = 'jpg';
+    if (type === 'video') ext = mime.includes('mp4') ? 'mp4' : 'webm';
     else if (type === 'audio') ext = 'webm';
     else if (mime.includes('png')) ext = 'png';
+    else if (mime.includes('webp')) ext = 'webp';
 
-    const uniqueId = Math.random().toString(36).substring(2, 9);
     const folder = type === 'image' ? 'snapshots' : (type === 'audio' ? 'audio' : 'videos');
-    const filename = `${folder}/${userId}/${Date.now()}_${uniqueId}.${ext}`;
+    const filename = `${folder}/${userId}/${Date.now()}_${crypto.randomUUID()}.${ext}`;
     const storageRef = ref(storage, filename);
     await uploadBytes(storageRef, blob, { contentType: mime });
     return await getDownloadURL(storageRef);
   },
 
-  createSessionObservation: async (snapshots: Snapshot[], userId: string, flags: { feed: boolean, journal: boolean }, tags: string[], synthesizedData?: { title: string, description: string }) => {
-    try {
+  /** Uploads all media for one snapshot and returns the public item (no precise location). */
+  uploadSnapshotItem: async (snapshot: Snapshot, uid: string) => {
+      let imageUrl: string | null = null;
+      let thumbnailUrl: string | null = null;
+      let originalImageUrl: string | null = null;
+      const uploadSource = snapshot.blob || snapshot.url;
+      if (uploadSource) {
+          if (snapshot.blob && snapshot.type === 'image') {
+              originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, uid, 'image');
+              const thumbBlob = await generateThumbnail(snapshot.blob, 800);
+              thumbnailUrl = await FirebaseService.uploadMedia(thumbBlob, uid, 'image');
+              imageUrl = thumbnailUrl;
+          } else {
+              imageUrl = await FirebaseService.uploadMedia(uploadSource, uid, 'image');
+          }
+      }
+      const videoUrl = snapshot.videoBlob ? await FirebaseService.uploadMedia(snapshot.videoBlob, uid, 'video') : (snapshot.videoUrl && snapshot.videoUrl.startsWith('https://') ? snapshot.videoUrl : null);
+      const audioUrl = snapshot.audioBlob ? await FirebaseService.uploadMedia(snapshot.audioBlob, uid, 'audio') : (snapshot.audioUrl && snapshot.audioUrl.startsWith('https://') ? snapshot.audioUrl : null);
+      const associatedImageUrls: string[] = snapshot.associatedImages?.length
+          ? await Promise.all(snapshot.associatedImages.map(img => FirebaseService.uploadMedia(img.blob || img.url!, uid, 'image')))
+          : [];
+      return {
+        imageUrl,
+        thumbnailUrl,
+        originalImageUrl,
+        videoUrl,
+        audioUrl,
+        associatedImageUrls,
+        mediaType: snapshot.type,
+        labels: snapshot.labels || [],
+        behavior: snapshot.behavior || "Observation.",
+        aiInsight: snapshot.aiInsight || null,
+        aiConfidence: snapshot.aiConfidence || null,
+        locationArea: (snapshot as any).showLocation === false ? "" : (snapshot.locationArea || ""),
+        showLocation: (snapshot as any).showLocation ?? false,
+        rotation: snapshot.rotation || 0,
+        timeToRecordMs: snapshot.timeToRecordMs || null,
+        aiProposedLabels: snapshot.aiProposedLabels || null,
+        aiProposedBehavior: snapshot.aiProposedBehavior || null,
+        humanDelta: snapshot.humanDelta || false,
+        sessionRetakes: snapshot.sessionRetakes || null,
+      };
+  },
+
+  /** Precise coordinates are research data: stored privately, readable only by the owner. */
+  savePrivateObservationData: async (uid: string, postId: string, snapshots: Snapshot[]) => {
+      const coords = snapshots.map(s => s.rawLocation || null);
+      if (!coords.some(Boolean)) return;
+      try {
+          await setDoc(doc(db, "users", uid, "private", `obs_${postId}`), {
+              postId,
+              rawLocations: coords,
+              createdAt: serverTimestamp(),
+          });
+      } catch (e) {
+          console.warn("Could not store private observation data", e);
+      }
+  },
+
+  publishPost: async (
+      snapshots: Snapshot[],
+      userId: string,
+      flags: { feed: boolean, journal: boolean },
+      tags: string[],
+      extra: { caption?: string, title?: string, description?: string, behavior?: string } = {}
+  ) => {
       const effectiveUserId = userId || auth.currentUser?.uid;
       if (!effectiveUserId) throw new Error("No user found.");
+      if (!snapshots.length) throw new Error("Nothing to publish.");
 
       const userProfile = await FirebaseService.getUserProfile(effectiveUserId);
       const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${effectiveUserId.slice(0, 4)}`;
 
-      const items = await Promise.all(snapshots.map(async (snapshot) => {
-          let publicUrl: string | undefined = undefined;
-          let thumbnailUrl: string | undefined = undefined;
-          let originalImageUrl: string | undefined = undefined;
-          const uploadSource = snapshot.blob || snapshot.url;
-          if (uploadSource) {
-              if (snapshot.blob && snapshot.type === 'image') {
-                  originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, effectiveUserId, 'image');
-                  const thumbBlob = await generateThumbnail(snapshot.blob, 800);
-                  publicUrl = await FirebaseService.uploadMedia(thumbBlob, effectiveUserId, 'image');
-                  thumbnailUrl = publicUrl;
-              } else {
-                  publicUrl = await FirebaseService.uploadMedia(uploadSource, effectiveUserId, 'image');
-              }
-          }
-          
-          let videoUrl: string | undefined = undefined;
-          if (snapshot.videoBlob) {
-            videoUrl = await FirebaseService.uploadMedia(snapshot.videoBlob, effectiveUserId, 'video');
-          }
-
-          let audioUrl: string | undefined = undefined;
-          if (snapshot.audioBlob) {
-              audioUrl = await FirebaseService.uploadMedia(snapshot.audioBlob, effectiveUserId, 'audio');
-          }
-
-          let associatedImageUrls: string[] = [];
-          if (snapshot.associatedImages && snapshot.associatedImages.length > 0) {
-              associatedImageUrls = await Promise.all(
-                  snapshot.associatedImages.map(img => 
-                      FirebaseService.uploadMedia(img.blob || img.url!, effectiveUserId, 'image')
-                  )
-              );
-          }
-
-          return {
-            imageUrl: publicUrl || null,
-            thumbnailUrl: thumbnailUrl || null,
-            originalImageUrl: originalImageUrl || null,
-            videoUrl: videoUrl || null,
-            audioUrl: audioUrl || null,
-            associatedImageUrls: associatedImageUrls,
-            mediaType: snapshot.type,
-            labels: snapshot.labels || [],
-            behavior: snapshot.behavior || "Observation.",
-            aiInsight: snapshot.aiInsight || null,
-            locationArea: snapshot.locationArea || "",
-            showLocation: (snapshot as any).showLocation ?? true,
-            rotation: snapshot.rotation || 0,
-            rawLocation: snapshot.rawLocation || null,
-            timeToRecordMs: snapshot.timeToRecordMs || null,
-            aiProposedLabels: snapshot.aiProposedLabels || null,
-            aiProposedBehavior: snapshot.aiProposedBehavior || null,
-            humanDelta: snapshot.humanDelta || false,
-            sessionRetakes: snapshot.sessionRetakes || null,
-          };
-      }));
-
-      if (items.length === 0) throw new Error("No items to upload.");
-
+      const items = await Promise.all(snapshots.map(s => FirebaseService.uploadSnapshotItem(s, effectiveUserId)));
       const primaryItem = items[0];
-      const allLabels = new Set<string>();
-      items.forEach(item => item.labels.forEach(l => allLabels.add(l)));
+      const allLabels = Array.from(new Set(items.flatMap(i => i.labels)));
+      const cleanTags = Array.from(new Set(tags.map(t => (t.startsWith('#') ? t : `#${t}`).toLowerCase().replace(/\s+/g, '')))).slice(0, 30);
+      const caption = (extra.caption || '').trim().slice(0, 2200);
 
       const postData: any = {
         userId: effectiveUserId,
-        userName: userName,
+        userName,
+        userAvatar: userProfile?.avatarUrl || null,
         imageUrl: primaryItem.imageUrl,
         thumbnailUrl: primaryItem.thumbnailUrl,
         originalImageUrl: primaryItem.originalImageUrl,
@@ -544,12 +545,15 @@ export const FirebaseService = {
         audioUrl: primaryItem.audioUrl,
         associatedImageUrls: primaryItem.associatedImageUrls,
         mediaType: primaryItem.mediaType,
-        labels: Array.from(allLabels), 
-        behavior: synthesizedData ? synthesizedData.description : primaryItem.behavior,
+        labels: allLabels,
+        behavior: extra.behavior || extra.description || primaryItem.behavior,
         aiInsight: primaryItem.aiInsight,
-        locationArea: primaryItem.locationArea, 
-        showLocation: primaryItem.showLocation, 
-        tags: tags,
+        aiConfidence: primaryItem.aiConfidence,
+        aiPolicyVersion: AI_CLIENT_POLICY_VERSION,
+        locationArea: primaryItem.locationArea,
+        showLocation: primaryItem.showLocation,
+        tags: cleanTags,
+        caption: caption || null,
         timestamp: serverTimestamp(),
         likes: [],
         commentCount: 0,
@@ -558,299 +562,140 @@ export const FirebaseService = {
         reportStatus: 'safe',
         reports: [],
         isHybrid: snapshots.some(s => s.isHybrid || (s.associatedImages && s.associatedImages.length > 0)),
-        items: items,
+        items,
         rotation: primaryItem.rotation || 0,
-        rawLocation: primaryItem.rawLocation || null,
         timeToRecordMs: primaryItem.timeToRecordMs || null,
         sessionRetakes: primaryItem.sessionRetakes || null,
-        humanDelta: primaryItem.humanDelta || false,
+        humanDelta: items.some(i => i.humanDelta),
       };
-
-      if (synthesizedData) {
-          postData.title = synthesizedData.title;
-          postData.description = synthesizedData.description;
-      }
+      if (extra.title) postData.title = extra.title.slice(0, 200);
+      if (extra.description) postData.description = extra.description.slice(0, 5000);
 
       const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
-      
-      const thumbData = {
-          id: docRef.id,
-          mediaType: primaryItem.mediaType,
-          thumbnailUrl: primaryItem.thumbnailUrl || primaryItem.imageUrl || "",
-          title: synthesizedData?.title || null,
-          description: synthesizedData?.description || null,
-          timestamp: postData.timestamp,
-          userId: effectiveUserId,
-          userName: userName,
-          likes: [],
-          commentCount: 0,
-          isPublic: flags.feed,
-          tags: tags,
-          labels: Array.from(allLabels),
-          behavior: synthesizedData?.description || primaryItem.behavior || "",
-          aiInsight: primaryItem.aiInsight || null,
-          locationArea: primaryItem.locationArea || "",
-          isHybrid: postData.isHybrid
-      };
-      await setDoc(doc(db, "feed_thumbnails", docRef.id), thumbData);
-      
+
+      if (flags.feed) {
+        await FirebaseService.upsertThumbnail(docRef.id, { ...postData, timestamp: postData.timestamp });
+      }
+      await FirebaseService.savePrivateObservationData(effectiveUserId, docRef.id, snapshots);
+
       try {
-        await updateDoc(doc(db, "users", effectiveUserId), { 
+        await updateDoc(doc(db, "users", effectiveUserId), {
           "stats.observations": increment(items.length),
-          "stats.species": increment(allLabels.size) 
+          "stats.species": increment(allLabels.length)
         });
       } catch (statsErr) {
-        console.warn("Failed to update user stats in createSessionObservation:", statsErr);
+        console.warn("Failed to update user stats:", statsErr);
       }
-      return { id: docRef.id };
-    } catch (e) {
-      console.error("Error creating session observation:", e);
-      throw e;
-    }
+      return { id: docRef.id, url: primaryItem.imageUrl || undefined, videoUrl: primaryItem.videoUrl || undefined, audioUrl: primaryItem.audioUrl || undefined };
   },
 
-  createObservation: async (snapshot: Snapshot, userId: string, flags: { feed: boolean, journal: boolean }, synthesis: string, tags: string[]) => {
-    try {
-      const effectiveUserId = userId || auth.currentUser?.uid;
-      if (!effectiveUserId) throw new Error("No user found.");
-
-      const userProfile = await FirebaseService.getUserProfile(effectiveUserId);
-      const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${effectiveUserId.slice(0, 4)}`;
-
-      let publicUrl: string | undefined = undefined;
-      let thumbnailUrl: string | undefined = undefined;
-      let originalImageUrl: string | undefined = undefined;
-      const uploadSource = snapshot.blob || snapshot.url;
-      if (uploadSource) {
-          if (snapshot.blob && snapshot.type === 'image') {
-              originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, effectiveUserId, 'image');
-              const thumbBlob = await generateThumbnail(snapshot.blob, 800);
-              publicUrl = await FirebaseService.uploadMedia(thumbBlob, effectiveUserId, 'image');
-              thumbnailUrl = publicUrl;
-          } else {
-              publicUrl = await FirebaseService.uploadMedia(uploadSource, effectiveUserId, 'image');
-          }
-      }
-      
-      let videoUrl: string | undefined = undefined;
-      if (snapshot.videoBlob) {
-        videoUrl = await FirebaseService.uploadMedia(snapshot.videoBlob, effectiveUserId, 'video');
-      }
-
-      let audioUrl: string | undefined = undefined;
-      if (snapshot.audioBlob) {
-          audioUrl = await FirebaseService.uploadMedia(snapshot.audioBlob, effectiveUserId, 'audio');
-      }
-
-      let associatedImageUrls: string[] = [];
-      if (snapshot.associatedImages && snapshot.associatedImages.length > 0) {
-          associatedImageUrls = await Promise.all(
-              snapshot.associatedImages.map(img => 
-                  FirebaseService.uploadMedia(img.blob || img.url!, effectiveUserId, 'image')
-              )
-          );
-      }
-
-      const postData: any = {
-        userId: effectiveUserId,
-        userName: userName,
-        imageUrl: publicUrl || null,
-        thumbnailUrl: thumbnailUrl || null,
-        originalImageUrl: originalImageUrl || null,
-        videoUrl: videoUrl || null,
-        audioUrl: audioUrl || null,
-        associatedImageUrls: associatedImageUrls,
-        mediaType: snapshot.type,
-        labels: snapshot.labels, 
-        behavior: synthesis,
-        aiInsight: snapshot.aiInsight || null,
-        locationArea: snapshot.locationArea || "", 
-        showLocation: (snapshot as any).showLocation ?? true, 
-        tags: tags,
-        timestamp: serverTimestamp(),
-        likes: [],
-        commentCount: 0,
-        isPublic: flags.feed,
-        isJournal: flags.journal,
-        reportStatus: 'safe',
-        reports: [],
-        isHybrid: snapshot.isHybrid || associatedImageUrls.length > 0,
-        rotation: snapshot.rotation || 0,
-        rawLocation: snapshot.rawLocation || null,
-        timeToRecordMs: snapshot.timeToRecordMs || null,
-        aiProposedLabels: snapshot.aiProposedLabels || null,
-        aiProposedBehavior: snapshot.aiProposedBehavior || null,
-        sessionRetakes: snapshot.sessionRetakes || null,
-        humanDelta: snapshot.humanDelta || false,
+  /** Writes the lightweight feed index document for a public post. */
+  upsertThumbnail: async (postId: string, post: any) => {
+      const thumbData: any = {
+          id: postId,
+          mediaType: post.mediaType || 'image',
+          thumbnailUrl: post.thumbnailUrl || post.imageUrl || "",
+          title: post.title || null,
+          caption: post.caption || null,
+          description: post.description || null,
+          timestamp: post.timestamp || serverTimestamp(),
+          userId: post.userId,
+          userName: post.userName || null,
+          userAvatar: post.userAvatar || null,
+          likes: post.likes || [],
+          commentCount: post.commentCount || 0,
+          isPublic: true,
+          tags: post.tags || [],
+          labels: post.labels || [],
+          behavior: post.behavior || "",
+          aiInsight: post.aiInsight || null,
+          aiConfidence: post.aiConfidence || null,
+          locationArea: post.showLocation === false ? "" : (post.locationArea || ""),
+          isHybrid: !!post.isHybrid
       };
-
-      const docRef = await addDoc(collection(db, "ecosystem_feed"), postData);
-      
-      const thumbData = {
-          id: docRef.id,
-          mediaType: snapshot.type,
-          thumbnailUrl: thumbnailUrl || publicUrl || "",
-          timestamp: postData.timestamp,
-          userId: effectiveUserId,
-          userName: userName,
-          likes: [],
-          commentCount: 0,
-          isPublic: flags.feed,
-          tags: tags,
-          labels: snapshot.labels || [],
-          behavior: synthesis,
-          aiInsight: snapshot.aiInsight || null,
-          locationArea: snapshot.locationArea || "",
-          isHybrid: postData.isHybrid
-      };
-      await setDoc(doc(db, "feed_thumbnails", docRef.id), thumbData);
-      
-      try {
-        await updateDoc(doc(db, "users", effectiveUserId), { 
-          "stats.observations": increment(1),
-          "stats.species": increment(snapshot.labels.length) 
-        });
-      } catch (statsErr) {
-        console.warn("Failed to update user stats in createObservation:", statsErr);
-      }
-      return { id: docRef.id, url: publicUrl, videoUrl, audioUrl };
-    } catch (e) {
-      console.error("Error creating observation:", e);
-      throw e;
-    }
+      await setDoc(doc(db, "feed_thumbnails", postId), thumbData);
   },
 
-  subscribeToFeed: (callback: (posts: CommunityPost[]) => void, searchTag?: string | null) => {
-    let q;
-    if (searchTag) {
-        const normalizedTag = searchTag.startsWith('#') ? searchTag : `#${searchTag.toLowerCase().replace(/\s+/g, '')}`;
-        q = query(
-            collection(db, "feed_thumbnails"), 
-            where("tags", "array-contains", normalizedTag)
-        );
-    } else {
-        q = query(
-            collection(db, "feed_thumbnails"), 
-            orderBy("timestamp", "desc"), 
-            limit(20)
-        );
-    }
-
-    return onSnapshot(q, (snapshot) => {
-      const posts: CommunityPost[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.isPublic !== false) {
-          posts.push({ 
-            id: doc.id, 
-            ...data,
-            labels: data.labels || (data.label ? [data.label] : ["Nature"])
-          } as CommunityPost);
-        }
+  createSessionObservation: async (snapshots: Snapshot[], userId: string, flags: { feed: boolean, journal: boolean }, tags: string[], synthesizedData?: { title: string, description: string }, caption?: string) => {
+      return FirebaseService.publishPost(snapshots, userId, flags, tags, {
+          caption,
+          title: synthesizedData?.title,
+          description: synthesizedData?.description,
       });
+  },
 
-      // Always sort the array by timestamp descending to ensure perfect ordering without composite indexes
-      posts.sort((a, b) => {
-        const getT = (ts: any) => ts?.toMillis ? ts.toMillis() : (ts?.seconds ? ts.seconds * 1000 : (ts ? new Date(ts).getTime() : 0));
-        return getT(b.timestamp) - getT(a.timestamp);
-      });
-
-      callback(posts);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, "feed_thumbnails");
-    });
+  createObservation: async (snapshot: Snapshot, userId: string, flags: { feed: boolean, journal: boolean }, synthesis: string, tags: string[], caption?: string) => {
+      return FirebaseService.publishPost([snapshot], userId, flags, tags, { caption, behavior: synthesis });
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
-      let q;
-      if (searchTag) {
-          const normalizedTag = searchTag.startsWith('#') ? searchTag : `#${searchTag.toLowerCase().replace(/\s+/g, '')}`;
-          const queryConstraints: any[] = [
-              where("tags", "array-contains", normalizedTag),
-              orderBy("timestamp", "desc"),
-              limit(50)
-          ];
-          if (lastVisible) {
-              queryConstraints.push(startAfter(lastVisible));
-          }
-          q = query(collection(db, "feed_thumbnails"), ...queryConstraints);
-      } else {
-          const queryConstraints: any[] = [
-              orderBy("timestamp", "desc"),
-              limit(50)
-          ];
-          if (lastVisible) {
-              queryConstraints.push(startAfter(lastVisible));
-          }
-          q = query(
-              collection(db, "feed_thumbnails"), 
-              ...queryConstraints
-          );
-      }
-      
+      const normalizedTag = searchTag
+          ? (searchTag.startsWith('#') ? searchTag : `#${searchTag}`).toLowerCase().replace(/\s+/g, '')
+          : null;
+      const build = (publicOnly: boolean) => {
+          const c: any[] = [];
+          if (normalizedTag) c.push(where("tags", "array-contains", normalizedTag));
+          if (publicOnly) c.push(where("isPublic", "==", true));
+          c.push(orderBy("timestamp", "desc"), limit(PAGE_SIZE));
+          if (lastVisible) c.push(startAfter(lastVisible));
+          return query(collection(db, "feed_thumbnails"), ...c);
+      };
+      let snapshot;
       try {
-          let snapshot = await getDocs(q);
-          
-          if (snapshot.empty && !lastVisible && !searchTag) {
-              await FirebaseService.seedDefaultObservationsIfNeeded();
-              snapshot = await getDocs(q);
+          snapshot = await getDocs(build(true));
+      } catch (error: any) {
+          // Index still building: fall back to an unfiltered query (works only under legacy rules)
+          if (error?.code === 'failed-precondition') {
+              snapshot = await getDocs(build(false));
+          } else {
+              handleFirestoreError(error, OperationType.GET, "feed_thumbnails");
+              throw error;
           }
-
-          let posts: CommunityPost[] = [];
-          snapshot.forEach((doc) => {
-              const data = doc.data() as any;
-              if (data.isPublic !== false) {
-                  posts.push({ 
-                    id: doc.id, 
-                    ...data,
-                    labels: data.labels || (data.label ? [data.label] : ["Nature"])
-                  } as CommunityPost);
-              }
-          });
-
-          return { posts, lastVisible: snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null };
-      } catch (error) {
-          handleFirestoreError(error, OperationType.GET, "feed_thumbnails");
-          throw error;
       }
+      const posts: CommunityPost[] = [];
+      snapshot.forEach((d) => {
+          const data = d.data() as any;
+          if (data.isPublic === true) {
+              posts.push({ id: d.id, ...data, labels: data.labels || (data.label ? [data.label] : ["Nature"]) } as CommunityPost);
+          }
+      });
+      return { posts, lastVisible: snapshot.docs.length === PAGE_SIZE ? snapshot.docs[snapshot.docs.length - 1] : null };
   },
 
-  subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void) => {
-    const q = query(
-        collection(db, "ecosystem_feed"), 
-        where("userId", "==", userId)
-    );
-    return onSnapshot(q, (snapshot) => {
+  subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void, opts: { publicOnly?: boolean } = {}) => {
+    const publicOnly = opts.publicOnly ?? (auth.currentUser?.uid !== userId);
+    const getT = (d: any) => {
+      const ts = d.createdAt || d.timestamp;
+      if (!ts) return 0;
+      if (ts.toMillis) return ts.toMillis();
+      if (ts.seconds) return ts.seconds * 1000;
+      if (typeof ts === 'number') return ts;
+      return new Date(ts).getTime();
+    };
+    const emit = (snapshot: any) => {
       const posts: CommunityPost[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.isJournal !== false) {
-          posts.push({ 
-            id: doc.id, 
-            ...data,
-            labels: data.labels || (data.label ? [data.label] : ["Nature"])
-          } as CommunityPost);
+      snapshot.forEach((d: any) => {
+        const data = d.data();
+        if (publicOnly ? data.isPublic === true : data.isJournal !== false) {
+          posts.push({ id: d.id, ...data, labels: data.labels || (data.label ? [data.label] : ["Nature"]) } as CommunityPost);
         }
       });
-
-      // Sort in memory by timestamp/createdAt descending
-      const getT = (docData: any) => {
-          const ts = docData.createdAt || docData.timestamp;
-          if (!ts) return 0;
-          if (ts.toMillis) return ts.toMillis();
-          if (ts.seconds) return ts.seconds * 1000;
-          if (typeof ts === 'number') return ts;
-          return new Date(ts).getTime();
-      };
-
-      posts.sort((a: any, b: any) => {
-        return getT(b) - getT(a);
-      });
-
+      posts.sort((a: any, b: any) => getT(b) - getT(a));
       callback(posts);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, "ecosystem_feed");
+    };
+    // Owner view: no orderBy so legacy docs without a timestamp are never hidden
+    const primary = publicOnly
+      ? query(collection(db, "ecosystem_feed"), where("userId", "==", userId), where("isPublic", "==", true), orderBy("timestamp", "desc"), limit(120))
+      : query(collection(db, "ecosystem_feed"), where("userId", "==", userId), limit(500));
+    const fallback = query(collection(db, "ecosystem_feed"), where("userId", "==", userId), where("isPublic", "==", true), limit(120));
+    let unsub = onSnapshot(primary, emit, (error: any) => {
+      if (publicOnly && error?.code === 'failed-precondition') {
+        unsub = onSnapshot(fallback, emit, (e2) => handleFirestoreError(e2, OperationType.GET, "ecosystem_feed"));
+      } else {
+        handleFirestoreError(error, OperationType.GET, "ecosystem_feed");
+      }
     });
+    return () => unsub();
   },
 
   deletePost: async (postId: string) => {
@@ -896,7 +741,7 @@ export const FirebaseService = {
         });
     } catch(e) {}
     
-    if (!isLiked) {
+    if (!isLiked) try {
       const postSnap = await getDoc(postRef);
       if (postSnap.exists()) {
         const postData = postSnap.data();
@@ -911,38 +756,68 @@ export const FirebaseService = {
           });
         }
       }
+    } catch (notifErr) {
+      console.warn("Like notification skipped:", notifErr);
     }
   },
 
   addComment: async (postId: string, userId: string, text: string) => {
     const userProfile = await FirebaseService.getUserProfile(userId);
     const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${userId.slice(0, 4)}`;
+    const clean = text.trim().slice(0, 1000);
+    if (!clean) throw new Error("Comment is empty.");
     const commentsRef = collection(db, "ecosystem_feed", postId, "comments");
-    await addDoc(commentsRef, {
-        userId,
-        userName,
-        text,
-        timestamp: serverTimestamp()
-    });
+    const commentData: any = { userId, userName, text: clean, timestamp: serverTimestamp() };
+    if (userProfile?.avatarUrl) commentData.avatarUrl = userProfile.avatarUrl;
+    await addDoc(commentsRef, commentData);
     await updateDoc(doc(db, "ecosystem_feed", postId), { commentCount: increment(1) });
     try {
         await updateDoc(doc(db, "feed_thumbnails", postId), { commentCount: increment(1) });
     } catch(e) {}
 
-    const postRef = doc(db, "ecosystem_feed", postId);
-    const postSnap = await getDoc(postRef);
-    if (postSnap.exists()) {
-      const postData = postSnap.data();
-      if (postData.userId !== userId) {
-        await FirebaseService.addNotification(postData.userId, {
-          type: 'comment',
-          message: `${userName} left a field note on your sighting.`,
-          postId,
-          senderId: userId,
-          senderName: userName
-        });
+    try {
+      const postSnap = await getDoc(doc(db, "ecosystem_feed", postId));
+      if (postSnap.exists()) {
+        const postData = postSnap.data();
+        if (postData.userId !== userId) {
+          await FirebaseService.addNotification(postData.userId, {
+            type: 'comment',
+            message: `${userName} commented: "${clean.slice(0, 80)}${clean.length > 80 ? '…' : ''}"`,
+            postId,
+            senderId: userId,
+            senderName: userName
+          });
+        }
       }
+    } catch (notifErr) {
+      console.warn("Comment notification skipped:", notifErr);
     }
+  },
+
+  deleteComment: async (postId: string, commentId: string) => {
+    await deleteDoc(doc(db, "ecosystem_feed", postId, "comments", commentId));
+    try {
+      await updateDoc(doc(db, "ecosystem_feed", postId), { commentCount: increment(-1) });
+      await updateDoc(doc(db, "feed_thumbnails", postId), { commentCount: increment(-1) });
+    } catch (e) { /* counter best-effort */ }
+  },
+
+  /** One report per user per post; the post is flagged for moderator review. */
+  reportPost: async (postId: string, reason: string, details = "") => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || auth.currentUser?.isAnonymous) throw new Error("Please sign in to report.");
+    const batch = writeBatch(db);
+    batch.set(doc(db, "ecosystem_feed", postId, "reports", uid), {
+      reason: reason.slice(0, 40),
+      details: details.slice(0, 500),
+      createdAt: serverTimestamp(),
+    });
+    batch.update(doc(db, "ecosystem_feed", postId), {
+      reports: arrayUnion(uid),
+      reportStatus: 'pending',
+      reportCount: increment(1),
+    });
+    await batch.commit();
   },
 
   subscribeToComments: (postId: string, callback: (comments: Comment[]) => void) => {
@@ -958,11 +833,16 @@ export const FirebaseService = {
 
   addNotification: async (recipientId: string, data: Partial<FieldNotification>) => {
     const notifsRef = collection(db, "users", recipientId, "notifications");
-    await addDoc(notifsRef, {
-      ...data,
+    const payload: any = {
+      type: data.type,
+      message: (data.message || '').slice(0, 300),
+      senderId: data.senderId,
+      senderName: (data.senderName || 'Explorer').slice(0, 60),
       timestamp: serverTimestamp(),
       isRead: false
-    });
+    };
+    if (data.postId) payload.postId = data.postId;
+    await addDoc(notifsRef, payload);
   },
 
   subscribeToNotifications: (userId: string, callback: (notifs: FieldNotification[]) => void) => {
@@ -981,6 +861,63 @@ export const FirebaseService = {
 
   markNotificationRead: async (userId: string, notifId: string) => {
     await updateDoc(doc(db, "users", userId, "notifications", notifId), { isRead: true });
+  },
+
+  /** Admin = custom claim `admin`, or the owner email once verified (matches security rules). */
+  getAdminStatus: async (): Promise<{ isAdmin: boolean; needsVerification: boolean }> => {
+    const u = auth.currentUser;
+    if (!u || u.isAnonymous) return { isAdmin: false, needsVerification: false };
+    try {
+      const tok = await u.getIdTokenResult();
+      if (tok.claims.admin === true) return { isAdmin: true, needsVerification: false };
+    } catch { /* ignore */ }
+    if (u.email === ADMIN_EMAIL) return { isAdmin: u.emailVerified, needsVerification: !u.emailVerified };
+    return { isAdmin: false, needsVerification: false };
+  },
+
+  sendVerificationEmail: async () => {
+    if (auth.currentUser) await sendEmailVerification(auth.currentUser);
+  },
+
+  /** Report reasons are stored privately per reporter (admin-readable only). */
+  getReportReasons: async (postId: string): Promise<{ reason: string; details?: string; createdAt?: any }[]> => {
+    try {
+      const snap = await getDocs(collection(db, "ecosystem_feed", postId, "reports"));
+      return snap.docs.map(d => d.data() as any);
+    } catch { return []; }
+  },
+
+  /**
+   * One-time privacy migration (admin): moves precise GPS from public post documents
+   * into the owner's private area. Nothing is deleted; coordinates are preserved privately.
+   */
+  migratePublicLocationsToPrivate: async (onProgress?: (done: number, total: number) => void): Promise<number> => {
+    const snap = await getDocs(collection(db, "ecosystem_feed"));
+    const targets = snap.docs.filter(d => {
+      const data: any = d.data();
+      return data.rawLocation || (Array.isArray(data.items) && data.items.some((i: any) => i && i.rawLocation));
+    });
+    let done = 0;
+    for (const d of targets) {
+      const data: any = d.data();
+      const coords = Array.isArray(data.items) && data.items.length
+        ? data.items.map((i: any) => i?.rawLocation || null)
+        : [data.rawLocation || null];
+      if (!coords[0] && data.rawLocation) coords[0] = data.rawLocation;
+      if (data.userId) {
+        await setDoc(doc(db, "users", data.userId, "private", `obs_${d.id}`), {
+          postId: d.id, rawLocations: coords, migratedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      const updates: any = { rawLocation: deleteField() };
+      if (Array.isArray(data.items)) {
+        updates.items = data.items.map((i: any) => { if (!i) return i; const { rawLocation, ...rest } = i; return rest; });
+      }
+      await updateDoc(doc(db, "ecosystem_feed", d.id), updates);
+      done++;
+      onProgress?.(done, targets.length);
+    }
+    return done;
   },
 
   getReportedPosts: async (): Promise<CommunityPost[]> => {
@@ -1066,52 +1003,6 @@ export const FirebaseService = {
     
     if (errors.length > 0) {
       console.warn(`Theme seeding finished with partial failures: ${errors.length} errors`);
-    }
-  },
-
-  runThumbnailMigration: async () => {
-    if (!auth.currentUser) return 0;
-    try {
-        const q = query(collection(db, "ecosystem_feed"), where("isPublic", "==", true));
-        const feedSnap = await getDocs(q);
-        let count = 0;
-        for (const docSnap of feedSnap.docs) {
-            const data = docSnap.data();
-            if (data.isPublic) {
-                const id = docSnap.id;
-                const thumbRef = doc(db, "feed_thumbnails", id);
-                const thumbSnap = await getDoc(thumbRef);
-                
-                if (!thumbSnap.exists()) {
-                    const thumbData = {
-                        id,
-                        mediaType: data.mediaType || data.type || 'image',
-                        thumbnailUrl: data.thumbnailUrl || data.imageUrl || "",
-                        title: data.title || null,
-                        description: data.description || null,
-                        timestamp: data.timestamp || null,
-                        userId: data.userId || null,
-                        userName: data.userName || null,
-                        likes: data.likes || [],
-                        commentCount: data.commentCount || 0,
-                        isPublic: true,
-                        tags: data.tags || [],
-                        labels: data.labels || [],
-                        behavior: data.behavior || null,
-                        aiInsight: data.aiInsight || null,
-                        locationArea: data.locationArea || null,
-                        isHybrid: data.isHybrid || false
-                    };
-                    
-                    await setDoc(thumbRef, thumbData);
-                    count++;
-                }
-            }
-        }
-        return count;
-    } catch (e) {
-        console.warn("Migration failed:", e);
-        throw e;
     }
   },
 
@@ -1321,6 +1212,18 @@ export const FirebaseService = {
   },
   updatePost: async (postId: string, updates: Partial<CommunityPost>) => {
       await updateDoc(doc(db, "ecosystem_feed", postId), updates);
+      if (updates.isPublic === false) {
+          try { await deleteDoc(doc(db, "feed_thumbnails", postId)); } catch (e) { /* may not exist */ }
+          return;
+      }
+      if (updates.isPublic === true) {
+          const fresh = await getDoc(doc(db, "ecosystem_feed", postId));
+          const thumb = await getDoc(doc(db, "feed_thumbnails", postId)).catch(() => null);
+          if (fresh.exists() && !(thumb && thumb.exists())) {
+              await FirebaseService.upsertThumbnail(postId, fresh.data());
+              return;
+          }
+      }
       try {
           const thumbUpdates = { ...updates };
           delete thumbUpdates.items;
@@ -1333,6 +1236,7 @@ export const FirebaseService = {
           delete thumbUpdates.reportStatus;
           delete thumbUpdates.showLocation;
           delete thumbUpdates.isJournal;
+          delete (thumbUpdates as any).rawLocation;
           if (Object.keys(thumbUpdates).length > 0) {
               await updateDoc(doc(db, "feed_thumbnails", postId), thumbUpdates);
           }

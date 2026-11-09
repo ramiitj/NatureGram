@@ -1,4 +1,5 @@
 
+import { getShareUrl } from '../utils';
 import React, { useState } from 'react';
 import { CommunityPost } from '../types';
 import { motion } from 'motion/react';
@@ -15,11 +16,7 @@ const ShareStudio: React.FC<ShareStudioProps> = ({ post, onClose }) => {
   const handleShare = async () => {
     setIsSharing(true);
     try {
-      let origin = window.location.origin;
-      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-        origin = 'https://ais-pre-jzuicxor5ykd57l4xuevq4-414779155775.asia-east1.run.app';
-      }
-      const shareUrl = post.sourceUrl || `${origin}/s/${post.id}`;
+      const shareUrl = post.sourceUrl || getShareUrl(post.id);
       const title = post.title || 'Discovery';
       
       let text = post.description || '';
