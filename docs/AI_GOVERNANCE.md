@@ -24,7 +24,7 @@ NatureGram's purpose is to help people **notice, understand and care for** the l
 2. **Humans decide.** AI proposes and explorers publish. The community can confirm or challenge any ID.
 3. **Safety first.** Never advise on edibility or handling. Warn about dangerous organisms. Protect sensitive species.
 4. **Privacy.** The AI never infers or states locations. Only coarse location reaches models. People in frame are not described.
-5. **Transparency.** Every AI output in the product is labelled as an AI suggestion, with confidence and an explanation.
+5. **Transparency.** Every AI output in the product is labelled as the guide's (the AI naturalist's) suggestion, with confidence and an explanation, in the product's own voice rather than a warning sticker.
 6. **Integrity of the record.** No AI-generated imagery in observations. AI text is editable and attributable (model and prompt version stored).
 7. **Accountability.** Every model or prompt change is versioned, auditable and reversible.
 
@@ -60,7 +60,7 @@ NatureGram's purpose is to help people **notice, understand and care for** the l
 ### Product safeguards
 | Situation | Behaviour |
 |---|---|
-| Any AI identification | "AI suggestion" badge with confidence and an explanation ("Why the AI thinks so": field marks). |
+| Any AI identification | "Your guide's suggestion" line (the guide is introduced as NatureGram's AI naturalist on tap), confidence carried in the name ("Likely …", "Possibly …") and in words, plus an explanation. Fungi and other safety warnings stay explicit. |
 | Fungi | A do-not-eat warning on review and on the post. |
 | Dangerous organism | The safety note is shown. |
 | Sensitive or threatened species | **Location is hidden automatically** on the post, and the explorer is told why. Exact GPS is never public in any case. |

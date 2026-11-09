@@ -1,6 +1,7 @@
 
 import { getShareUrl } from '../utils';
 import AiBadge, { FungiWarning, isFungiPost } from './AiBadge';
+import { WonderBurst } from './Wonder';
 import { track } from '../services/analytics';
 import React, { useState, useEffect, useRef } from 'react';
 import { Snapshot, UserMode } from '../types.ts';
@@ -27,6 +28,15 @@ interface PostSessionViewProps {
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
 }
 
+const ordinal = (n: number) => { const v = n % 100; const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'; return `${n}${suf}`; };
+/** A line that marks how far the explorer has come, with the round numbers called out. */
+const lifeListMilestone = (total: number, added: number) => {
+  if (total === 1) return 'Your first species. Every naturalist\'s list starts with one.';
+  const crossed = [5, 10, 25, 50, 100, 250, 500, 1000].find(m => total >= m && total - added < m);
+  if (crossed) return total === crossed ? `Your ${ordinal(total)} species. A milestone worth a pause.` : `That makes ${total} species on your life list. You've passed ${crossed}.`;
+  return `That makes ${total} species on your life list.`;
+};
+
 const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onCaptureMore, onPublished, onRequireAccount, onUpdateSnapshots, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(initialSnapshots);
   // Every capture is selected by default; explorers deselect what they don't want to share
@@ -35,6 +45,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [newSpecies, setNewSpecies] = useState<string[]>([]);
+  const [lifeListTotal, setLifeListTotal] = useState(0);
   const [publishedThumb, setPublishedThumb] = useState<string | null>(null);
   const tagsTouchedRef = useRef(false);
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
@@ -319,6 +330,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         FirebaseService.logAiFeedback(selectedSnapshots, lastCreatedId).catch(() => {});
         const fresh = Array.from(new Set(selectedSnapshots.map(s => (s.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l) && !before.has(l.toLowerCase()))));
         setNewSpecies(fresh);
+        setLifeListTotal(before.size + fresh.length);
         const first = selectedSnapshots[0];
         setPublishedThumb(first ? (objectUrls[first.id]?.image || first.url || null) : null);
         setIsDone(true);
@@ -356,24 +368,26 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    <div className="relative mb-6">
                        <img src={publishedThumb} alt="" className="w-40 h-40 rounded-[2rem] object-cover shadow-2xl rotate-[-3deg]" />
                        <span className="absolute -bottom-3 -right-3 w-12 h-12 rounded-full bg-theme-accent text-white flex items-center justify-center shadow-lg" aria-hidden="true"><span className="material-symbols-outlined">check</span></span>
+                       {newSpecies.length > 0 && <span className="absolute -inset-16"><WonderBurst count={24} /></span>}
                    </div>
                )}
                <h2 className="text-3xl font-display italic text-theme-primary mb-2 font-bold tracking-tight">{postToFeed ? 'Shared with the field' : 'Saved to your journal'}</h2>
-               <p className="text-stone-600 mb-6 text-base max-w-xs">{postToFeed ? 'Explorers can now see, like and learn from your sighting.' : 'Only you can see it. You can share it to the feed any time.'}</p>
+               <p className="text-stone-600 mb-6 text-base max-w-xs">{postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.'}</p>
                {newSpecies.length > 0 && (
                    <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
-                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-theme-accent mb-1">New to your life list</p>
+                       <p className="text-sm font-display italic text-theme-accent mb-1">First time you've recorded</p>
                        <p className="text-lg font-display font-bold text-stone-900">{newSpecies.join(', ')}</p>
+                       {lifeListTotal > 0 && <p className="text-sm text-stone-700 mt-2">{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                    </div>
                )}
                <div className="w-full max-w-xs flex flex-col gap-3">
                    {createdPostId && postToFeed && (
                        <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
-                           <span className="material-symbols-outlined" aria-hidden="true">ios_share</span>{copied ? 'Link copied!' : 'Share'}
+                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : 'Share'}
                        </button>
                    )}
-                   <button onClick={onViewFeed} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base">Go to feed</button>
-                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full bg-stone-100 text-stone-900 px-6 py-4 rounded-2xl font-bold text-base">Capture more</button>}
+                   <button onClick={onViewFeed} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
+                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><span className="material-symbols-outlined" aria-hidden="true">camera</span>Keep looking</button>}
                </div>
           </div>
       );
@@ -574,7 +588,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   {snapshots.length > 0 && (
                       <div className="space-y-8">
                           <section>
-                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Caption</label>
+                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Your field notes</label>
                               <textarea
                                   id="post-caption"
                                   value={caption}
@@ -616,7 +630,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               )}
                               {!!currentSnapshot?.aiIdentifications?.length && (
                                   <details className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
-                                      <summary className="cursor-pointer font-semibold text-stone-800">Why the AI thinks so</summary>
+                                      <summary className="cursor-pointer font-semibold text-stone-800">Why your guide thinks so</summary>
                                       <ul className="mt-2 space-y-2">
                                           {currentSnapshot.aiIdentifications.map((id, i) => (
                                               <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
@@ -699,8 +713,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see this?</legend>
                               <div className="grid grid-cols-2 gap-3">
                                   {([
-                                      { v: true, icon: 'public', title: 'Feed & journal', desc: 'Everyone on NatureGram' },
-                                      { v: false, icon: 'lock', title: 'Journal only', desc: 'Only you' },
+                                      { v: true, icon: 'public', title: 'Share with the wild', desc: 'Everyone on NatureGram, and your journal' },
+                                      { v: false, icon: 'fingerprint', title: 'Journal only', desc: 'Just for you' },
                                   ]).map(opt => (
                                       <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
@@ -736,7 +750,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       </>
                   ) : (
                       <>
-                          <span className="material-symbols-outlined" aria-hidden="true">{postToFeed ? 'send' : 'menu_book'}</span>
+                          <span className="material-symbols-outlined" aria-hidden="true">{postToFeed ? 'public' : 'fingerprint'}</span>
                           <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? `Share ${selectedIndices.size > 1 ? `${selectedIndices.size} sightings` : 'sighting'}` : 'Save to journal'}</span>
                       </>
                   ))}

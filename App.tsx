@@ -14,6 +14,7 @@ import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
+import { weekKey, seasonNote } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 
@@ -71,6 +72,7 @@ const getInitialView = () => {
 };
 
 const MODE_PREF_KEY = 'naturegram_lens_mode';
+const FIRST_LOOK_KEY = 'naturegram_first_look';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
@@ -139,6 +141,18 @@ const App: React.FC = () => {
   const [isDetailActive, setIsDetailActive] = useState(false);
 
   const [isFirstTime, setIsFirstTime] = useState(false);
+  const [skipTourOnce, setSkipTourOnce] = useState(false);
+  // Weekly field letter: shown at the top of Activity, marked new once a week
+  const thisWeek = weekKey();
+  const [letterSeenWeek, setLetterSeenWeek] = useState<string>(() => { try { return localStorage.getItem('naturegram_letter_week') || ''; } catch { return ''; } });
+  const [myWeek, setMyWeek] = useState<{ sightings: number; species: string[] } | null>(null);
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    setLetterSeenWeek(thisWeek);
+    try { localStorage.setItem('naturegram_letter_week', thisWeek); } catch { /* storage blocked */ }
+    if (!userMode?.isAnonymous) FirebaseService.getMyWeek().then(setMyWeek).catch(() => setMyWeek({ sightings: 0, species: [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNotificationsOpen]);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [activeDraftsCount, setActiveDraftsCount] = useState(0);
@@ -348,6 +362,7 @@ const App: React.FC = () => {
   };
 
   const openLens = async () => {
+    setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
     await initAudioContext();
     const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
     if (saved) {
@@ -382,15 +397,12 @@ const App: React.FC = () => {
   const handleNavigationRequest = async (targetView: AppView, params?: any) => {
     if (userMode?.isAnonymous) {
       if (targetView === AppView.MESSAGES) {
-        requireAccount('Create a free account to message other explorers.', () => handleNavigationRequest(targetView, params));
+        requireAccount('Create a free account to write letters to other explorers.', () => handleNavigationRequest(targetView, params));
         return;
       }
-      if (targetView === AppView.JOURNAL || targetView === AppView.DRAFTS) {
-        requireAccount('Your journal keeps every sighting you make. Create a free account to start one.', () => handleNavigationRequest(targetView, params));
-        return;
-      }
-      if (targetView === AppView.USER_PROFILE && (!params || !params.userId || params.userId === userMode.userId)) {
-        requireAccount('Create a free account to get your own explorer profile.', () => handleNavigationRequest(targetView, params));
+      // Guests can look at their (empty) journal and profile first; we ask for an account when they save something
+      if (targetView === AppView.DRAFTS) {
+        requireAccount('Drafts are kept with your account. Create a free account to keep them.', () => handleNavigationRequest(targetView, params));
         return;
       }
     }
@@ -473,6 +485,18 @@ const App: React.FC = () => {
         setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
       }
     }
+    // The very first time, Explore Wild opens the Lens with the guide talking: wonder first, setup later.
+    // The mode choice and the tour wait for a later visit.
+    let firstLook = false;
+    try { firstLook = !localStorage.getItem(FIRST_LOOK_KEY); } catch { /* storage blocked */ }
+    if (firstLook && allowSession('conversation')) {
+      try { localStorage.setItem(FIRST_LOOK_KEY, '1'); } catch { /* storage blocked */ }
+      track('lens_open', { mode: 'conversation', first_look: true });
+      setSkipTourOnce(true);
+      setSelectedMode('conversation');
+      setCurrentView(AppView.LENS);
+      return;
+    }
     setCurrentView(AppView.COMMUNITY);
   };
 
@@ -487,18 +511,19 @@ const App: React.FC = () => {
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
   const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
-  const openActivity = () => userMode?.isAnonymous ? requireAccount('Create a free account to see who liked and commented on your sightings.') : setIsNotificationsOpen(true);
+  const openActivity = () => setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
+  const letterUnread = letterSeenWeek !== thisWeek;
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
   const navItems: { key: string; label: string; icon: string; active: boolean; onClick: () => void; badge?: number }[] = [
-    { key: 'feed', label: 'Feed', icon: 'home', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
-    { key: 'reels', label: 'Reels', icon: 'movie', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
-    { key: 'capture', label: 'Capture', icon: 'add', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
-    { key: 'journal', label: 'Journal', icon: 'menu_book', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
-    { key: 'profile', label: 'Profile', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
+    { key: 'feed', label: 'Wild', icon: 'forest', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
+    { key: 'reels', label: 'Moments', icon: 'wb_twilight', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
+    { key: 'capture', label: 'Lens', icon: 'camera', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
+    { key: 'journal', label: 'Journal', icon: 'fingerprint', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'profile', label: 'You', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
   ];
 
   return (
@@ -524,16 +549,31 @@ const App: React.FC = () => {
               </div>
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
+              <article aria-labelledby="field-letter-title" className="p-5 rounded-2xl bg-insight-bg border border-theme-accent/25">
+                <p className="text-xs text-stone-500">Week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
+                <h3 id="field-letter-title" className="font-display italic text-xl font-bold text-theme-primary mt-0.5">Your field letter</h3>
+                <p className="text-[15px] font-display text-stone-800 mt-3 leading-relaxed">{seasonNote()}</p>
+                <p className="text-sm text-stone-700 mt-3 leading-relaxed">
+                  {userMode?.isAnonymous
+                    ? 'With an account, your week outside is counted here.'
+                    : !myWeek ? 'Counting your week…'
+                    : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
+                    : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
+                </p>
+                {dailyTheme?.naturalist && extra?.challenge && (
+                  <p className="text-sm text-stone-700 mt-2 leading-relaxed"><span className="font-display italic font-semibold text-theme-primary">{dailyTheme.naturalist}'s challenge:</span> {extra.challenge}</p>
+                )}
+              </article>
               {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-60 text-center px-8 text-stone-500">
-                  <span className="material-symbols-outlined text-4xl mb-3" aria-hidden="true">notifications</span>
-                  <p className="font-semibold text-stone-700">No activity yet</p>
-                  <p className="text-sm mt-1">When explorers like, comment on or follow your sightings, you'll see it here.</p>
+                <div className="flex flex-col items-center justify-center py-10 text-center px-8 text-stone-500">
+                  <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
+                  <p className="font-display italic text-lg text-stone-800">Quiet in the woods</p>
+                  <p className="text-sm mt-1">When explorers marvel at your sightings, add field notes or follow your journal, it shows up here.</p>
                 </div>
               ) : notifications.map(alert => (
                 <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
                   <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
-                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'chat_bubble' : alert.type === 'follow' ? 'person_add' : alert.type === 'mention' ? 'alternate_email' : 'favorite'}</span>
+                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'history_edu' : alert.type === 'follow' ? 'nature_people' : alert.type === 'mention' ? 'alternate_email' : alert.type === 'message' ? 'mail' : alert.type === 'identification' ? 'how_to_reg' : alert.type === 'sighting' ? 'park' : 'flare'}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-text-main leading-snug"><span className="font-bold">{alert.senderName || 'NatureGram'}</span> {alert.message?.replace(alert.senderName || '', '').trim()}</p>
@@ -550,54 +590,40 @@ const App: React.FC = () => {
       <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24' : ''}`}>
         {currentView === AppView.LANDING && (
           <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
-            <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
+            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
             <div className="absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply" aria-hidden="true"></div>
             <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent" aria-hidden="true"></div>
 
-            <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up min-h-full justify-between py-10 gap-8 safe-pt">
-              <div className="text-center">
+            <div className="max-w-xl w-full flex flex-col items-center relative z-10 min-h-full justify-between py-12 safe-pt">
+              <div className="text-center pb-[50px]">
                 <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float" aria-hidden="true">
                   <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
                 </div>
                 <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
-                <p className="text-white/90 font-bold uppercase tracking-[0.3em] text-xs mt-2 drop-shadow-md">The Living Field Guide</p>
-                <p className="text-white/85 text-base mt-4 max-w-xs mx-auto leading-relaxed">Point your camera at nature. A live naturalist tells you what you're seeing and why.</p>
+                <p className="text-white/90 font-bold uppercase tracking-[0.4em] text-[11px] mt-2 drop-shadow-md">The Living Field Guide</p>
               </div>
 
-              <div className="w-full max-w-xs px-2 flex flex-col items-center gap-4">
-                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-7 rounded-[2.5rem] flex flex-col items-center gap-4 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
+              <div className="w-full max-w-xs px-6">
+                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
                   <span className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow" aria-hidden="true">
                     <span className="material-symbols-outlined text-3xl">explore</span>
                   </span>
                   <span>
                     <span className="block font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</span>
-                    <span className="block text-white/80 text-xs mt-2 tracking-[0.25em] uppercase font-bold">Enter the field guide</span>
+                    <span className="block text-white/75 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</span>
                   </span>
-                </button>
-                <button onClick={() => setAuthModal({ signUp: false })} className="text-white/90 text-sm font-semibold underline underline-offset-4 decoration-white/40 hover:decoration-white py-2">
-                  Already an explorer? Log in
                 </button>
               </div>
 
-              {/* Naturalist of the fortnight: the app's guiding philosophy, refreshed every ~15 days */}
-              <figure className="text-center px-4 max-w-md mx-auto">
-                <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white/80 bg-white/10 border border-white/15 rounded-full px-3 py-1.5 mb-5">
-                  <span className="material-symbols-outlined text-sm" aria-hidden="true">auto_stories</span>
-                  Naturalist of the fortnight · {period.daysRemaining} {period.daysRemaining === 1 ? 'day' : 'days'} left
-                </p>
-                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md">"{dailyTheme.quote}"</blockquote>
-                <figcaption className="mt-5 flex flex-col items-center gap-1">
-                  <p className="text-white font-bold tracking-widest uppercase text-sm">{dailyTheme.naturalist}{extra.lifespan && <span className="font-normal text-white/70 normal-case tracking-normal"> · {extra.lifespan}</span>}</p>
-                  <p className="text-white/80 text-sm leading-relaxed mt-1 max-w-sm">{extra.bio}</p>
-                  <div className="flex items-center gap-1 text-white/70 mt-2">
-                    <span className="material-symbols-outlined text-sm" aria-hidden="true">location_on</span>
-                    <p className="text-xs tracking-wider uppercase">{dailyTheme.locationName}</p>
-                  </div>
-                  <div className="mt-4 w-full rounded-2xl bg-white/10 border border-white/15 p-4 text-left backdrop-blur">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70 mb-1">This fortnight's field challenge</p>
-                    <p className="text-white text-sm leading-relaxed">{extra.challenge}</p>
-                    <p className="text-white/70 text-xs mt-2">Tag {extra.challengeTag} · Next: {period.next.naturalist}</p>
-                  </div>
+              <figure className="text-center px-6 max-w-md mx-auto">
+                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</blockquote>
+                <figcaption className="mt-6 flex flex-col items-center gap-1">
+                  <span className="text-white font-bold tracking-widest uppercase text-[11px]">{dailyTheme.naturalist}</span>
+                  <span className="flex items-center gap-1 text-white/70 mt-1">
+                    <span className="material-symbols-outlined text-[13px]" aria-hidden="true">location_on</span>
+                    <span className="text-[11px] tracking-wider uppercase">{dailyTheme.locationName}</span>
+                  </span>
+                  {dailyTheme.locationCaption && <span className="text-white/60 text-[11px] italic mt-1">{dailyTheme.locationCaption}</span>}
                 </figcaption>
               </figure>
             </div>
@@ -621,7 +647,7 @@ const App: React.FC = () => {
                   config={config}
                   userMode={userMode}
                   audioContext={audioContext}
-                  isFirstTime={isFirstTime}
+                  isFirstTime={isFirstTime && !skipTourOnce}
                   isFinalizing={isFinalizing}
                   geminiServiceRef={geminiServiceRef}
                   updateSnapshot={updateSnapshot}
@@ -716,7 +742,7 @@ const App: React.FC = () => {
                   selectedPostId={selectedPostId}
                   onPostClose={handlePostClose}
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
-                  backLabel={returnView === AppView.JOURNAL ? "Journal" : "Feed"}
+                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : "Wild"}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
@@ -725,7 +751,7 @@ const App: React.FC = () => {
                   dailyTheme={dailyTheme}
                   onOpenActivity={openActivity}
                   onOpenMessages={() => openMessages()}
-                  unreadActivity={unreadCount}
+                  unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                   unreadMessages={unreadMessages}
                 />
               )}
@@ -765,7 +791,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
                   onMessage={async (uid: string) => {
-                    if (userMode?.isAnonymous) { requireAccount('Create a free account to message explorers.'); return; }
+                    if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
                     try { const cid = await FirebaseService.openConversation(uid); openMessages(cid); } catch { /* shown in profile */ }
                   }}
                 />
@@ -846,11 +872,11 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/85 border-white/10' : 'bg-white/95 border-stone-100'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
-                <span className="material-symbols-outlined text-3xl" aria-hidden="true">add</span>
+              <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+                <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">camera</span>
               </button>
             ) : (
               <button
@@ -858,12 +884,13 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] h-14 rounded-xl transition-colors ${darkNav ? (item.active ? 'text-white' : 'text-white/70 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
+                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
               >
-                <span className="material-symbols-outlined text-[26px]" style={item.active ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{item.icon}</span>
-                <span className={`text-[11px] leading-none ${item.active ? 'font-bold' : 'font-medium'}`}>{item.label}</span>
+                <span className={`material-symbols-outlined text-[25px] transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} style={{ fontVariationSettings: item.active ? "'FILL' 1, 'wght' 400" : "'FILL' 0, 'wght' 300" }} aria-hidden="true">{item.icon}</span>
+                <span className={`text-[11px] leading-none ${item.active ? 'font-display italic font-semibold text-[12px]' : 'font-medium'}`}>{item.label}</span>
+                {item.active && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
                 {!!item.badge && (
-                  <span className="absolute top-1 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-theme-accent text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{item.badge > 9 ? '9+' : item.badge}</span>
+                  <span className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-white" aria-hidden="true" />
                 )}
               </button>
             ))}

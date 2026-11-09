@@ -59,6 +59,7 @@ export const ADMIN_EMAIL = "ram@iitj.ac.in";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
+import { looksLikeSpam } from '../utils';
 
 export enum OperationType {
   CREATE = 'create',
@@ -695,9 +696,11 @@ export const FirebaseService = {
       }).catch(() => {});
 
       try {
+        // Species = distinct primary labels across the explorer's sightings (the life list), not labels per post
+        const lifeList = await FirebaseService.getMySpeciesSet();
         await updateDoc(doc(db, "users", effectiveUserId), {
           "stats.observations": increment(items.length),
-          "stats.species": increment(allLabels.length)
+          "stats.species": lifeList.size
         });
       } catch (statsErr) {
         console.warn("Failed to update user stats:", statsErr);
@@ -758,6 +761,25 @@ export const FirebaseService = {
       agree: !!data.agree,
       createdAt: serverTimestamp(),
     });
+    // Close the loop for the explorer who posted it: their ID was confirmed or questioned.
+    // Best effort: needs the 'identification' notification type in firestore.rules.
+    try {
+      const postSnap = await getDoc(doc(db, 'ecosystem_feed', postId));
+      const post: any = postSnap.exists() ? postSnap.data() : null;
+      if (post && post.userId && post.userId !== me.uid) {
+        const who = (profile?.username || me.displayName || 'An explorer').slice(0, 60);
+        const posted = (post.labels?.[0] || 'sighting').slice(0, 80);
+        const said = data.name.trim().slice(0, 80);
+        const agrees = !!data.agree || said.toLowerCase() === posted.toLowerCase();
+        await FirebaseService.addNotification(post.userId, {
+          type: 'identification',
+          message: agrees ? `${who} confirmed your ${posted}.` : `${who} thinks your ${posted} may be ${said}. Take another look?`,
+          postId, senderId: me.uid, senderName: who,
+        });
+      }
+    } catch (notifErr) {
+      console.warn('Identification notification skipped:', notifErr);
+    }
   },
   removeIdentification: async (postId: string) => {
     const me = auth.currentUser?.uid;
@@ -803,6 +825,27 @@ export const FirebaseService = {
 
   createObservation: async (snapshot: Snapshot, userId: string, flags: { feed: boolean, journal: boolean }, synthesis: string, tags: string[], caption?: string) => {
       return FirebaseService.publishPost([snapshot], userId, flags, tags, { caption, behavior: synthesis });
+  },
+
+  /**
+   * Who has answered a field challenge: distinct explorers among recent public sightings carrying its tag,
+   * and whether the current explorer is one of them. Uses the existing tags + isPublic + timestamp index.
+   */
+  getChallengeProgress: async (tag: string): Promise<{ explorers: number; mine: boolean; capped: boolean }> => {
+      const t = tag.startsWith('#') ? tag : `#${tag}`;
+      const variants = Array.from(new Set([t, t.toLowerCase(), t.toUpperCase()])).slice(0, 10);
+      const snap = await getDocs(query(collection(db, "feed_thumbnails"), where("tags", "array-contains-any", variants), where("isPublic", "==", true), orderBy("timestamp", "desc"), limit(60)));
+      const uids = new Set(snap.docs.map(d => d.data().userId).filter(Boolean));
+      const me = auth.currentUser?.uid;
+      let mine = !!me && uids.has(me);
+      // The explorer's own journal-only answers count for them too
+      if (me && !mine && !auth.currentUser?.isAnonymous) {
+          try {
+              const own = await getDocs(query(collection(db, "feed_thumbnails"), where("userId", "==", me), orderBy("timestamp", "desc"), limit(60)));
+              mine = own.docs.some(d => (d.data().tags || []).some((x: string) => x.toLowerCase() === t.toLowerCase()));
+          } catch { /* best effort */ }
+      }
+      return { explorers: uids.size, mine, capped: snap.size >= 60 };
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null, pageSize: number = PAGE_SIZE): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
@@ -963,7 +1006,7 @@ export const FirebaseService = {
           const userProfile = await FirebaseService.getUserProfile(userId);
           await FirebaseService.addNotification(postData.userId, {
             type: 'like',
-            message: `${userProfile?.username || 'An explorer'} liked your sighting of ${postData.labels?.[0] || 'Nature'}.`,
+            message: `${userProfile?.username || 'An explorer'} marvelled at your ${postData.labels?.[0] || 'sighting'}.`,
             postId,
             senderId: userId,
             senderName: userProfile?.username || 'Explorer'
@@ -980,6 +1023,12 @@ export const FirebaseService = {
     const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${userId.slice(0, 4)}`;
     const clean = text.trim().slice(0, 1000);
     if (!clean) throw new Error("Comment is empty.");
+    if (looksLikeSpam(clean)) throw new Error("Field notes can't contain links or promotions.");
+    // The same note twice on one post is almost always spam or a double tap
+    try {
+      const mine = await getDocs(query(collection(db, "ecosystem_feed", postId, "comments"), where("userId", "==", userId), limit(20)));
+      if (mine.docs.some(d => String(d.data().text || '').trim().toLowerCase() === clean.toLowerCase())) throw new Error("You've already added this field note.");
+    } catch (dupErr: any) { if (String(dupErr?.message || '').startsWith("You've")) throw dupErr; }
     const commentsRef = collection(db, "ecosystem_feed", postId, "comments");
     const commentData: any = { userId, userName, text: clean, timestamp: serverTimestamp() };
     if (userProfile?.avatarUrl) commentData.avatarUrl = userProfile.avatarUrl;
@@ -996,7 +1045,7 @@ export const FirebaseService = {
         if (postData.userId !== userId) {
           await FirebaseService.addNotification(postData.userId, {
             type: 'comment',
-            message: `${userName} commented: "${clean.slice(0, 80)}${clean.length > 80 ? '…' : ''}"`,
+            message: `${userName} left a field note: "${clean.slice(0, 80)}${clean.length > 80 ? '…' : ''}"`,
             postId,
             senderId: userId,
             senderName: userName
@@ -1088,6 +1137,19 @@ export const FirebaseService = {
   },
 
   /** Distinct species already in the signed-in explorer's records (for "new to your life list"). */
+  /** The explorer's last seven days: sightings and distinct species (for the weekly field letter). */
+  getMyWeek: async (): Promise<{ sightings: number; species: string[] }> => {
+    const me = auth.currentUser?.uid;
+    if (!me || auth.currentUser?.isAnonymous) return { sightings: 0, species: [] };
+    const since = Date.now() - 7 * 864e5;
+    try {
+      const snap = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", me), orderBy("timestamp", "desc"), limit(50)));
+      const recent = snap.docs.map(d => d.data() as any).filter(p => (p.timestamp?.toMillis?.() ?? 0) >= since);
+      const species = Array.from(new Set(recent.map(p => String(p.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l))));
+      return { sightings: recent.length, species };
+    } catch { return { sightings: 0, species: [] }; }
+  },
+
   getMySpeciesSet: async (): Promise<Set<string>> => {
     const me = auth.currentUser?.uid;
     const out = new Set<string>();
@@ -1230,7 +1292,7 @@ export const FirebaseService = {
     if (other) {
       const profile = await FirebaseService.getUserProfile(me.uid).catch(() => null);
       const name = profile?.username || me.displayName || 'An explorer';
-      FirebaseService.addNotification(other, { type: 'message', message: `${name} sent you a message: "${(clean || 'a sighting').slice(0, 80)}"`, senderId: me.uid, senderName: name }).catch(() => {});
+      FirebaseService.addNotification(other, { type: 'message', message: `${name} sent you a letter: "${(clean || 'a sighting').slice(0, 80)}"`, senderId: me.uid, senderName: name }).catch(() => {});
     }
   },
 
@@ -1261,7 +1323,7 @@ export const FirebaseService = {
     try {
       const myProfile = await FirebaseService.getUserProfile(me.uid);
       const name = myProfile?.username || me.displayName || 'An explorer';
-      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} started following you.`, senderId: me.uid, senderName: name });
+      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} is following your journal.`, senderId: me.uid, senderName: name });
     } catch { /* notification is best-effort */ }
   },
 

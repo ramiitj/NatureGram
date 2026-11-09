@@ -164,7 +164,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         {error && <p role="alert" className="text-red-700 text-sm bg-red-50 p-3 rounded-xl">{error}</p>}
         {notice && <p role="status" className="text-emerald-800 text-sm bg-emerald-50 p-3 rounded-xl">{notice}</p>}
 
-        <button type="submit" disabled={loading} aria-busy={loading} className="w-full bg-stone-900 text-white font-bold text-base py-4 rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-60 active:scale-[0.98]">
+        <button type="submit" disabled={loading} aria-busy={loading} className="w-full bg-theme-primary text-white font-bold text-base py-4 rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-60 active:scale-[0.98]">
           {loading ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'login' ? 'Log in' : 'Send reset link'}
         </button>
       </form>

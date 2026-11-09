@@ -1,10 +1,10 @@
 
-import { openExternal, timeAgo, likeTotal } from '../utils';
+import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
-import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
+import AiBadge, { isFungiPost, FungiWarning, hedgedName } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
@@ -18,6 +18,7 @@ import MediaEditor from './MediaEditor';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
 import { AnimatePresence, motion } from 'motion/react';
+import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
 
 const FeedCard: React.FC<{
@@ -134,15 +135,60 @@ const FeedCard: React.FC<{
                 <h3 className="text-sm font-display font-bold italic text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
                     {label}
                 </h3>
-                <div className="flex items-center gap-1.5 mt-1 text-xs text-stone-600 min-w-0">
-                    <span className="truncate font-medium">{post.userName || 'Explorer'}</span>
-                    {post.locationArea && <><span aria-hidden="true">·</span><span className="truncate">{post.locationArea}</span></>}
-                    <span className="ml-auto flex items-center gap-0.5 shrink-0" aria-label={`${likeTotal(post)} likes`}>
-                        <span className="material-symbols-outlined text-sm text-theme-accent" aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
-                        <span className="font-semibold tabular">{likeTotal(post)}</span>
-                    </span>
+                {observedBehaviour(post.behavior) && (
+                    <p className="text-xs text-theme-primary/75 leading-snug mt-0.5 line-clamp-2">{observedBehaviour(post.behavior)}</p>
+                )}
+                <div className="flex items-center gap-1 mt-1 text-[11px] text-stone-500 min-w-0">
+                    {post.locationArea
+                        ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{post.locationArea}</span></>
+                        : <span className="truncate">{post.userName || 'Explorer'}</span>}
+                    {likeTotal(post) > 0 && (
+                        <span className="ml-auto flex items-center gap-0.5 shrink-0 text-theme-accent" aria-label={wonderLabel(likeTotal(post))}>
+                            <WonderIcon active className="text-[13px]" />
+                            <span className="font-semibold tabular">{likeTotal(post)}</span>
+                        </span>
+                    )}
                 </div>
             </div>
+        </div>
+    );
+};
+
+/** A sighting's video. Files that carry only sound (some recordings are saved as video) get a picture to listen by instead of a blank frame. */
+const SightingVideo: React.FC<{ src?: string; poster?: string | null; noDownload: boolean; label?: string | null }> = ({ src, poster, noDownload, label }) => {
+    const [soundOnly, setSoundOnly] = useState(false);
+    const [playing, setPlaying] = useState(false);
+    return (
+        <div className={soundOnly ? 'flex flex-col items-center justify-center w-full h-full gap-4 max-w-md mx-auto' : 'contents'}>
+            {soundOnly && <SoundScape label={label} playing={playing} className="flex-1 min-h-0" />}
+            <PlayableVideo
+                controlsList={noDownload ? 'nodownload' : undefined}
+                src={src}
+                poster={soundOnly ? undefined : (poster || undefined)}
+                controls
+                playsInline
+                preload='metadata'
+                onLoadedMetadata={(e) => { if (e.currentTarget.videoWidth === 0) setSoundOnly(true); }}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={() => setPlaying(false)}
+                className={soundOnly ? 'w-full h-12 shrink-0 rounded-full' : 'w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl'}
+            />
+        </div>
+    );
+};
+
+/** A sound sighting: its habitat photo if there is one, otherwise a picture to listen by. */
+const SightingSound: React.FC<{ src?: string; image?: string | null; noDownload: boolean; label?: string | null }> = ({ src, image, noDownload, label }) => {
+    const [playing, setPlaying] = useState(false);
+    return (
+        <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
+            {image ? (
+                <img src={image} alt={label ? `Where the ${label} was heard` : 'Where the sound was recorded'} className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl" />
+            ) : (
+                <SoundScape label={label} playing={playing} className="flex-1 min-h-0 max-w-md" />
+            )}
+            <PlayableAudio src={src} controls controlsList={noDownload ? 'nodownload' : undefined} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
         </div>
     );
 };
@@ -171,7 +217,7 @@ const Community: React.FC<CommunityProps> = ({
     selectedPostId, 
     onPostClose, 
     onPostOpen, 
-    backLabel = "Feed",
+    backLabel = "Wild",
     onViewProfile,
     isJournalOnly = false,
     activeDraftsCount = 0,
@@ -213,6 +259,15 @@ const Community: React.FC<CommunityProps> = ({
   };
   const themeExtra = getNaturalistExtra(dailyTheme?.id);
   const themePeriod = getThemePeriod();
+  // Re-read the hour each time the feed mounts; no need to tick live.
+  const moment = React.useMemo(() => fieldMoment(), []);
+  const [challenge, setChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
+  useEffect(() => {
+      if (isJournalOnly || !themeExtra.challengeTag) return;
+      let alive = true;
+      FirebaseService.getChallengeProgress(themeExtra.challengeTag).then(r => { if (alive) setChallenge(r); }).catch(() => {});
+      return () => { alive = false; };
+  }, [isJournalOnly, themeExtra.challengeTag, currentUserMode.userId]);
 
   useEffect(() => {
     if (isMember) FirebaseService.getBlockedIds().then(setBlockedIds);
@@ -553,7 +608,7 @@ const Community: React.FC<CommunityProps> = ({
   const [fetchedPostId, setFetchedPostId] = useState<string | null>(null);
   const unsubscribeCommentsRef = useRef<(() => void) | null>(null);
   const [lastTap, setLastTap] = useState<number>(0);
-  const [showHeartAnimation, setShowHeartAnimation] = useState(false);
+  const [wonderBurst, setWonderBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   
   // Advanced Species Intelligence
@@ -831,7 +886,7 @@ const Community: React.FC<CommunityProps> = ({
 
   const setLike = async (post: CommunityPost, like: boolean) => {
       if (!isMember) {
-          askAccount('Create a free account to like sightings and support other explorers.', () => setLike(post, like));
+          askAccount('Create a free account to marvel at sightings and cheer on other explorers.', () => setLike(post, like));
           return;
       }
       const uid = currentUserMode.userId!;
@@ -856,12 +911,16 @@ const Community: React.FC<CommunityProps> = ({
       setLike(post, !isLikedByMe(post));
   };
 
-  const handleDoubleTap = (_e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
+  const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
       const now = Date.now();
       if (now - lastTap < 300) {
-          hapticFeedback([30, 40, 30]);
-          setShowHeartAnimation(true);
-          window.setTimeout(() => setShowHeartAnimation(false), 900);
+          hapticFeedback([20, 30, 20]);
+          // Fireflies rise from wherever the explorer tapped
+          const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const pt = 'clientX' in e ? e : (e as React.TouchEvent).changedTouches?.[0];
+          const key = now;
+          setWonderBurst({ x: pt ? pt.clientX - box.left : box.width / 2, y: pt ? pt.clientY - box.top : box.height / 2, key });
+          window.setTimeout(() => setWonderBurst(b => b && b.key === key ? null : b), 1700);
           setLike(post, true);
           setLastTap(0);
           return;
@@ -871,13 +930,13 @@ const Community: React.FC<CommunityProps> = ({
 
   const handleSave = async () => {
       if (!activePost) return;
-      if (!isMember) { askAccount('Create a free account to save sightings to your collection.', handleSave); return; }
+      if (!isMember) { askAccount('Create a free account to keep sightings you want to come back to.', handleSave); return; }
       const next = !isSaved;
       setIsSaved(next);
       try {
           await FirebaseService.toggleSave(activePost.id, next, activePost);
           track(next ? 'save' : 'unsave');
-          showToast(next ? 'Saved to your collection' : 'Removed from saved');
+          showToast(next ? 'Kept in your collection' : 'Removed from your collection');
       } catch {
           setIsSaved(!next);
           showToast('Could not update saved posts.');
@@ -925,18 +984,36 @@ const Community: React.FC<CommunityProps> = ({
           track('comment', { length: newComment.length, mention: newComment.includes('@') });
           setNewComment("");
           setActivePost(prev => prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev);
-      } catch {
-          showToast('Your comment could not be posted. Please try again.');
+      } catch (err: any) {
+          const msg = String(err?.message || '');
+          showToast(/^(Field notes can't|You've already)/.test(msg) ? msg : 'Your field note could not be added. Please try again.');
       } finally {
           setSendingComment(false);
       }
   };
 
+  // Reputation beside names: how many sightings each field-note author (and the poster) has shared
+  const [sightingCounts, setSightingCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+      const ids = [...new Set([...(comments || []).map(c => c.userId), activePost?.userId].filter(Boolean) as string[])].filter(id => !(id in sightingCounts));
+      if (!ids.length) return;
+      let alive = true;
+      Promise.all(ids.slice(0, 20).map(id => FirebaseService.getUserProfile(id).then(p => [id, Number((p as any)?.stats?.observations || 0)] as const).catch(() => [id, 0] as const)))
+          .then(rows => { if (alive) setSightingCounts(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
+      return () => { alive = false; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comments, activePost?.userId]);
+  const sightingsLine = (uid?: string) => { const n = uid ? sightingCounts[uid] : 0; return n ? `${n} sighting${n === 1 ? '' : 's'}` : ''; };
+
+  /** Field notes readers see: blocked authors and promotional spam are hidden. The post's author still sees spam, flagged, so they can delete it. */
+  const isPostOwner = !!activePost && activePost.userId === currentUserMode.userId;
+  const visibleComments = comments.filter(c => !blockedIds.includes(c.userId) && (!looksLikeSpam(c.text) || isPostOwner || c.userId === currentUserMode.userId));
+
   const handleDeleteComment = async (commentId: string) => {
-      if (!activePost || !window.confirm('Delete this comment?')) return;
+      if (!activePost || !window.confirm('Delete this field note?')) return;
       try {
           await FirebaseService.deleteComment(activePost.id, commentId);
-      } catch { showToast('Could not delete the comment.'); }
+      } catch { showToast('Could not delete the field note.'); }
   };
 
   const handleProfileClick = (userId: string) => {
@@ -1132,47 +1209,50 @@ const Community: React.FC<CommunityProps> = ({
             </div>
         )}
 
-        {/* Instagram/Explore Inspired Search Header */}
+        {/* Field guide header */}
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
-            {/* Header branding & stats */}
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start justify-between gap-4">
                 <button
                     type="button"
                     onClick={() => onLogoClick?.()}
                     aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, scroll to top'}
-                    className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg"
+                    className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
                         {isJournalOnly ? "My Journal" : "NatureGram"}
                     </h2>
-                    <p className="text-xs font-bold text-theme-primary/70 uppercase tracking-widest mt-0.5">
-                        {isJournalOnly ? "Every sighting you've made" : "Living field guide"}
-                    </p>
+                    {isJournalOnly ? (
+                        <p className="text-sm text-theme-primary/70 mt-0.5 font-display italic">Every sighting you've made</p>
+                    ) : (
+                        <p className="text-sm text-theme-primary/75 mt-1 flex items-start gap-1.5 max-w-md leading-snug">
+                            <span className="material-symbols-outlined text-[18px] text-theme-accent shrink-0 -mt-px" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{moment.icon}</span>
+                            <span><span className="font-display italic font-semibold text-theme-primary">{moment.name}.</span> <span className="[@media(max-height:500px)]:hidden">{moment.hint}</span></span>
+                        </p>
+                    )}
                 </button>
 
-                {/* Header actions: drafts, activity (heart) and messages, Instagram-style */}
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5 shrink-0">
                     {!isJournalOnly && onOpenActivity && (
-                        <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-stone-800 hover:bg-stone-100">
-                            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">favorite</span>
-                            {unreadActivity > 0 && <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{unreadActivity > 9 ? '9+' : unreadActivity}</span>}
+                        <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
+                            <WonderIcon className="text-[24px]" />
+                            {unreadActivity > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
                     {!isJournalOnly && onOpenMessages && (
-                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Messages, ${unreadMessages} unread` : 'Messages'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-stone-800 hover:bg-stone-100">
-                            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">send</span>
-                            {unreadMessages > 0 && <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{unreadMessages > 9 ? '9+' : unreadMessages}</span>}
+                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
+                            <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{unreadMessages > 0 ? 'mark_email_unread' : 'mail'}</span>
+                            {unreadMessages > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
                     {onViewDrafts && (
                         <button 
                             onClick={onViewDrafts} 
-                            className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all"
+                            className="relative w-11 h-11 rounded-full hover:bg-theme-primary/5 flex items-center justify-center text-theme-primary active:scale-95 transition-all"
                             aria-label={activeDraftsCount > 0 ? `Drafts, ${activeDraftsCount} unfinished` : 'Drafts'}
                         >
-                            <span className="material-symbols-outlined text-lg">inventory</span>
+                            <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">inventory_2</span>
                             {activeDraftsCount > 0 ? (
-                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-theme-accent rounded-full border border-white flex items-center justify-center text-[11px] font-bold text-white animate-pulse">
+                                <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-theme-accent rounded-full ring-2 ring-day-bg flex items-center justify-center text-[11px] font-bold text-white">
                                     {activeDraftsCount}
                                 </span>
                             ) : null}
@@ -1182,37 +1262,40 @@ const Community: React.FC<CommunityProps> = ({
             </div>
 
             {!isJournalOnly && (
-                <div className="flex items-center gap-2" role="tablist" aria-label="Feed">
-                    {([['foryou', 'For you'], ['following', 'Following']] as const).map(([key, label]) => (
+                <div className="flex items-center gap-6" role="tablist" aria-label="What to show">
+                    {([['foryou', 'Wander'], ['following', 'Fellow explorers']] as const).map(([key, label]) => (
                         <button
                             key={key}
                             role="tab"
                             aria-selected={feedMode === key}
                             onClick={() => {
-                                if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and build your own feed.'); return; }
+                                if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and gather their sightings here.'); return; }
                                 setFeedMode(key);
                             }}
-                            className={`px-4 py-2 rounded-full text-sm font-bold transition-colors ${feedMode === key ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
-                        >{label}</button>
+                            className={`relative py-2 text-base font-display italic transition-colors ${feedMode === key ? 'text-theme-primary font-bold' : 'text-theme-primary/55 hover:text-theme-primary/80'}`}
+                        >
+                            {label}
+                            <span className={`absolute left-0 -bottom-0.5 h-[2px] rounded-full bg-theme-accent transition-all duration-500 ${feedMode === key ? 'w-full opacity-100' : 'w-0 opacity-0'}`} aria-hidden="true" />
+                        </button>
                     ))}
                 </div>
             )}
 
             {freshRail.length > 0 && feedMode === 'foryou' && (
                 <section aria-label="Fresh sightings from explorers you follow">
-                    <p className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Fresh from explorers you follow</p>
+                    <p className="text-sm text-theme-primary/70 mb-2 font-display italic">Fresh tracks from explorers you follow</p>
                     <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" role="list">
                         {freshRail.map(r => (
                             <li key={r.userId} className="shrink-0">
-                                <button onClick={() => handlePostClick(r.post)} className="flex flex-col items-center gap-1 w-[72px]" aria-label={`${r.userName}: ${r.count} new sighting${r.count === 1 ? '' : 's'}`}>
-                                    <span className="p-[3px] rounded-full bg-gradient-to-tr from-theme-primary to-theme-vivid">
-                                        <span className="block p-[2px] bg-day-bg rounded-full">
-                                            {r.post.thumbnailUrl || r.avatar
-                                                ? <img src={(r.avatar || r.post.thumbnailUrl)!} alt="" className="w-14 h-14 rounded-full object-cover" />
-                                                : <span className="w-14 h-14 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary">{r.userName?.charAt(0)}</span>}
-                                        </span>
+                                <button onClick={() => handlePostClick(r.post)} className="group flex flex-col items-start gap-1.5 w-[84px] text-left" aria-label={`${r.post.labels?.[0] || 'New sighting'} from ${r.userName}${r.count > 1 ? `, ${r.count} new sightings` : ''}`}>
+                                    <span className="relative block w-[84px] h-[100px] rounded-xl overflow-hidden bg-theme-primary/10 border border-theme-primary/10">
+                                        {(r.post.thumbnailUrl || r.post.imageUrl)
+                                            ? <img src={(r.post.thumbSmallUrl || r.post.thumbnailUrl || r.post.imageUrl)!} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                            : <span className="w-full h-full flex items-center justify-center text-theme-primary/60"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'park'}</span></span>}
+                                        {r.count > 1 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-black/45 backdrop-blur text-white text-[11px] font-semibold flex items-center justify-center tabular">{r.count}</span>}
                                     </span>
-                                    <span className="text-xs text-stone-700 truncate w-full text-center">{r.userName}</span>
+                                    <span className="text-xs font-display italic font-semibold text-theme-primary truncate w-full leading-tight">{r.post.labels?.[0] || 'New sighting'}</span>
+                                    <span className="text-[11px] text-stone-500 truncate w-full -mt-1">{r.userName}</span>
                                 </button>
                             </li>
                         ))}
@@ -1226,11 +1309,17 @@ const Community: React.FC<CommunityProps> = ({
                     onClick={() => { setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
                     className="w-full text-left rounded-2xl p-4 bg-gradient-to-r from-theme-primary to-theme-primary-gradient text-white shadow-md flex items-start gap-3 active:scale-[0.99] transition-transform"
                 >
-                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" aria-hidden="true">flag</span>
+                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" style={challenge?.mine ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{challenge?.mine ? 'verified' : 'flag'}</span>
                     <span className="flex-1 min-w-0">
                         <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white/80">{dailyTheme.naturalist}'s fortnight · {themePeriod.daysRemaining}d left</span>
                         <span className="block text-sm font-semibold leading-snug mt-1">{themeExtra.challenge}</span>
-                        <span className="block text-xs text-white/80 mt-1 [@media(max-height:500px)]:hidden">See posts tagged {themeExtra.challengeTag} →</span>
+                        <span className="block text-xs text-white/85 mt-1.5 [@media(max-height:500px)]:hidden">
+                            {challenge?.mine
+                                ? `You've answered this one${challenge.explorers > 1 ? `, with ${challenge.capped ? 'many' : challenge.explorers - 1} other explorer${challenge.explorers - 1 === 1 ? '' : 's'}` : ''}. See everyone's finds.`
+                                : challenge && challenge.explorers > 0
+                                    ? `${challenge.capped ? 'Many' : challenge.explorers} explorer${challenge.explorers === 1 ? ' has' : 's have'} answered it. Tag yours ${themeExtra.challengeTag}.`
+                                    : `Be the first to answer it. Tag your sighting ${themeExtra.challengeTag}.`}
+                        </span>
                     </span>
                 </button>
             )}
@@ -1306,7 +1395,7 @@ const Community: React.FC<CommunityProps> = ({
                 {isSearchFocused && (
                     <div className="absolute top-[105%] left-0 right-0 bg-white border border-theme-primary/10 rounded-2xl p-5 shadow-2xl animate-slide-up flex flex-col gap-5 max-h-[380px] overflow-y-auto no-scrollbar z-[160]">
                         <div className="flex items-center justify-between border-b border-theme-primary/5 pb-2">
-                            <span className="text-xs font-black uppercase text-theme-primary/60 tracking-wider">Suggested Searches & Accounts</span>
+                            <span className="text-sm font-display italic text-theme-primary/75">Where to look</span>
                             <button 
                                 onClick={() => setIsSearchFocused(false)} 
                                 className="text-xs font-black text-theme-primary/55 hover:text-theme-primary uppercase"
@@ -1326,11 +1415,11 @@ const Community: React.FC<CommunityProps> = ({
                                 </button>
                                 {serverUsers.length > 0 && (
                                     <div>
-                                        <p className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Accounts</p>
+                                        <p className="text-sm font-display italic text-stone-600 mb-1.5">Explorers</p>
                                         {serverUsers.map(u => (
                                             <button key={u.uid} onClick={() => { setIsSearchFocused(false); onViewProfile?.(u.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
                                                 {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary" aria-hidden="true">{u.username?.charAt(0).toUpperCase()}</span>}
-                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.species || 0} species recorded`}</span></span>
+                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.observations || 0} sightings shared`}</span></span>
                                             </button>
                                         ))}
                                     </div>
@@ -1343,7 +1432,7 @@ const Community: React.FC<CommunityProps> = ({
                             <div className="space-y-2">
                                 <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">local_offer</span>
-                                    Popular Tags
+                                    Popular tags
                                 </span>
                                 <div className="flex flex-wrap gap-1.5">
                                     {dynamicSuggestions.tags.map((tag) => (
@@ -1394,7 +1483,7 @@ const Community: React.FC<CommunityProps> = ({
                             <div className="space-y-2.5">
                                 <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">distance</span>
-                                    Recent Habitats
+                                    Recent habitats
                                 </span>
                                 <div className="flex flex-wrap gap-2">
                                     {dynamicSuggestions.locations.map((loc) => (
@@ -1474,7 +1563,7 @@ const Community: React.FC<CommunityProps> = ({
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
                                             }`}
                                         >
-                                            {opt === 'newest' ? 'Newest' : opt === 'likes' ? 'Likes' : 'A-Z'}
+                                            {opt === 'newest' ? 'Newest' : opt === 'likes' ? 'Most marvelled' : 'A-Z'}
                                         </button>
                                     ))}
                                 </div>
@@ -1589,18 +1678,23 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">search_off</span>
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : isJournalOnly && !searchQuery && !searchTag ? 'fingerprint' : 'travel_explore'}</span>
                     {feedMode === 'following' && !searchQuery ? (
                         <>
-                            <h3 className="text-lg font-display text-stone-800 mb-2 font-bold">Your following feed is quiet</h3>
-                            <p className="text-base text-stone-600 max-w-xs mb-8">Follow explorers whose sightings inspire you. Open any post and tap their name.</p>
-                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full">Discover explorers</button>
+                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">No fellow explorers yet</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">When a sighting makes you stop and look twice, open it and follow the explorer who found it.</p>
+                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Go wandering</button>
+                        </>
+                    ) : isJournalOnly && !searchQuery && !searchTag ? (
+                        <>
+                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">Your journal starts outside</h3>
+                            <p className="text-base text-stone-600 max-w-xs">Open the Lens and point it at anything alive. Every sighting lands here, including the ones you keep to yourself.</p>
                         </>
                     ) : (
                         <>
-                            <h3 className="text-lg font-display text-stone-800 mb-2 font-bold">No sightings match</h3>
-                            <p className="text-base text-stone-600 max-w-xs mb-8">Try a different word, or clear the filters.</p>
-                            <button onClick={resetAllFilters} className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full">Clear filters</button>
+                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">Nothing found here yet</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">No one has recorded that so far. Try another word, or clear the filters. Or be the first to find it.</p>
+                            <button onClick={resetAllFilters} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Clear filters</button>
                         </>
                     )}
                 </div>
@@ -1620,11 +1714,11 @@ const Community: React.FC<CommunityProps> = ({
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
                 <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
                     {loadMoreState === 'loading' ? (
-                        <span className="flex items-center gap-2"><span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>Loading more sightings…</span>
+                        <span className="flex items-center gap-2"><span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>Finding more sightings…</span>
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span>You're all caught up 🌿</span>
+                        <span className="font-display italic text-base text-theme-primary/70">That's every sighting for now. The next one is outside.</span>
                     ) : null}
                 </div>
             )}
@@ -1714,11 +1808,7 @@ const Community: React.FC<CommunityProps> = ({
                                     onClick={(e) => { if ((e.target as HTMLElement).closest('button,video,audio')) return; handleDoubleTap(e, activePost); }}
                                     onContextMenu={(e) => { if (activePost.userId !== currentUserMode.userId) e.preventDefault(); }}
                                 >
-                                    {showHeartAnimation && (
-                                        <span className="pointer-events-none absolute inset-0 z-[190] flex items-center justify-center" aria-hidden="true">
-                                            <span className="material-symbols-outlined text-white text-[120px] drop-shadow-2xl animate-heart-burst" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
-                                        </span>
-                                    )}
+                                    {wonderBurst && <WonderBurst key={wonderBurst.key} x={wonderBurst.x} y={wonderBurst.y} />}
                                     {hasMultipleItems ? (
                                         <>
                                             <div 
@@ -1729,28 +1819,9 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
-                                                                src={item.videoUrl} 
-                                                                poster={item.thumbnailUrl} 
-                                                                controls 
-                                                                playsInline 
-                                                                preload='metadata' 
-                                                                className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
-                                                            />
+                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : item.mediaType === 'audio' ? (
-                                                            <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
-                                                                {item.thumbnailUrl || item.imageUrl ? (
-                                                                    <img 
-                                                                        src={item.thumbnailUrl || item.imageUrl} 
-                                                                        className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
-                                                                    />
-                                                                ) : (
-                                                                    <div className="flex-1 min-h-0 aspect-square max-h-full w-full max-w-full bg-gray-900 rounded-2xl flex items-center justify-center drop-shadow-xl">
-                                                                        <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
-                                                                    </div>
-                                                                )}
-                                                                <PlayableAudio src={item.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
-                                                            </div>
+                                                            <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : (
                                                             <img 
                                                                 src={item.imageUrl || item.thumbnailUrl} 
@@ -1798,28 +1869,9 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
-                                                    src={currentItem.videoUrl} 
-                                                    poster={currentItem.thumbnailUrl} 
-                                                    controls 
-                                                    playsInline 
-                                                    preload='metadata' 
-                                                    className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
-                                                />
+                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : currentItem.mediaType === 'audio' ? (
-                                                <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
-                                                    {currentItem.thumbnailUrl || currentItem.imageUrl ? (
-                                                        <img 
-                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl} 
-                                                            className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
-                                                        />
-                                                    ) : (
-                                                        <div className="flex-1 min-h-0 aspect-square max-h-full w-full max-w-full bg-gray-900 rounded-2xl flex items-center justify-center drop-shadow-xl">
-                                                            <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
-                                                        </div>
-                                                    )}
-                                                    <PlayableAudio src={currentItem.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
-                                                </div>
+                                                <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : (
                                                 <img 
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl} 
@@ -1832,47 +1884,50 @@ const Community: React.FC<CommunityProps> = ({
                                 </div>
 
                                 <div className="w-full md:w-[400px] [@media(orientation:landscape)_and_(max-height:500px)]:w-[48%] [@media(orientation:landscape)_and_(max-height:500px)]:max-h-none [@media(orientation:landscape)_and_(max-height:500px)]:border-t-0 [@media(orientation:landscape)_and_(max-height:500px)]:border-l shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-theme-primary/10 bg-white flex flex-col hidden-scrollbar">
-                                    <div className="px-4 pt-3 pb-2 md:px-6 flex items-center justify-between shrink-0">
+                                    <div className="px-4 pt-3 pb-3 md:px-6 flex items-center justify-between gap-3 shrink-0 border-b border-theme-primary/5">
                                         <button className="flex items-center gap-3 group text-left min-w-0" onClick={() => handleProfileClick(activePost.userId)}>
                                             {activePost.userAvatar
-                                                ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover" />
-                                                : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(activePost.userName || '?').charAt(0)}</span>}
+                                                ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover border border-theme-primary/15" />
+                                                : <span className="w-10 h-10 rounded-full bg-theme-primary/10 border border-theme-primary/15 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(activePost.userName || '?').charAt(0)}</span>}
                                             <span className="min-w-0">
-                                                <span className="block font-bold text-sm text-stone-900 truncate group-hover:underline">{activePost.userName}</span>
-                                                <span className="block text-xs text-stone-500 truncate">{[currentItem.locationArea, timeAgo(activePost.timestamp)].filter(Boolean).join(' · ')}</span>
+                                                <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}{sightingsLine(activePost.userId) && <span className="font-normal text-stone-500"> · {sightingsLine(activePost.userId)}</span>}</span>
+                                                <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
                                             </span>
                                         </button>
-                                    </div>
-                                    <div className="px-2 md:px-4 flex items-center shrink-0 border-b border-theme-primary/5 pb-1">
-                                        {(() => { const liked = isLikedByMe(activePost); return (
-                                            <button onClick={(e) => handleLike(e, activePost)} aria-pressed={liked} aria-label={liked ? 'Unlike' : 'Like'} className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-90 ${liked ? 'text-red-600' : 'text-stone-800'}`}>
-                                                <span className="material-symbols-outlined text-[28px]" style={liked ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">favorite</span>
+                                        {(() => { const liked = isLikedByMe(activePost); const n = likeTotal(activePost); return (
+                                            <button
+                                                onClick={(e) => handleLike(e, activePost)}
+                                                aria-pressed={liked}
+                                                aria-label={liked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this sighting. ${wonderLabel(n)}`}
+                                                className={`shrink-0 flex items-center gap-1.5 h-10 pl-3 pr-3.5 rounded-full border transition-all duration-300 active:scale-95 ${liked ? 'bg-theme-accent border-theme-accent text-white shadow-md shadow-theme-accent/30' : 'border-theme-primary/15 text-theme-accent hover:bg-theme-accent/5'}`}
+                                            >
+                                                <WonderIcon active={liked} className="text-[20px]" />
+                                                <span className="text-sm font-semibold tabular">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
                                             </button>
                                         ); })()}
-                                        <button onClick={() => setIsCommentsOpen(true)} aria-label="Comments" className="w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
-                                            <span className="material-symbols-outlined text-[28px]" aria-hidden="true">chat_bubble</span>
-                                        </button>
-                                        <button onClick={() => setSharingPost(activePost)} aria-label="Share" className="w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
-                                            <span className="material-symbols-outlined text-[28px]" aria-hidden="true">send</span>
-                                        </button>
-                                        <button onClick={handleSave} aria-pressed={isSaved} aria-label={isSaved ? 'Remove from saved' : 'Save'} className="ml-auto w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
-                                            <span className="material-symbols-outlined text-[28px]" style={isSaved ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">bookmark</span>
-                                        </button>
                                     </div>
-                                    <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{likeTotal(activePost).toLocaleString()} {likeTotal(activePost) === 1 ? 'like' : 'likes'}</p>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
                                         {activePost.curatorNote && (
                                             <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
                                         )}
-                                        {activePost.caption && (
-                                            <p className="text-[15px] text-stone-900 leading-relaxed whitespace-pre-line"><button onClick={() => handleProfileClick(activePost.userId)} className="font-bold mr-1.5">{activePost.userName}</button><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></p>
+                                        {(activePost.title || currentItem.labels?.[0]) && (
+                                            <div>
+                                                <h2 className="text-2xl font-display italic font-bold text-theme-primary leading-tight">{activePost.title || hedgedName(currentItem.labels?.[0], (currentItem as any).aiConfidence, !!(currentItem as any).humanDelta || !!activePost.humanDelta)}</h2>
+                                                {observedBehaviour(currentItem.behavior) && <p className="text-base text-theme-primary/80 mt-1 leading-snug">{observedBehaviour(currentItem.behavior)}</p>}
+                                            </div>
                                         )}
-                                        {activePost.title && <h2 className="text-xl font-display italic font-bold text-theme-primary">{activePost.title}</h2>}
 
                                         {activePost.description && (
                                             <p className="text-theme-primary/80 font-display font-medium leading-relaxed italic text-base">
                                                 {activePost.description}
                                             </p>
+                                        )}
+
+                                        {activePost.caption && (
+                                            <figure className="border-l-2 border-theme-accent/40 pl-4">
+                                                <blockquote className="text-[15px] text-stone-800 leading-relaxed whitespace-pre-line"><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></blockquote>
+                                                <figcaption className="text-xs text-stone-500 mt-1.5">From <button onClick={() => handleProfileClick(activePost.userId)} className="font-semibold text-theme-primary hover:underline">{activePost.userName}</button>'s field notes</figcaption>
+                                            </figure>
                                         )}
                                         
                                         {(currentItem.labels?.length || currentItem.aiInsight) && (
@@ -1880,7 +1935,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {currentItem.labels && currentItem.labels.length > 0 && (
                                                     <div className="space-y-2">
                                                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                            <p className="text-xs font-bold tracking-[0.15em] text-stone-600 uppercase">Identification</p>
+                                                            <p className="text-sm font-display italic text-stone-600">What it is</p>
                                                             <AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={!!(currentItem as any).humanDelta || !!activePost.humanDelta} />
                                                         </div>
                                                         {isFungiPost(currentItem as any) && <FungiWarning />}
@@ -1898,15 +1953,16 @@ const Community: React.FC<CommunityProps> = ({
                                                     <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
                                                         <p className="catalog-label text-[11px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
                                                             <span className="material-symbols-outlined text-[11px]" aria-hidden="true">auto_awesome</span>
-                                                            Behaviour & ecology (AI)
+                                                            Why it does this
                                                         </p>
                                                         <div className="space-y-3 mt-2">
-                                                            {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (
+                                                            {(insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)).length ? insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)) : currentItem.aiInsight.split(/\n+/).filter(Boolean)).map((para, idx) => (
                                                                 <p key={idx} className="text-[15px] font-serif text-stone-800 leading-relaxed">
                                                                     {para}
                                                                 </p>
                                                             ))}
                                                         </div>
+                                                        <p className="text-xs font-display italic text-stone-500 pt-1">From your guide's notes. Seen it behave differently? Add a field note.</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -1927,21 +1983,32 @@ const Community: React.FC<CommunityProps> = ({
                                         {activePost.tags && activePost.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-2 pt-2 border-t border-theme-primary/10">
                                                 {activePost.tags.map(tag => (
-                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="text-sm font-semibold text-sky-800 hover:underline min-h-[32px] px-1 -mx-1">
+                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-semibold italic text-sm rounded-md hover:bg-theme-accent/20 transition-colors">
                                                         {tag.startsWith('#') ? tag : `#${tag}`}
                                                     </button>
                                                 ))}
                                             </div>
                                         )}
 
-                                        <div className="pt-4 border-t border-theme-primary/10 pb-4 md:pb-8">
+                                        <div className="pt-4 border-t border-theme-primary/10 pb-4 md:pb-8 space-y-3">
                                             <button 
                                                 onClick={() => setIsCommentsOpen(true)}
-                                                className="w-full py-3 px-4 bg-theme-primary/5 hover:bg-theme-primary/10 rounded-xl flex items-center justify-between transition-colors mb-4 md:mb-0"
+                                                className="w-full py-3 px-4 bg-theme-primary/5 hover:bg-theme-primary/10 rounded-xl flex items-center gap-3 transition-colors text-left"
                                             >
-                                                <span className="text-sm font-semibold text-stone-700">{comments.length ? `View all ${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Add a comment'}</span>
-                                                <span className="material-symbols-outlined text-theme-primary/60 text-sm">chevron_right</span>
+                                                <span className="material-symbols-outlined text-theme-accent text-xl" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
+                                                <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `Read ${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'What did you notice? Add a field note'}</span>
+                                                <span className="material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">chevron_right</span>
                                             </button>
+                                            <div className="flex gap-2">
+                                                <button onClick={handleSave} aria-pressed={isSaved} className={`flex-1 h-11 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${isSaved ? 'border-theme-accent/40 bg-theme-accent/10 text-theme-primary' : 'border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5'}`}>
+                                                    <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: isSaved ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">filter_vintage</span>
+                                                    {isSaved ? 'Kept' : 'Keep'}
+                                                </button>
+                                                <button onClick={() => setSharingPost(activePost)} className="flex-1 h-11 rounded-xl border border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5 text-sm font-semibold flex items-center justify-center gap-2">
+                                                    <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
+                                                    Share
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1980,29 +2047,30 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                     
                     <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
-                        <h3 id="comments-title" className="font-bold text-lg text-stone-900">Comments</h3>
-                        <button onClick={() => setIsCommentsOpen(false)} aria-label="Close comments" className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center text-stone-700 hover:bg-stone-200">
+                        <h3 id="comments-title" className="font-display font-black text-xl italic text-theme-primary">Field notes</h3>
+                        <button onClick={() => setIsCommentsOpen(false)} aria-label="Close field notes" className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center text-stone-700 hover:bg-stone-200">
                             <span className="material-symbols-outlined text-lg">close</span>
                         </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        {comments.filter(c => !blockedIds.includes(c.userId)).length === 0 ? (
+                        {visibleComments.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-stone-500 text-center">
-                                <span className="material-symbols-outlined text-4xl mb-2" aria-hidden="true">forum</span>
-                                <p className="font-semibold text-stone-700">No comments yet</p>
-                                <p className="text-sm mt-1">Share what you know about this sighting.</p>
+                                <span className="material-symbols-outlined text-4xl mb-2 text-theme-accent/60" aria-hidden="true">history_edu</span>
+                                <p className="font-display italic text-lg text-stone-800">No field notes yet</p>
+                                <p className="text-sm mt-1 max-w-xs">Seen this before? Know why it behaves like this? Add what you've noticed.</p>
                             </div>
                         ) : (
-                            comments.filter(c => !blockedIds.includes(c.userId)).map(c => (
+                            visibleComments.map(c => (
                                 <div key={c.id} className="flex gap-3 group animate-fade-in">
                                     <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
                                         {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(c.userName || '?').charAt(0)}</span>}
                                     </button>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
-                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
-                                            <span>{timeAgo(c.timestamp)}</span>
+                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500 flex-wrap">
+                                            <span>{[sightingsLine(c.userId), timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
+                                            {looksLikeSpam(c.text) && isPostOwner && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">Looks like spam, hidden from others</span>}
                                             {isMember && c.userId !== currentUserMode.userId && (
                                                 <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-semibold hover:text-stone-800">Reply</button>
                                             )}
@@ -2018,17 +2086,17 @@ const Community: React.FC<CommunityProps> = ({
 
                     <div className="p-4 border-t border-theme-primary/10 bg-white shrink-0">
                         <form onSubmit={handleSendComment} className="flex gap-2.5">
-                            <label htmlFor="new-comment" className="sr-only">Add a comment</label>
+                            <label htmlFor="new-comment" className="sr-only">Add a field note</label>
                             <input 
                                 id="new-comment"
                                 value={newComment} 
                                 onChange={e => setNewComment(e.target.value.slice(0, 1000))} 
                                 onFocus={() => { if (!isMember) askAccount('Create a free account to join the conversation.'); }}
-                                placeholder={`Add a comment for ${activePost.userName}…`}
+                                placeholder="What did you notice?"
                                 className="flex-1 bg-stone-50 border border-stone-200 rounded-full px-4 py-3 text-base focus:border-theme-accent transition-colors"
                             />
                             <button type="submit" disabled={!newComment.trim() || sendingComment} className="px-5 py-3 text-theme-accent text-base font-bold rounded-full disabled:opacity-40 transition-all active:scale-95">
-                                {sendingComment ? 'Posting…' : 'Post'}
+                                {sendingComment ? 'Adding…' : 'Add'}
                             </button>
                         </form>
                     </div>

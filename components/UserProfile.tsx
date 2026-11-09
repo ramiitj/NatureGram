@@ -8,6 +8,12 @@ import { PUBLIC_ORIGIN, timeAgo } from '../utils';
 import { track } from '../services/analytics';
 import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
 
+/** "Exploring since March 2026", tolerant of Firestore Timestamps, {seconds} objects, ISO strings and millis. */
+const exploringSince = (t: any): string => {
+  const ms = t?.toMillis?.() ?? (typeof t?.seconds === 'number' ? t.seconds * 1000 : typeof t === 'string' || typeof t === 'number' ? new Date(t).getTime() : NaN);
+  return Number.isFinite(ms) ? `Exploring since ${new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : 'Explorer';
+};
+
 interface UserProfileProps {
   userId: string;
   currentUserId?: string;
@@ -50,6 +56,13 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
       </div>
     </div>
   );
+};
+
+/** "23 species since March 2026. Your first was the House Sparrow." in one quiet line. */
+const lifeListSummary = (count: number, first: any, own: boolean): string => {
+  const ms = first?.toMillis?.() ?? (typeof first?.seconds === 'number' ? first.seconds * 1000 : NaN);
+  const since = Number.isFinite(ms) ? ` since ${new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
+  return `${count} species${since}. ${own ? 'Each one is something you saw with your own eyes.' : 'Each one seen first-hand.'}`;
 };
 
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
@@ -180,61 +193,81 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   if (isAnonymous && isOwnProfile) {
     return (
-      <div className="flex-1 overflow-y-auto no-scrollbar p-6 flex flex-col items-center justify-center bg-day-bg">
-        <AuthModal inline onSuccess={() => {}} reason="Create a free account to get your own explorer profile, journal and life list." />
+      <div className="flex-1 overflow-y-auto no-scrollbar bg-day-bg pb-28 safe-pt">
+        <section className="px-5 pt-8 pb-4 max-w-lg mx-auto">
+          <div className="flex items-center gap-4">
+            <span className="shrink-0 w-20 h-20 rounded-full border border-dashed border-theme-accent/50 flex items-center justify-center text-theme-accent/70" aria-hidden="true">
+              <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'wght' 200" }}>fingerprint</span>
+            </span>
+            <div>
+              <p className="text-2xl font-display italic font-bold text-theme-primary leading-tight">Your field page</p>
+              <p className="text-sm text-stone-500 mt-0.5">Exploring as a guest</p>
+            </div>
+          </div>
+          <dl className="mt-6 grid grid-cols-2 border-y border-theme-primary/10 divide-x divide-theme-primary/10">
+            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">species</dt></div>
+            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
+          </dl>
+          <p className="text-[15px] font-display italic text-stone-700 mt-6 leading-relaxed">
+            Every creature you identify joins your life list, with the day you first saw it. Your journal keeps every sighting, including the ones you keep to yourself.
+          </p>
+          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="mt-6 w-full py-3.5 rounded-2xl bg-theme-primary text-white font-bold">Start my field page</button>
+          <p className="text-xs text-stone-500 mt-3 text-center">Free. You can keep exploring as a guest.</p>
+        </section>
       </div>
     );
   }
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg overflow-hidden animate-fade-in">
-      <header className="px-3 py-2 flex items-center justify-between bg-white/90 backdrop-blur border-b border-stone-100 shrink-0 safe-pt">
+      <header className="px-3 py-2 flex items-center justify-between bg-day-bg/90 backdrop-blur border-b border-theme-primary/10 shrink-0 safe-pt">
         {!isOwnProfile ? (
           <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
             <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </button>
         ) : <span className="w-11" />}
-        <h1 className="font-bold text-lg text-stone-900 truncate">{username}</h1>
+        <h1 className="font-display italic font-bold text-lg text-theme-primary truncate">{username}</h1>
         <button onClick={() => setSheet(isOwnProfile ? 'settings' : 'menu')} aria-label={isOwnProfile ? 'Settings' : 'More options'} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
           <span className="material-symbols-outlined" aria-hidden="true">{isOwnProfile ? 'menu' : 'more_horiz'}</span>
         </button>
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
-        <section className="px-5 pt-5 pb-3 bg-white">
-          <div className="flex items-center gap-5">
-            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change profile photo' : undefined} className="shrink-0 rounded-full ring-2 ring-offset-2 ring-theme-accent/40">
+        <section className="px-5 pt-6 pb-4">
+          <div className="flex items-center gap-4">
+            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change profile photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
-            <dl className="flex-1 grid grid-cols-3 text-center">
-              <div className="py-1"><dd className="text-lg font-bold text-stone-900 tabular">{visiblePosts.length}</dd><dt className="text-xs text-stone-500">Posts</dt></div>
-              <button onClick={() => setSheet('followers')} className="rounded-xl hover:bg-stone-50 py-1"><dd className="text-lg font-bold text-stone-900 tabular">{profile?.followersCount || 0}</dd><dt className="text-xs text-stone-500">Followers</dt></button>
-              <button onClick={() => setSheet('following')} className="rounded-xl hover:bg-stone-50 py-1"><dd className="text-lg font-bold text-stone-900 tabular">{profile?.followingCount || 0}</dd><dt className="text-xs text-stone-500">Following</dt></button>
-            </dl>
+            <div className="min-w-0">
+              <p className="text-2xl font-display italic font-bold text-theme-primary leading-tight truncate">{profile?.displayName || username}</p>
+              <p className="text-sm text-stone-500 mt-0.5">{exploringSince(profile?.joinedAt)}</p>
+            </div>
           </div>
-          <div className="mt-4">
-            {profile?.displayName && <p className="font-bold text-stone-900">{profile.displayName}</p>}
-            <p className="text-sm text-stone-500">{lifeList.length} species recorded{profile?.joinedAt ? ` · Joined ${timeAgo(profile.joinedAt)}` : ''}</p>
-            {profile?.bio ? <p className="text-sm text-stone-800 mt-2 whitespace-pre-line">{profile.bio}</p> : isOwnProfile && (
-              <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-2">+ Add a bio about the nature you love</button>
-            )}
-          </div>
+          {profile?.bio ? <p className="text-[15px] font-display italic text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
+            <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a line about the wild things you love</button>
+          )}
+          <dl className="mt-5 grid grid-cols-4 border-y border-theme-primary/10 divide-x divide-theme-primary/10">
+            <button onClick={() => setTab('lifelist')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{lifeList.length}</dd><dt className="text-xs text-stone-500">species</dt></button>
+            <button onClick={() => setTab('posts')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{visiblePosts.length}</dd><dt className="text-xs text-stone-500">sightings</dt></button>
+            <button onClick={() => setSheet('followers')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{profile?.followersCount || 0}</dd><dt className="text-xs text-stone-500">followers</dt></button>
+            <button onClick={() => setSheet('following')} className="py-3 text-center hover:bg-theme-primary/5"><dd className="text-xl font-display font-bold text-theme-primary tabular">{profile?.followingCount || 0}</dd><dt className="text-xs text-stone-500">following</dt></button>
+          </dl>
           <div className="flex gap-2 mt-4">
             {isOwnProfile ? (
               <>
-                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-sm font-bold text-stone-900">Edit profile</button>
-                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-sm font-bold text-stone-900">Journal</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span></button>
+                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit profile</button>
+                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" aria-hidden="true">fingerprint</span>Journal</button>
+                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             ) : blocked ? (
-              <button onClick={toggleBlock} className="flex-1 py-2.5 rounded-xl bg-stone-100 text-sm font-bold text-stone-900">Unblock</button>
+              <button onClick={toggleBlock} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-sm font-bold text-theme-primary">Unblock</button>
             ) : (
               <>
-                <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${following ? 'bg-stone-100 text-stone-900 hover:bg-stone-200' : 'bg-theme-accent text-white hover:opacity-90'}`}>
+                <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${following ? 'border border-theme-primary/15 text-theme-primary hover:bg-theme-primary/5' : 'bg-theme-primary text-white hover:opacity-90'}`}>
                   {following ? 'Following' : 'Follow'}
                 </button>
-                <button onClick={() => onMessage?.(userId)} className="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-sm font-bold text-stone-900">Message</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span></button>
+                <button onClick={() => onMessage?.(userId)} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Write a letter</button>
+                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             )}
           </div>
@@ -251,14 +284,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their posts.</p>
         ) : (
           <>
-            <div role="tablist" aria-label="Profile sections" className="flex bg-white border-b border-stone-100 sticky top-0 z-10">
+            <div role="tablist" aria-label="Profile sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
               {([
-                { key: 'posts', icon: 'grid_on', label: 'Posts' },
+                { key: 'posts', icon: 'landscape', label: 'Sightings' },
                 { key: 'lifelist', icon: 'eco', label: 'Life list' },
-                ...(isOwnProfile ? [{ key: 'saved', icon: 'bookmark', label: 'Saved' }] : []),
+                ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm font-semibold border-b-2 transition-colors ${tab === t.key ? 'border-stone-900 text-stone-900' : 'border-transparent text-stone-500'}`}>
-                  <span className="material-symbols-outlined text-xl" aria-hidden="true">{t.icon}</span>{t.label}
+                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-theme-primary font-display italic font-bold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
+                  <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: tab === t.key ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{t.icon}</span>{t.label}
                 </button>
               ))}
             </div>
@@ -266,21 +299,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {tab === 'posts' && (
               visiblePosts.length === 0 ? (
                 <div className="text-center py-16 px-8 text-stone-500">
-                  <span className="material-symbols-outlined text-5xl mb-3" aria-hidden="true">photo_camera</span>
-                  <p className="font-semibold text-stone-700">{isOwnProfile ? 'Share your first sighting' : 'No public sightings yet'}</p>
-                  {isOwnProfile && <p className="text-sm mt-1">Tap Capture below and your guide will help you identify it.</p>}
+                  <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">camera</span>
+                  <p className="font-display italic text-xl text-stone-800">{isOwnProfile ? 'Your first sighting is out there' : 'No public sightings yet'}</p>
+                  {isOwnProfile && <p className="text-sm mt-1 max-w-xs mx-auto">Open the Lens and point it at anything alive. Your guide will tell you what it is and why it behaves that way.</p>}
                 </div>
               ) : (
-                <ul className="grid grid-cols-3 gap-0.5" role="list">
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3" role="list">
                   {visiblePosts.map(p => (
-                    <li key={p.id} className="relative aspect-square bg-stone-100">
-                      <button onClick={() => onOpenPost?.(p.id)} className="w-full h-full" aria-label={`Open ${p.labels?.[0] || 'sighting'}`}>
+                    <li key={p.id} className="relative aspect-[4/5] bg-theme-primary/10 rounded-lg overflow-hidden border border-theme-primary/10">
+                      <button onClick={() => onOpenPost?.(p.id)} className="group w-full h-full" aria-label={`Open ${p.labels?.[0] || 'sighting'}`}>
                         {(p.thumbnailUrl || p.imageUrl)
-                          ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl!} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                          ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl!} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
                           : <span className="w-full h-full flex items-center justify-center text-stone-400"><span className="material-symbols-outlined text-3xl" aria-hidden="true">{p.mediaType === 'audio' ? 'graphic_eq' : 'movie'}</span></span>}
                         {p.mediaType === 'video' && <span className="absolute top-1.5 right-1.5 material-symbols-outlined text-white text-lg drop-shadow" aria-hidden="true">play_circle</span>}
                         {p.items && p.items.length > 1 && <span className="absolute top-1.5 right-1.5 material-symbols-outlined text-white text-lg drop-shadow" aria-hidden="true">collections</span>}
-                        {isOwnProfile && !p.isPublic && <span className="absolute bottom-1.5 left-1.5 bg-black/60 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Journal</span>}
+                        {(p.labels?.[0] || p.title) && <span className="absolute inset-x-0 bottom-0 px-2.5 pt-6 pb-2 bg-gradient-to-t from-black/70 to-transparent text-left text-white text-[13px] font-display italic font-semibold leading-tight truncate">{p.labels?.[0] || p.title}</span>}
+                        {isOwnProfile && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/60 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Journal</span>}
                       </button>
                     </li>
                   ))}
@@ -290,16 +324,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {tab === 'lifelist' && (
               lifeList.length === 0 ? (
-                <p className="text-center text-stone-500 py-16 px-8">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} is added to the life list.</p>
+                <p className="text-center text-stone-500 py-16 px-8 max-w-sm mx-auto">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} is added here, with the day it was first seen.</p>
               ) : (
-                <ul className="divide-y divide-stone-100 bg-white" role="list">
+                <>
+                <p className="px-5 pt-4 pb-2 text-sm font-display italic text-stone-600">{lifeListSummary(lifeList.length, lifeList[0]?.first, isOwnProfile)}</p>
+                <ul className="divide-y divide-theme-primary/10" role="list">
                   {lifeList.map((s, i) => (
                     <li key={s.name}>
-                      <button onClick={() => onOpenPost?.(s.postId)} className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-stone-50">
+                      <button onClick={() => onOpenPost?.(s.postId)} className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-theme-primary/5">
                         <span className="w-8 text-sm text-stone-400 tabular">{i + 1}</span>
                         {s.thumb ? <img src={s.thumb} alt="" loading="lazy" className="w-12 h-12 rounded-xl object-cover bg-stone-100" /> : <span className="w-12 h-12 rounded-xl bg-stone-100" />}
                         <span className="flex-1 min-w-0">
-                          <span className="block font-semibold text-stone-900 truncate">{s.name}</span>
+                          <span className="block font-display italic font-semibold text-[17px] text-theme-primary truncate">{s.name}</span>
                           <span className="block text-xs text-stone-500">First seen {timeAgo(s.first)}{s.count > 1 ? ` · ${s.count} sightings` : ''}</span>
                         </span>
                         <span className="material-symbols-outlined text-stone-300" aria-hidden="true">chevron_right</span>
@@ -307,18 +343,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                     </li>
                   ))}
                 </ul>
+                </>
               )
             )}
 
             {tab === 'saved' && isOwnProfile && (
               saved === null ? <p className="text-center text-stone-500 py-12">Loading…</p> :
               saved.length === 0 ? (
-                <p className="text-center text-stone-500 py-16 px-8">Tap the bookmark on any post to save it here. Only you can see what you've saved.</p>
+                <p className="text-center text-stone-500 py-16 px-8 max-w-sm mx-auto">Tap Keep on any sighting you want to come back to. Only you can see what you've kept.</p>
               ) : (
-                <ul className="grid grid-cols-3 gap-0.5" role="list">
+                <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3" role="list">
                   {saved.map(s => (
-                    <li key={s.id} className="aspect-square bg-stone-100">
-                      <button onClick={() => onOpenPost?.(s.id)} className="w-full h-full" aria-label={`Open saved ${s.label || 'post'}`}>
+                    <li key={s.id} className="aspect-[4/5] bg-theme-primary/10 rounded-lg overflow-hidden border border-theme-primary/10">
+                      <button onClick={() => onOpenPost?.(s.id)} className="w-full h-full" aria-label={`Open kept ${s.label || 'sighting'}`}>
                         {s.thumbnailUrl && <img src={s.thumbnailUrl} alt="" loading="lazy" className="w-full h-full object-cover" />}
                       </button>
                     </li>
@@ -412,7 +449,7 @@ const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => 
   return (
     <button role="switch" aria-checked={on} onClick={toggle} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3">
       <span className="material-symbols-outlined" aria-hidden="true">notifications</span>
-      <span className="flex-1">Notifications<span className="block text-xs font-normal text-stone-500">Likes, comments, follows and mentions</span></span>
+      <span className="flex-1">Notifications<span className="block text-xs font-normal text-stone-500">When explorers marvel, leave field notes, follow or mention you</span></span>
       <span className={`w-11 h-6 rounded-full relative transition-colors ${on ? 'bg-theme-accent' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
     </button>
   );

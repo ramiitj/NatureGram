@@ -78,6 +78,45 @@
   .tabular { font-variant-numeric: tabular-nums; }
 }
 
+/* Wonder: fireflies rising from a double-tap */
+.firefly {
+  left: 0; top: 0;
+  background: radial-gradient(circle, #fffbe6 0%, rgb(var(--theme-accent-vivid-rgb)) 55%, transparent 75%);
+  box-shadow: 0 0 10px 3px rgb(var(--theme-accent-vivid-rgb) / 0.55), 0 0 2px 1px #fff8d6;
+  opacity: 0;
+  animation-name: fireflyRise;
+  animation-timing-function: cubic-bezier(0.22, 0.8, 0.3, 1);
+  animation-fill-mode: forwards;
+}
+.wonder-glow {
+  background: radial-gradient(circle, rgb(255 246 214 / 0.55) 0%, rgb(var(--theme-accent-vivid-rgb) / 0.18) 40%, transparent 70%);
+  animation: wonderGlow 1.1s ease-out forwards;
+}
+@keyframes fireflyRise {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.4); }
+  15% { opacity: 1; }
+  55% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(1); }
+}
+@keyframes wonderGlow {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); }
+}
+
+/* Breathing ring around the lens button: the one constant invitation to go and look */
+.lens-breath::before {
+  content: '';
+  position: absolute; inset: -5px;
+  border-radius: 9999px;
+  border: 1.5px solid rgb(var(--theme-accent-rgb) / 0.45);
+  animation: lensBreath 4.5s ease-in-out infinite;
+}
+@keyframes lensBreath {
+  0%, 100% { transform: scale(0.94); opacity: 0.2; }
+  50% { transform: scale(1.06); opacity: 0.9; }
+}
+
 /* Respect reduced-motion preferences (WCAG 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
