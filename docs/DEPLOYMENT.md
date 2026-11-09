@@ -65,3 +65,7 @@ The server records per-user daily AI usage in Firestore (`ai_usage/{uid}_{YYYY-M
 3. Clients cannot read or write `ai_usage`, because no rule allows it.
 
 If the store is unreachable, the server logs a warning and falls back to per-instance limits.
+
+## Rules change in the naturalist-wonder release
+
+`firestore.rules` now allows the `identification` notification type (an explorer confirming or questioning someone's ID). Deploy rules with `firebase deploy --only firestore:rules` after the app is live. No new indexes are needed: the challenge progress, weekly letter and duplicate-note checks use existing indexes. Until the rules are deployed, ID notifications are skipped silently and everything else works.

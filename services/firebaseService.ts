@@ -696,9 +696,11 @@ export const FirebaseService = {
       }).catch(() => {});
 
       try {
+        // Species = distinct primary labels across the explorer's sightings (the life list), not labels per post
+        const lifeList = await FirebaseService.getMySpeciesSet();
         await updateDoc(doc(db, "users", effectiveUserId), {
           "stats.observations": increment(items.length),
-          "stats.species": increment(allLabels.length)
+          "stats.species": lifeList.size
         });
       } catch (statsErr) {
         console.warn("Failed to update user stats:", statsErr);
