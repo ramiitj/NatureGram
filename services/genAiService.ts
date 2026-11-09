@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { apiUrl } from './apiOrigin';
 import { auth } from "../firebaseConfig";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
 
@@ -69,7 +70,7 @@ export const getApiKey = async (): Promise<string> => {
   return "PROXY";
 };
 
-const client = async () => new GoogleGenAI({ apiKey: await getApiKey(), httpOptions: { baseUrl: window.location.origin + '/api-proxy' } });
+const client = async () => new GoogleGenAI({ apiKey: await getApiKey(), httpOptions: { baseUrl: apiUrl('/api-proxy') } });
 
 const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();

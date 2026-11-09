@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { CommunityPost, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 
@@ -110,7 +111,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                           {post.items.map((item, index) => (
                               <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                   {item.mediaType === 'video' ? (
-                                       <video 
+                                       <PlayableVideo 
                                            src={item.videoUrl!} 
                                            controls 
                                            controlsList={!canDownload ? "nodownload" : undefined}
@@ -123,7 +124,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                                        <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-theme-primary/10 shadow-2xl rounded-sm">
                                             <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
                                             {item.audioUrl && (
-                                                 <audio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
+                                                 <PlayableAudio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                             )}
                                        </div>
                                   ) : (
@@ -172,7 +173,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
               ) : (
                   <div className="w-full h-full flex items-center justify-center p-4">
                       {currentItem.mediaType === 'video' ? (
-                           <video 
+                           <PlayableVideo 
                                src={currentItem.videoUrl!} 
                                controls 
                                controlsList={!canDownload ? "nodownload" : undefined}
@@ -185,7 +186,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                            <div className="flex flex-col items-center justify-center w-full h-full bg-theme-primary/10 p-8 shadow-2xl rounded-sm">
                                 <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
                                 {currentItem.audioUrl && (
-                                     <audio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
+                                     <PlayableAudio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                 )}
                            </div>
                       ) : (

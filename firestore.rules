@@ -50,6 +50,21 @@ service cloud.firestore {
         && incoming().reportStatus == 'pending';
     }
 
+    // likeCount may only move with the caller's own like document (batched write)
+    function likeCounterStep(postPath) {
+      let before = existing().get('likeCount', 0);
+      let after = incoming().get('likeCount', 0);
+      return after is int && after >= 0 && (
+        (after == before + 1
+          && existsAfter(/databases/$(database)/documents/ecosystem_feed/$(postPath)/likes/$(request.auth.uid))
+          && !exists(/databases/$(database)/documents/ecosystem_feed/$(postPath)/likes/$(request.auth.uid)))
+        ||
+        (after == before - 1
+          && !existsAfter(/databases/$(database)/documents/ecosystem_feed/$(postPath)/likes/$(request.auth.uid))
+          && exists(/databases/$(database)/documents/ecosystem_feed/$(postPath)/likes/$(request.auth.uid)))
+      );
+    }
+
     // Fields an author may never set/alter directly on a post
     function protectedPostKeys() {
       return ['userId', 'likes', 'likeCount', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'timestamp', 'moderation'];
@@ -99,7 +114,7 @@ service cloud.firestore {
         allow create: if isAdmin() || (
           isMember() && !isOwner(userId)
           && incoming().senderId == request.auth.uid
-          && incoming().type in ['like', 'comment', 'follow', 'mention', 'reply']
+          && incoming().type in ['like', 'comment', 'follow', 'mention', 'reply', 'message']
           && isStr(incoming().message, 300)
           && optStr('senderName', 60) && optStr('postId', 128) && optStr('senderAvatar', 2048)
           && incoming().isRead == false
@@ -148,6 +163,7 @@ service cloud.firestore {
         && incoming().userId == request.auth.uid
         && incoming().isPublic is bool
         && incoming().get('likes', []).size() == 0
+        && incoming().get('likeCount', 0) == 0
         && incoming().get('commentCount', 0) == 0
         && incoming().get('reports', []).size() == 0
         && incoming().get('reportStatus', 'safe') == 'safe'
@@ -160,8 +176,23 @@ service cloud.firestore {
             && (incoming().get('rawLocation', null) == null || !('rawLocation' in changedKeys()))
             && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000))
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
+        || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'))
         || (isMember() && changedKeys().hasOnly(['reports', 'reportStatus', 'reportCount']) && ownReport());
+
+      // One like document per explorer (id = uid); readable for "liked by" lists
+      match /likes/{likerId} {
+        allow read: if get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.isPublic == true
+          || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
+          || isOwner(likerId) || isAdmin();
+        allow create: if isOwner(likerId) && incoming().userId == request.auth.uid
+          && incoming().keys().hasOnly(['userId', 'createdAt'])
+          && existsAfter(/databases/$(database)/documents/ecosystem_feed/$(postId))
+          && getAfter(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('likeCount', 0) == get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('likeCount', 0) + 1;
+        allow delete: if (isOwner(likerId)
+          && getAfter(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('likeCount', 0) == get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('likeCount', 0) - 1)
+          || isAdmin();
+      }
 
       allow delete: if isOwner(existing().userId) || isAdmin();
 
@@ -202,6 +233,11 @@ service cloud.firestore {
       }
     }
 
+    // Collection-group access to one's own likes (account deletion / export)
+    match /{path=**}/likes/{likerId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+    }
+
     // Collection-group access to one's own comments (data export / account deletion)
     match /{path=**}/comments/{commentId} {
       allow read: if isOwner(resource.data.userId) || isAdmin();
@@ -216,10 +252,41 @@ service cloud.firestore {
         && incoming().id == postId
         && get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId == request.auth.uid;
       allow update: if isAdmin()
-        || (isOwner(existing().userId) && !changedKeys().hasAny(['userId', 'id', 'likes', 'commentCount']))
+        || (isOwner(existing().userId) && !changedKeys().hasAny(['userId', 'id', 'likes', 'likeCount', 'commentCount']))
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
+        || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'));
       allow delete: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // ------------------------------------------------- direct messages
+    // conversations/{a_b} where a < b are the two participants' uids
+    function isParticipant(c) { return signedIn() && request.auth.uid in c.participants; }
+    match /conversations/{cid} {
+      allow read: if isParticipant(existing()) || isAdmin();
+      allow create: if isMember()
+        && incoming().participants is list && incoming().participants.size() == 2
+        && request.auth.uid in incoming().participants
+        && incoming().participants[0] < incoming().participants[1]
+        && cid == incoming().participants[0] + '_' + incoming().participants[1];
+      allow update: if isMember() && isParticipant(existing())
+        && changedKeys().hasOnly(['lastMessage', 'updatedAt', 'lastReadAt', 'participantInfo'])
+        && incoming().participants == existing().participants;
+
+      match /messages/{mid} {
+        allow read: if isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data) || isAdmin();
+        allow create: if isMember()
+          && isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data)
+          && incoming().senderId == request.auth.uid
+          && isStr(incoming().text, 2000)
+          && optStr('postId', 128)
+          && incoming().keys().hasOnly(['senderId', 'text', 'postId', 'createdAt'])
+          // Blocked explorers cannot message the person who blocked them
+          && !exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/conversations/$(cid)).data.participants[0] == request.auth.uid
+                ? get(/databases/$(database)/documents/conversations/$(cid)).data.participants[1]
+                : get(/databases/$(database)/documents/conversations/$(cid)).data.participants[0])/blocked/$(request.auth.uid));
+        allow delete: if isOwner(existing().senderId) || isAdmin();
+      }
     }
 
     // ------------------------------------------------- AI feedback (governance / evaluation)
@@ -228,6 +295,12 @@ service cloud.firestore {
         && incoming().kind in ['correction', 'confirmation', 'flag']
         && optStr('note', 500);
       allow read: if isAdmin();
+    }
+
+    // ------------------------------------------------- media variants (written by Cloud Functions)
+    match /media_variants/{variantId} {
+      allow read: if true;
+      allow write: if false;
     }
 
     // ------------------------------------------------- configuration

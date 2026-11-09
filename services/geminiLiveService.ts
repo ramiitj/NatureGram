@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { apiUrl } from './apiOrigin';
 import { tools } from "../constants";
 import { floatTo16BitPCM, arrayBufferToBase64, decodeAudioData, base64ToArrayBuffer } from "./audioUtils";
 import { GroundingLink } from "../types";
@@ -76,7 +77,7 @@ export class GeminiLiveService {
       const ai = new (GoogleGenAI as any)({ 
           apiKey: apiKey,
           httpOptions: {
-            baseUrl: window.location.origin + '/api-proxy'
+            baseUrl: apiUrl('/api-proxy')
           }
       });
 

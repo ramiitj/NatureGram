@@ -1,6 +1,7 @@
 
-import { openExternal, timeAgo } from '../utils';
+import { openExternal, timeAgo, likeTotal } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
@@ -8,6 +9,7 @@ import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
 import { GenAiService } from '../services/genAiService';
+import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
 import ShareStudio from './ShareStudio';
@@ -99,6 +101,8 @@ const FeedCard: React.FC<{
                     <img 
                         src={post.thumbnailUrl || post.imageUrl} 
                         alt={label}
+                        srcSet={post.thumbSmallUrl ? `${post.thumbSmallUrl} 400w, ${post.thumbnailUrl || post.imageUrl} 800w` : undefined}
+                        sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
                         loading="lazy" 
                         decoding="async"
                         onLoad={() => onImageLoad(post.id)}
@@ -133,9 +137,9 @@ const FeedCard: React.FC<{
                 <div className="flex items-center gap-1.5 mt-1 text-xs text-stone-600 min-w-0">
                     <span className="truncate font-medium">{post.userName || 'Explorer'}</span>
                     {post.locationArea && <><span aria-hidden="true">·</span><span className="truncate">{post.locationArea}</span></>}
-                    <span className="ml-auto flex items-center gap-0.5 shrink-0" aria-label={`${post.likes?.length || 0} likes`}>
+                    <span className="ml-auto flex items-center gap-0.5 shrink-0" aria-label={`${likeTotal(post)} likes`}>
                         <span className="material-symbols-outlined text-sm text-theme-accent" aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
-                        <span className="font-semibold tabular">{post.likes?.length || 0}</span>
+                        <span className="font-semibold tabular">{likeTotal(post)}</span>
                     </span>
                 </div>
             </div>
@@ -156,6 +160,10 @@ interface CommunityProps {
   onLogoClick?: () => void;
   onRequireAccount?: (reason: string, then?: () => void) => void;
   dailyTheme?: any;
+  onOpenActivity?: () => void;
+  onOpenMessages?: () => void;
+  unreadActivity?: number;
+  unreadMessages?: number;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -170,7 +178,11 @@ const Community: React.FC<CommunityProps> = ({
     onViewDrafts,
     onLogoClick,
     onRequireAccount,
-    dailyTheme
+    dailyTheme,
+    onOpenActivity,
+    onOpenMessages,
+    unreadActivity = 0,
+    unreadMessages = 0
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -215,12 +227,14 @@ const Community: React.FC<CommunityProps> = ({
   }, [isMember, currentUserMode.userId]);
 
   // "Fresh sightings" rail: explorers you follow who posted in the last 72 hours
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [freshRail, setFreshRail] = useState<{ userId: string; userName: string; avatar?: string | null; post: CommunityPost; count: number }[]>([]);
   useEffect(() => {
     if (!isMember || isJournalOnly || !currentUserMode.userId) { setFreshRail([]); return; }
     let active = true;
     (async () => {
       const ids = await FirebaseService.getFollowingIds(currentUserMode.userId!);
+      if (active) setFollowingIds(new Set(ids));
       if (!ids.length) return;
       const feed = await FirebaseService.getFollowingFeed(ids, 20);
       const cutoff = Date.now() - 72 * 3600 * 1000;
@@ -371,8 +385,8 @@ const Community: React.FC<CommunityProps> = ({
           const tB = b.timestamp?.seconds || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
           return tB - tA;
         } else if (querySortOrder === 'likes') {
-          const likesA = a.likes?.length || 0;
-          const likesB = b.likes?.length || 0;
+          const likesA = likeTotal(a);
+          const likesB = likeTotal(b);
           return likesB - likesA;
         } else if (querySortOrder === 'title') {
           const titleA = a.title || a.labels?.[0] || 'Specimen';
@@ -382,6 +396,17 @@ const Community: React.FC<CommunityProps> = ({
         return 0;
       });
   }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, blockedIds]);
+
+  // "For you" is ranked when no search/filter/sort override is active; otherwise explicit ordering wins
+  const displayPosts = React.useMemo(() => {
+    const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !searchQuery.trim()
+      && activeExploreTab === 'all' && sortOrder === 'newest' && mediaFilter === 'all' && dateFilter === 'all' && selectedLabels.length === 0;
+    if (!ranked) return filteredAndSortedPosts;
+    // AI-curated picks (persona) stay first; the rest is ranked transparently
+    const curated = filteredAndSortedPosts.filter(p => p.curatorNote);
+    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote);
+    return [...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
+  }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, searchQuery, activeExploreTab, sortOrder, mediaFilter, dateFilter, selectedLabels, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
 
   // Extract all categories / species labels currently present in observations for selection
   const allAvailableLabels = React.useMemo(() => {
@@ -412,7 +437,7 @@ const Community: React.FC<CommunityProps> = ({
   };
   
   const [activeItemIndex, setActiveItemIndex] = useState(0);
-  const activePostIndex = activePost ? posts.findIndex(p => p.id === activePost.id) : -1;
+  const activePostIndex = activePost ? displayPosts.findIndex(p => p.id === activePost.id) : -1;
   const contentContainerRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -783,15 +808,25 @@ const Community: React.FC<CommunityProps> = ({
     }
   };
 
-  const applyLikeLocally = (postId: string, uid: string, like: boolean) => {
+  // Likes I made via scalable like documents (legacy likes live in post.likes)
+  const [myLikes, setMyLikes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+      if (!activePost || !isMember || myLikes.has(activePost.id)) return;
+      FirebaseService.hasLiked(activePost.id).then(liked => {
+          if (liked) setMyLikes(prev => new Set(prev).add(activePost.id));
+      });
+  }, [activePost?.id, isMember]);
+  const isLikedByMe = (p: CommunityPost) => !!currentUserMode.userId && (myLikes.has(p.id) || !!p.likes?.includes(currentUserMode.userId));
+
+  const applyLikeLocally = (post: CommunityPost, uid: string, like: boolean, legacy: boolean) => {
       const update = (p: CommunityPost) => {
-          if (p.id !== postId) return p;
-          const set = new Set(p.likes || []);
-          if (like) set.add(uid); else set.delete(uid);
-          return { ...p, likes: [...set] };
+          if (p.id !== post.id) return p;
+          if (!like && legacy) return { ...p, likes: (p.likes || []).filter(x => x !== uid) };
+          return { ...p, likeCount: Math.max(0, (p.likeCount || 0) + (like ? 1 : -1)) };
       };
       setPosts(prev => prev.map(update));
       setActivePost(prev => prev ? update(prev) : prev);
+      setMyLikes(prev => { const n = new Set(prev); if (like) n.add(post.id); else n.delete(post.id); return n; });
   };
 
   const setLike = async (post: CommunityPost, like: boolean) => {
@@ -800,23 +835,25 @@ const Community: React.FC<CommunityProps> = ({
           return;
       }
       const uid = currentUserMode.userId!;
-      const isLiked = !!post.likes?.includes(uid);
+      const legacy = !!post.likes?.includes(uid);
+      const isLiked = legacy || myLikes.has(post.id);
       if (isLiked === like) return;
       hapticFeedback(10);
-      applyLikeLocally(post.id, uid, like);
+      const snapshot = { posts, active: activePost, mine: myLikes };
+      applyLikeLocally(post, uid, like, legacy);
       track(like ? 'like' : 'unlike', { media: post.mediaType });
       try {
-          await FirebaseService.toggleLike(post.id, uid, isLiked);
+          await FirebaseService.toggleLike(post.id, uid, isLiked, legacy);
       } catch (err) {
           console.error('Like failed', err);
-          applyLikeLocally(post.id, uid, !like);
+          setPosts(snapshot.posts); setActivePost(snapshot.active); setMyLikes(snapshot.mine);
           showToast('Could not save your like. Please try again.');
       }
   };
 
   const handleLike = (e: React.MouseEvent, post: CommunityPost) => {
       e.stopPropagation();
-      setLike(post, !post.likes?.includes(currentUserMode.userId || ''));
+      setLike(post, !isLikedByMe(post));
   };
 
   const handleDoubleTap = (_e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
@@ -908,12 +945,12 @@ const Community: React.FC<CommunityProps> = ({
 
   const navigateSequential = (direction: 'next' | 'prev') => {
     if (!activePost) return;
-    const currentIndex = posts.findIndex(p => p.id === activePost.id);
+    const currentIndex = displayPosts.findIndex(p => p.id === activePost.id);
     if (currentIndex === -1) return;
     
     let nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
-    if (nextIndex >= 0 && nextIndex < posts.length) {
-        setActivePost(posts[nextIndex]);
+    if (nextIndex >= 0 && nextIndex < displayPosts.length) {
+        setActivePost(displayPosts[nextIndex]);
         setActiveItemIndex(0);
         if (contentContainerRef.current) contentContainerRef.current.scrollTop = 0;
         if (mainScrollRef.current) mainScrollRef.current.scrollTop = 0;
@@ -1113,8 +1150,20 @@ const Community: React.FC<CommunityProps> = ({
                     </p>
                 </button>
 
-                {/* Drafts Drawer Toggle Button */}
-                <div className="flex items-center gap-3">
+                {/* Header actions: drafts, activity (heart) and messages, Instagram-style */}
+                <div className="flex items-center gap-1">
+                    {!isJournalOnly && onOpenActivity && (
+                        <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-stone-800 hover:bg-stone-100">
+                            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">favorite</span>
+                            {unreadActivity > 0 && <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{unreadActivity > 9 ? '9+' : unreadActivity}</span>}
+                        </button>
+                    )}
+                    {!isJournalOnly && onOpenMessages && (
+                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Messages, ${unreadMessages} unread` : 'Messages'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-stone-800 hover:bg-stone-100">
+                            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">send</span>
+                            {unreadMessages > 0 && <span className="absolute top-1.5 right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{unreadMessages > 9 ? '9+' : unreadMessages}</span>}
+                        </button>
+                    )}
                     {onViewDrafts && (
                         <button 
                             onClick={onViewDrafts} 
@@ -1557,7 +1606,7 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : (
                 <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 space-y-2 md:space-y-4">
-                    {filteredAndSortedPosts.map((post) => (
+                    {displayPosts.map((post) => (
                         <FeedCard 
                             key={post.id} 
                             post={post} 
@@ -1608,7 +1657,7 @@ const Community: React.FC<CommunityProps> = ({
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_left</span>
                         </button>
                     )}
-                    {activePostIndex !== -1 && activePostIndex < posts.length - 1 && (
+                    {activePostIndex !== -1 && activePostIndex < displayPosts.length - 1 && (
                         <button 
                             onClick={() => navigateSequential('next')}
                             className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
@@ -1680,7 +1729,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <video controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
+                                                            <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
                                                                 src={item.videoUrl} 
                                                                 poster={item.thumbnailUrl} 
                                                                 controls 
@@ -1700,7 +1749,7 @@ const Community: React.FC<CommunityProps> = ({
                                                                         <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                                     </div>
                                                                 )}
-                                                                <audio src={item.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                                <PlayableAudio src={item.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                             </div>
                                                         ) : (
                                                             <img 
@@ -1749,7 +1798,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <video controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
+                                                <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
                                                     src={currentItem.videoUrl} 
                                                     poster={currentItem.thumbnailUrl} 
                                                     controls 
@@ -1769,7 +1818,7 @@ const Community: React.FC<CommunityProps> = ({
                                                             <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                         </div>
                                                     )}
-                                                    <audio src={currentItem.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                    <PlayableAudio src={currentItem.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                 </div>
                                             ) : (
                                                 <img 
@@ -1795,7 +1844,7 @@ const Community: React.FC<CommunityProps> = ({
                                         </button>
                                     </div>
                                     <div className="px-2 md:px-4 flex items-center shrink-0 border-b border-theme-primary/5 pb-1">
-                                        {(() => { const liked = !!activePost.likes?.includes(currentUserMode.userId!); return (
+                                        {(() => { const liked = isLikedByMe(activePost); return (
                                             <button onClick={(e) => handleLike(e, activePost)} aria-pressed={liked} aria-label={liked ? 'Unlike' : 'Like'} className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-90 ${liked ? 'text-red-600' : 'text-stone-800'}`}>
                                                 <span className="material-symbols-outlined text-[28px]" style={liked ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">favorite</span>
                                             </button>
@@ -1810,7 +1859,7 @@ const Community: React.FC<CommunityProps> = ({
                                             <span className="material-symbols-outlined text-[28px]" style={isSaved ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">bookmark</span>
                                         </button>
                                     </div>
-                                    <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{(activePost.likes?.length || 0).toLocaleString()} {(activePost.likes?.length || 0) === 1 ? 'like' : 'likes'}</p>
+                                    <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{likeTotal(activePost).toLocaleString()} {likeTotal(activePost) === 1 ? 'like' : 'likes'}</p>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
                                         {activePost.curatorNote && (
                                             <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>

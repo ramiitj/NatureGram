@@ -80,3 +80,7 @@ export const timeAgo = (ts: any): string => {
     if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
     return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(Date.now() - ms > 300 * 86400000 ? { year: 'numeric' } : {}) });
 };
+
+/** Total likes across scalable like documents (likeCount) and legacy array likes. */
+export const likeTotal = (p: { likeCount?: number; likes?: string[] } | null | undefined) =>
+    Math.max(0, (p?.likeCount || 0) + (p?.likes?.length || 0));

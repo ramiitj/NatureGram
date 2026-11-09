@@ -24,6 +24,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
 import admin from 'firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { governLiveSetup, governGenerateRequest, governGenerateBody, AI_POLICY_VERSION } from './aiGovernance.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -188,6 +189,64 @@ setInterval(() => {
   const d = today();
   for (const [uid, e] of ledger) if (e.day !== d && !activeLive.has(uid)) ledger.delete(uid);
 }, 60 * 60 * 1000).unref();
+
+// ---------------------------------------------------------------------------
+// Shared quota store: per-user daily usage in Firestore (ai_usage/{uid}_{day}) so limits
+// hold across all server instances. Falls back to the per-instance ledger if unavailable.
+// Needs the server's service account to have Firestore access on the Firebase project.
+// ---------------------------------------------------------------------------
+let quotaDb = null;
+let quotaDbHealthy = true;
+try {
+  quotaDb = getFirestore();
+  if (firebaseWebConfig?.firestoreDatabaseId && firebaseWebConfig.firestoreDatabaseId !== '(default)') {
+    quotaDb = getFirestore(admin.app(), firebaseWebConfig.firestoreDatabaseId);
+  }
+} catch (e) { log('warn', 'quota store not initialised', { error: e.message }); }
+
+/** Atomically add `amount` to a usage field if it stays within `limit`. Returns null when the store is unavailable. */
+async function sharedCharge(uid, field, amount, limit) {
+  if (!quotaDb || !quotaDbHealthy) return null;
+  const ref = quotaDb.doc(`ai_usage/${uid}_${today()}`);
+  try {
+    return await quotaDb.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const current = snap.exists ? (snap.get(field) || 0) : 0;
+      if (amount > 0 && current + amount > limit) return { ok: false, current };
+      tx.set(ref, {
+        uid, day: today(), [field]: current + amount,
+        updatedAt: FieldValue.serverTimestamp(),
+        // TTL policy on expireAt keeps the collection small (see docs/DEPLOYMENT.md)
+        expireAt: Timestamp.fromMillis(Date.now() + 3 * 86_400_000),
+      }, { merge: true });
+      return { ok: true, current: current + amount };
+    });
+  } catch (e) {
+    quotaDbHealthy = false;
+    log('warn', 'shared quota store unavailable; using per-instance quotas for 10 min', { error: e.message });
+    setTimeout(() => { quotaDbHealthy = true; }, 10 * 60_000).unref();
+    return null;
+  }
+}
+
+async function sharedUsage(uid, field) {
+  if (!quotaDb || !quotaDbHealthy) return null;
+  try {
+    const snap = await quotaDb.doc(`ai_usage/${uid}_${today()}`).get();
+    return snap.exists ? (snap.get(field) || 0) : 0;
+  } catch { return null; }
+}
+
+async function chargeHttpShared(user) {
+  const local = chargeHttp(user); // per-minute burst + local daily guard
+  if (!local.ok) return local;
+  const q = user.isAnonymous ? QUOTAS.anonymous : QUOTAS.user;
+  const shared = await sharedCharge(user.uid, 'http', 1, q.httpPerDay);
+  if (shared && !shared.ok) {
+    return { ok: false, reason: user.isAnonymous ? 'Daily AI limit reached for guests. Create a free account for more.' : 'Daily AI limit reached. It resets at midnight UTC.' };
+  }
+  return { ok: true };
+}
 
 function chargeHttp(user) {
   const e = entry(user.uid);
@@ -446,7 +505,7 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     const len = Number(req.headers['content-length'] || 0);
     if (len > QUOTAS.maxBodyBytes) return res.status(413).json({ error: { code: 413, message: 'Media too large to analyze.' } });
 
-    const charge = chargeHttp(user);
+    const charge = await chargeHttpShared(user);
     if (!charge.ok) return res.status(429).json({ error: { code: 429, message: charge.reason } });
     if (!API_KEY) return res.status(503).json({ error: { code: 503, message: 'AI is not configured on the server.' } });
 
@@ -581,12 +640,14 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n'); socket.destroy(); return;
     }
 
+    user.sharedLiveMs = await sharedUsage(user.uid, 'liveMs');
     wss.handleUpgrade(req, socket, head, (clientWs) => {
       const closeWith = (code, reason) => { try { clientWs.close(code, reason); } catch { /* noop */ } };
       const q = user.isAnonymous ? QUOTAS.anonymous : QUOTAS.user;
       const e = entry(user.uid);
       const conns = activeLive.get(user.uid) || new Set();
       if (conns.size >= QUOTAS.maxConcurrentLive) return closeWith(4429, 'Too many live sessions open. Close other tabs and retry.');
+      if (typeof user.sharedLiveMs === 'number') e.liveMs = Math.max(e.liveMs, user.sharedLiveMs);
       if (e.liveMs >= q.liveMsPerDay) {
         return closeWith(4429, user.isAnonymous ? 'Daily live guide limit reached for guests. Create a free account for more.' : 'Daily live guide limit reached. It resets at midnight UTC.');
       }
@@ -613,7 +674,9 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
         finished = true;
         clearTimeout(timeout);
         clearTimeout(idleTimer);
-        e.liveMs += Date.now() - session.startedAt;
+        const used = Date.now() - session.startedAt;
+        e.liveMs += used;
+        sharedCharge(user.uid, 'liveMs', used, Number.MAX_SAFE_INTEGER).catch(() => {});
         conns.delete(session);
         if (!conns.size) activeLive.delete(user.uid);
         log('info', 'live session ended', { uid: user.uid, anon: user.isAnonymous, ms: Date.now() - session.startedAt });

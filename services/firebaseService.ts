@@ -1,3 +1,4 @@
+import { apiUrl } from './apiOrigin';
 
 import {
   collection,
@@ -45,7 +46,7 @@ import {
   EmailAuthProvider,
 } from "firebase/auth";
 import { auth, db, storage } from "../firebaseConfig";
-import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, NaturalistPersona } from "../types";
+import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, NaturalistPersona, Conversation, DirectMessage } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants/prompts";
 import { generateThumbnail, reencodeImage } from "../utils";
 
@@ -110,7 +111,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 export const getCorsProxyUrl = (url: string) => {
   if (!url) return url;
   if (url.startsWith('http') && url.includes('firebasestorage.googleapis.com')) {
-    return `/api/media-proxy?url=${encodeURIComponent(url)}`;
+    return apiUrl(`/api/media-proxy?url=${encodeURIComponent(url)}`);
   }
   return url;
 };
@@ -527,14 +528,15 @@ export const FirebaseService = {
     const mime = blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm');
     let ext = 'jpg';
     if (type === 'video') ext = mime.includes('mp4') ? 'mp4' : 'webm';
-    else if (type === 'audio') ext = 'webm';
+    else if (type === 'audio') ext = mime.includes('mp4') ? 'm4a' : 'webm';
     else if (mime.includes('png')) ext = 'png';
     else if (mime.includes('webp')) ext = 'webp';
 
     const folder = folderOverride || (type === 'image' ? 'snapshots' : (type === 'audio' ? 'audio' : 'videos'));
     const filename = `${folder}/${userId}/${Date.now()}_${crypto.randomUUID()}.${ext}`;
     const storageRef = ref(storage, filename);
-    await uploadBytes(storageRef, blob, { contentType: mime });
+    // Immutable, CDN-cacheable media (file names are unique per upload)
+    await uploadBytes(storageRef, blob, { contentType: mime, cacheControl: 'public, max-age=31536000, immutable' });
     return await getDownloadURL(storageRef);
   },
 
@@ -543,12 +545,16 @@ export const FirebaseService = {
       let imageUrl: string | null = null;
       let thumbnailUrl: string | null = null;
       let originalImageUrl: string | null = null;
+      let thumbSmallUrl: string | null = null;
       const uploadSource = snapshot.blob || snapshot.url;
       if (uploadSource) {
           if (snapshot.blob && snapshot.type === 'image') {
               originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, uid, 'image');
-              const thumbBlob = await generateThumbnail(snapshot.blob, 800);
-              thumbnailUrl = await FirebaseService.uploadMedia(thumbBlob, uid, 'image');
+              const [thumbBlob, smallBlob] = await Promise.all([generateThumbnail(snapshot.blob, 800), generateThumbnail(snapshot.blob, 400)]);
+              [thumbnailUrl, thumbSmallUrl] = await Promise.all([
+                FirebaseService.uploadMedia(thumbBlob, uid, 'image'),
+                FirebaseService.uploadMedia(smallBlob, uid, 'image'),
+              ]);
               imageUrl = thumbnailUrl;
           } else {
               imageUrl = await FirebaseService.uploadMedia(uploadSource, uid, 'image');
@@ -562,6 +568,7 @@ export const FirebaseService = {
       return {
         imageUrl,
         thumbnailUrl,
+        thumbSmallUrl,
         originalImageUrl,
         videoUrl,
         audioUrl,
@@ -630,6 +637,7 @@ export const FirebaseService = {
         userAvatar: userProfile?.avatarUrl || null,
         imageUrl: primaryItem.imageUrl,
         thumbnailUrl: primaryItem.thumbnailUrl,
+        thumbSmallUrl: primaryItem.thumbSmallUrl,
         originalImageUrl: primaryItem.originalImageUrl,
         videoUrl: primaryItem.videoUrl,
         audioUrl: primaryItem.audioUrl,
@@ -654,6 +662,7 @@ export const FirebaseService = {
         caption: caption || null,
         timestamp: serverTimestamp(),
         likes: [],
+        likeCount: 0,
         commentCount: 0,
         isPublic: flags.feed,
         isJournal: flags.journal,
@@ -761,6 +770,7 @@ export const FirebaseService = {
           id: postId,
           mediaType: post.mediaType || 'image',
           thumbnailUrl: post.thumbnailUrl || post.imageUrl || "",
+          thumbSmallUrl: post.thumbSmallUrl || null,
           title: post.title || null,
           caption: post.caption || null,
           description: post.description || null,
@@ -769,6 +779,7 @@ export const FirebaseService = {
           userName: post.userName || null,
           userAvatar: post.userAvatar || null,
           likes: post.likes || [],
+          likeCount: post.likeCount || 0,
           commentCount: post.commentCount || 0,
           isPublic: true,
           tags: post.tags || [],
@@ -910,16 +921,39 @@ export const FirebaseService = {
       return null;
   },
 
-  toggleLike: async (postId: string, userId: string, isLiked: boolean) => {
+  /** Has the signed-in explorer liked this post via the scalable like documents? */
+  hasLiked: async (postId: string): Promise<boolean> => {
+    const me = auth.currentUser?.uid;
+    if (!me) return false;
+    try { return (await getDoc(doc(db, "ecosystem_feed", postId, "likes", me))).exists(); } catch { return false; }
+  },
+
+  /**
+   * Likes scale via one document per like (posts/{id}/likes/{uid}) plus a likeCount counter
+   * the rules only allow to move by exactly one, together with that document.
+   * Legacy likes stored in the `likes` array keep working and keep counting.
+   * @param isLiked  current state (true = unlike)
+   * @param legacy   true when the existing like lives in the legacy array
+   */
+  toggleLike: async (postId: string, userId: string, isLiked: boolean, legacy = false) => {
     const postRef = doc(db, "ecosystem_feed", postId);
-    await updateDoc(postRef, {
-        likes: isLiked ? arrayRemove(userId) : arrayUnion(userId)
-    });
-    try {
-        await updateDoc(doc(db, "feed_thumbnails", postId), {
-            likes: isLiked ? arrayRemove(userId) : arrayUnion(userId)
-        });
-    } catch(e) {}
+    if (isLiked && legacy) {
+      await updateDoc(postRef, { likes: arrayRemove(userId) });
+      await updateDoc(doc(db, "feed_thumbnails", postId), { likes: arrayRemove(userId) }).catch(() => {});
+    } else {
+      const likeRef = doc(db, "ecosystem_feed", postId, "likes", userId);
+      const commit = async (withThumb: boolean) => {
+        const batch = writeBatch(db);
+        const delta = increment(isLiked ? -1 : 1);
+        if (isLiked) batch.delete(likeRef);
+        else batch.set(likeRef, { userId, createdAt: serverTimestamp() });
+        batch.update(postRef, { likeCount: delta });
+        // The feed index mirrors the counter atomically (rules verify the like document)
+        if (withThumb) batch.update(doc(db, "feed_thumbnails", postId), { likeCount: delta });
+        await batch.commit();
+      };
+      try { await commit(true); } catch { await commit(false); }
+    }
     
     if (!isLiked) try {
       const postSnap = await getDoc(postRef);
@@ -1110,6 +1144,100 @@ export const FirebaseService = {
         postId, senderId: me.uid, senderName,
       }).catch(() => {});
     }));
+  },
+
+  // ------------------------------------------------------------------ reels
+  /** Public video posts, newest first (paginated). */
+  getVideoPosts: async (lastVisible: any = null, pageSize = 8): Promise<{ posts: CommunityPost[]; lastVisible: any }> => {
+    const build = (ordered: boolean) => {
+      const c: any[] = [where('mediaType', '==', 'video'), where('isPublic', '==', true)];
+      if (ordered) c.push(orderBy('timestamp', 'desc'));
+      c.push(limit(ordered ? pageSize : 60));
+      if (ordered && lastVisible) c.push(startAfter(lastVisible));
+      return query(collection(db, 'feed_thumbnails'), ...c);
+    };
+    let snap;
+    let ordered = true;
+    try { snap = await getDocs(build(true)); }
+    catch (e: any) {
+      if (e?.code !== 'failed-precondition' || lastVisible) throw e;
+      ordered = false; // index still building: one unordered batch, sorted client-side
+      snap = await getDocs(build(false));
+    }
+    const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
+    const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as CommunityPost)).filter(p => !isSeedPost(p.id, p));
+    if (!ordered) posts.sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
+    return { posts, lastVisible: ordered && snap.docs.length === pageSize ? snap.docs[snap.docs.length - 1] : null };
+  },
+
+  // ------------------------------------------------------------------ direct messages
+  conversationId: (a: string, b: string) => [a, b].sort().join('_'),
+
+  /** Opens (creating if needed) the 1:1 conversation with another explorer. */
+  openConversation: async (otherUid: string): Promise<string> => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
+    if (otherUid === me.uid) throw new Error("You can't message yourself.");
+    const participants = [me.uid, otherUid].sort();
+    const cid = participants.join('_');
+    const ref = doc(db, 'conversations', cid);
+    const existingSnap = await getDoc(ref).catch(() => null);
+    if (!existingSnap || !existingSnap.exists()) {
+      const [mine, theirs] = await Promise.all([FirebaseService.getUserProfile(me.uid), FirebaseService.getUserProfile(otherUid)]);
+      await setDoc(ref, {
+        participants,
+        participantInfo: {
+          [me.uid]: { username: mine?.username || me.displayName || 'Explorer', avatarUrl: mine?.avatarUrl || null },
+          [otherUid]: { username: theirs?.username || 'Explorer', avatarUrl: theirs?.avatarUrl || null },
+        },
+        lastMessage: null,
+        updatedAt: serverTimestamp(),
+        lastReadAt: { [me.uid]: serverTimestamp() },
+      });
+    }
+    return cid;
+  },
+
+  subscribeToInbox: (callback: (convos: Conversation[]) => void) => {
+    const me = auth.currentUser?.uid;
+    if (!me) { callback([]); return () => {}; }
+    const q = query(collection(db, 'conversations'), where('participants', 'array-contains', me), orderBy('updatedAt', 'desc'), limit(50));
+    return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as Conversation))),
+      () => callback([]));
+  },
+
+  subscribeToMessages: (cid: string, callback: (msgs: DirectMessage[]) => void) => {
+    const q = query(collection(db, 'conversations', cid, 'messages'), orderBy('createdAt', 'desc'), limit(100));
+    return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as DirectMessage)).reverse()),
+      () => callback([]));
+  },
+
+  sendMessage: async (cid: string, text: string, postId?: string) => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
+    const clean = text.trim().slice(0, 2000);
+    if (!clean && !postId) return;
+    const msg: any = { senderId: me.uid, text: clean, createdAt: serverTimestamp() };
+    if (postId) msg.postId = postId;
+    await addDoc(collection(db, 'conversations', cid, 'messages'), msg);
+    await updateDoc(doc(db, 'conversations', cid), {
+      lastMessage: { text: clean || 'Shared a sighting', senderId: me.uid, at: serverTimestamp() },
+      updatedAt: serverTimestamp(),
+      [`lastReadAt.${me.uid}`]: serverTimestamp(),
+    }).catch(() => {});
+    // Notify the other participant (push via the existing notification pipeline)
+    const other = cid.split('_').find(u => u !== me.uid);
+    if (other) {
+      const profile = await FirebaseService.getUserProfile(me.uid).catch(() => null);
+      const name = profile?.username || me.displayName || 'An explorer';
+      FirebaseService.addNotification(other, { type: 'message', message: `${name} sent you a message: "${(clean || 'a sighting').slice(0, 80)}"`, senderId: me.uid, senderName: name }).catch(() => {});
+    }
+  },
+
+  markConversationRead: async (cid: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me) return;
+    await updateDoc(doc(db, 'conversations', cid), { [`lastReadAt.${me}`]: serverTimestamp() }).catch(() => {});
   },
 
   // ------------------------------------------------------------------ social graph
@@ -1320,6 +1448,18 @@ export const FirebaseService = {
 
     step('Removing your likes…');
     try {
+      const myLikes = await getDocs(query(collectionGroup(db, "likes"), where("userId", "==", uid), limit(1000)));
+      for (const l of myLikes.docs) {
+        const postId = l.ref.parent.parent?.id;
+        if (!postId) continue;
+        const b = writeBatch(db);
+        b.delete(l.ref);
+        b.update(doc(db, "ecosystem_feed", postId), { likeCount: increment(-1) });
+        await b.commit().catch(() => {});
+        await updateDoc(doc(db, "feed_thumbnails", postId), { likeCount: increment(-1) }).catch(() => {});
+      }
+    } catch (e) { console.warn("Like-document cleanup incomplete", e); }
+    try {
       const liked = await getDocs(query(collection(db, "feed_thumbnails"), where("isPublic", "==", true), where("likes", "array-contains", uid), limit(500)));
       for (const l of liked.docs) {
         await updateDoc(doc(db, "ecosystem_feed", l.id), { likes: arrayRemove(uid) }).catch(() => {});
@@ -1448,7 +1588,7 @@ export const FirebaseService = {
         
         let firebaseUrl = "";
         if (url) {
-            const proxiedUrl = `/api/media-proxy?url=${encodeURIComponent(url)}`;
+            const proxiedUrl = apiUrl(`/api/media-proxy?url=${encodeURIComponent(url)}`);
             
             let res: Response | null = null;
             try {

@@ -57,3 +57,11 @@ Without these steps, explorers still get system notifications while NatureGram i
 
 ## Analytics
 See `docs/ANALYTICS.md` for the BigQuery log sink and the event taxonomy.
+
+## Shared AI quotas (multi-instance)
+The server records per-user daily AI usage in Firestore (`ai_usage/{uid}_{YYYY-MM-DD}`) through the Admin SDK, so limits hold across all Cloud Run instances.
+1. Give the Cloud Run service account the **Cloud Datastore User** role on project `biostream-6490a`. If it runs in another project, add it there via IAM.
+2. Add a TTL policy so old usage docs are deleted automatically: Firestore → TTL → collection group `ai_usage`, field `expireAt`.
+3. Clients cannot read or write `ai_usage`, because no rule allows it.
+
+If the store is unreachable, the server logs a warning and falls back to per-instance limits.

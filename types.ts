@@ -1,7 +1,7 @@
 
 export interface FieldNotification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'reply' | 'sighting' | 'system';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'reply' | 'message' | 'sighting' | 'system';
   message: string;
   timestamp: any;
   postId?: string;
@@ -157,7 +157,9 @@ export enum AppView {
   JOURNAL = 'JOURNAL',
   USER_PROFILE = 'USER_PROFILE',
   DRAFTS = 'DRAFTS',
-  SHARED_POST = 'SHARED_POST'
+  SHARED_POST = 'SHARED_POST',
+  MESSAGES = 'MESSAGES',
+  REELS = 'REELS'
 }
 
 export interface GeminiConfig {
@@ -198,12 +200,16 @@ export interface FeedThumbnail {
   id: string;
   mediaType: 'image' | 'video' | 'audio';
   thumbnailUrl: string;
+  /** ~400px variant for small screens and grids */
+  thumbSmallUrl?: string | null;
   title?: string;
   description?: string;
   timestamp: any;
   userId: string;
   userName: string;
   likes: string[];
+  /** Scalable like counter (likes stored as documents under the post) */
+  likeCount?: number;
   commentCount: number;
   isPublic: boolean;
   tags: string[];
@@ -258,3 +264,20 @@ export interface Comment {
 }
 
 export type AudioMode = 'voice' | 'silent';
+
+export interface Conversation {
+  id: string;
+  participants: string[];
+  participantInfo?: Record<string, { username: string; avatarUrl?: string | null }>;
+  lastMessage?: { text: string; senderId: string; at: any } | null;
+  updatedAt?: any;
+  lastReadAt?: Record<string, any>;
+}
+
+export interface DirectMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  postId?: string;
+  createdAt: any;
+}

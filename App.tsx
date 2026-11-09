@@ -23,6 +23,8 @@ const AdminConsole = lazy(() => import('./components/AdminConsole.tsx'));
 const PostSessionView = lazy(() => import('./components/PostSessionView.tsx'));
 const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
 const DraftsTray = lazy(() => import('./components/DraftsTray.tsx'));
+const Messages = lazy(() => import('./components/Messages.tsx'));
+const Reels = lazy(() => import('./components/Reels.tsx'));
 const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
 
 const ViewLoader: React.FC<{ dark?: boolean }> = ({ dark }) => (
@@ -42,6 +44,8 @@ const PATHS: Record<AppView, string> = {
   [AppView.LENS]: '/lens',
   [AppView.POST_SESSION]: '/review',
   [AppView.SHARED_POST]: '/feed',
+  [AppView.MESSAGES]: '/messages',
+  [AppView.REELS]: '/reels',
 };
 
 const pathId = (p: string, prefix: string) => (p.startsWith(prefix) ? decodeURIComponent(p.slice(prefix.length).split('/')[0] || '') || null : null);
@@ -55,6 +59,8 @@ const viewFromPath = (p: string): AppView => {
   if (p.startsWith('/profile')) return AppView.USER_PROFILE;
   if (p.startsWith('/admin')) return AppView.ADMIN;
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
+  if (p.startsWith('/messages')) return AppView.MESSAGES;
+  if (p.startsWith('/reels')) return AppView.REELS;
   // Lens and review need live state; after a refresh, land on the feed instead of an empty screen
   return AppView.COMMUNITY;
 };
@@ -127,6 +133,8 @@ const App: React.FC = () => {
   const [authModal, setAuthModal] = useState<{ signUp: boolean; reason?: string } | null>(null);
   const pendingAuthActionRef = useRef<(() => void) | null>(null);
   const [notifications, setNotifications] = useState<FieldNotification[]>([]);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [openConversationId, setOpenConversationId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [isDetailActive, setIsDetailActive] = useState(false);
 
@@ -222,6 +230,15 @@ const App: React.FC = () => {
       return () => unsubscribe();
     }
     setNotifications([]);
+  }, [userMode?.userId, userMode?.isAnonymous]);
+
+  useEffect(() => {
+    if (!userMode?.userId || userMode.isAnonymous || userMode.userId === 'explorer_guest') { setUnreadMessages(0); return; }
+    const me = userMode.userId;
+    const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
+    return FirebaseService.subscribeToInbox(convos => {
+      setUnreadMessages(convos.filter(c => c.lastMessage && c.lastMessage.senderId !== me && toMs(c.lastMessage.at) > toMs(c.lastReadAt?.[me])).length);
+    });
   }, [userMode?.userId, userMode?.isAnonymous]);
 
   useEffect(() => {
@@ -364,6 +381,10 @@ const App: React.FC = () => {
 
   const handleNavigationRequest = async (targetView: AppView, params?: any) => {
     if (userMode?.isAnonymous) {
+      if (targetView === AppView.MESSAGES) {
+        requireAccount('Create a free account to message other explorers.', () => handleNavigationRequest(targetView, params));
+        return;
+      }
       if (targetView === AppView.JOURNAL || targetView === AppView.DRAFTS) {
         requireAccount('Your journal keeps every sighting you make. Create a free account to start one.', () => handleNavigationRequest(targetView, params));
         return;
@@ -464,19 +485,19 @@ const App: React.FC = () => {
   }, [isNotificationsOpen]);
 
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
-  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE) && !isDetailActive;
+  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
+  const darkNav = currentView === AppView.REELS;
+  const openActivity = () => userMode?.isAnonymous ? requireAccount('Create a free account to see who liked and commented on your sightings.') : setIsNotificationsOpen(true);
+  const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
   const navItems: { key: string; label: string; icon: string; active: boolean; onClick: () => void; badge?: number }[] = [
     { key: 'feed', label: 'Feed', icon: 'home', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
-    { key: 'journal', label: 'Journal', icon: 'menu_book', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'reels', label: 'Reels', icon: 'movie', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
     { key: 'capture', label: 'Capture', icon: 'add', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
-    {
-      key: 'activity', label: 'Activity', icon: 'favorite', active: isNotificationsOpen, badge: unreadCount,
-      onClick: () => userMode?.isAnonymous ? requireAccount('Create a free account to see who liked and commented on your sightings.') : setIsNotificationsOpen(true),
-    },
+    { key: 'journal', label: 'Journal', icon: 'menu_book', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
     { key: 'profile', label: 'Profile', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
   ];
 
@@ -702,6 +723,10 @@ const App: React.FC = () => {
                   onLogoClick={scrollFeedToTop}
                   onRequireAccount={requireAccount}
                   dailyTheme={dailyTheme}
+                  onOpenActivity={openActivity}
+                  onOpenMessages={() => openMessages()}
+                  unreadActivity={unreadCount}
+                  unreadMessages={unreadMessages}
                 />
               )}
               {currentView === AppView.JOURNAL && userMode && (
@@ -739,10 +764,43 @@ const App: React.FC = () => {
                   onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
+                  onMessage={async (uid: string) => {
+                    if (userMode?.isAnonymous) { requireAccount('Create a free account to message explorers.'); return; }
+                    try { const cid = await FirebaseService.openConversation(uid); openMessages(cid); } catch { /* shown in profile */ }
+                  }}
                 />
               </Suspense>
             </ErrorBoundary>
           </div>
+        )}
+
+        {currentView === AppView.MESSAGES && userMode && (
+          <div className="flex-1 flex flex-col min-h-0">
+            <ErrorBoundary label="messages">
+              <Suspense fallback={<ViewLoader />}>
+                <Messages
+                  initialConversationId={openConversationId}
+                  onBack={() => { setOpenConversationId(null); handleNavigationRequest(AppView.COMMUNITY); }}
+                  onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                  onOpenPost={(postId) => { setReturnView(AppView.MESSAGES); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {currentView === AppView.REELS && userMode && (
+          <ErrorBoundary label="reels">
+            <Suspense fallback={<ViewLoader dark />}>
+              <Reels
+                currentUserMode={userMode}
+                onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                onOpenPost={(postId) => { setReturnView(AppView.REELS); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
+                onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                onRequireAccount={requireAccount}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {currentView === AppView.ADMIN && (
@@ -788,7 +846,7 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
-        <div className="absolute bottom-0 left-0 right-0 z-[40] animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur border-t border-stone-100">
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t ${darkNav ? 'bg-black/85 border-white/10' : 'bg-white/95 border-stone-100'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto">
             {navItems.map(item => item.key === 'capture' ? (
               <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
@@ -800,7 +858,7 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] h-14 rounded-xl transition-colors ${item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'}`}
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] h-14 rounded-xl transition-colors ${darkNav ? (item.active ? 'text-white' : 'text-white/70 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
               >
                 <span className="material-symbols-outlined text-[26px]" style={item.active ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{item.icon}</span>
                 <span className={`text-[11px] leading-none ${item.active ? 'font-bold' : 'font-medium'}`}>{item.label}</span>

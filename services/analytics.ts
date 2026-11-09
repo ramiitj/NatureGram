@@ -10,11 +10,13 @@
  * Event taxonomy: docs/ANALYTICS.md
  */
 
+import { apiUrl } from './apiOrigin';
+
 type Props = Record<string, string | number | boolean | null | undefined>;
 interface QueuedEvent { name: string; props: Props; ts: number; kind: 'event' | 'error' | 'vital' }
 
 const CONSENT_KEY = 'naturegram_analytics_consent';
-const ENDPOINT = '/api/events';
+const ENDPOINT = apiUrl('/api/events');
 const queue: QueuedEvent[] = [];
 let uid: string | null = null;
 let flushTimer: number | null = null;

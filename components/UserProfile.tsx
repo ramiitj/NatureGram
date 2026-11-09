@@ -19,6 +19,7 @@ interface UserProfileProps {
   onOpenPost?: (postId: string) => void;
   onViewProfile?: (uid: string) => void;
   onRequireAccount?: (reason: string, then?: () => void) => void;
+  onMessage?: (uid: string) => void;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -51,7 +52,7 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 };
 
-const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -232,7 +233,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${following ? 'bg-stone-100 text-stone-900 hover:bg-stone-200' : 'bg-theme-accent text-white hover:opacity-90'}`}>
                   {following ? 'Following' : 'Follow'}
                 </button>
-                <button onClick={shareProfile} className="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-sm font-bold text-stone-900">Share profile</button>
+                <button onClick={() => onMessage?.(userId)} className="flex-1 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-sm font-bold text-stone-900">Message</button>
+                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span></button>
               </>
             )}
           </div>
@@ -274,7 +276,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                     <li key={p.id} className="relative aspect-square bg-stone-100">
                       <button onClick={() => onOpenPost?.(p.id)} className="w-full h-full" aria-label={`Open ${p.labels?.[0] || 'sighting'}`}>
                         {(p.thumbnailUrl || p.imageUrl)
-                          ? <img src={p.thumbnailUrl || p.imageUrl!} alt="" loading="lazy" className="w-full h-full object-cover" />
+                          ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl!} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           : <span className="w-full h-full flex items-center justify-center text-stone-400"><span className="material-symbols-outlined text-3xl" aria-hidden="true">{p.mediaType === 'audio' ? 'graphic_eq' : 'movie'}</span></span>}
                         {p.mediaType === 'video' && <span className="absolute top-1.5 right-1.5 material-symbols-outlined text-white text-lg drop-shadow" aria-hidden="true">play_circle</span>}
                         {p.items && p.items.length > 1 && <span className="absolute top-1.5 right-1.5 material-symbols-outlined text-white text-lg drop-shadow" aria-hidden="true">collections</span>}

@@ -181,7 +181,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
     }
 
-    const recorder = new MediaRecorder(streamToRecord, { mimeType: type === 'video' ? 'video/webm' : 'audio/webm' });
+    // Prefer MP4/H.264 + AAC (plays everywhere incl. iPhone); fall back to WebM where MP4 recording isn't supported
+    const candidates = type === 'video'
+      ? ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm']
+      : ['audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
+    const mimeType = candidates.find(m => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported?.(m));
+    const recorder = mimeType ? new MediaRecorder(streamToRecord, { mimeType }) : new MediaRecorder(streamToRecord);
     mediaRecorderRef.current = recorder;
     mediaChunksRef.current = [];
     pendingAssociatedImagesRef.current = [];
@@ -194,7 +199,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
     recorder.onstop = () => {
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
-      const mediaBlob = new Blob(mediaChunksRef.current, { type: type === 'video' ? 'video/webm' : 'audio/webm' });
+      const recordedType = (recorder.mimeType || (type === 'video' ? 'video/webm' : 'audio/webm')).split(';')[0];
+      const mediaBlob = new Blob(mediaChunksRef.current, { type: recordedType });
       
       let dataUrl: string | undefined;
       let blobPromise: Promise<Blob> | undefined;
