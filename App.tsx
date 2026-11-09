@@ -547,7 +547,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <main id="main-content" className="flex-1 relative overflow-hidden flex flex-col">
+      <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24' : ''}`}>
         {currentView === AppView.LANDING && (
           <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
             <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
@@ -708,7 +708,7 @@ const App: React.FC = () => {
         )}
 
         {isDashboardMode && (
-          <div id="main-scroll" className="flex-1 overflow-y-auto no-scrollbar relative animate-fade-in pb-28">
+          <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar relative animate-fade-in pb-28 lg:pb-8">
             <ErrorBoundary label="dashboard">
               {currentView === AppView.COMMUNITY && userMode && (
                 <Community
@@ -846,10 +846,10 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t ${darkNav ? 'bg-black/85 border-white/10' : 'bg-white/95 border-stone-100'}`}>
-          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto">
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/85 border-white/10' : 'bg-white/95 border-stone-100'}`}>
+          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
+              <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
                 <span className="material-symbols-outlined text-3xl" aria-hidden="true">add</span>
               </button>
             ) : (

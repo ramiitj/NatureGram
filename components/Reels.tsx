@@ -102,7 +102,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
 
   return (
     <div className="fixed inset-0 z-[45] bg-black text-white">
-      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 bg-gradient-to-b from-black/60 to-transparent">
+      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 bg-gradient-to-b from-black/60 to-transparent">
         <button onClick={onBack} aria-label="Back to feed" className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
         <h1 className="text-lg font-bold">Reels</h1>
         <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Unmute' : 'Mute'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'volume_up'}</span></button>
@@ -131,7 +131,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                   {heart === p.id && <span className="absolute material-symbols-outlined text-[120px] animate-heart-burst" style={{ fontVariationSettings: "'FILL' 1" }} aria-hidden="true">favorite</span>}
                 </div>
 
-                <div className="absolute right-2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-10 flex flex-col items-center gap-5">
+                <div className="absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 z-10 flex flex-col items-center gap-5">
                   <button onClick={() => like(p)} aria-pressed={isLiked} aria-label={isLiked ? 'Unlike' : 'Like'} className="flex flex-col items-center">
                     <span className={`material-symbols-outlined text-[34px] drop-shadow ${isLiked ? 'text-red-500' : ''}`} style={isLiked ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">favorite</span>
                     <span className="text-xs font-semibold tabular">{likeTotal(p)}</span>
@@ -148,8 +148,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                   </button>
                 </div>
 
-                <div className="absolute left-0 right-16 bottom-0 z-10 p-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] bg-gradient-to-t from-black/70 to-transparent">
-                  <button onClick={() => onViewProfile(p.userId)} className="font-bold text-[15px] drop-shadow">{p.userName}</button>
+                <div className="absolute left-0 right-16 bottom-0 z-10 p-4 lg:pl-28 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] bg-gradient-to-t from-black/70 to-transparent">
+                  <button onClick={() => onViewProfile(p.userId)} className="font-bold text-[15px] drop-shadow py-1.5 pr-2 min-h-[36px]">{p.userName}</button>
                   <p className="text-[15px] font-semibold mt-1 drop-shadow">{p.labels?.[0] || 'Video sighting'}{p.locationArea ? <span className="font-normal text-white/80"> · {p.locationArea}</span> : null}</p>
                   {(p.caption || p.behavior) && <p className="text-sm text-white/90 mt-1 line-clamp-2">{p.caption || p.behavior}</p>}
                   <div className="mt-2 [&_*]:!text-[11px]"><AiBadge confidence={p.aiConfidence} compact /></div>

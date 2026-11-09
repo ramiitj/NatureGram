@@ -1,5 +1,5 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v3';
+const VERSION = 'ng-v4';
 const SHELL = ['/', '/manifest.json', '/icon.svg', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -19,18 +19,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Google Fonts: cache-first (they are versioned)
-  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
-    event.respondWith(caches.open(VERSION).then(async (c) => {
-      const hit = await c.match(req);
-      if (hit) return hit;
-      const res = await fetch(req);
-      if (res.ok || res.type === 'opaque') c.put(req, res.clone());
-      return res;
-    }));
-    return;
-  }
-
+  // Cross-origin requests (fonts, Firebase, analytics) are left to the browser's HTTP cache:
+  // intercepting them risks serving opaque responses to CORS requests (breaks web fonts).
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/s/') || url.pathname === '/healthz') return;
 

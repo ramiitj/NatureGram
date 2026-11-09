@@ -35,7 +35,7 @@ const AiBadge: React.FC<{ confidence?: string | null; humanVerified?: boolean; c
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border bg-white text-stone-700 border-stone-200 hover:bg-stone-50"
+        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 min-h-[32px] rounded-full border bg-white text-stone-700 border-stone-200 hover:bg-stone-50"
       >
         <span className="material-symbols-outlined text-sm" aria-hidden="true">auto_awesome</span>
         AI suggestion

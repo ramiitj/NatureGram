@@ -668,7 +668,7 @@ const Community: React.FC<CommunityProps> = ({
   // Logo / Feed tab re-tap: back to the top of the main feed
   useEffect(() => {
     const onTop = () => {
-      document.getElementById('community-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' });
+      (document.getElementById('main-scroll') || document.getElementById('community-scroll-container'))?.scrollTo({ top: 0, behavior: 'smooth' });
     };
     window.addEventListener('ng:feed-top', onTop);
     return () => window.removeEventListener('ng:feed-top', onTop);
@@ -1046,7 +1046,7 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   return (
-    <div id="community-scroll-container" className="w-full relative min-h-screen max-h-screen overflow-y-auto no-scrollbar scroll-smooth">
+    <div id="community-scroll-container" className="w-full relative">
         {/* Advanced Species Intelligence Modal */}
         {selectedSpecies && (
             <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 animate-fade-in">
@@ -1230,7 +1230,7 @@ const Community: React.FC<CommunityProps> = ({
                     <span className="flex-1 min-w-0">
                         <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white/80">{dailyTheme.naturalist}'s fortnight · {themePeriod.daysRemaining}d left</span>
                         <span className="block text-sm font-semibold leading-snug mt-1">{themeExtra.challenge}</span>
-                        <span className="block text-xs text-white/80 mt-1">See posts tagged {themeExtra.challengeTag} →</span>
+                        <span className="block text-xs text-white/80 mt-1 [@media(max-height:500px)]:hidden">See posts tagged {themeExtra.challengeTag} →</span>
                     </span>
                 </button>
             )}
@@ -1701,7 +1701,7 @@ const Community: React.FC<CommunityProps> = ({
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ duration: 0.25 }}
                     ref={mainScrollRef}
-                    className="flex-1 flex flex-col md:flex-row overflow-hidden bg-white w-full h-full"
+                    className="flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row overflow-hidden bg-white w-full h-full"
                 >
                     {(() => {
                         const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
@@ -1831,7 +1831,7 @@ const Community: React.FC<CommunityProps> = ({
                                     )}
                                 </div>
 
-                                <div className="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-theme-primary/10 bg-white flex flex-col hidden-scrollbar">
+                                <div className="w-full md:w-[400px] [@media(orientation:landscape)_and_(max-height:500px)]:w-[48%] [@media(orientation:landscape)_and_(max-height:500px)]:max-h-none [@media(orientation:landscape)_and_(max-height:500px)]:border-t-0 [@media(orientation:landscape)_and_(max-height:500px)]:border-l shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-theme-primary/10 bg-white flex flex-col hidden-scrollbar">
                                     <div className="px-4 pt-3 pb-2 md:px-6 flex items-center justify-between shrink-0">
                                         <button className="flex items-center gap-3 group text-left min-w-0" onClick={() => handleProfileClick(activePost.userId)}>
                                             {activePost.userAvatar
@@ -1927,7 +1927,7 @@ const Community: React.FC<CommunityProps> = ({
                                         {activePost.tags && activePost.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-2 pt-2 border-t border-theme-primary/10">
                                                 {activePost.tags.map(tag => (
-                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="text-sm font-semibold text-sky-800 hover:underline">
+                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="text-sm font-semibold text-sky-800 hover:underline min-h-[32px] px-1 -mx-1">
                                                         {tag.startsWith('#') ? tag : `#${tag}`}
                                                     </button>
                                                 ))}
