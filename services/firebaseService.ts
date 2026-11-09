@@ -963,7 +963,7 @@ export const FirebaseService = {
           const userProfile = await FirebaseService.getUserProfile(userId);
           await FirebaseService.addNotification(postData.userId, {
             type: 'like',
-            message: `${userProfile?.username || 'An explorer'} liked your sighting of ${postData.labels?.[0] || 'Nature'}.`,
+            message: `${userProfile?.username || 'An explorer'} marvelled at your ${postData.labels?.[0] || 'sighting'}.`,
             postId,
             senderId: userId,
             senderName: userProfile?.username || 'Explorer'
@@ -996,7 +996,7 @@ export const FirebaseService = {
         if (postData.userId !== userId) {
           await FirebaseService.addNotification(postData.userId, {
             type: 'comment',
-            message: `${userName} commented: "${clean.slice(0, 80)}${clean.length > 80 ? '…' : ''}"`,
+            message: `${userName} left a field note: "${clean.slice(0, 80)}${clean.length > 80 ? '…' : ''}"`,
             postId,
             senderId: userId,
             senderName: userName
@@ -1230,7 +1230,7 @@ export const FirebaseService = {
     if (other) {
       const profile = await FirebaseService.getUserProfile(me.uid).catch(() => null);
       const name = profile?.username || me.displayName || 'An explorer';
-      FirebaseService.addNotification(other, { type: 'message', message: `${name} sent you a message: "${(clean || 'a sighting').slice(0, 80)}"`, senderId: me.uid, senderName: name }).catch(() => {});
+      FirebaseService.addNotification(other, { type: 'message', message: `${name} sent you a letter: "${(clean || 'a sighting').slice(0, 80)}"`, senderId: me.uid, senderName: name }).catch(() => {});
     }
   },
 
@@ -1261,7 +1261,7 @@ export const FirebaseService = {
     try {
       const myProfile = await FirebaseService.getUserProfile(me.uid);
       const name = myProfile?.username || me.displayName || 'An explorer';
-      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} started following you.`, senderId: me.uid, senderName: name });
+      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} is following your journal.`, senderId: me.uid, senderName: name });
     } catch { /* notification is best-effort */ }
   },
 

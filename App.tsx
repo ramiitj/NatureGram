@@ -382,7 +382,7 @@ const App: React.FC = () => {
   const handleNavigationRequest = async (targetView: AppView, params?: any) => {
     if (userMode?.isAnonymous) {
       if (targetView === AppView.MESSAGES) {
-        requireAccount('Create a free account to message other explorers.', () => handleNavigationRequest(targetView, params));
+        requireAccount('Create a free account to write letters to other explorers.', () => handleNavigationRequest(targetView, params));
         return;
       }
       if (targetView === AppView.JOURNAL || targetView === AppView.DRAFTS) {
@@ -487,18 +487,18 @@ const App: React.FC = () => {
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
   const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
-  const openActivity = () => userMode?.isAnonymous ? requireAccount('Create a free account to see who liked and commented on your sightings.') : setIsNotificationsOpen(true);
+  const openActivity = () => userMode?.isAnonymous ? requireAccount('Create a free account to see who marvelled at your sightings and left field notes.') : setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
   const navItems: { key: string; label: string; icon: string; active: boolean; onClick: () => void; badge?: number }[] = [
-    { key: 'feed', label: 'Feed', icon: 'home', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
-    { key: 'reels', label: 'Reels', icon: 'movie', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
-    { key: 'capture', label: 'Capture', icon: 'add', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
-    { key: 'journal', label: 'Journal', icon: 'menu_book', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
-    { key: 'profile', label: 'Profile', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
+    { key: 'feed', label: 'Wild', icon: 'forest', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
+    { key: 'reels', label: 'Moments', icon: 'wb_twilight', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
+    { key: 'capture', label: 'Lens', icon: 'camera', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
+    { key: 'journal', label: 'Journal', icon: 'fingerprint', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'profile', label: 'You', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
   ];
 
   return (
@@ -526,14 +526,14 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-60 text-center px-8 text-stone-500">
-                  <span className="material-symbols-outlined text-4xl mb-3" aria-hidden="true">notifications</span>
-                  <p className="font-semibold text-stone-700">No activity yet</p>
-                  <p className="text-sm mt-1">When explorers like, comment on or follow your sightings, you'll see it here.</p>
+                  <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
+                  <p className="font-display italic text-lg text-stone-800">Quiet in the woods</p>
+                  <p className="text-sm mt-1">When explorers marvel at your sightings, add field notes or follow your journal, it shows up here.</p>
                 </div>
               ) : notifications.map(alert => (
                 <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
                   <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
-                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'chat_bubble' : alert.type === 'follow' ? 'person_add' : alert.type === 'mention' ? 'alternate_email' : 'favorite'}</span>
+                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'history_edu' : alert.type === 'follow' ? 'nature_people' : alert.type === 'mention' ? 'alternate_email' : alert.type === 'message' ? 'mail' : alert.type === 'sighting' ? 'park' : 'flare'}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-text-main leading-snug"><span className="font-bold">{alert.senderName || 'NatureGram'}</span> {alert.message?.replace(alert.senderName || '', '').trim()}</p>
@@ -716,7 +716,7 @@ const App: React.FC = () => {
                   selectedPostId={selectedPostId}
                   onPostClose={handlePostClose}
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
-                  backLabel={returnView === AppView.JOURNAL ? "Journal" : "Feed"}
+                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : "Wild"}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
@@ -765,7 +765,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
                   onMessage={async (uid: string) => {
-                    if (userMode?.isAnonymous) { requireAccount('Create a free account to message explorers.'); return; }
+                    if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
                     try { const cid = await FirebaseService.openConversation(uid); openMessages(cid); } catch { /* shown in profile */ }
                   }}
                 />
@@ -846,11 +846,11 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/85 border-white/10' : 'bg-white/95 border-stone-100'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
-                <span className="material-symbols-outlined text-3xl" aria-hidden="true">add</span>
+              <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+                <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">camera</span>
               </button>
             ) : (
               <button
@@ -858,12 +858,13 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] h-14 rounded-xl transition-colors ${darkNav ? (item.active ? 'text-white' : 'text-white/70 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
+                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
               >
-                <span className="material-symbols-outlined text-[26px]" style={item.active ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{item.icon}</span>
-                <span className={`text-[11px] leading-none ${item.active ? 'font-bold' : 'font-medium'}`}>{item.label}</span>
+                <span className={`material-symbols-outlined text-[25px] transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} style={{ fontVariationSettings: item.active ? "'FILL' 1, 'wght' 400" : "'FILL' 0, 'wght' 300" }} aria-hidden="true">{item.icon}</span>
+                <span className={`text-[11px] leading-none ${item.active ? 'font-display italic font-semibold text-[12px]' : 'font-medium'}`}>{item.label}</span>
+                {item.active && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
                 {!!item.badge && (
-                  <span className="absolute top-1 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-theme-accent text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{item.badge > 9 ? '9+' : item.badge}</span>
+                  <span className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-white" aria-hidden="true" />
                 )}
               </button>
             ))}

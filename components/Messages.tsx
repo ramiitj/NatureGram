@@ -18,7 +18,7 @@ const Avatar: React.FC<{ name?: string; url?: string | null; size?: number }> = 
   ? <img src={url} alt="" className="rounded-full object-cover bg-stone-100 shrink-0" style={{ width: size, height: size }} />
   : <span className="rounded-full bg-theme-accent/10 text-theme-accent font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
 
-/** Instagram-style direct messages: inbox + 1:1 threads, realtime. */
+/** Letters: private correspondence between explorers (inbox + 1:1 threads, realtime), written like notes between naturalists. */
 const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfile, onOpenPost }) => {
   const me = auth.currentUser?.uid || '';
   const [convos, setConvos] = useState<Conversation[] | null>(null);
@@ -35,21 +35,21 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-100 shrink-0 safe-pt box-content">
+    <div className="flex-1 flex flex-col bg-day-bg min-h-0">
+      <header className="h-14 px-2 flex items-center gap-2 border-b border-theme-primary/10 shrink-0 safe-pt box-content">
         <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <h1 className="flex-1 text-lg font-bold text-stone-900">Messages</h1>
-        <button onClick={() => setNewChat(true)} aria-label="New message" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">edit_square</span></button>
+        <h1 className="flex-1 text-xl font-display italic font-bold text-theme-primary">Letters</h1>
+        <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-theme-primary/5 text-theme-primary"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
         {convos === null ? (
-          <p className="text-center text-stone-500 py-16" role="status">Loading conversations…</p>
+          <p className="text-center text-stone-500 py-16" role="status">Opening your letters…</p>
         ) : convos.length === 0 ? (
           <div className="text-center py-20 px-8 text-stone-500">
-            <span className="material-symbols-outlined text-5xl mb-3" aria-hidden="true">forum</span>
-            <p className="font-semibold text-stone-700">No messages yet</p>
-            <p className="text-sm mt-1">Start a conversation with an explorer: ask about a sighting or plan a walk together.</p>
-            <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-stone-900 text-white font-bold text-sm">New message</button>
+            <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">mail</span>
+            <p className="font-display italic text-xl text-stone-800">No letters yet</p>
+            <p className="text-sm mt-1 max-w-xs mx-auto">Write to an explorer: ask what they saw, where to look, or plan a walk together.</p>
+            <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-theme-primary text-white font-bold text-sm">Write a letter</button>
           </div>
         ) : (
           <ul role="list">
@@ -64,7 +64,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
                     <span className="flex-1 min-w-0">
                       <span className={`block truncate ${unread ? 'font-bold text-stone-900' : 'font-semibold text-stone-800'}`}>{info?.username || 'Explorer'}</span>
                       <span className={`block text-sm truncate ${unread ? 'text-stone-900 font-semibold' : 'text-stone-500'}`}>
-                        {c.lastMessage ? `${c.lastMessage.senderId === me ? 'You: ' : ''}${c.lastMessage.text}` : 'Say hello'}
+                        {c.lastMessage ? `${c.lastMessage.senderId === me ? 'You: ' : ''}${c.lastMessage.text}` : 'Write the first line'}
                         {c.lastMessage?.at ? ` · ${timeAgo(c.lastMessage.at)}` : ''}
                       </span>
                     </span>
@@ -103,16 +103,16 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
       track('dm_sent', { length: text.length });
       setText('');
     } catch {
-      setError("Message not sent. You may have been blocked, or you're offline.");
+      setError("Letter not sent. They may have blocked you, or you're offline.");
     } finally { setSending(false); }
   };
 
   const grouped = useMemo(() => (msgs || []).map((m, i, arr) => ({ m, showTime: i === 0 || toMs(m.createdAt) - toMs(arr[i - 1].createdAt) > 15 * 60_000 })), [msgs]);
 
   return (
-    <div className="flex-1 flex flex-col bg-white min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-100 shrink-0 safe-pt box-content">
-        <button onClick={onBack} aria-label="Back to messages" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+    <div className="flex-1 flex flex-col bg-day-bg min-h-0">
+      <header className="h-14 px-2 flex items-center gap-2 border-b border-theme-primary/10 shrink-0 safe-pt box-content">
+        <button onClick={onBack} aria-label="Back to letters" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
         <button onClick={() => other && onViewProfile(other)} className="flex items-center gap-2 min-w-0">
           <Avatar name={info?.username} url={info?.avatarUrl} size={36} />
           <span className="font-bold text-stone-900 truncate">{info?.username || 'Explorer'}</span>
@@ -123,17 +123,17 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           <div className="text-center text-stone-500 py-16">
             <Avatar name={info?.username} url={info?.avatarUrl} size={72} />
             <p className="font-semibold text-stone-800 mt-3">{info?.username || 'Explorer'}</p>
-            <p className="text-sm mt-1">Messages are private between the two of you.</p>
+            <p className="text-sm mt-1">Letters are private between the two of you.</p>
           </div>
         ) : grouped.map(({ m, showTime }) => {
           const mine = m.senderId === me;
           return (
             <React.Fragment key={m.id}>
-              {showTime && m.createdAt && <p className="text-center text-xs text-stone-400 py-2">{timeAgo(m.createdAt)}</p>}
+              {showTime && m.createdAt && <p className="text-center text-xs text-stone-500 font-display italic py-2">{timeAgo(m.createdAt)}</p>}
               <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[78%] rounded-3xl px-4 py-2.5 text-[15px] leading-snug whitespace-pre-wrap break-words ${mine ? 'bg-theme-accent text-white rounded-br-lg' : 'bg-stone-100 text-stone-900 rounded-bl-lg'}`}>
+                <div className={`max-w-[80%] rounded-xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap break-words border ${mine ? 'bg-insight-bg border-theme-accent/25 text-stone-900' : 'bg-white border-theme-primary/10 text-stone-900'}`}>
                   {m.postId && (
-                    <button onClick={() => onOpenPost(m.postId!)} className={`block mb-1 text-sm font-semibold underline ${mine ? 'text-white' : 'text-sky-800'}`}>View shared sighting</button>
+                    <button onClick={() => onOpenPost(m.postId!)} className="flex items-center gap-1.5 mb-1.5 text-sm font-display italic font-semibold text-theme-accent hover:underline"><span className="material-symbols-outlined text-[16px]" aria-hidden="true">park</span>Open the sighting</button>
                   )}
                   {m.text}
                 </div>
@@ -144,16 +144,16 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
         <div ref={endRef} />
       </main>
       {error && <p role="alert" className="px-4 pb-2 text-sm text-red-700">{error}</p>}
-      <form onSubmit={send} className="shrink-0 p-3 border-t border-stone-100 flex gap-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <label htmlFor="dm-input" className="sr-only">Message</label>
+      <form onSubmit={send} className="shrink-0 p-3 border-t border-theme-primary/10 bg-day-bg flex gap-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <label htmlFor="dm-input" className="sr-only">Your letter</label>
         <textarea
           id="dm-input"
           value={text}
           onChange={e => setText(e.target.value.slice(0, 2000))}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(e as any); } }}
           rows={1}
-          placeholder="Message…"
-          className="flex-1 resize-none max-h-32 bg-stone-100 rounded-3xl px-4 py-3 text-base"
+          placeholder="Write to them…"
+          className="flex-1 resize-none max-h-32 bg-white border border-theme-primary/15 rounded-xl px-4 py-3 text-base focus:border-theme-accent"
         />
         <button type="submit" disabled={!text.trim() || sending} className="px-4 font-bold text-theme-accent disabled:opacity-40">Send</button>
       </form>
@@ -169,10 +169,10 @@ const NewChatSheet: React.FC<{ onClose: () => void; onPick: (uid: string) => voi
     return () => window.clearTimeout(t);
   }, [q]);
   return (
-    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="New message">
+    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Write a letter">
       <div className="w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 max-h-[80dvh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-bold">New message</h2>
+          <h2 className="text-xl font-display italic font-bold text-theme-primary">Write a letter</h2>
           <button onClick={onClose} aria-label="Close" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
         </div>
         <label className="block">

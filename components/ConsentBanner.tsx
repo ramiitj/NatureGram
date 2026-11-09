@@ -12,8 +12,8 @@ const ConsentBanner: React.FC = () => {
         Help us improve NatureGram? We'd like to collect usage statistics (screens used, crashes, speed). Never your photos, location or messages. <a href="/privacy.html" target="_blank" rel="noopener" className="underline">Privacy</a>
       </p>
       <div className="flex gap-2 mt-3">
-        <button onClick={() => choose('granted')} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold">Allow</button>
-        <button onClick={() => choose('denied')} className="flex-1 py-2.5 rounded-xl bg-stone-100 text-stone-800 text-sm font-bold">No thanks</button>
+        <button onClick={() => choose('granted')} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold">Allow</button>
+        <button onClick={() => choose('denied')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-theme-primary text-sm font-bold">No thanks</button>
       </div>
     </div>
   );
