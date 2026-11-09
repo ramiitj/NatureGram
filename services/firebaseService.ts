@@ -59,6 +59,7 @@ export const ADMIN_EMAIL = "ram@iitj.ac.in";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
+import { looksLikeSpam } from '../utils';
 
 export enum OperationType {
   CREATE = 'create',
@@ -758,6 +759,25 @@ export const FirebaseService = {
       agree: !!data.agree,
       createdAt: serverTimestamp(),
     });
+    // Close the loop for the explorer who posted it: their ID was confirmed or questioned.
+    // Best effort: needs the 'identification' notification type in firestore.rules.
+    try {
+      const postSnap = await getDoc(doc(db, 'ecosystem_feed', postId));
+      const post: any = postSnap.exists() ? postSnap.data() : null;
+      if (post && post.userId && post.userId !== me.uid) {
+        const who = (profile?.username || me.displayName || 'An explorer').slice(0, 60);
+        const posted = (post.labels?.[0] || 'sighting').slice(0, 80);
+        const said = data.name.trim().slice(0, 80);
+        const agrees = !!data.agree || said.toLowerCase() === posted.toLowerCase();
+        await FirebaseService.addNotification(post.userId, {
+          type: 'identification',
+          message: agrees ? `${who} confirmed your ${posted}.` : `${who} thinks your ${posted} may be ${said}. Take another look?`,
+          postId, senderId: me.uid, senderName: who,
+        });
+      }
+    } catch (notifErr) {
+      console.warn('Identification notification skipped:', notifErr);
+    }
   },
   removeIdentification: async (postId: string) => {
     const me = auth.currentUser?.uid;
@@ -803,6 +823,27 @@ export const FirebaseService = {
 
   createObservation: async (snapshot: Snapshot, userId: string, flags: { feed: boolean, journal: boolean }, synthesis: string, tags: string[], caption?: string) => {
       return FirebaseService.publishPost([snapshot], userId, flags, tags, { caption, behavior: synthesis });
+  },
+
+  /**
+   * Who has answered a field challenge: distinct explorers among recent public sightings carrying its tag,
+   * and whether the current explorer is one of them. Uses the existing tags + isPublic + timestamp index.
+   */
+  getChallengeProgress: async (tag: string): Promise<{ explorers: number; mine: boolean; capped: boolean }> => {
+      const t = tag.startsWith('#') ? tag : `#${tag}`;
+      const variants = Array.from(new Set([t, t.toLowerCase(), t.toUpperCase()])).slice(0, 10);
+      const snap = await getDocs(query(collection(db, "feed_thumbnails"), where("tags", "array-contains-any", variants), where("isPublic", "==", true), orderBy("timestamp", "desc"), limit(60)));
+      const uids = new Set(snap.docs.map(d => d.data().userId).filter(Boolean));
+      const me = auth.currentUser?.uid;
+      let mine = !!me && uids.has(me);
+      // The explorer's own journal-only answers count for them too
+      if (me && !mine && !auth.currentUser?.isAnonymous) {
+          try {
+              const own = await getDocs(query(collection(db, "feed_thumbnails"), where("userId", "==", me), orderBy("timestamp", "desc"), limit(60)));
+              mine = own.docs.some(d => (d.data().tags || []).some((x: string) => x.toLowerCase() === t.toLowerCase()));
+          } catch { /* best effort */ }
+      }
+      return { explorers: uids.size, mine, capped: snap.size >= 60 };
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null, pageSize: number = PAGE_SIZE): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
@@ -980,6 +1021,12 @@ export const FirebaseService = {
     const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${userId.slice(0, 4)}`;
     const clean = text.trim().slice(0, 1000);
     if (!clean) throw new Error("Comment is empty.");
+    if (looksLikeSpam(clean)) throw new Error("Field notes can't contain links or promotions.");
+    // The same note twice on one post is almost always spam or a double tap
+    try {
+      const mine = await getDocs(query(collection(db, "ecosystem_feed", postId, "comments"), where("userId", "==", userId), limit(20)));
+      if (mine.docs.some(d => String(d.data().text || '').trim().toLowerCase() === clean.toLowerCase())) throw new Error("You've already added this field note.");
+    } catch (dupErr: any) { if (String(dupErr?.message || '').startsWith("You've")) throw dupErr; }
     const commentsRef = collection(db, "ecosystem_feed", postId, "comments");
     const commentData: any = { userId, userName, text: clean, timestamp: serverTimestamp() };
     if (userProfile?.avatarUrl) commentData.avatarUrl = userProfile.avatarUrl;
@@ -1088,6 +1135,19 @@ export const FirebaseService = {
   },
 
   /** Distinct species already in the signed-in explorer's records (for "new to your life list"). */
+  /** The explorer's last seven days: sightings and distinct species (for the weekly field letter). */
+  getMyWeek: async (): Promise<{ sightings: number; species: string[] }> => {
+    const me = auth.currentUser?.uid;
+    if (!me || auth.currentUser?.isAnonymous) return { sightings: 0, species: [] };
+    const since = Date.now() - 7 * 864e5;
+    try {
+      const snap = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", me), orderBy("timestamp", "desc"), limit(50)));
+      const recent = snap.docs.map(d => d.data() as any).filter(p => (p.timestamp?.toMillis?.() ?? 0) >= since);
+      const species = Array.from(new Set(recent.map(p => String(p.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l))));
+      return { sightings: recent.length, species };
+    } catch { return { sightings: 0, species: [] }; }
+  },
+
   getMySpeciesSet: async (): Promise<Set<string>> => {
     const me = auth.currentUser?.uid;
     const out = new Set<string>();

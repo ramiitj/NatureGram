@@ -1,7 +1,7 @@
 
 export interface FieldNotification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'reply' | 'message' | 'sighting' | 'system';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'reply' | 'message' | 'identification' | 'sighting' | 'system';
   message: string;
   timestamp: any;
   postId?: string;

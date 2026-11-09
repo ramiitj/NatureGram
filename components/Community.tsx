@@ -1,5 +1,5 @@
 
-import { openExternal, timeAgo, likeTotal } from '../utils';
+import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
@@ -18,7 +18,7 @@ import MediaEditor from './MediaEditor';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
 import { AnimatePresence, motion } from 'motion/react';
-import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour } from './Wonder';
+import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
 
 const FeedCard: React.FC<{
@@ -154,6 +154,45 @@ const FeedCard: React.FC<{
     );
 };
 
+/** A sighting's video. Files that carry only sound (some recordings are saved as video) get a picture to listen by instead of a blank frame. */
+const SightingVideo: React.FC<{ src?: string; poster?: string | null; noDownload: boolean; label?: string | null }> = ({ src, poster, noDownload, label }) => {
+    const [soundOnly, setSoundOnly] = useState(false);
+    const [playing, setPlaying] = useState(false);
+    return (
+        <div className={soundOnly ? 'flex flex-col items-center justify-center w-full h-full gap-4 max-w-md mx-auto' : 'contents'}>
+            {soundOnly && <SoundScape label={label} playing={playing} className="flex-1 min-h-0" />}
+            <PlayableVideo
+                controlsList={noDownload ? 'nodownload' : undefined}
+                src={src}
+                poster={soundOnly ? undefined : (poster || undefined)}
+                controls
+                playsInline
+                preload='metadata'
+                onLoadedMetadata={(e) => { if (e.currentTarget.videoWidth === 0) setSoundOnly(true); }}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={() => setPlaying(false)}
+                className={soundOnly ? 'w-full h-12 shrink-0 rounded-full' : 'w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl'}
+            />
+        </div>
+    );
+};
+
+/** A sound sighting: its habitat photo if there is one, otherwise a picture to listen by. */
+const SightingSound: React.FC<{ src?: string; image?: string | null; noDownload: boolean; label?: string | null }> = ({ src, image, noDownload, label }) => {
+    const [playing, setPlaying] = useState(false);
+    return (
+        <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
+            {image ? (
+                <img src={image} alt={label ? `Where the ${label} was heard` : 'Where the sound was recorded'} className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl" />
+            ) : (
+                <SoundScape label={label} playing={playing} className="flex-1 min-h-0 max-w-md" />
+            )}
+            <PlayableAudio src={src} controls controlsList={noDownload ? 'nodownload' : undefined} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+        </div>
+    );
+};
+
 interface CommunityProps {
   currentUserMode: UserMode;
   selectedPostId?: string | null;
@@ -222,6 +261,13 @@ const Community: React.FC<CommunityProps> = ({
   const themePeriod = getThemePeriod();
   // Re-read the hour each time the feed mounts; no need to tick live.
   const moment = React.useMemo(() => fieldMoment(), []);
+  const [challenge, setChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
+  useEffect(() => {
+      if (isJournalOnly || !themeExtra.challengeTag) return;
+      let alive = true;
+      FirebaseService.getChallengeProgress(themeExtra.challengeTag).then(r => { if (alive) setChallenge(r); }).catch(() => {});
+      return () => { alive = false; };
+  }, [isJournalOnly, themeExtra.challengeTag, currentUserMode.userId]);
 
   useEffect(() => {
     if (isMember) FirebaseService.getBlockedIds().then(setBlockedIds);
@@ -938,12 +984,30 @@ const Community: React.FC<CommunityProps> = ({
           track('comment', { length: newComment.length, mention: newComment.includes('@') });
           setNewComment("");
           setActivePost(prev => prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev);
-      } catch {
-          showToast('Your field note could not be added. Please try again.');
+      } catch (err: any) {
+          const msg = String(err?.message || '');
+          showToast(/^(Field notes can't|You've already)/.test(msg) ? msg : 'Your field note could not be added. Please try again.');
       } finally {
           setSendingComment(false);
       }
   };
+
+  // Reputation beside names: how many sightings each field-note author (and the poster) has shared
+  const [sightingCounts, setSightingCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+      const ids = [...new Set([...(comments || []).map(c => c.userId), activePost?.userId].filter(Boolean) as string[])].filter(id => !(id in sightingCounts));
+      if (!ids.length) return;
+      let alive = true;
+      Promise.all(ids.slice(0, 20).map(id => FirebaseService.getUserProfile(id).then(p => [id, Number((p as any)?.stats?.observations || 0)] as const).catch(() => [id, 0] as const)))
+          .then(rows => { if (alive) setSightingCounts(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
+      return () => { alive = false; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comments, activePost?.userId]);
+  const sightingsLine = (uid?: string) => { const n = uid ? sightingCounts[uid] : 0; return n ? `${n} sighting${n === 1 ? '' : 's'}` : ''; };
+
+  /** Field notes readers see: blocked authors and promotional spam are hidden. The post's author still sees spam, flagged, so they can delete it. */
+  const isPostOwner = !!activePost && activePost.userId === currentUserMode.userId;
+  const visibleComments = comments.filter(c => !blockedIds.includes(c.userId) && (!looksLikeSpam(c.text) || isPostOwner || c.userId === currentUserMode.userId));
 
   const handleDeleteComment = async (commentId: string) => {
       if (!activePost || !window.confirm('Delete this field note?')) return;
@@ -1245,11 +1309,17 @@ const Community: React.FC<CommunityProps> = ({
                     onClick={() => { setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
                     className="w-full text-left rounded-2xl p-4 bg-gradient-to-r from-theme-primary to-theme-primary-gradient text-white shadow-md flex items-start gap-3 active:scale-[0.99] transition-transform"
                 >
-                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" aria-hidden="true">flag</span>
+                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" style={challenge?.mine ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{challenge?.mine ? 'verified' : 'flag'}</span>
                     <span className="flex-1 min-w-0">
                         <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white/80">{dailyTheme.naturalist}'s fortnight · {themePeriod.daysRemaining}d left</span>
                         <span className="block text-sm font-semibold leading-snug mt-1">{themeExtra.challenge}</span>
-                        <span className="block text-xs text-white/80 mt-1 [@media(max-height:500px)]:hidden">See sightings tagged {themeExtra.challengeTag}</span>
+                        <span className="block text-xs text-white/85 mt-1.5 [@media(max-height:500px)]:hidden">
+                            {challenge?.mine
+                                ? `You've answered this one${challenge.explorers > 1 ? `, with ${challenge.capped ? 'many' : challenge.explorers - 1} other explorer${challenge.explorers - 1 === 1 ? '' : 's'}` : ''}. See everyone's finds.`
+                                : challenge && challenge.explorers > 0
+                                    ? `${challenge.capped ? 'Many' : challenge.explorers} explorer${challenge.explorers === 1 ? ' has' : 's have'} answered it. Tag yours ${themeExtra.challengeTag}.`
+                                    : `Be the first to answer it. Tag your sighting ${themeExtra.challengeTag}.`}
+                        </span>
                     </span>
                 </button>
             )}
@@ -1349,7 +1419,7 @@ const Community: React.FC<CommunityProps> = ({
                                         {serverUsers.map(u => (
                                             <button key={u.uid} onClick={() => { setIsSearchFocused(false); onViewProfile?.(u.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
                                                 {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary" aria-hidden="true">{u.username?.charAt(0).toUpperCase()}</span>}
-                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.species || 0} species recorded`}</span></span>
+                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.observations || 0} sightings shared`}</span></span>
                                             </button>
                                         ))}
                                     </div>
@@ -1749,28 +1819,9 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
-                                                                src={item.videoUrl} 
-                                                                poster={item.thumbnailUrl} 
-                                                                controls 
-                                                                playsInline 
-                                                                preload='metadata' 
-                                                                className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
-                                                            />
+                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : item.mediaType === 'audio' ? (
-                                                            <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
-                                                                {item.thumbnailUrl || item.imageUrl ? (
-                                                                    <img 
-                                                                        src={item.thumbnailUrl || item.imageUrl} 
-                                                                        className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
-                                                                    />
-                                                                ) : (
-                                                                    <div className="flex-1 min-h-0 aspect-square max-h-full w-full max-w-full bg-gray-900 rounded-2xl flex items-center justify-center drop-shadow-xl">
-                                                                        <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
-                                                                    </div>
-                                                                )}
-                                                                <PlayableAudio src={item.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
-                                                            </div>
+                                                            <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : (
                                                             <img 
                                                                 src={item.imageUrl || item.thumbnailUrl} 
@@ -1818,28 +1869,9 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <PlayableVideo controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
-                                                    src={currentItem.videoUrl} 
-                                                    poster={currentItem.thumbnailUrl} 
-                                                    controls 
-                                                    playsInline 
-                                                    preload='metadata' 
-                                                    className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full rounded-none md:rounded-2xl object-contain drop-shadow-none md:drop-shadow-xl"
-                                                />
+                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : currentItem.mediaType === 'audio' ? (
-                                                <div className="flex flex-col items-center justify-center w-full h-full gap-4 p-4 md:p-4 max-w-full max-h-full">
-                                                    {currentItem.thumbnailUrl || currentItem.imageUrl ? (
-                                                        <img 
-                                                            src={currentItem.thumbnailUrl || currentItem.imageUrl} 
-                                                            className="w-full h-full md:w-auto md:h-auto md:max-w-full flex-1 min-h-0 object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
-                                                        />
-                                                    ) : (
-                                                        <div className="flex-1 min-h-0 aspect-square max-h-full w-full max-w-full bg-gray-900 rounded-2xl flex items-center justify-center drop-shadow-xl">
-                                                            <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
-                                                        </div>
-                                                    )}
-                                                    <PlayableAudio src={currentItem.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
-                                                </div>
+                                                <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : (
                                                 <img 
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl} 
@@ -1858,7 +1890,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover border border-theme-primary/15" />
                                                 : <span className="w-10 h-10 rounded-full bg-theme-primary/10 border border-theme-primary/15 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(activePost.userName || '?').charAt(0)}</span>}
                                             <span className="min-w-0">
-                                                <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}</span>
+                                                <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}{sightingsLine(activePost.userId) && <span className="font-normal text-stone-500"> · {sightingsLine(activePost.userId)}</span>}</span>
                                                 <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
                                             </span>
                                         </button>
@@ -1924,7 +1956,7 @@ const Community: React.FC<CommunityProps> = ({
                                                             Why it does this
                                                         </p>
                                                         <div className="space-y-3 mt-2">
-                                                            {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (
+                                                            {(insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)).length ? insightBeyond(currentItem.aiInsight, observedBehaviour(currentItem.behavior)) : currentItem.aiInsight.split(/\n+/).filter(Boolean)).map((para, idx) => (
                                                                 <p key={idx} className="text-[15px] font-serif text-stone-800 leading-relaxed">
                                                                     {para}
                                                                 </p>
@@ -1964,7 +1996,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 className="w-full py-3 px-4 bg-theme-primary/5 hover:bg-theme-primary/10 rounded-xl flex items-center gap-3 transition-colors text-left"
                                             >
                                                 <span className="material-symbols-outlined text-theme-accent text-xl" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
-                                                <span className="flex-1 text-sm font-semibold text-theme-primary">{comments.length ? `Read ${comments.length} field note${comments.length === 1 ? '' : 's'}` : 'What did you notice? Add a field note'}</span>
+                                                <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `Read ${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'What did you notice? Add a field note'}</span>
                                                 <span className="material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">chevron_right</span>
                                             </button>
                                             <div className="flex gap-2">
@@ -2022,22 +2054,23 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        {comments.filter(c => !blockedIds.includes(c.userId)).length === 0 ? (
+                        {visibleComments.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-stone-500 text-center">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-theme-accent/60" aria-hidden="true">history_edu</span>
                                 <p className="font-display italic text-lg text-stone-800">No field notes yet</p>
                                 <p className="text-sm mt-1 max-w-xs">Seen this before? Know why it behaves like this? Add what you've noticed.</p>
                             </div>
                         ) : (
-                            comments.filter(c => !blockedIds.includes(c.userId)).map(c => (
+                            visibleComments.map(c => (
                                 <div key={c.id} className="flex gap-3 group animate-fade-in">
                                     <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
                                         {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(c.userName || '?').charAt(0)}</span>}
                                     </button>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
-                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
-                                            <span>{timeAgo(c.timestamp)}</span>
+                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500 flex-wrap">
+                                            <span>{[sightingsLine(c.userId), timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
+                                            {looksLikeSpam(c.text) && isPostOwner && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">Looks like spam, hidden from others</span>}
                                             {isMember && c.userId !== currentUserMode.userId && (
                                                 <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-semibold hover:text-stone-800">Reply</button>
                                             )}

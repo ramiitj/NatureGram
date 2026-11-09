@@ -114,7 +114,7 @@ service cloud.firestore {
         allow create: if isAdmin() || (
           isMember() && !isOwner(userId)
           && incoming().senderId == request.auth.uid
-          && incoming().type in ['like', 'comment', 'follow', 'mention', 'reply', 'message']
+          && incoming().type in ['like', 'comment', 'follow', 'mention', 'reply', 'message', 'identification']
           && isStr(incoming().message, 300)
           && optStr('senderName', 60) && optStr('postId', 128) && optStr('senderAvatar', 2048)
           && incoming().isRead == false

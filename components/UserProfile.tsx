@@ -58,6 +58,13 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 };
 
+/** "23 species since March 2026. Your first was the House Sparrow." in one quiet line. */
+const lifeListSummary = (count: number, first: any, own: boolean): string => {
+  const ms = first?.toMillis?.() ?? (typeof first?.seconds === 'number' ? first.seconds * 1000 : NaN);
+  const since = Number.isFinite(ms) ? ` since ${new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
+  return `${count} species${since}. ${own ? 'Each one is something you saw with your own eyes.' : 'Each one seen first-hand.'}`;
+};
+
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
@@ -186,8 +193,27 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   if (isAnonymous && isOwnProfile) {
     return (
-      <div className="flex-1 overflow-y-auto no-scrollbar p-6 flex flex-col items-center justify-center bg-day-bg">
-        <AuthModal inline onSuccess={() => {}} reason="Create a free account to get your own explorer profile, journal and life list." />
+      <div className="flex-1 overflow-y-auto no-scrollbar bg-day-bg pb-28 safe-pt">
+        <section className="px-5 pt-8 pb-4 max-w-lg mx-auto">
+          <div className="flex items-center gap-4">
+            <span className="shrink-0 w-20 h-20 rounded-full border border-dashed border-theme-accent/50 flex items-center justify-center text-theme-accent/70" aria-hidden="true">
+              <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'wght' 200" }}>fingerprint</span>
+            </span>
+            <div>
+              <p className="text-2xl font-display italic font-bold text-theme-primary leading-tight">Your field page</p>
+              <p className="text-sm text-stone-500 mt-0.5">Exploring as a guest</p>
+            </div>
+          </div>
+          <dl className="mt-6 grid grid-cols-2 border-y border-theme-primary/10 divide-x divide-theme-primary/10">
+            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">species</dt></div>
+            <div className="py-3 text-center"><dd className="text-xl font-display font-bold text-theme-primary/40 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
+          </dl>
+          <p className="text-[15px] font-display italic text-stone-700 mt-6 leading-relaxed">
+            Every creature you identify joins your life list, with the day you first saw it. Your journal keeps every sighting, including the ones you keep to yourself.
+          </p>
+          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="mt-6 w-full py-3.5 rounded-2xl bg-theme-primary text-white font-bold">Start my field page</button>
+          <p className="text-xs text-stone-500 mt-3 text-center">Free. You can keep exploring as a guest.</p>
+        </section>
       </div>
     );
   }
@@ -300,6 +326,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               lifeList.length === 0 ? (
                 <p className="text-center text-stone-500 py-16 px-8 max-w-sm mx-auto">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} is added here, with the day it was first seen.</p>
               ) : (
+                <>
+                <p className="px-5 pt-4 pb-2 text-sm font-display italic text-stone-600">{lifeListSummary(lifeList.length, lifeList[0]?.first, isOwnProfile)}</p>
                 <ul className="divide-y divide-theme-primary/10" role="list">
                   {lifeList.map((s, i) => (
                     <li key={s.name}>
@@ -315,6 +343,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                     </li>
                   ))}
                 </ul>
+                </>
               )
             )}
 

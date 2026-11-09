@@ -28,6 +28,15 @@ interface PostSessionViewProps {
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
 }
 
+const ordinal = (n: number) => { const v = n % 100; const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'; return `${n}${suf}`; };
+/** A line that marks how far the explorer has come, with the round numbers called out. */
+const lifeListMilestone = (total: number, added: number) => {
+  if (total === 1) return 'Your first species. Every naturalist\'s list starts with one.';
+  const crossed = [5, 10, 25, 50, 100, 250, 500, 1000].find(m => total >= m && total - added < m);
+  if (crossed) return total === crossed ? `Your ${ordinal(total)} species. A milestone worth a pause.` : `That makes ${total} species on your life list. You've passed ${crossed}.`;
+  return `That makes ${total} species on your life list.`;
+};
+
 const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onCaptureMore, onPublished, onRequireAccount, onUpdateSnapshots, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(initialSnapshots);
   // Every capture is selected by default; explorers deselect what they don't want to share
@@ -36,6 +45,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [newSpecies, setNewSpecies] = useState<string[]>([]);
+  const [lifeListTotal, setLifeListTotal] = useState(0);
   const [publishedThumb, setPublishedThumb] = useState<string | null>(null);
   const tagsTouchedRef = useRef(false);
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
@@ -320,6 +330,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         FirebaseService.logAiFeedback(selectedSnapshots, lastCreatedId).catch(() => {});
         const fresh = Array.from(new Set(selectedSnapshots.map(s => (s.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l) && !before.has(l.toLowerCase()))));
         setNewSpecies(fresh);
+        setLifeListTotal(before.size + fresh.length);
         const first = selectedSnapshots[0];
         setPublishedThumb(first ? (objectUrls[first.id]?.image || first.url || null) : null);
         setIsDone(true);
@@ -366,6 +377,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
                        <p className="text-sm font-display italic text-theme-accent mb-1">First time you've recorded</p>
                        <p className="text-lg font-display font-bold text-stone-900">{newSpecies.join(', ')}</p>
+                       {lifeListTotal > 0 && <p className="text-sm text-stone-700 mt-2">{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                    </div>
                )}
                <div className="w-full max-w-xs flex flex-col gap-3">

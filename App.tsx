@@ -14,6 +14,7 @@ import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
+import { weekKey, seasonNote } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 
@@ -71,6 +72,7 @@ const getInitialView = () => {
 };
 
 const MODE_PREF_KEY = 'naturegram_lens_mode';
+const FIRST_LOOK_KEY = 'naturegram_first_look';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
@@ -139,6 +141,18 @@ const App: React.FC = () => {
   const [isDetailActive, setIsDetailActive] = useState(false);
 
   const [isFirstTime, setIsFirstTime] = useState(false);
+  const [skipTourOnce, setSkipTourOnce] = useState(false);
+  // Weekly field letter: shown at the top of Activity, marked new once a week
+  const thisWeek = weekKey();
+  const [letterSeenWeek, setLetterSeenWeek] = useState<string>(() => { try { return localStorage.getItem('naturegram_letter_week') || ''; } catch { return ''; } });
+  const [myWeek, setMyWeek] = useState<{ sightings: number; species: string[] } | null>(null);
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    setLetterSeenWeek(thisWeek);
+    try { localStorage.setItem('naturegram_letter_week', thisWeek); } catch { /* storage blocked */ }
+    if (!userMode?.isAnonymous) FirebaseService.getMyWeek().then(setMyWeek).catch(() => setMyWeek({ sightings: 0, species: [] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNotificationsOpen]);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [activeDraftsCount, setActiveDraftsCount] = useState(0);
@@ -348,6 +362,7 @@ const App: React.FC = () => {
   };
 
   const openLens = async () => {
+    setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
     await initAudioContext();
     const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
     if (saved) {
@@ -385,12 +400,9 @@ const App: React.FC = () => {
         requireAccount('Create a free account to write letters to other explorers.', () => handleNavigationRequest(targetView, params));
         return;
       }
-      if (targetView === AppView.JOURNAL || targetView === AppView.DRAFTS) {
-        requireAccount('Your journal keeps every sighting you make. Create a free account to start one.', () => handleNavigationRequest(targetView, params));
-        return;
-      }
-      if (targetView === AppView.USER_PROFILE && (!params || !params.userId || params.userId === userMode.userId)) {
-        requireAccount('Create a free account to get your own explorer profile.', () => handleNavigationRequest(targetView, params));
+      // Guests can look at their (empty) journal and profile first; we ask for an account when they save something
+      if (targetView === AppView.DRAFTS) {
+        requireAccount('Drafts are kept with your account. Create a free account to keep them.', () => handleNavigationRequest(targetView, params));
         return;
       }
     }
@@ -473,6 +485,18 @@ const App: React.FC = () => {
         setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
       }
     }
+    // The very first time, Explore Wild opens the Lens with the guide talking: wonder first, setup later.
+    // The mode choice and the tour wait for a later visit.
+    let firstLook = false;
+    try { firstLook = !localStorage.getItem(FIRST_LOOK_KEY); } catch { /* storage blocked */ }
+    if (firstLook && allowSession('conversation')) {
+      try { localStorage.setItem(FIRST_LOOK_KEY, '1'); } catch { /* storage blocked */ }
+      track('lens_open', { mode: 'conversation', first_look: true });
+      setSkipTourOnce(true);
+      setSelectedMode('conversation');
+      setCurrentView(AppView.LENS);
+      return;
+    }
     setCurrentView(AppView.COMMUNITY);
   };
 
@@ -487,9 +511,10 @@ const App: React.FC = () => {
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
   const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
-  const openActivity = () => userMode?.isAnonymous ? requireAccount('Create a free account to see who marvelled at your sightings and left field notes.') : setIsNotificationsOpen(true);
+  const openActivity = () => setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
+  const letterUnread = letterSeenWeek !== thisWeek;
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
@@ -524,8 +549,23 @@ const App: React.FC = () => {
               </div>
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
+              <article aria-labelledby="field-letter-title" className="p-5 rounded-2xl bg-insight-bg border border-theme-accent/25">
+                <p className="text-xs text-stone-500">Week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
+                <h3 id="field-letter-title" className="font-display italic text-xl font-bold text-theme-primary mt-0.5">Your field letter</h3>
+                <p className="text-[15px] font-display text-stone-800 mt-3 leading-relaxed">{seasonNote()}</p>
+                <p className="text-sm text-stone-700 mt-3 leading-relaxed">
+                  {userMode?.isAnonymous
+                    ? 'With an account, your week outside is counted here.'
+                    : !myWeek ? 'Counting your week…'
+                    : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
+                    : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
+                </p>
+                {dailyTheme?.naturalist && extra?.challenge && (
+                  <p className="text-sm text-stone-700 mt-2 leading-relaxed"><span className="font-display italic font-semibold text-theme-primary">{dailyTheme.naturalist}'s challenge:</span> {extra.challenge}</p>
+                )}
+              </article>
               {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-60 text-center px-8 text-stone-500">
+                <div className="flex flex-col items-center justify-center py-10 text-center px-8 text-stone-500">
                   <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
                   <p className="font-display italic text-lg text-stone-800">Quiet in the woods</p>
                   <p className="text-sm mt-1">When explorers marvel at your sightings, add field notes or follow your journal, it shows up here.</p>
@@ -533,7 +573,7 @@ const App: React.FC = () => {
               ) : notifications.map(alert => (
                 <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
                   <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
-                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'history_edu' : alert.type === 'follow' ? 'nature_people' : alert.type === 'mention' ? 'alternate_email' : alert.type === 'message' ? 'mail' : alert.type === 'sighting' ? 'park' : 'flare'}</span>
+                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'history_edu' : alert.type === 'follow' ? 'nature_people' : alert.type === 'mention' ? 'alternate_email' : alert.type === 'message' ? 'mail' : alert.type === 'identification' ? 'how_to_reg' : alert.type === 'sighting' ? 'park' : 'flare'}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-text-main leading-snug"><span className="font-bold">{alert.senderName || 'NatureGram'}</span> {alert.message?.replace(alert.senderName || '', '').trim()}</p>
@@ -607,7 +647,7 @@ const App: React.FC = () => {
                   config={config}
                   userMode={userMode}
                   audioContext={audioContext}
-                  isFirstTime={isFirstTime}
+                  isFirstTime={isFirstTime && !skipTourOnce}
                   isFinalizing={isFinalizing}
                   geminiServiceRef={geminiServiceRef}
                   updateSnapshot={updateSnapshot}
@@ -711,7 +751,7 @@ const App: React.FC = () => {
                   dailyTheme={dailyTheme}
                   onOpenActivity={openActivity}
                   onOpenMessages={() => openMessages()}
-                  unreadActivity={unreadCount}
+                  unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                   unreadMessages={unreadMessages}
                 />
               )}

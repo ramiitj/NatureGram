@@ -1300,7 +1300,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           </div>
       )}
 
-      <OnboardingTour onComplete={() => setIsTourActive(false)} />
+      {/* Skipped on an explorer's very first look (the guide's own first words introduce it); shown on the next visit */}
+      {isFirstTime !== false && <OnboardingTour onComplete={() => setIsTourActive(false)} />}
 
       {/* Sighting Insight Overlay Text Blob */}
       <AnimatePresence>

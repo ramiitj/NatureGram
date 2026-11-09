@@ -84,3 +84,19 @@ export const timeAgo = (ts: any): string => {
 /** Total likes across scalable like documents (likeCount) and legacy array likes. */
 export const likeTotal = (p: { likeCount?: number; likes?: string[] } | null | undefined) =>
     Math.max(0, (p?.likeCount || 0) + (p?.likes?.length || 0));
+
+
+const PROMO_WORDS = new Set(['youtube', 'facebook', 'instagram', 'telegram', 'whatsapp', 'tiktok', 'snapchat', 'twitter', 'guna', 'rummy', 'casino', 'betting', 'jackpot', 'lottery', 'loan', 'crypto', 'forex', 'followers', 'subscribe']);
+
+/**
+ * Field-note spam: links, or short notes made mostly of platform and promotion words
+ * ("YouTube Facebook Instagram", "500 Guna game"). Deliberately narrow so real notes pass.
+ */
+export const looksLikeSpam = (text: string): boolean => {
+  const t = (text || '').toLowerCase();
+  if (/https?:\/\/|www\.|\.(com|net|xyz|io)\b/.test(t)) return true;
+  const words = t.match(/[a-z]+/g) || [];
+  if (!words.length) return false;
+  const hits = words.filter(w => PROMO_WORDS.has(w)).length;
+  return words.length <= 8 && hits >= 1 && hits * 2 >= words.length;
+};
