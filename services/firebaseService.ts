@@ -1547,12 +1547,19 @@ export const FirebaseService = {
       const tok = await u.getIdTokenResult();
       if (tok.claims.admin === true) return { isAdmin: true, needsVerification: false };
     } catch { /* ignore */ }
-    if (u.email === ADMIN_EMAIL) return { isAdmin: u.emailVerified, needsVerification: !u.emailVerified };
+    // Admin is the server-set custom claim only; the server checks again on every admin request
     return { isAdmin: false, needsVerification: false };
   },
 
   sendVerificationEmail: async () => {
     if (auth.currentUser) await sendEmailVerification(auth.currentUser);
+  },
+
+  /** Report a letters conversation; only then can the admin read it (through the server). */
+  reportConversation: async (cid: string, reason: string, details?: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me) throw new Error('Not signed in');
+    await addDoc(collection(db, 'letter_reports'), { cid, reporterId: me, reason: reason.slice(0, 40), details: (details || '').slice(0, 500), status: 'open', createdAt: serverTimestamp() });
   },
 
   /** Report reasons are stored privately per reporter (admin-readable only). */

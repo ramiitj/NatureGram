@@ -966,8 +966,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     return () => { if (locationWatchIdRef.current !== null) navigator.geolocation.clearWatch(locationWatchIdRef.current); };
   }, [hasSelectedMode]);
 
-  const configModel = config?.model;
-  const configSysInstruction = config?.systemInstruction;
+  // The guide's instructions and model are set by the admin on the server; the app sends only
+  // session context (memory, mode, season), which the server passes as information.
   const userIdValue = userMode?.userId;
 
   const initSession = useCallback(async () => {
@@ -1045,8 +1045,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         const theme = getDailyThemeConst();
         const extra = getNaturalistExtra(theme.id);
         const fortnight = `\n[THIS FORTNIGHT HONOURS ${theme.naturalist.toUpperCase()}: "${extra.philosophy}" When natural, invite the explorer to notice ${extra.lensPrompt}. Mention the community challenge only if relevant: ${extra.challenge}]`;
-        service.setSystemInstruction(memoryContext + "\n" + (configSysInstruction || "") + modeInstruction + fortnight);
-        service.setModel(configModel || "");
+        service.setSystemInstruction(memoryContext + "\n" + modeInstruction + fortnight);
         // Only coarse (~1 km) coordinates leave the device for the live guide
         if (lastLocationRef.current) service.setLocation(coarsenCoordinate(lastLocationRef.current.lat), coarsenCoordinate(lastLocationRef.current.lng));
         
@@ -1155,7 +1154,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               if (inputCtx) inputCtx.close();
           };
       }
-  }, [audioContext, isTourActive, hasSelectedMode, configModel, configSysInstruction, userIdValue]);
+  }, [audioContext, isTourActive, hasSelectedMode, userIdValue]);
 
   const cleanupRef = useRef<(() => void) | null>(null);
 

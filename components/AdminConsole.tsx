@@ -1,1063 +1,691 @@
-import React, { useState, useEffect } from 'react';
-import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig, CommunityPost, UserProfileData } from '../types';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { auth } from '../firebaseConfig';
+import { apiUrl } from '../services/apiOrigin';
+import { FirebaseService } from '../services/firebaseService';
 import AiQualityPanel from './AiQualityPanel';
 
-interface AdminConsoleProps {
-  onBack: () => void;
+/**
+ * NatureGram admin console. Every read and change goes through the server's admin API,
+ * which checks that the caller is the named admin, validates the change, keeps the previous
+ * version and writes the audit log. Nothing here talks to the database directly.
+ */
+
+type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'data' | 'security';
+
+const SECTIONS: { id: Section; label: string; icon: string }[] = [
+  { id: 'overview', label: 'Overview', icon: 'monitoring' },
+  { id: 'controls', label: 'Allowances & switches', icon: 'tune' },
+  { id: 'ai', label: 'AI governance', icon: 'psychology' },
+  { id: 'monitor', label: 'AI monitor', icon: 'query_stats' },
+  { id: 'review', label: 'Review', icon: 'fact_check' },
+  { id: 'people', label: 'People', icon: 'group' },
+  { id: 'letters', label: 'Reported letters', icon: 'mail' },
+  { id: 'data', label: 'Data explorer', icon: 'database' },
+  { id: 'security', label: 'Audit & security', icon: 'shield_lock' },
+];
+
+class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
+
+async function api<T = any>(path: string, opts: { method?: string; body?: any } = {}): Promise<T> {
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(apiUrl(`/api/admin${path}`), {
+    method: opts.method || 'GET',
+    headers: { Authorization: `Bearer ${token || ''}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(json.error || `Request failed (${res.status})`, res.status, json.code);
+  return json as T;
 }
 
-const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
-  // Credentials must be entered manually
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [config, setConfig] = useState<GeminiConfig | null>(null);
-  const [status, setStatus] = useState('');
-  
-  // Navigation
-  const [activeTab, setActiveTab] = useState<'activity' | 'ai_hub' | 'moderation' | 'ai_quality'>('activity');
-  const [reportReasons, setReportReasons] = useState<Record<string, { reason: string; details?: string }[]>>({});
-  const [needsVerification, setNeedsVerification] = useState(false);
-  
-  // Moderation Data
-  const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
-  
-  // Activity / Log Tracking Data
-  const [allUsers, setAllUsers] = useState<UserProfileData[]>([]);
-  const [allPosts, setAllPosts] = useState<CommunityPost[]>([]);
+const when = (ms?: number | null) => (ms ? new Date(ms).toLocaleString() : '–');
+const n = (v: any) => (typeof v === 'number' ? v.toLocaleString() : '–');
+const Card: React.FC<{ title?: string; children: React.ReactNode; className?: string; actions?: React.ReactNode }> = ({ title, children, className = '', actions }) => (
+  <section className={`bg-white border border-stone-200 rounded-2xl p-5 ${className}`}>
+    {(title || actions) && <div className="flex items-center justify-between gap-3 mb-3">{title && <h3 className="font-bold text-stone-900">{title}</h3>}{actions}</div>}
+    {children}
+  </section>
+);
+const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'warn' | 'ok' }> = ({ label, value, tone }) => (
+  <div className={`rounded-2xl border p-4 ${tone === 'warn' ? 'border-amber-300 bg-amber-50' : 'border-stone-200 bg-white'}`}>
+    <p className="text-xs font-semibold text-stone-500">{label}</p>
+    <p className="text-2xl font-bold text-stone-900 mt-1 tabular-nums">{value}</p>
+  </div>
+);
+const Btn: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: 'primary' | 'danger' | 'plain' }> = ({ tone = 'plain', className = '', ...p }) => (
+  <button {...p} className={`px-3.5 py-2 rounded-xl text-sm font-semibold disabled:opacity-40 ${tone === 'primary' ? 'bg-stone-900 text-white' : tone === 'danger' ? 'bg-red-700 text-white' : 'border border-stone-300 text-stone-800 hover:bg-stone-50'} ${className}`} />
+);
+const Json: React.FC<{ value: any }> = ({ value }) => (
+  <pre className="text-xs bg-stone-50 border border-stone-200 rounded-xl p-3 overflow-auto max-h-96 whitespace-pre-wrap break-all">{JSON.stringify(value, null, 2)}</pre>
+);
+const Bars: React.FC<{ values: number[]; label: string }> = ({ values, label }) => {
+  const max = Math.max(1, ...values);
+  return (
+    <div role="img" aria-label={label} className="flex items-end gap-[3px] h-24">
+      {values.map((v, i) => <div key={i} title={`${v}`} className="flex-1 bg-emerald-700/80 rounded-t" style={{ height: `${Math.max(2, (v / max) * 100)}%` }} />)}
+    </div>
+  );
+};
 
-  // Filters for AI Dataset Hub
-  const [filterMediaType, setFilterMediaType] = useState<'all' | 'image' | 'video' | 'audio'>('all');
-  const [filterHumanDelta, setFilterHumanDelta] = useState<'all' | 'verified' | 'raw'>('all');
-  const [filterSearch, setFilterSearch] = useState('');
-  const [selectedPostForInspection, setSelectedPostForInspection] = useState<CommunityPost | null>(null);
+// ---------------------------------------------------------------------------- sections
 
-  // Automatic elevation check on mount
-  useEffect(() => {
-    const checkAdminAuth = async () => {
-      const { isAdmin, needsVerification } = await FirebaseService.getAdminStatus();
-      setNeedsVerification(needsVerification);
-      if (isAdmin || needsVerification) {
-        setIsAuthenticated(true);
-        loadConfig();
-        if (isAdmin) loadActivityLogs();
-      }
-    };
-    checkAdminAuth();
-  }, []);
-
-  // Login Handler
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await FirebaseService.loginUser(email, password);
-      const { isAdmin, needsVerification } = await FirebaseService.getAdminStatus();
-      if (!isAdmin && !needsVerification) {
-        setStatus('Access denied: this account does not have administrative privileges.');
-        return;
-      }
-      setNeedsVerification(needsVerification);
-      setIsAuthenticated(true);
-      loadConfig();
-      if (isAdmin) loadActivityLogs();
-    } catch (err: any) {
-      setStatus('Login failed: ' + err.message);
-    }
-  };
-
-  const loadConfig = async () => {
-    setStatus('Loading configuration...');
-    const data = await FirebaseService.getGeminiConfig();
-    setConfig(data);
-    setStatus('');
-  };
-
-  const loadActivityLogs = async () => {
-    setStatus('Syncing live data...');
-    try {
-      const users = await FirebaseService.getAllUsers();
-      const posts = await FirebaseService.getAllPosts();
-      setAllUsers(users);
-      setAllPosts(posts);
-      if (posts.length > 0 && !selectedPostForInspection) {
-        setSelectedPostForInspection(posts[0]);
-      }
-      setStatus('');
-    } catch (e: any) {
-      setStatus('Failed syncing log indices: ' + e.message);
-    }
-  };
-
-  const loadReportedPosts = async () => {
-      setStatus('Fetching reports...');
-      const posts = await FirebaseService.getReportedPosts();
-      setReportedPosts(posts);
-      const reasons: Record<string, { reason: string; details?: string }[]> = {};
-      await Promise.all(posts.map(async p => { reasons[p.id] = await FirebaseService.getReportReasons(p.id); }));
-      setReportReasons(reasons);
-      setStatus(`Found ${posts.length} reported items.`);
-  };
-
-  useEffect(() => {
-      if (isAuthenticated) {
-          if (activeTab === 'moderation') {
-              loadReportedPosts();
-          } else {
-              loadActivityLogs();
-          }
-      }
-  }, [isAuthenticated, activeTab]);
-
-  const handleDismissReport = async (postId: string) => {
-      await FirebaseService.dismissReports(postId);
-      setReportedPosts(prev => prev.filter(p => p.id !== postId));
-      setStatus('Report dismissed. Content kept.');
-  };
-
-  const handleDeleteContent = async (postId: string) => {
-      if(window.confirm("Are you sure you want to permanently delete this content?")) {
-          try {
-              setReportedPosts(prev => prev.filter(p => p.id !== postId));
-              setAllPosts(prev => prev.filter(p => p.id !== postId));
-              await FirebaseService.deletePost(postId);
-              setStatus('Content deleted from ecosystem.');
-          } catch (e) {
-              setStatus('Failed to delete content.');
-              loadReportedPosts();
-          }
-      }
-  };
-
-  const handleSignOut = () => {
-    FirebaseService.logout();
-    onBack();
-  };
-
-  // Filtering function for AI Dataset
-  const getFilteredPosts = () => {
-    return allPosts.filter(post => {
-      if (filterMediaType !== 'all' && post.mediaType !== filterMediaType) return false;
-      if (filterHumanDelta === 'verified' && !post.humanDelta) return false;
-      if (filterHumanDelta === 'raw' && post.humanDelta) return false;
-      if (filterSearch.trim() !== '') {
-        const query = filterSearch.toLowerCase();
-        const labelsStr = (post.labels || []).join(' ').toLowerCase();
-        const behaviorStr = (post.behavior || '').toLowerCase();
-        const locStr = (post.locationArea || '').toLowerCase();
-        const userStr = (post.userName || '').toLowerCase();
-        if (!labelsStr.includes(query) && !behaviorStr.includes(query) && !locStr.includes(query) && !userStr.includes(query)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  };
-
-  // EXPORT 1: CSV Metadata
-  const downloadMetadataCSV = () => {
-      const postsToExport = getFilteredPosts();
-      if (postsToExport.length === 0) {
-          setStatus('No data available to export.');
-          return;
-      }
-      
-      const headers = [
-          'Post ID', 'User ID', 'User Name', 'Media Type', 'Species Taxonomy', 'Ethological Behavior', 
-          'Timestamp UTC', 'Location Area', 'Raw Latitude', 'Raw Longitude', 'Recording Duration (ms)', 
-          'Session Retakes', 'AI Proposed Labels', 'AI Proposed Behavior', 'Human In Loop Delta', 
-          'Bioacoustic Vocalization Type', 'Bioacoustic Freq Range', 'Visual Motion Posture', 'Micro Habitat',
-          'Likes Count', 'Comments Count', 'Report Count'
-      ];
-      
-      const rows = postsToExport.map(post => {
-          const ts = post.timestamp?.toMillis ? post.timestamp.toMillis() : (post.timestamp?.seconds ? post.timestamp.seconds * 1000 : post.timestamp);
-          const dateStr = ts ? new Date(ts).toISOString() : '';
-          const eth = post.ethologicalDescriptors;
-          return [
-              post.id,
-              post.userId,
-              `"${(post.userName || '').replace(/"/g, '""')}"`,
-              post.mediaType,
-              `"${(post.labels?.join('; ') || '').replace(/"/g, '""')}"`,
-              `"${(post.behavior || '').replace(/"/g, '""')}"`,
-              dateStr,
-              `"${(post.locationArea || '').replace(/"/g, '""')}"`,
-              post.rawLocation?.lat || '',
-              post.rawLocation?.lng || '',
-              post.timeToRecordMs || '',
-              post.sessionRetakes || '',
-              `"${(post.aiProposedLabels?.join('; ') || '').replace(/"/g, '""')}"`,
-              `"${(post.aiProposedBehavior || '').replace(/"/g, '""')}"`,
-              post.humanDelta ? 'true' : 'false',
-              `"${(eth?.bioacousticProfile?.vocalizationType || '').replace(/"/g, '""')}"`,
-              `"${(eth?.bioacousticProfile?.frequencyRangeHz || '').replace(/"/g, '""')}"`,
-              `"${(eth?.visualEthology?.motionPosture || '').replace(/"/g, '""')}"`,
-              `"${(eth?.habitatNiche?.microHabitat || '').replace(/"/g, '""')}"`,
-              post.likes?.length || 0,
-              post.commentCount || 0,
-              post.reportCount || 0
-          ].join(',');
-      });
-      
-      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `naturegram_ethology_dataset_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setStatus(`Exported ${postsToExport.length} records to CSV.`);
-  };
-
-  // EXPORT 2: JSONL for Gemini / DeepMind Fine-Tuning
-  const downloadJSONLDataset = () => {
-      const postsToExport = getFilteredPosts();
-      if (postsToExport.length === 0) {
-          setStatus('No data available to export.');
-          return;
-      }
-
-      const jsonlLines = postsToExport.map(post => {
-          const ts = post.timestamp?.toMillis ? post.timestamp.toMillis() : (post.timestamp?.seconds ? post.timestamp.seconds * 1000 : post.timestamp);
-          const dateStr = ts ? new Date(ts).toISOString() : '';
-          
-          const record = {
-              specimen_id: post.id,
-              media_type: post.mediaType,
-              media_url: post.imageUrl || post.videoUrl || post.audioUrl || post.thumbnailUrl,
-              taxonomy: post.labels || [],
-              ethological_behavior: post.behavior || "",
-              ai_insight: post.aiInsight || "",
-              spatial_temporal: {
-                  location_area: post.locationArea || "",
-                  latitude: post.rawLocation?.lat || null,
-                  longitude: post.rawLocation?.lng || null,
-                  timestamp_utc: dateStr
-              },
-              human_in_loop: {
-                  human_verified_delta: !!post.humanDelta,
-                  ai_proposed_taxonomy: post.aiProposedLabels || [],
-                  ai_proposed_behavior: post.aiProposedBehavior || ""
-              },
-              telemetry: {
-                  time_to_record_ms: post.timeToRecordMs || 0,
-                  session_retakes: post.sessionRetakes || 0
-              }
-          };
-
-          return JSON.stringify({
-              messages: [
-                  {
-                      role: "user",
-                      content: [
-                          { type: "text", text: `Identify the species, taxonomy, and observed ethological behaviors for this nature specimen recorded in ${post.locationArea || 'field'}.` },
-                          { type: "image_url", image_url: { url: record.media_url } }
-                      ]
-                  },
-                  {
-                      role: "assistant",
-                      content: JSON.stringify({
-                          species: record.taxonomy,
-                          behavior: record.ethological_behavior,
-                          ai_analysis: record.ai_insight
-                      })
-                  }
-              ],
-              raw_specimen_metadata: record
-          });
-      });
-
-      const blob = new Blob([jsonlLines.join('\n')], { type: 'application/x-jsonlines' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `naturegram_deepmind_tuning_${new Date().toISOString().split('T')[0]}.jsonl`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setStatus(`Exported ${postsToExport.length} JSONL multimodal training records.`);
-  };
-
-  // EXPORT 3: COCO Ethology Format JSON
-  const downloadCOCODataset = () => {
-      const postsToExport = getFilteredPosts();
-      if (postsToExport.length === 0) {
-          setStatus('No data available to export.');
-          return;
-      }
-
-      const categoriesMap = new Map<string, number>();
-      let catIdCounter = 1;
-
-      postsToExport.forEach(p => {
-          (p.labels || []).forEach(lbl => {
-              if (!categoriesMap.has(lbl)) {
-                  categoriesMap.set(lbl, catIdCounter++);
-              }
-          });
-      });
-
-      const images = postsToExport.map((p, idx) => ({
-          id: idx + 1,
-          file_name: p.imageUrl || p.thumbnailUrl || p.id,
-          coco_url: p.imageUrl || p.thumbnailUrl || "",
-          height: 1080,
-          width: 1080,
-          date_captured: p.timestamp?.seconds ? new Date(p.timestamp.seconds * 1000).toISOString() : "",
-          location: p.locationArea || "",
-          geo_lat: p.rawLocation?.lat || null,
-          geo_lng: p.rawLocation?.lng || null
-      }));
-
-      const annotations: any[] = [];
-      let annId = 1;
-
-      postsToExport.forEach((p, idx) => {
-          (p.labels || []).forEach(lbl => {
-              annotations.push({
-                  id: annId++,
-                  image_id: idx + 1,
-                  category_id: categoriesMap.get(lbl) || 1,
-                  behavior_description: p.behavior || "",
-                  human_verified: !!p.humanDelta,
-                  iscrowd: 0
-              });
-          });
-      });
-
-      const categories = Array.from(categoriesMap.entries()).map(([name, id]) => ({
-          id,
-          name,
-          supercategory: "Organism"
-      }));
-
-      const cocoData = {
-          info: {
-              description: "NatureGram Open Bioacoustics and Ethology COCO Dataset",
-              url: "https://naturegram.app",
-              version: "1.0",
-              year: new Date().getFullYear(),
-              contributor: "NatureGram Citizen Science Community",
-              date_created: new Date().toISOString()
-          },
-          licenses: [{ id: 1, name: "Creative Commons Attribution 4.0", url: "https://creativecommons.org/licenses/by/4.0/" }],
-          images,
-          annotations,
-          categories
-      };
-
-      const blob = new Blob([JSON.stringify(cocoData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `naturegram_coco_ethology_${new Date().toISOString().split('T')[0]}.json`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setStatus(`Exported COCO dataset with ${images.length} images & ${annotations.length} behavioral annotations.`);
-  };
-
-  const downloadUsersCSV = () => {
-      if (allUsers.length === 0) {
-          setStatus('No user data available.');
-          return;
-      }
-      
-      const headers = ['User ID', 'Username', 'Email', 'Joined At', 'Location', 'Is Anonymous'];
-      
-      const rows = allUsers.map(user => {
-          const ts = user.joinedAt?.toMillis ? user.joinedAt.toMillis() : (user.joinedAt?.seconds ? user.joinedAt.seconds * 1000 : user.joinedAt);
-          const dateStr = ts ? new Date(ts).toISOString() : '';
-          return [
-              user.uid,
-              `"${(user.username || '').replace(/"/g, '""')}"`,
-              user.email || '',
-              dateStr,
-              `"${(user.location || '').replace(/"/g, '""')}"`,
-              user.isAnonymous ? 'true' : 'false'
-          ].join(',');
-      });
-      
-      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `naturegram_users_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-  };
-
-  const filteredPosts = getFilteredPosts();
-
-  // Metrics calculation
-  const totalPosts = allPosts.length;
-  const postsWithHumanDelta = allPosts.filter(p => p.humanDelta).length;
-  const agreementRate = totalPosts > 0 ? (((totalPosts - postsWithHumanDelta) / totalPosts) * 100).toFixed(1) : '100.0';
-  const audioCount = allPosts.filter(p => p.mediaType === 'audio').length;
-  const imageCount = allPosts.filter(p => p.mediaType === 'image' || !p.mediaType).length;
-  const videoCount = allPosts.filter(p => p.mediaType === 'video').length;
-  const uniqueLocations = new Set(allPosts.map(p => p.locationArea).filter(Boolean)).size;
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full bg-theme-primary p-6">
-        <div className="w-full max-w-md glass-panel p-8 rounded-2xl bg-white/5 border border-white/10">
-          <div className="flex items-center gap-3 mb-6">
-            <span className="material-symbols-outlined text-primary text-3xl">admin_panel_settings</span>
-            <h1 className="text-2xl font-bold text-white">Admin Console</h1>
+const Overview: React.FC<{ go: (s: Section) => void }> = ({ go }) => {
+  const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState('');
+  const load = useCallback(() => api('/overview').then(setD).catch(e => setErr(e.message)), []);
+  useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
+  if (err) return <p className="text-red-700">{err}</p>;
+  if (!d) return <p className="text-stone-600">Loading…</p>;
+  const pctCeiling = d.ceiling ? Math.round((d.tokensToday / d.ceiling) * 100) : 0;
+  return (
+    <div className="space-y-5">
+      {!d.store.ok && <p role="alert" className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-900">The server can't reach the database ({d.store.error}). Allowances fail closed, so AI features are refusing requests until this is fixed.</p>}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat label="AI calls, last 24 h" value={n(d.last24h.calls)} />
+        <Stat label="Errors, last 24 h" value={n(d.last24h.errors)} tone={d.last24h.errors > d.last24h.calls * 0.05 ? 'warn' : undefined} />
+        <Stat label="Explorers using AI, 24 h" value={n(d.last24h.activeExplorers)} />
+        <Stat label="Sightings shared today" value={n(d.postsToday)} />
+        <Stat label="Tokens today" value={`${n(d.tokensToday)}${d.ceiling ? ` (${pctCeiling}% of ceiling)` : ''}`} tone={pctCeiling > 80 ? 'warn' : undefined} />
+        <Stat label="Waiting for review" value={<button onClick={() => go('review')} className="underline">{d.queues.review}</button>} tone={d.queues.review ? 'warn' : undefined} />
+        <Stat label="Reported sightings" value={<button onClick={() => go('review')} className="underline">{d.queues.reported}</button>} tone={d.queues.reported ? 'warn' : undefined} />
+        <Stat label="Reported letters" value={<button onClick={() => go('letters')} className="underline">{d.queues.letters}</button>} tone={d.queues.letters ? 'warn' : undefined} />
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card title="AI calls per hour (last 24 h)"><Bars values={d.last24h.hourly} label="AI calls per hour over the last day" /></Card>
+        <Card title="By task and by flag">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <ul>{Object.entries(d.last24h.byTask).map(([k, v]) => <li key={k} className="flex justify-between border-b border-stone-100 py-1"><span>{k}</span><span className="tabular-nums">{String(v)}</span></li>)}</ul>
+            <ul>{Object.keys(d.last24h.flagged).length === 0 ? <li className="text-stone-500">No flags</li> : Object.entries(d.last24h.flagged).map(([k, v]) => <li key={k} className="flex justify-between border-b border-stone-100 py-1"><span>{k}</span><span className="tabular-nums">{String(v)}</span></li>)}</ul>
           </div>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
-            <input 
-              type="email" 
-              placeholder="Admin Email" 
-              className="bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-primary outline-none"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input 
-              type="password" 
-              placeholder="Password" 
-              className="bg-black/40 border border-white/10 rounded-lg p-3 text-white focus:border-primary outline-none"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button type="submit" className="bg-primary text-black font-bold p-3 rounded-lg hover:bg-primary/90 transition-colors">
-              Access Control
-            </button>
-            {status && <p className="text-red-400 text-sm mt-2">{status}</p>}
+        </Card>
+      </div>
+      <Card title="Current state">
+        <div className="flex flex-wrap gap-2 text-sm">
+          {['aiEnabled', 'liveEnabled', 'uploadsEnabled', 'guestsEnabled', 'lettersEnabled', 'signupsEnabled'].map(k => (
+            <span key={k} className={`px-2.5 py-1 rounded-full ${d.flags[k] ? 'bg-emerald-50 text-emerald-900' : 'bg-red-50 text-red-900'}`}>{k.replace('Enabled', '')}: {d.flags[k] ? 'on' : 'off'}</span>
+          ))}
+          <span className="px-2.5 py-1 rounded-full bg-stone-100">Daily: {d.flags.allowances.postsPerDay} posts · {d.flags.allowances.liveMinutesPerDay} live min · {d.flags.allowances.identificationsPerDay} identifications</span>
+          <span className="px-2.5 py-1 rounded-full bg-stone-100">Policy v{d.policy}</span>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+const Controls: React.FC = () => {
+  const [flags, setFlags] = useState<any>(null);
+  const [caps, setCaps] = useState<any>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(async () => {
+    const [f, s] = await Promise.all([api('/flags'), api('/settings')]);
+    setFlags(f); setCaps(s.settings.caps);
+  }, []);
+  useEffect(() => { load().catch(e => setMsg(e.message)); }, [load]);
+  if (!flags || !caps) return <p className="text-stone-600">{msg || 'Loading…'}</p>;
+
+  const toggle = async (k: string) => {
+    if (!confirm(`Turn ${k.replace('Enabled', '')} ${flags[k] ? 'off' : 'on'} for everyone?`)) return;
+    try { setFlags(await api('/flags', { method: 'PUT', body: { [k]: !flags[k] } })); setMsg('Saved. Takes effect everywhere within 30 seconds.'); } catch (e: any) { setMsg(e.message); }
+  };
+  const saveAllowances = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const allowances = { postsPerDay: Number(f.get('posts')), liveMinutesPerDay: Number(f.get('live')), identificationsPerDay: Number(f.get('ids')) };
+    try { setFlags(await api('/flags', { method: 'PUT', body: { allowances } })); setMsg('Allowances saved. They apply to every account, with no exceptions.'); } catch (err: any) { setMsg(err.message); }
+  };
+  const saveCaps = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const next: any = {};
+    for (const k of Object.keys(caps)) next[k] = Number(f.get(k));
+    try { const s = await api('/settings', { method: 'PUT', body: { caps: next } }); setCaps(s.caps); setMsg('Limits saved.'); } catch (err: any) { setMsg(err.message); }
+  };
+  const SW: [string, string][] = [
+    ['aiEnabled', 'All AI features'], ['liveEnabled', 'Live guide'], ['uploadsEnabled', 'Sharing new sightings'],
+    ['guestsEnabled', 'Guests using AI'], ['lettersEnabled', 'Letters'], ['signupsEnabled', 'New accounts'],
+  ];
+  const CAPS: Record<string, string> = {
+    otherAiCallsPerDay: 'Other AI calls per account per day (descriptions, curation, summaries)', maxOutputTokens: 'Longest AI answer (tokens)',
+    thinkingBudget: 'Thinking budget per answer (tokens)', dailyTokenCeiling: 'Daily token ceiling for everyone (0 = none)',
+    liveSessionsPerNetworkPerHour: 'Live sessions per network per hour', liveConcurrentPerNetwork: 'Live sessions open at once per network',
+  };
+  return (
+    <div className="space-y-4">
+      {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+      <Card title="Daily allowance (every account, no exceptions)">
+        <form onSubmit={saveAllowances} className="grid sm:grid-cols-3 gap-3 items-end">
+          <label className="text-sm">Sightings shared per day<input name="posts" type="number" min={0} max={100} defaultValue={flags.allowances.postsPerDay} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2" /></label>
+          <label className="text-sm">Live guide minutes per day<input name="live" type="number" min={0} max={240} defaultValue={flags.allowances.liveMinutesPerDay} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2" /></label>
+          <label className="text-sm">AI identifications per day<input name="ids" type="number" min={0} max={500} defaultValue={flags.allowances.identificationsPerDay} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2" /></label>
+          <Btn tone="primary" type="submit" className="sm:col-span-3 justify-self-start">Save allowances</Btn>
+        </form>
+        <p className="text-xs text-stone-500 mt-3">Counted on the server per account per day (UTC). An identification is one photo, sound or clip the guide names.</p>
+      </Card>
+      <Card title="Switches">
+        <ul className="divide-y divide-stone-100">
+          {SW.map(([k, label]) => (
+            <li key={k} className="flex items-center justify-between py-2.5">
+              <span className="text-sm">{label}</span>
+              <button role="switch" aria-checked={!!flags[k]} onClick={() => toggle(k)} className={`w-12 h-7 rounded-full relative transition-colors ${flags[k] ? 'bg-emerald-700' : 'bg-stone-300'}`}>
+                <span className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${flags[k] ? 'left-6' : 'left-1'}`} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <Card title="Limits and spending">
+        <form onSubmit={saveCaps} className="grid sm:grid-cols-2 gap-3">
+          {Object.keys(CAPS).map(k => (
+            <label key={k} className="text-sm">{CAPS[k]}<input name={k} type="number" defaultValue={caps[k]} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2" /></label>
+          ))}
+          <Btn tone="primary" type="submit" className="justify-self-start">Save limits</Btn>
+        </form>
+      </Card>
+    </div>
+  );
+};
+
+const PROMPT_LABELS: Record<string, string> = {
+  live: 'Live guide', identify: 'Identification', describe: 'Research descriptors', curate: 'Feed curation', synthesize: 'Multi-capture summary', moderate: 'Photo check before sharing',
+};
+const GUIDANCE_LABELS: Record<string, string> = {
+  people: 'Person in frame', faces: 'Face visible', plates: 'Number plate visible', screen: 'Screen or document', notNature: 'No living subject',
+  sensitive: 'Protected species (location hidden)', caption: 'Links or promotions in text', safety: 'Unsafe edibility or medicine claims',
+};
+
+const AiGovernance: React.FC = () => {
+  const [data, setData] = useState<any>(null);
+  const [tab, setTab] = useState<'prompts' | 'policy' | 'models' | 'guidance' | 'history'>('prompts');
+  const [which, setWhich] = useState('identify');
+  const [draft, setDraft] = useState('');
+  const [msg, setMsg] = useState('');
+  const [history, setHistory] = useState<any[] | null>(null);
+  const load = useCallback(() => api('/settings').then(setData).catch(e => setMsg(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (data) setDraft(tab === 'policy' ? data.settings.policy : data.settings.prompts[which] || ''); }, [data, which, tab]);
+  useEffect(() => { if (tab === 'history') api('/history/settings').then(r => setHistory(r.items)).catch(e => setMsg(e.message)); }, [tab]);
+  if (!data) return <p className="text-stone-600">{msg || 'Loading…'}</p>;
+  const s = data.settings;
+
+  const save = async (patch: any, what: string) => {
+    if (!confirm(`Save the ${what}? It applies to every AI call within 30 seconds.`)) return;
+    try { await api('/settings', { method: 'PUT', body: patch }); await load(); setMsg(`${what} saved. The previous version is in History.`); } catch (e: any) { setMsg(e.message); }
+  };
+  const rollback = async (id: string) => {
+    if (!confirm('Restore the settings as they were before this change?')) return;
+    try { await api(`/history/settings/${id}/rollback`, { method: 'POST' }); await load(); setMsg('Restored.'); setTab('prompts'); } catch (e: any) { setMsg(e.message); }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-stone-600">These control how the AI behaves for every explorer. The app cannot change them: the server applies them to each call, adds the platform policy after the prompt, and passes anything explorers write as information, never as instructions.</p>
+      <div className="flex gap-2 flex-wrap">
+        {(['prompts', 'policy', 'models', 'guidance', 'history'] as const).map(t => <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-full text-sm font-semibold ${tab === t ? 'bg-stone-900 text-white' : 'bg-stone-100'}`}>{t[0].toUpperCase() + t.slice(1)}</button>)}
+      </div>
+      {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+      {tab === 'prompts' && (
+        <Card>
+          <div className="flex gap-2 flex-wrap mb-3">
+            {Object.keys(s.prompts).map(k => <button key={k} onClick={() => setWhich(k)} className={`px-3 py-1.5 rounded-xl text-sm ${which === k ? 'bg-emerald-800 text-white' : 'border border-stone-300'}`}>{PROMPT_LABELS[k] || k}</button>)}
+          </div>
+          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={18} aria-label={`${PROMPT_LABELS[which]} prompt`} className="w-full font-mono text-xs bg-stone-50 border border-stone-200 rounded-xl p-3" />
+          <div className="flex gap-2 mt-3 flex-wrap">
+            <Btn tone="primary" onClick={() => save({ prompts: { [which]: draft } }, `${PROMPT_LABELS[which]} prompt`)} disabled={draft === s.prompts[which]}>Save prompt</Btn>
+            <Btn onClick={() => setDraft(data.defaults.prompts[which])}>Load the original</Btn>
+            <span className="text-xs text-stone-500 self-center">{draft.length.toLocaleString()} characters</span>
+          </div>
+        </Card>
+      )}
+      {tab === 'policy' && (
+        <Card title="Platform policy (added after every prompt; it overrides them)">
+          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={16} aria-label="Platform policy" className="w-full font-mono text-xs bg-stone-50 border border-stone-200 rounded-xl p-3" />
+          <div className="flex gap-2 mt-3">
+            <Btn tone="primary" onClick={() => save({ policy: draft }, 'platform policy')} disabled={draft === s.policy}>Save policy</Btn>
+            <Btn onClick={() => setDraft(data.defaults.policy)}>Load the original</Btn>
+          </div>
+        </Card>
+      )}
+      {tab === 'models' && (
+        <Card title="Models">
+          <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); const models: any = {}; Object.keys(s.models).forEach(k => { models[k] = String(f.get(k)).trim(); }); save({ models }, 'models'); }} className="grid sm:grid-cols-2 gap-3">
+            {Object.keys(s.models).map(k => <label key={k} className="text-sm">{PROMPT_LABELS[k] || k}<input name={k} defaultValue={s.models[k]} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2 font-mono text-xs" /></label>)}
+            <Btn tone="primary" type="submit" className="justify-self-start">Save models</Btn>
           </form>
-          <button onClick={onBack} className="mt-6 text-white/40 text-sm hover:text-white">← Back to App</button>
+          <p className="text-xs text-stone-500 mt-3">Only Gemini model names are accepted. The live guide needs a native-audio model (models/…).</p>
+        </Card>
+      )}
+      {tab === 'guidance' && (
+        <Card title="What explorers see when a capture is held back">
+          <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); const guidance: any = {}; Object.keys(s.guidance).forEach(k => { guidance[k] = String(f.get(k)); }); save({ guidance }, 'messages'); }} className="space-y-3">
+            {Object.keys(s.guidance).map(k => <label key={k} className="block text-sm">{GUIDANCE_LABELS[k] || k}<textarea name={k} defaultValue={s.guidance[k]} rows={2} maxLength={400} className="mt-1 w-full border border-stone-300 rounded-xl px-3 py-2" /></label>)}
+            <Btn tone="primary" type="submit">Save messages</Btn>
+          </form>
+        </Card>
+      )}
+      {tab === 'history' && (
+        <Card title="Changes (newest first)">
+          {!history ? <p className="text-stone-600">Loading…</p> : history.length === 0 ? <p className="text-stone-600">No changes yet.</p> : (
+            <ul className="divide-y divide-stone-100">
+              {history.map(h => (
+                <li key={h.id} className="py-3 flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
+                  <div className="text-sm"><span className="font-semibold">{when(h.at)}</span> · {h.email || h.by} · changed {Object.keys(h.patch || {}).join(', ')}</div>
+                  <Btn onClick={() => rollback(h.id)}>Restore what it replaced</Btn>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+};
+
+const Monitor: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => {
+  const [rows, setRows] = useState<any[]>([]);
+  const [before, setBefore] = useState<number | null>(null);
+  const [task, setTask] = useState('');
+  const [flagged, setFlagged] = useState(false);
+  const [usage, setUsage] = useState<any>(null);
+  const [view, setView] = useState<'log' | 'usage' | 'quality'>('log');
+  const [msg, setMsg] = useState('');
+  const load = useCallback(async (more = false) => {
+    const q = new URLSearchParams({ limit: '100' });
+    if (task) q.set('task', task);
+    if (flagged) q.set('flagged', '1');
+    if (more && before) q.set('before', String(before));
+    try { const r = await api(`/ai-log?${q}`); setRows(p => (more ? [...p, ...r.items] : r.items)); setBefore(r.before); } catch (e: any) { setMsg(e.message); }
+  }, [task, flagged, before]);
+  useEffect(() => { if (view === 'log') load(false); /* eslint-disable-next-line */ }, [task, flagged, view]);
+  useEffect(() => { if (view === 'usage') api('/usage').then(setUsage).catch(e => setMsg(e.message)); }, [view]);
+  const loadQuality = useCallback(() => api('/ai-quality?limit=1000').then(r => r.items), []);
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 flex-wrap">
+        {(['log', 'usage', 'quality'] as const).map(v => <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 rounded-full text-sm font-semibold ${view === v ? 'bg-stone-900 text-white' : 'bg-stone-100'}`}>{v === 'log' ? 'Every AI call' : v === 'usage' ? "Today's usage by explorer" : 'Identification quality'}</button>)}
+      </div>
+      {msg && <p className="text-sm text-red-700">{msg}</p>}
+      {view === 'log' && (
+        <Card actions={<div className="flex gap-2 items-center text-sm">
+          <select value={task} onChange={e => setTask(e.target.value)} className="border border-stone-300 rounded-lg px-2 py-1"><option value="">All tasks</option>{['ng-identify', 'ng-describe', 'ng-curate', 'ng-synthesize', 'live', 'moderate', 'blocked'].map(t => <option key={t}>{t}</option>)}</select>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={flagged} onChange={e => setFlagged(e.target.checked)} />Only unusual</label>
+          <Btn onClick={() => load(false)}>Refresh</Btn>
+        </div>}>
+          <p className="text-xs text-stone-500 mb-2">One line per call: who, what, how big, how long, and anything unusual. Content is never stored. Kept 30 days.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-stone-500"><th className="py-1 pr-2">When</th><th className="pr-2">Explorer</th><th className="pr-2">Task</th><th className="pr-2">Status</th><th className="pr-2">ms</th><th className="pr-2">Tokens</th><th className="pr-2">Ended</th><th>Flags</th></tr></thead>
+              <tbody>
+                {rows.map(r => {
+                  const odd = r.status >= 400 || r.blockReason || (r.finishReason && r.finishReason !== 'STOP') || Object.values(r.flags || {}).some(Boolean);
+                  return (
+                    <tr key={r.id} className={`border-t border-stone-100 ${odd ? 'bg-amber-50' : ''}`}>
+                      <td className="py-1 pr-2 whitespace-nowrap">{when(r.at)}</td>
+                      <td className="pr-2"><button onClick={() => openUser(r.uid)} className="underline font-mono">{String(r.uid || '').slice(0, 8)}</button>{r.anon ? ' (guest)' : ''}</td>
+                      <td className="pr-2">{r.task}</td><td className="pr-2">{r.status}</td><td className="pr-2 tabular-nums">{r.ms ?? ''}</td>
+                      <td className="pr-2 tabular-nums">{r.totalTokens ?? ''}</td><td className="pr-2">{r.blockReason || r.finishReason || ''}</td>
+                      <td>{Object.entries(r.flags || {}).filter(([, v]) => v).map(([k, v]) => (v === true ? k : `${k}: ${v}`)).join(', ')}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {before && <Btn className="mt-3" onClick={() => load(true)}>Load older</Btn>}
+        </Card>
+      )}
+      {view === 'usage' && (
+        <Card title={usage ? `${usage.explorers} explorers used something today (${usage.day})` : 'Loading…'}>
+          {usage && (
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-stone-500"><th className="py-1">Explorer</th><th>Identifications</th><th>Other AI</th><th>Live min</th><th>Shared</th></tr></thead>
+              <tbody>{usage.items.map((u: any) => (
+                <tr key={u.id} className="border-t border-stone-100"><td className="py-1"><button onClick={() => openUser(u.uid)} className="underline font-mono text-xs">{String(u.uid).slice(0, 10)}</button></td><td>{u.identify || 0}</td><td>{u.other || 0}</td><td>{Math.ceil((u.liveMs || 0) / 60000)}</td><td>{u.posts || 0}</td></tr>
+              ))}</tbody>
+            </table>
+          )}
+        </Card>
+      )}
+      {view === 'quality' && <AiQualityPanel load={loadQuality} />}
+    </div>
+  );
+};
+
+const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => {
+  const [queue, setQueue] = useState<any[] | null>(null);
+  const [reported, setReported] = useState<any[] | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => {
+    api('/review').then(r => setQueue(r.items)).catch(e => setMsg(e.message));
+    api('/reported').then(r => setReported(r.items)).catch(e => setMsg(e.message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const decide = async (id: string, action: 'approve' | 'reject') => {
+    const note = action === 'reject' ? prompt('A short note for the explorer (optional):') ?? '' : '';
+    try { await api(`/review/${id}`, { method: 'POST', body: { action, note } }); setMsg(action === 'approve' ? 'Approved.' : 'Kept in their journal.'); load(); } catch (e: any) { setMsg(e.message); }
+  };
+  const act = async (id: string, action: string) => {
+    if (action === 'delete' && !confirm('Delete this sighting permanently?')) return;
+    try { await api(`/posts/${id}`, { method: 'POST', body: { action } }); load(); } catch (e: any) { setMsg(e.message); }
+  };
+  return (
+    <div className="space-y-4">
+      {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+      <Card title="Held by the photo check, or review requested">
+        {!queue ? <p className="text-stone-600">Loading…</p> : queue.length === 0 ? <p className="text-stone-600">Nothing waiting.</p> : (
+          <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {queue.map(q => (
+              <li key={q.id} className="border border-stone-200 rounded-xl overflow-hidden">
+                {q.thumb && <img src={q.thumb} alt="" className="w-full aspect-square object-cover bg-stone-100" />}
+                <div className="p-3 space-y-2 text-sm">
+                  <p><span className="font-semibold">Why:</span> {(q.reasons || []).join(', ') || 'unchecked'}{q.requestedByExplorer ? ' · explorer asked for review' : ''}</p>
+                  {q.note && <p className="text-stone-600">“{q.note}”</p>}
+                  <p className="text-xs text-stone-500">{when(q.createdAt)} · <button onClick={() => openUser(q.userId)} className="underline">explorer</button> · wants {q.requestedFeed ? 'feed' : 'journal'}</p>
+                  <div className="flex gap-2"><Btn tone="primary" onClick={() => decide(q.id, 'approve')}>Approve</Btn><Btn onClick={() => decide(q.id, 'reject')}>Keep private</Btn></div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card title="Reported by explorers">
+        {!reported ? <p className="text-stone-600">Loading…</p> : reported.length === 0 ? <p className="text-stone-600">No reports.</p> : (
+          <ul className="space-y-3">
+            {reported.map(p => (
+              <li key={p.id} className="border border-stone-200 rounded-xl p-3 flex gap-3">
+                {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) && <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="w-24 h-24 rounded-lg object-cover bg-stone-100" />}
+                <div className="flex-1 text-sm space-y-1">
+                  <p className="font-semibold">{p.labels?.[0] || 'Sighting'} · <button onClick={() => openUser(p.userId)} className="underline font-normal">{p.userName}</button></p>
+                  {p.caption && <p className="text-stone-700">{p.caption}</p>}
+                  <p className="text-xs text-stone-500">{(p.reportReasons || []).map((r: any) => `${r.reason}${r.details ? ` (${r.details})` : ''}`).join(' · ')}</p>
+                  <div className="flex gap-2 flex-wrap pt-1"><Btn onClick={() => act(p.id, 'dismiss')}>Report not valid</Btn><Btn onClick={() => act(p.id, 'hide')}>Hide from feed</Btn><Btn tone="danger" onClick={() => act(p.id, 'delete')}>Delete</Btn></div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+};
+
+const People: React.FC<{ uid: string | null; setUid: (u: string | null) => void }> = ({ uid, setUid }) => {
+  const [q, setQ] = useState('');
+  const [list, setList] = useState<any[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [msg, setMsg] = useState('');
+  const search = useCallback(async (more = false) => {
+    const p = new URLSearchParams({ limit: '25' });
+    if (q.trim()) p.set('q', q.trim());
+    if (more && next) p.set('after', next);
+    try { const r = await api(`/users?${p}`); setList(l => (more ? [...l, ...r.items] : r.items)); setNext(r.next || null); } catch (e: any) { setMsg(e.message); }
+  }, [q, next]);
+  useEffect(() => { search(false); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (uid) { setDetail(null); api(`/users/${uid}`).then(setDetail).catch(e => setMsg(e.message)); } }, [uid]);
+  const act = async (path: string, confirmText: string, body?: any) => {
+    if (!confirm(confirmText)) return;
+    try { await api(`/users/${uid}/${path}`, { method: 'POST', body }); setMsg('Done.'); setDetail(await api(`/users/${uid}`)); } catch (e: any) { setMsg(e.message); }
+  };
+  if (uid) {
+    return (
+      <div className="space-y-4">
+        <Btn onClick={() => setUid(null)}>← All people</Btn>
+        {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+        {!detail ? <p className="text-stone-600">Loading…</p> : (
+          <>
+            <Card title={detail.profile?.username || detail.auth?.email || uid}>
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+                <p><span className="text-stone-500">Account:</span> <span className="font-mono text-xs">{uid}</span></p>
+                <p><span className="text-stone-500">Email:</span> {detail.auth?.email || (detail.auth?.anonymous ? 'guest' : '–')} {detail.auth?.emailVerified ? '(verified)' : ''}</p>
+                <p><span className="text-stone-500">Sign-in:</span> {detail.auth?.providers?.join(', ') || 'guest'}{detail.auth?.mfa ? ' · two-step on' : ''}</p>
+                <p><span className="text-stone-500">Joined / last seen:</span> {detail.auth?.created} / {detail.auth?.lastSignIn}</p>
+                <p><span className="text-stone-500">Today:</span> {detail.usageToday.identify || 0} identifications · {detail.usageToday.other || 0} other AI · {Math.ceil((detail.usageToday.liveMs || 0) / 60000)} live min · {detail.usageToday.posts || 0} shared</p>
+                <p><span className="text-stone-500">Status:</span> {detail.suspended ? <span className="text-red-700 font-semibold">suspended ({detail.suspended.reason || 'no reason given'})</span> : 'active'}</p>
+              </div>
+              <div className="flex gap-2 flex-wrap mt-4">
+                {detail.suspended
+                  ? <Btn onClick={() => act('unsuspend', 'Lift the suspension?')}>Lift suspension</Btn>
+                  : <Btn tone="danger" onClick={() => { const reason = prompt('Reason for suspending (shown in the audit log):'); if (reason !== null) act('suspend', 'Suspend this account and sign it out everywhere?', { reason }); }}>Suspend</Btn>}
+                <Btn onClick={() => act('signout', 'Sign this account out on every device?')}>Sign out everywhere</Btn>
+              </div>
+            </Card>
+            <Card title="Recent AI activity">
+              {detail.aiLog.length === 0 ? <p className="text-sm text-stone-600">None in the last 30 days.</p> : (
+                <ul className="text-xs divide-y divide-stone-100">{detail.aiLog.map((l: any) => <li key={l.id} className="py-1 flex gap-3"><span className="w-40 shrink-0">{when(l.at)}</span><span className="w-28">{l.task}</span><span>{l.status}</span><span className="text-amber-800">{Object.keys(l.flags || {}).filter(k => l.flags[k]).join(', ')}</span></li>)}</ul>
+              )}
+            </Card>
+            <Card title="Recent sightings">
+              <ul className="grid grid-cols-3 sm:grid-cols-6 gap-2">{detail.posts.map((p: any) => (
+                <li key={p.id} title={`${p.labels?.[0] || ''} · ${p.isPublic ? 'feed' : 'journal'} · ${p.moderation?.status || ''}`} className="relative">
+                  {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="aspect-square w-full object-cover rounded-lg bg-stone-100" /> : <div className="aspect-square rounded-lg bg-stone-100 flex items-center justify-center text-xs">{p.mediaType}</div>}
+                  {!p.isPublic && <span className="absolute top-1 left-1 text-[10px] bg-white/90 rounded px-1">journal</span>}
+                </li>
+              ))}</ul>
+            </Card>
+          </>
+        )}
+      </div>
+    );
+  }
+  return (
+    <Card actions={<form onSubmit={e => { e.preventDefault(); search(false); }} className="flex gap-2"><input value={q} onChange={e => setQ(e.target.value)} placeholder="Username or email" aria-label="Search people" className="border border-stone-300 rounded-xl px-3 py-1.5 text-sm" /><Btn type="submit">Search</Btn></form>} title="People">
+      {msg && <p className="text-sm text-red-700">{msg}</p>}
+      <ul className="divide-y divide-stone-100">{list.map(u => (
+        <li key={u.id}><button onClick={() => setUid(u.id)} className="w-full text-left py-2 flex justify-between gap-3 hover:bg-stone-50 px-2 rounded-lg"><span className="font-semibold text-sm">{u.username || u.email || u.id}</span><span className="text-xs text-stone-500">{u.stats ? `${u.stats.observations || 0} sightings` : ''} {u.joinedAt ? `· joined ${new Date(u.joinedAt).toLocaleDateString()}` : ''}</span></button></li>
+      ))}</ul>
+      {next && !q && <Btn className="mt-3" onClick={() => search(true)}>Load more</Btn>}
+    </Card>
+  );
+};
+
+const Letters: React.FC = () => {
+  const [items, setItems] = useState<any[] | null>(null);
+  const [open, setOpen] = useState<{ cid: string; msgs: any[] } | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => api('/letters/reported').then(r => setItems(r.items)).catch(e => setMsg(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-stone-600">Letters are private. A conversation can be read here only after one of its participants reports it, and each reading is recorded in the audit log.</p>
+      {msg && <p className="text-sm text-red-700">{msg}</p>}
+      <Card title="Reported conversations">
+        {!items ? <p className="text-stone-600">Loading…</p> : items.length === 0 ? <p className="text-stone-600">No open reports.</p> : (
+          <ul className="divide-y divide-stone-100">{items.map(r => (
+            <li key={r.id} className="py-2 flex flex-wrap gap-2 items-center justify-between text-sm">
+              <span>{when(r.createdAt)} · {r.reason}{r.details ? ` · ${r.details}` : ''}</span>
+              <span className="flex gap-2">
+                <Btn onClick={async () => { try { const m = await api(`/letters/${r.cid}`); setOpen({ cid: r.cid, msgs: m.items }); } catch (e: any) { setMsg(e.message); } }}>Read</Btn>
+                <Btn onClick={async () => { await api(`/letters/${r.cid}/close`, { method: 'POST' }); setOpen(null); load(); }}>Close report</Btn>
+              </span>
+            </li>
+          ))}</ul>
+        )}
+      </Card>
+      {open && (
+        <Card title="Conversation" actions={<Btn onClick={() => setOpen(null)}>Close</Btn>}>
+          <ul className="space-y-2 text-sm">{open.msgs.map(m => <li key={m.id}><span className="font-mono text-xs text-stone-500">{String(m.senderId).slice(0, 8)} · {when(m.createdAt)}</span><p>{m.text}</p></li>)}</ul>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+const COLLECTIONS = ['users', 'ecosystem_feed', 'feed_thumbnails', 'ai_log', 'ai_usage', 'usage_global', 'ai_results', 'ai_feedback', 'review_queue', 'letter_reports', 'suspended', 'admin_audit', 'app_config', 'themes', 'daily_themes', 'media_variants', 'naturalist_profiles'];
+
+const DataExplorer: React.FC = () => {
+  const [col, setCol] = useState('ecosystem_feed');
+  const [where, setWhere] = useState('');
+  const [equals, setEquals] = useState('');
+  const [items, setItems] = useState<any[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const [sel, setSel] = useState<any>(null);
+  const [msg, setMsg] = useState('');
+  const [migrating, setMigrating] = useState('');
+  const load = async (more = false) => {
+    const p = new URLSearchParams({ limit: '50' });
+    if (where.trim()) { p.set('where', where.trim()); p.set('equals', equals); }
+    if (more && next) p.set('after', next);
+    try { setMsg(''); const r = await api(`/explore/${col}?${p}`); setItems(i => (more ? [...i, ...r.items] : r.items)); setNext(r.next); } catch (e: any) { setMsg(e.message); }
+  };
+  useEffect(() => { setItems([]); setSel(null); load(false); /* eslint-disable-next-line */ }, [col]);
+  const columns = useMemo(() => {
+    const counts = new Map<string, number>();
+    items.slice(0, 50).forEach(it => Object.keys(it).forEach(k => counts.set(k, (counts.get(k) || 0) + 1)));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).filter(k => k !== 'id').slice(0, 6);
+  }, [items]);
+  const download = () => {
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${col}.json`; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const cell = (v: any) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v).slice(0, 60));
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap gap-2 items-end">
+          <label className="text-sm">Collection<select value={col} onChange={e => setCol(e.target.value)} className="mt-1 block border border-stone-300 rounded-xl px-3 py-2">{COLLECTIONS.map(c => <option key={c}>{c}</option>)}</select></label>
+          <label className="text-sm">Field<input value={where} onChange={e => setWhere(e.target.value)} placeholder="e.g. userId" className="mt-1 block border border-stone-300 rounded-xl px-3 py-2" /></label>
+          <label className="text-sm">equals<input value={equals} onChange={e => setEquals(e.target.value)} className="mt-1 block border border-stone-300 rounded-xl px-3 py-2" /></label>
+          <Btn onClick={() => load(false)}>Look</Btn>
+          <Btn onClick={download} disabled={!items.length}>Download JSON</Btn>
+        </div>
+        <p className="text-xs text-stone-500 mt-2">Read only. Letters are not listed here.</p>
+      </Card>
+      {msg && <p className="text-sm text-red-700">{msg}</p>}
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card title={`${items.length} documents`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="text-left text-stone-500"><th className="py-1 pr-2">id</th>{columns.map(c => <th key={c} className="pr-2">{c}</th>)}</tr></thead>
+              <tbody>{items.map(it => (
+                <tr key={it.id} onClick={() => setSel(it)} className={`border-t border-stone-100 cursor-pointer hover:bg-stone-50 ${sel?.id === it.id ? 'bg-emerald-50' : ''}`}>
+                  <td className="py-1 pr-2 font-mono">{it.id.slice(0, 12)}</td>{columns.map(c => <td key={c} className="pr-2">{cell(it[c])}</td>)}
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {next && <Btn className="mt-3" onClick={() => load(true)}>Load more</Btn>}
+        </Card>
+        <Card title={sel ? sel.id : 'Pick a document'}>{sel ? <Json value={sel} /> : <p className="text-sm text-stone-600">Its full contents appear here.</p>}</Card>
+      </div>
+      <Card title="One-off tools">
+        <p className="text-sm text-stone-600 mb-2">Move precise locations from older public sightings into each explorer's private records.</p>
+        <Btn onClick={async () => { try { const c = await FirebaseService.migratePublicLocationsToPrivate((d, t) => setMigrating(`${d}/${t}`)); setMigrating(`Done: ${c} sightings secured.`); } catch (e: any) { setMigrating(e.message); } }}>Run privacy migration</Btn>
+        {migrating && <span className="ml-3 text-sm">{migrating}</span>}
+      </Card>
+    </div>
+  );
+};
+
+const Security: React.FC = () => {
+  const [sec, setSec] = useState<any>(null);
+  const [auditRows, setAudit] = useState<any[]>([]);
+  const [before, setBefore] = useState<number | null>(null);
+  const [prefix, setPrefix] = useState('');
+  const [msg, setMsg] = useState('');
+  const load = useCallback(async () => {
+    try {
+      const [s, a] = await Promise.all([api('/security'), api('/audit')]);
+      setSec(s); setAudit(a.items); setBefore(a.before);
+    } catch (e: any) { setMsg(e.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const block = async (unblock = false, p = prefix) => {
+    try { await api(`/networks/${unblock ? 'unblock' : 'block'}`, { method: 'POST', body: { prefix: p } }); setPrefix(''); load(); } catch (e: any) { setMsg(e.message); }
+  };
+  const mfa = async () => {
+    if (!sec) return;
+    if (!confirm(sec.requireAdminMfa ? 'Stop requiring two-step sign-in for the admin console?' : 'Require two-step sign-in for the admin console? Make sure your account has it set up first, or you will be locked out until it is.')) return;
+    try { await api('/settings', { method: 'PUT', body: { requireAdminMfa: !sec.requireAdminMfa } }); load(); } catch (e: any) { setMsg(e.message); }
+  };
+  if (!sec) return <p className="text-stone-600">{msg || 'Loading…'}</p>;
+  const extra = sec.adminHolders.length !== 1;
+  return (
+    <div className="space-y-4">
+      {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+      <Card title="Who is admin">
+        {extra && <p role="alert" className="mb-2 text-sm rounded-xl bg-red-50 border border-red-200 p-3 text-red-900">{sec.adminHolders.length} accounts hold the admin claim. Run scripts/set-admin.mjs to leave exactly one.</p>}
+        <ul className="text-sm space-y-1">{sec.adminHolders.map((h: any) => <li key={h.uid}>{h.email} <span className="font-mono text-xs text-stone-500">{h.uid}</span> · two-step {h.mfa ? 'on' : 'off'} · last sign-in {h.lastSignIn}</li>)}</ul>
+        <p className="text-xs text-stone-500 mt-2">The server also requires the account named in ADMIN_UIDS ({sec.namedAdmin.uids ? sec.namedAdmin.uids.join(', ') : `email ${sec.namedAdmin.email}; set ADMIN_UIDS to pin it`}), a verified email, a sign-in within {sec.sessionHours} hours, and a token that hasn't been revoked.</p>
+        <div className="mt-3 flex items-center gap-3"><Btn onClick={mfa}>{sec.requireAdminMfa ? 'Two-step sign-in required (turn off)' : 'Require two-step sign-in'}</Btn></div>
+      </Card>
+      <Card title="Blocked networks">
+        <form onSubmit={e => { e.preventDefault(); if (prefix.trim()) block(false); }} className="flex gap-2 mb-3"><input value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="IP address or prefix, e.g. 203.0.113." aria-label="Network to block" className="border border-stone-300 rounded-xl px-3 py-2 text-sm flex-1" /><Btn type="submit" tone="danger">Block</Btn></form>
+        {sec.blockedNetworks.length === 0 ? <p className="text-sm text-stone-600">None.</p> : <ul className="text-sm space-y-1">{sec.blockedNetworks.map((p: string) => <li key={p} className="flex justify-between"><span className="font-mono">{p}</span><button onClick={() => block(true, p)} className="underline">Unblock</button></li>)}</ul>}
+      </Card>
+      <Card title="Server">
+        <ul className="text-sm space-y-1">
+          <li>Database from the server: {sec.store.ok ? 'reachable' : `not reachable (${sec.store.error})`}</li>
+          <li>Separate service account: {sec.env.serviceAccount ? 'yes' : 'no (uses the runtime account)'}</li>
+          <li>Allowances when the database is down: {sec.env.quotaFailOpen ? <b className="text-red-700">allowed (development setting, turn off)</b> : 'refused (safe)'}</li>
+          <li>App Check: {sec.env.appCheck}</li>
+        </ul>
+      </Card>
+      <Card title="Audit log (every admin action)">
+        <ul className="text-xs divide-y divide-stone-100">{auditRows.map(a => <li key={a.id} className="py-1.5 flex flex-wrap gap-x-3"><span className="w-40 shrink-0">{when(a.at)}</span><span className="font-semibold">{a.action}</span><span className="text-stone-600 break-all">{JSON.stringify(a.details)}</span><span className="text-stone-400">{a.ip}</span></li>)}</ul>
+        {before && <Btn className="mt-3" onClick={async () => { const r = await api(`/audit?before=${before}`); setAudit(x => [...x, ...r.items]); setBefore(r.before); }}>Load older</Btn>}
+      </Card>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------- shell
+
+const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const [state, setState] = useState<'checking' | 'ok' | 'denied' | 'reauth' | 'mfa'>('checking');
+  const [section, setSection] = useState<Section>('overview');
+  const [uid, setUid] = useState<string | null>(null);
+  const [me, setMe] = useState<any>(null);
+
+  useEffect(() => {
+    api('/me').then(m => { setMe(m); setState('ok'); }).catch((e: ApiError) => setState(e.code === 'reauth' ? 'reauth' : e.code === 'mfa' ? 'mfa' : 'denied'));
+  }, []);
+  const openUser = (u: string) => { setUid(u); setSection('people'); };
+
+  if (state !== 'ok') {
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
+        <div className="max-w-sm text-center space-y-4">
+          <span className="material-symbols-outlined text-4xl text-stone-400" aria-hidden="true">admin_panel_settings</span>
+          <p className="text-stone-800">
+            {state === 'checking' ? 'Checking access…'
+              : state === 'reauth' ? 'For safety, sign out and sign in again to open the admin console.'
+              : state === 'mfa' ? 'The admin console needs two-step sign-in on this account.'
+              : 'This area is for the NatureGram admin.'}
+          </p>
+          <Btn onClick={onBack}>Back</Btn>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-day-bg overflow-hidden font-body animate-fade-in relative z-50">
-      {/* Header */}
-      <header className="flex items-center justify-between p-6 border-b border-theme-primary/10 bg-white shadow-sm shrink-0">
-        <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-theme-accent">psychology</span>
-            <div>
-              <h1 className="text-xl font-semibold font-display text-theme-primary">Admin & Research Console</h1>
-              <p className="text-[10px] text-theme-primary/50 font-mono">DeepMind Multimodal Data & Ethology Hub</p>
-            </div>
+    <div className="min-h-screen bg-stone-50 text-stone-900">
+      <header className="sticky top-0 z-10 bg-white border-b border-stone-200 safe-pt">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
+          <button onClick={onBack} aria-label="Back to the app" className="w-10 h-10 -ml-2 rounded-full hover:bg-stone-100 flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+          <h1 className="font-bold">NatureGram admin</h1>
+          <span className="ml-auto text-xs text-stone-500 truncate">{me?.email}</span>
         </div>
-        <div className="flex items-center gap-4">
-            <span className="text-theme-primary/60 text-xs font-bold uppercase tracking-wider">{status}</span>
-            <button onClick={onBack} className="bg-theme-primary/5 hover:bg-theme-primary/10 text-theme-primary px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">
-                Exit Console
+        <nav aria-label="Admin sections" className="max-w-7xl mx-auto px-2 flex gap-1 overflow-x-auto no-scrollbar">
+          {SECTIONS.map(s => (
+            <button key={s.id} onClick={() => { setSection(s.id); if (s.id !== 'people') setUid(null); }} aria-current={section === s.id ? 'page' : undefined}
+              className={`shrink-0 px-3 py-2.5 text-sm font-semibold border-b-2 flex items-center gap-1.5 ${section === s.id ? 'border-emerald-800 text-emerald-900' : 'border-transparent text-stone-600 hover:text-stone-900'}`}>
+              <span className="material-symbols-outlined text-lg" aria-hidden="true">{s.icon}</span>{s.label}
             </button>
-            <button onClick={handleSignOut} className="text-theme-primary/40 hover:text-red-500 font-bold text-[10px] uppercase tracking-widest transition-colors">
-                Sign Out
-            </button>
-        </div>
+          ))}
+        </nav>
       </header>
-
-      {needsVerification && (
-        <div role="alert" className="bg-amber-50 border-b border-amber-200 px-6 py-4 flex flex-wrap items-center gap-4 text-amber-900">
-          <span className="material-symbols-outlined" aria-hidden="true">verified_user</span>
-          <p className="text-sm flex-1 min-w-[240px]">Admin access now requires a verified email. Verify this address, then sign out and back in to unlock moderation and configuration.</p>
-          <button onClick={async () => { await FirebaseService.sendVerificationEmail(); setStatus('Verification email sent. Check your inbox.'); }} className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-bold">Send verification email</button>
-        </div>
-      )}
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-64 border-r border-theme-primary/10 bg-black/[0.02] p-4 shrink-0 flex flex-col justify-between">
-            <div>
-              <h3 className="text-theme-primary/40 text-xs font-bold uppercase tracking-wider mb-4">Modules</h3>
-              <div className="flex flex-col gap-2">
-                  <button 
-                      onClick={() => setActiveTab('activity')}
-                      className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 font-semibold text-xs transition-all ${activeTab === 'activity' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30 font-bold' : 'text-stone-600 hover:bg-white/60'}`}
-                  >
-                      <span className="material-symbols-outlined text-sm">analytics</span>
-                      Platform Analytics
-                  </button>
-
-                  <button 
-                      onClick={() => setActiveTab('ai_hub')}
-                      className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 font-semibold text-xs transition-all ${activeTab === 'ai_hub' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30 font-bold' : 'text-stone-600 hover:bg-white/60'}`}
-                  >
-                      <span className="material-symbols-outlined text-sm">hub</span>
-                      AI Dataset & Research Hub
-                      <span className="ml-auto bg-amber-500/20 text-amber-700 font-bold text-[9px] px-1.5 py-0.5 rounded">DeepMind</span>
-                  </button>
-
-                  <button 
-                      onClick={() => setActiveTab('moderation')}
-                      className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 font-semibold text-xs transition-all ${activeTab === 'moderation' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30 font-bold' : 'text-stone-600 hover:bg-white/60'}`}
-                  >
-                      <span className="material-symbols-outlined text-sm">gavel</span>
-                      Moderation Queue
-                      {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 rounded-full">{reportedPosts.length}</span>}
-                  </button>
-                  <button 
-                      onClick={() => setActiveTab('ai_quality')}
-                      className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 font-semibold text-xs transition-all ${activeTab === 'ai_quality' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30 font-bold' : 'text-stone-600 hover:bg-white/60'}`}
-                  >
-                      <span className="material-symbols-outlined text-sm" aria-hidden="true">verified</span>
-                      AI Quality & Governance
-                  </button>
-              </div>
-            </div>
-
-            <div className="p-4 bg-white/80 border border-theme-primary/10 rounded-2xl text-[10px] text-theme-primary/60 space-y-1">
-              <p className="font-bold text-theme-primary">NatureGram Open Science</p>
-              <p>Capturing high-fidelity bioacoustic, visual, and behavioral ethograms for foundation nature models.</p>
-            </div>
-        </aside>
-
-        {/* Editor Area */}
-        <main className="flex-1 p-8 overflow-y-auto">
-            
-            {/* ACTIVITY LOGS TAB */}
-            {activeTab === 'activity' && (
-                <div className="max-w-6xl mx-auto flex flex-col gap-8">
-                    <div className="flex justify-between items-center bg-white shadow-sm border border-theme-primary/10 rounded-2xl p-6">
-                        <div>
-                            <h2 className="text-theme-primary text-2xl font-semibold flex items-center gap-2 font-display">
-                                <span className="material-symbols-outlined text-theme-accent">monitoring</span>
-                                Platform Activity Analytics
-                            </h2>
-                            <p className="text-theme-primary/50 text-xs mt-1">Live tracking of active explorers, encounters and client contributions</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={async () => {
-                                    if (!window.confirm('Move precise GPS coordinates from public posts into each owner\'s private storage? Nothing is deleted.')) return;
-                                    try {
-                                        const n = await FirebaseService.migratePublicLocationsToPrivate((d, t) => setStatus(`Privacy migration ${d}/${t}...`));
-                                        setStatus(`Privacy migration complete: ${n} posts secured.`);
-                                    } catch (e: any) { setStatus('Privacy migration failed: ' + e.message); }
-                                }}
-                                className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
-                            >
-                                <span className="material-symbols-outlined text-sm" aria-hidden="true">shield_lock</span>
-                                Secure locations
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    if (!window.confirm('Remove the 5 legacy demo posts attributed to real naturalists (Goodall, Fossey, Darwin, Attenborough, Cousteau)?')) return;
-                                    const n = await FirebaseService.purgeSeedObservations();
-                                    setStatus(`Removed ${n} demo posts.`);
-                                }}
-                                className="bg-stone-50 hover:bg-stone-100 border border-stone-200 text-stone-700 rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
-                            >
-                                <span className="material-symbols-outlined text-sm" aria-hidden="true">delete_sweep</span>
-                                Remove demo posts
-                            </button>
-                            <button 
-                                onClick={downloadMetadataCSV}
-                                className="bg-theme-accent/5 hover:bg-theme-accent/10 border border-theme-accent/20 text-theme-accent rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
-                            >
-                                <span className="material-symbols-outlined text-sm">download</span>
-                                Export CSV
-                            </button>
-                            <button 
-                                onClick={loadActivityLogs}
-                                className="bg-theme-primary/5 hover:bg-theme-primary/10 border border-theme-primary/10 text-theme-primary rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all"
-                            >
-                                <span className="material-symbols-outlined text-sm">sync</span>
-                                Refresh Logs
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* METRICS STACK */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
-                            <div className="w-12 h-12 rounded-2xl bg-theme-accent/10 flex items-center justify-center text-theme-accent shrink-0">
-                                <span className="material-symbols-outlined text-2xl">group</span>
-                            </div>
-                            <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Total Explorers</p>
-                                <p className="text-2xl font-black text-theme-primary">{allUsers.length}</p>
-                            </div>
-                        </div>
-
-                        <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
-                            <div className="w-12 h-12 rounded-2xl bg-teal-500/10 flex items-center justify-center text-teal-600 shrink-0">
-                                <span className="material-symbols-outlined text-2xl">explore</span>
-                            </div>
-                            <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Sightings Recorded</p>
-                                <p className="text-2xl font-black text-theme-primary">{allPosts.length}</p>
-                            </div>
-                        </div>
-
-                        <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
-                            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500 shrink-0">
-                                <span className="material-symbols-outlined text-2xl">forum</span>
-                            </div>
-                            <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Social Interactions</p>
-                                <p className="text-2xl font-black text-theme-primary">
-                                    {allPosts.reduce((sum, p) => sum + (p.likes?.length || 0) + (p.commentCount || 0), 0)}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="bg-white border border-theme-primary/10 p-6 rounded-[2rem] shadow-sm flex items-center gap-5">
-                            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-600 shrink-0">
-                                <span className="material-symbols-outlined text-2xl">psychology</span>
-                            </div>
-                            <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Species Wealth</p>
-                                <p className="text-2xl font-black text-theme-primary">
-                                    {new Set(allPosts.flatMap(p => p.labels || [])).size}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* TWO-COLUMN LAYOUT: USERS AND POSTS ACTVITY */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                        {/* Users access list */}
-                        <div className="lg:col-span-4 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-xs text-theme-primary/50">people</span>
-                                    Registered Explorers ({allUsers.length})
-                                </h3>
-                                <button
-                                    onClick={downloadUsersCSV}
-                                    className="bg-theme-accent/5 hover:bg-theme-accent/10 text-theme-accent p-1.5 rounded-lg transition-colors border border-theme-accent/20"
-                                    title="Export Users CSV"
-                                >
-                                    <span className="material-symbols-outlined text-xs">download</span>
-                                </button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
-                                {allUsers.map((user, idx) => (
-                                    <div key={user.uid || idx} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-4 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center text-theme-primary font-black shrink-0 text-sm uppercase overflow-hidden">
-                                            {user.avatarUrl ? (
-                                                <img src={user.avatarUrl} className="w-full h-full object-cover" />
-                                            ) : (
-                                                user.username?.slice(0, 2) || "EX"
-                                            )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-stone-800 font-bold text-xs flex items-center gap-2">
-                                                {user.username || 'Anonymous'}
-                                                {user.isAnonymous && <span className="bg-theme-accent/20 text-theme-accent px-1.5 py-0.5 rounded text-[8px] uppercase font-black">Anonymous</span>}
-                                            </p>
-                                            <p className="text-theme-primary/50 text-[9px] truncate mt-0.5">Joined {user.joinedAt?.toDate ? new Date(user.joinedAt.toDate()).toLocaleDateString() : 'Just Now'} • {user.location || 'Unknown Location'}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="bg-white/5 border border-white/10 text-white/70 px-2 py-1 rounded text-[8px] font-bold">
-                                                {user.stats?.observations || 0} Obs
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Recent Activity Thread list */}
-                        <div className="lg:col-span-8 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
-                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
-                                <span className="material-symbols-outlined text-xs text-theme-primary/50">history</span>
-                                Incident & Observation Thread ({allPosts.length})
-                            </h3>
-                            <div className="flex-1 overflow-y-auto space-y-4 pr-1 no-scrollbar flex flex-col">
-                                {allPosts.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 text-sm font-display tracking-wide">
-                                        No observations captured on the field yet.
-                                    </div>
-                                ) : (
-                                    allPosts.map((post, idx) => (
-                                        <div key={post.id || idx} className="bg-stone-50 border border-theme-primary/10 rounded-2xl p-5 flex gap-4 transition-all hover:bg-stone-100">
-                                            {/* Media Thumbnail Indicator */}
-                                            <div className="w-16 h-16 shrink-0 rounded-xl bg-stone-200 border border-theme-primary/5 overflow-hidden relative flex items-center justify-center">
-                                                {post.mediaType === 'audio' ? (
-                                                    <div className="w-full h-full flex items-center justify-center bg-stone-800 text-amber-500">
-                                                        <span className="material-symbols-outlined text-xl">audiotrack</span>
-                                                    </div>
-                                                ) : (
-                                                    <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover" />
-                                                )}
-                                            </div>
-                                            
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <span className="text-theme-primary font-bold text-xs truncate">{post.userName || 'Unknown Explorer'}</span>
-                                                    <span className="text-theme-primary/30 text-[9px]">
-                                                        {post.timestamp?.toDate ? new Date(post.timestamp.toDate()).toLocaleDateString() : 'Active'}
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="flex gap-1.5 flex-wrap my-1.5">
-                                                    {(post.labels || []).slice(0, 3).map((lbl, i) => (
-                                                        <span key={i} className="bg-theme-accent/10 border border-theme-accent/20 text-theme-primary rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest">
-                                                            {lbl}
-                                                        </span>
-                                                    ))}
-                                                    {post.locationArea && (
-                                                        <span className="bg-blue-500/10 border border-blue-500/20 text-blue-600 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest font-black">
-                                                            {post.locationArea}
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                <p className="text-theme-primary/70 text-xs italic line-clamp-2 mt-2">
-                                                    "{post.behavior || post.aiInsight || 'No description provided.'}"
-                                                </p>
-
-                                                <div className="mt-3 flex gap-4 items-center text-theme-primary/30 text-[10px] font-bold">
-                                                    <span className="flex items-center gap-1">
-                                                        <span className="material-symbols-outlined text-xs">thumb_up</span>
-                                                        {post.likes?.length || 0} Likes
-                                                    </span>
-                                                    <span className="flex items-center gap-1">
-                                                        <span className="material-symbols-outlined text-xs">comment</span>
-                                                        {post.commentCount || 0} Comments
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            
-            {/* AI DATASET & RESEARCH HUB TAB */}
-            {activeTab === 'ai_quality' && <AiQualityPanel config={config} onConfigSaved={setConfig} />}
-
-            {activeTab === 'ai_hub' && (
-                <div className="max-w-6xl mx-auto flex flex-col gap-8">
-                    {/* Header Banner */}
-                    <div className="bg-gradient-to-r from-stone-900 to-stone-800 text-white rounded-3xl p-8 shadow-md border border-stone-700 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                        <div>
-                            <div className="inline-flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 text-amber-300 px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-widest mb-3">
-                                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-                                DeepMind & AI Research Engine
-                            </div>
-                            <h2 className="text-3xl font-semibold font-display">Ethology & Biodiversity AI Dataset Exporter</h2>
-                            <p className="text-stone-300 text-xs mt-2 max-w-2xl leading-relaxed">
-                                Formatted multimodal export pipeline for training foundation nature models (e.g. Gemini, DeepMind Bioacoustics, Computer Vision). Includes species taxonomy, behavioral ethograms, human-in-the-loop correction deltas, and spatial-temporal telemetry.
-                            </p>
-                        </div>
-
-                        {/* Export Action Buttons */}
-                        <div className="flex flex-wrap gap-3 shrink-0">
-                            <button 
-                                onClick={downloadJSONLDataset}
-                                className="bg-amber-500 hover:bg-amber-400 text-stone-950 font-black px-4 py-3 rounded-xl flex items-center gap-2 text-xs uppercase tracking-wider transition-all shadow-lg"
-                                title="Download JSONL dataset for Gemini / DeepMind fine-tuning"
-                            >
-                                <span className="material-symbols-outlined text-sm">terminal</span>
-                                Export JSONL
-                            </button>
-                            <button 
-                                onClick={downloadCOCODataset}
-                                className="bg-stone-700 hover:bg-stone-600 border border-stone-500 text-white font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-                                title="Download COCO-format JSON for Computer Vision models"
-                            >
-                                <span className="material-symbols-outlined text-sm">dataset</span>
-                                COCO Format
-                            </button>
-                            <button 
-                                onClick={downloadMetadataCSV}
-                                className="bg-stone-800 hover:bg-stone-700 border border-stone-600 text-stone-200 font-bold px-4 py-3 rounded-xl flex items-center gap-2 text-xs uppercase tracking-wider transition-all"
-                                title="Download CSV matrix"
-                            >
-                                <span className="material-symbols-outlined text-sm">file_download</span>
-                                Full CSV
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* AI DATASET METRICS & GROUNDING ACCURACY */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                        <div className="bg-white border border-stone-200 p-5 rounded-2xl shadow-sm">
-                            <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Dataset Size</p>
-                            <p className="text-2xl font-black text-stone-900 mt-1">{totalPosts} <span className="text-xs font-normal text-stone-500">specimens</span></p>
-                            <p className="text-[10px] text-stone-500 mt-1">{filteredPosts.length} selected by filter</p>
-                        </div>
-
-                        <div className="bg-white border border-stone-200 p-5 rounded-2xl shadow-sm">
-                            <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">AI Grounding Agreement</p>
-                            <p className="text-2xl font-black text-emerald-600 mt-1">{agreementRate}%</p>
-                            <p className="text-[10px] text-stone-500 mt-1">{postsWithHumanDelta} modified by human</p>
-                        </div>
-
-                        <div className="bg-white border border-stone-200 p-5 rounded-2xl shadow-sm">
-                            <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Bioacoustic Audio</p>
-                            <p className="text-2xl font-black text-amber-600 mt-1">{audioCount} <span className="text-xs font-normal text-stone-500">samples</span></p>
-                            <p className="text-[10px] text-stone-500 mt-1">Birdsong & soundscapes</p>
-                        </div>
-
-                        <div className="bg-white border border-stone-200 p-5 rounded-2xl shadow-sm">
-                            <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Visual Specimens</p>
-                            <p className="text-2xl font-black text-blue-600 mt-1">{imageCount + videoCount} <span className="text-xs font-normal text-stone-500">files</span></p>
-                            <p className="text-[10px] text-stone-500 mt-1">{imageCount} photos • {videoCount} videos</p>
-                        </div>
-
-                        <div className="bg-white border border-stone-200 p-5 rounded-2xl shadow-sm">
-                            <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Spatial Coverage</p>
-                            <p className="text-2xl font-black text-purple-600 mt-1">{uniqueLocations}</p>
-                            <p className="text-[10px] text-stone-500 mt-1">Distinct habitats & coordinates</p>
-                        </div>
-                    </div>
-
-                    {/* FILTER MATRIX CONTROL BAR */}
-                    <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
-                        <div className="flex items-center gap-3 w-full md:w-auto">
-                            <span className="material-symbols-outlined text-stone-400 text-sm">filter_alt</span>
-                            <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">Dataset Filter Matrix:</span>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
-                            {/* Media Type Filter */}
-                            <select 
-                                value={filterMediaType}
-                                onChange={(e) => setFilterMediaType(e.target.value as any)}
-                                className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-semibold text-stone-700 outline-none focus:border-amber-500"
-                            >
-                                <option value="all">All Media Types</option>
-                                <option value="image">Image Specimens</option>
-                                <option value="audio">Bioacoustic Audio</option>
-                                <option value="video">Motion Video</option>
-                            </select>
-
-                            {/* Human Correction Delta Filter */}
-                            <select 
-                                value={filterHumanDelta}
-                                onChange={(e) => setFilterHumanDelta(e.target.value as any)}
-                                className="bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-xs font-semibold text-stone-700 outline-none focus:border-amber-500"
-                            >
-                                <option value="all">All Observations</option>
-                                <option value="verified">Human-Verified / Edited (High Precision)</option>
-                                <option value="raw">Raw AI Proposals</option>
-                            </select>
-
-                            {/* Search filter */}
-                            <div className="relative flex-1 md:w-64">
-                                <input 
-                                    type="text" 
-                                    placeholder="Search taxonomy or behavior..."
-                                    value={filterSearch}
-                                    onChange={(e) => setFilterSearch(e.target.value)}
-                                    className="w-full bg-stone-50 border border-stone-200 rounded-xl pl-8 pr-3 py-2 text-xs text-stone-800 outline-none focus:border-amber-500"
-                                />
-                                <span className="material-symbols-outlined absolute left-2.5 top-2.5 text-stone-400 text-xs">search</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* TWO-COLUMN WORKBENCH: SPECIMEN LIST & FINE-TUNING INSPECTOR */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                        {/* Specimen List */}
-                        <div className="lg:col-span-6 bg-white border border-stone-200 rounded-3xl p-6 flex flex-col h-[550px] shadow-sm">
-                            <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-stone-800 font-bold text-xs uppercase tracking-wider flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-amber-600 text-sm">microscope</span>
-                                    Filtered Specimens ({filteredPosts.length})
-                                </h3>
-                                <span className="text-[10px] text-stone-400 font-mono">Click to inspect payload</span>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto space-y-3 pr-2 no-scrollbar">
-                                {filteredPosts.length === 0 ? (
-                                    <div className="h-full flex items-center justify-center text-stone-400 italic text-xs">
-                                        No specimens match current dataset filters.
-                                    </div>
-                                ) : (
-                                    filteredPosts.map((post) => {
-                                        const isSelected = selectedPostForInspection?.id === post.id;
-                                        return (
-                                            <div 
-                                                key={post.id}
-                                                onClick={() => setSelectedPostForInspection(post)}
-                                                className={`p-4 rounded-2xl border transition-all cursor-pointer flex gap-4 items-center ${
-                                                    isSelected 
-                                                        ? 'bg-amber-50/80 border-amber-400 shadow-sm' 
-                                                        : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
-                                                }`}
-                                            >
-                                                <div className="w-12 h-12 rounded-xl bg-stone-200 shrink-0 overflow-hidden flex items-center justify-center relative">
-                                                    {post.mediaType === 'audio' ? (
-                                                        <span className="material-symbols-outlined text-amber-600 text-xl">audiotrack</span>
-                                                    ) : (
-                                                        <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover" />
-                                                    )}
-                                                </div>
-
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center justify-between">
-                                                        <p className="text-xs font-bold text-stone-900 truncate">
-                                                            {(post.labels || ['Unknown'])[0]}
-                                                        </p>
-                                                        {post.humanDelta && (
-                                                            <span className="bg-emerald-100 text-emerald-800 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">
-                                                                Human Corrected
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-[10px] text-stone-500 italic truncate mt-0.5">
-                                                        "{post.behavior || post.aiInsight || 'No behavior recorded'}"
-                                                    </p>
-                                                    <div className="flex items-center gap-2 text-[9px] text-stone-400 mt-1">
-                                                        <span>{post.mediaType || 'image'}</span>
-                                                        <span>•</span>
-                                                        <span>{post.locationArea || 'Field'}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })
-                                )}
-                            </div>
-                        </div>
-
-                        {/* JSON Payload Inspector */}
-                        <div className="lg:col-span-6 bg-stone-900 border border-stone-800 text-stone-200 rounded-3xl p-6 flex flex-col h-[550px] shadow-lg">
-                            <div className="flex justify-between items-center mb-4 pb-3 border-b border-stone-800">
-                                <div className="flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-amber-400 text-sm">code</span>
-                                    <h3 className="text-amber-400 font-mono text-xs font-bold uppercase tracking-wider">
-                                        Multimodal Training Payload Preview
-                                    </h3>
-                                </div>
-                                {selectedPostForInspection && (
-                                    <button 
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(JSON.stringify(selectedPostForInspection, null, 2));
-                                            setStatus('JSON snippet copied to clipboard.');
-                                        }}
-                                        className="bg-stone-800 hover:bg-stone-700 text-stone-300 px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 transition-colors border border-stone-700"
-                                    >
-                                        <span className="material-symbols-outlined text-xs">content_copy</span>
-                                        Copy JSON
-                                    </button>
-                                )}
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto no-scrollbar font-mono text-[11px] leading-relaxed text-amber-200/90 bg-stone-950 p-4 rounded-2xl border border-stone-800">
-                                {selectedPostForInspection ? (
-                                    <pre className="whitespace-pre-wrap break-all">
-                                        {JSON.stringify({
-                                            specimen_id: selectedPostForInspection.id,
-                                            user_author: selectedPostForInspection.userName,
-                                            media_type: selectedPostForInspection.mediaType || 'image',
-                                            taxonomy_labels: selectedPostForInspection.labels,
-                                            behavioral_ethogram: selectedPostForInspection.behavior,
-                                            ai_multimodal_insight: selectedPostForInspection.aiInsight,
-                                            ethological_descriptors: selectedPostForInspection.ethologicalDescriptors || null,
-                                            spatial_temporal: {
-                                                location: selectedPostForInspection.locationArea,
-                                                latitude: selectedPostForInspection.rawLocation?.lat,
-                                                longitude: selectedPostForInspection.rawLocation?.lng,
-                                                timestamp: selectedPostForInspection.timestamp
-                                            },
-                                            human_in_loop_validation: {
-                                                human_edited_delta: !!selectedPostForInspection.humanDelta,
-                                                ai_proposed_labels: selectedPostForInspection.aiProposedLabels,
-                                                ai_proposed_behavior: selectedPostForInspection.aiProposedBehavior
-                                            },
-                                            session_telemetry: {
-                                                time_to_record_ms: selectedPostForInspection.timeToRecordMs,
-                                                retakes: selectedPostForInspection.sessionRetakes
-                                            }
-                                        }, null, 2)}
-                                    </pre>
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-stone-600 italic">
-                                        Select a specimen from the left list to inspect its JSON schema.
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODERATION TAB */}
-            {activeTab === 'moderation' && (
-                <div className="max-w-5xl mx-auto">
-                    <h2 className="text-theme-primary text-2xl font-semibold mb-6 font-display">Reported Content Queue</h2>
-                    
-                    {reportedPosts.length === 0 ? (
-                        <div className="text-center py-20 text-theme-primary/50 italic">
-                            No reported content. The ecosystem is healthy.
-                        </div>
-                    ) : (
-                        <div className="grid gap-6">
-                            {reportedPosts.map(post => (
-                                <div key={post.id} className="bg-white border border-theme-primary/10 rounded-xl p-6 flex gap-6 shadow-sm">
-                                    {/* Media Preview */}
-                                    <div className="w-32 h-32 shrink-0 bg-stone-100 rounded-lg overflow-hidden relative">
-                                        {post.mediaType === 'video' ? (
-                                            <video src={post.videoUrl} className="w-full h-full object-cover" style={{ transform: `rotate(${post.rotation || 0}deg)` }} muted playsInline />
-                                        ) : post.mediaType === 'audio' ? (
-                                            <div className="w-full h-full flex items-center justify-center bg-theme-primary/90">
-                                                <span className="material-symbols-outlined text-theme-accent text-3xl">mic</span>
-                                            </div>
-                                        ) : (
-                                            <img src={post.imageUrl || post.thumbnailUrl} className="w-full h-full object-cover" />
-                                        )}
-                                    </div>
-                                    
-                                    {/* Content Details */}
-                                    <div className="flex-1">
-                                        <div className="flex justify-between mb-2">
-                                            <div className="text-theme-primary font-bold">{post.labels?.[0] || 'Unknown Species'} <span className="text-theme-primary/50 font-normal">by {post.userName}</span></div>
-                                            <div className="text-red-500 text-xs uppercase font-bold tracking-widest">Pending Review</div>
-                                        </div>
-                                        
-                                        <div className="bg-stone-50 p-3 rounded-lg mb-4">
-                                            <p className="text-theme-primary/80 text-sm italic">"{post.behavior}"</p>
-                                        </div>
-
-                                        <div className="mb-4">
-                                            <h4 className="text-theme-primary/50 text-xs font-bold uppercase mb-2">Report Reasons:</h4>
-                                            {(reportReasons[post.id] || []).map((r, i) => (
-                                                <div key={i} className="text-red-600 text-sm flex gap-2 items-center">
-                                                    <span className="material-symbols-outlined text-xs" aria-hidden="true">flag</span>
-                                                    {r.reason}
-                                                    {r.details && <span className="text-theme-primary/60 text-xs ml-2">"{r.details}"</span>}
-                                                </div>
-                                            ))}
-                                            {!(reportReasons[post.id] || []).length && (
-                                                <div className="text-red-600 text-sm">{post.reportCount || post.reports?.length || 0} report(s)</div>
-                                            )}
-                                        </div>
-
-                                        <div className="flex gap-4">
-                                            <button 
-                                                onClick={() => handleDismissReport(post.id)}
-                                                className="px-4 py-2 rounded-lg border border-theme-primary/20 text-theme-primary text-sm hover:bg-theme-primary/5 transition-colors"
-                                            >
-                                                Keep Content (Dismiss)
-                                            </button>
-                                            <button 
-                                                onClick={() => handleDeleteContent(post.id)}
-                                                className="px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm hover:bg-red-100 transition-colors font-bold"
-                                            >
-                                                Delete & Moderate
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-        </main>
-      </div>
+      <main className="max-w-7xl mx-auto p-4 pb-16">
+        {section === 'overview' && <Overview go={setSection} />}
+        {section === 'controls' && <Controls />}
+        {section === 'ai' && <AiGovernance />}
+        {section === 'monitor' && <Monitor openUser={openUser} />}
+        {section === 'review' && <Review openUser={openUser} />}
+        {section === 'people' && <People uid={uid} setUid={setUid} />}
+        {section === 'letters' && <Letters />}
+        {section === 'data' && <DataExplorer />}
+        {section === 'security' && <Security />}
+      </main>
     </div>
   );
 };

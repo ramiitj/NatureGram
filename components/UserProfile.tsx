@@ -405,9 +405,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {isAdmin && onAdminConsole && (
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
             )}
-            {!isAdmin && onAdminConsole && auth.currentUser?.email === 'ram@iitj.ac.in' && (
-              <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console (verify email)</button>
-            )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">shield</span>Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">description</span>Terms & community guidelines</a>
             <hr className="my-2 border-stone-100" />
