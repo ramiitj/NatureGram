@@ -55,15 +55,15 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
   };
 
   return (
-    <section aria-labelledby={`cid-${postId}`} className="rounded-2xl border border-stone-200 p-4 space-y-3">
+    <section aria-labelledby={`cid-${postId}`} className="rounded-2xl border border-theme-primary/15 p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 id={`cid-${postId}`} className="text-sm font-bold text-stone-800">Community ID</h3>
-        {verified && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200"><span className="material-symbols-outlined text-sm" aria-hidden="true">verified</span>Community verified</span>}
-        {disputed && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200">ID disputed</span>}
+        <h3 id={`cid-${postId}`} className="text-base font-display italic font-bold text-theme-primary">Is this right?</h3>
+        {verified && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200"><span className="material-symbols-outlined text-sm" aria-hidden="true">verified</span>Confirmed by {agreeCount} explorers</span>}
+        {disputed && <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200">Explorers disagree</span>}
       </div>
 
       {tally.length === 0 ? (
-        <p className="text-sm text-stone-600">No one has reviewed this identification yet.{!isAuthor && ' Know this species? Help confirm it.'}</p>
+        <p className="text-sm text-stone-600">No one has checked this yet.{!isAuthor && ' Know it? Say so.'}</p>
       ) : (
         <ul className="space-y-1.5" role="list">
           {tally.map(t => (
@@ -92,18 +92,18 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
               <input value={note} onChange={e => setNote(e.target.value)} placeholder="Field marks that show it (optional)" maxLength={280} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-base" />
             </label>
             <div className="flex gap-2">
-              <button type="submit" disabled={busy || !name.trim()} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold disabled:opacity-40">Suggest ID</button>
-              <button type="button" onClick={() => setSuggesting(false)} className="px-4 py-2.5 rounded-xl bg-stone-100 text-sm font-bold">Cancel</button>
+              <button type="submit" disabled={busy || !name.trim()} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold disabled:opacity-40">Suggest this</button>
+              <button type="button" onClick={() => setSuggesting(false)} className="px-4 py-2.5 rounded-xl border border-theme-primary/15 text-theme-primary text-sm font-bold">Cancel</button>
             </div>
           </form>
         ) : (
           <div className="flex gap-2">
             {primaryLabel && (
-              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-bold disabled:opacity-40">
-                Agree: {primaryLabel.length > 22 ? primaryLabel.slice(0, 20) + '…' : primaryLabel}
+              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold disabled:opacity-40">
+                Yes, it's {primaryLabel.length > 22 ? primaryLabel.slice(0, 20) + '…' : primaryLabel}
               </button>
             )}
-            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="flex-1 py-2.5 rounded-xl bg-stone-100 text-stone-900 text-sm font-bold">Suggest another</button>
+            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-theme-primary text-sm font-bold">I think it's…</button>
           </div>
         )
       )}

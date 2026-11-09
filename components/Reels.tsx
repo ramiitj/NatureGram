@@ -3,7 +3,7 @@ import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode } from '../types';
 import { likeTotal } from '../utils';
 import { track } from '../services/analytics';
-import AiBadge from './AiBadge';
+import AiBadge, { hedgedName } from './AiBadge';
 import { resolvePlayableVideo } from './PlayableVideo';
 import { WonderBurst, WonderIcon, wonderLabel, observedBehaviour } from './Wonder';
 
@@ -167,7 +167,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
             const src = videoUrls[p.id];
             const near = Math.abs(idx - activeIdx) <= 2;
             const watchFor = insights[p.id];
-            const species = p.labels?.[0] || p.title || 'Unnamed sighting';
+            const species = hedgedName(p.labels?.[0], p.aiConfidence, !!(p as any).humanDelta) || p.title || 'Unnamed sighting';
             const n = likeTotal(p);
             return (
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
@@ -221,7 +221,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                     <button onClick={() => onViewProfile(p.userId)} className="font-semibold text-white py-1.5 min-h-[36px] hover:underline">{p.userName}</button>
                     {p.locationArea && <span className="flex items-center gap-0.5"><span className="material-symbols-outlined text-[15px]" aria-hidden="true">location_on</span>{p.locationArea}</span>}
                   </div>
-                  <div className="mt-1 [&_*]:!text-[11px]"><AiBadge confidence={p.aiConfidence} compact /></div>
+                  <div className="mt-0.5"><AiBadge confidence={p.aiConfidence} compact tone="dark" /></div>
                 </div>
               </article>
             );

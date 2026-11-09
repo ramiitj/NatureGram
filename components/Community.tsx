@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
-import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
+import AiBadge, { isFungiPost, FungiWarning, hedgedName } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
@@ -1608,12 +1608,17 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : 'travel_explore'}</span>
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : isJournalOnly && !searchQuery && !searchTag ? 'fingerprint' : 'travel_explore'}</span>
                     {feedMode === 'following' && !searchQuery ? (
                         <>
                             <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">No fellow explorers yet</h3>
                             <p className="text-base text-stone-600 max-w-xs mb-8">When a sighting makes you stop and look twice, open it and follow the explorer who found it.</p>
                             <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Go wandering</button>
+                        </>
+                    ) : isJournalOnly && !searchQuery && !searchTag ? (
+                        <>
+                            <h3 className="text-xl font-display italic text-stone-800 mb-2 font-bold">Your journal starts outside</h3>
+                            <p className="text-base text-stone-600 max-w-xs">Open the Lens and point it at anything alive. Every sighting lands here, including the ones you keep to yourself.</p>
                         </>
                     ) : (
                         <>
@@ -1875,7 +1880,7 @@ const Community: React.FC<CommunityProps> = ({
                                         )}
                                         {(activePost.title || currentItem.labels?.[0]) && (
                                             <div>
-                                                <h2 className="text-2xl font-display italic font-bold text-theme-primary leading-tight">{activePost.title || currentItem.labels?.[0]}</h2>
+                                                <h2 className="text-2xl font-display italic font-bold text-theme-primary leading-tight">{activePost.title || hedgedName(currentItem.labels?.[0], (currentItem as any).aiConfidence, !!(currentItem as any).humanDelta || !!activePost.humanDelta)}</h2>
                                                 {observedBehaviour(currentItem.behavior) && <p className="text-base text-theme-primary/80 mt-1 leading-snug">{observedBehaviour(currentItem.behavior)}</p>}
                                             </div>
                                         )}
@@ -1898,7 +1903,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {currentItem.labels && currentItem.labels.length > 0 && (
                                                     <div className="space-y-2">
                                                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                            <p className="text-xs font-bold tracking-[0.15em] text-stone-600 uppercase">Identification</p>
+                                                            <p className="text-sm font-display italic text-stone-600">What it is</p>
                                                             <AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={!!(currentItem as any).humanDelta || !!activePost.humanDelta} />
                                                         </div>
                                                         {isFungiPost(currentItem as any) && <FungiWarning />}
@@ -1916,7 +1921,7 @@ const Community: React.FC<CommunityProps> = ({
                                                     <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
                                                         <p className="catalog-label text-[11px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
                                                             <span className="material-symbols-outlined text-[11px]" aria-hidden="true">auto_awesome</span>
-                                                            Why it does this (AI)
+                                                            Why it does this
                                                         </p>
                                                         <div className="space-y-3 mt-2">
                                                             {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (
@@ -1925,6 +1930,7 @@ const Community: React.FC<CommunityProps> = ({
                                                                 </p>
                                                             ))}
                                                         </div>
+                                                        <p className="text-xs font-display italic text-stone-500 pt-1">From your guide's notes. Seen it behave differently? Add a field note.</p>
                                                     </div>
                                                 )}
                                             </div>

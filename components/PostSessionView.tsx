@@ -618,7 +618,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               )}
                               {!!currentSnapshot?.aiIdentifications?.length && (
                                   <details className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
-                                      <summary className="cursor-pointer font-semibold text-stone-800">Why the AI thinks so</summary>
+                                      <summary className="cursor-pointer font-semibold text-stone-800">Why your guide thinks so</summary>
                                       <ul className="mt-2 space-y-2">
                                           {currentSnapshot.aiIdentifications.map((id, i) => (
                                               <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
