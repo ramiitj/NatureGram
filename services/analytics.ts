@@ -30,7 +30,10 @@ export const getConsent = (): Consent => {
 };
 export const setConsent = (c: 'granted' | 'denied') => {
   try { localStorage.setItem(CONSENT_KEY, c); } catch { /* ignore */ }
-  if (c === 'granted') track('analytics_consent', { granted: true });
+  if (c === 'granted') {
+    track('analytics_consent', { granted: true });
+    try { (window as any).ngLoadAdsTag?.(); } catch { /* ignore */ }
+  }
   else queue.splice(0, queue.length, ...queue.filter(e => e.kind === 'error'));
 };
 

@@ -1,11 +1,11 @@
 
 import { getShareUrl } from '../utils';
-import AiBadge, { FungiWarning, isFungiPost } from './AiBadge';
+import { FungiWarning, isFungiPost } from './AiBadge';
 import { WonderBurst } from './Wonder';
 import { track } from '../services/analytics';
 import React, { useState, useEffect, useRef } from 'react';
 import { Snapshot, UserMode } from '../types.ts';
-import { FirebaseService } from '../services/firebaseService.ts';
+import { FirebaseService, PublishError, getMyAllowance } from '../services/firebaseService.ts';
 import { rotateImageBlob } from '../services/imageUtils.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
@@ -44,6 +44,11 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [caption, setCaption] = useState("");
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [publishError, setPublishError] = useState('');
+  // When a capture is held back: the fix to show, and whether the explorer may ask for a review instead
+  const [reviewOffer, setReviewOffer] = useState<null | { mode: 'stitch' | 'separate' }>(null);
+  const [heldMessage, setHeldMessage] = useState('');
+  const [sharesLeft, setSharesLeft] = useState<number | null>(null);
+  useEffect(() => { getMyAllowance().then(a => { if (a) setSharesLeft(Math.max(0, a.posts.limit - a.posts.used)); }); }, []);
   const [newSpecies, setNewSpecies] = useState<string[]>([]);
   const [lifeListTotal, setLifeListTotal] = useState(0);
   const [publishedThumb, setPublishedThumb] = useState<string | null>(null);
@@ -166,13 +171,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                         aiSafetyNote: result.safetyNote,
                         aiModel: result.model,
                         aiPromptVersion: result.promptVersion,
+                        aiResultId: result.resultId,
                         aiError: null,
                     } : s));
                 }
             } catch (e: any) {
                 console.error("Analysis failed", e);
                 setAiInsight('');
-                setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, aiInsight: '', isAnalyzing: false, aiError: e?.message || 'AI identification unavailable' } : s));
+                setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, aiInsight: '', isAnalyzing: false, aiError: e?.message || 'Identification unavailable right now' } : s));
             } finally {
                 setIsAnalyzing(false);
             }
@@ -294,10 +300,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
   handleFinalizeRef.current = handleFinalizeClick;
 
-  const executeDispatch = async (mode: 'stitch' | 'separate') => {
+  const executeDispatch = async (mode: 'stitch' | 'separate', requestReview = false) => {
     setShowPostOptionsModal(false);
     setIsProcessing(true);
     setPublishError('');
+    setReviewOffer(null);
+    let held = '';
     try {
         const activeUserId = FirebaseService.getCurrentUserId()!;
         const before = await FirebaseService.getMySpeciesSet();
@@ -318,15 +326,18 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         if (mode === 'stitch') {
             const itemsForSynthesis = selectedSnapshots.map(s => ({ taxonomy: s.labels || [], ecologic: s.aiInsight || '' }));
             const synthesizedData = await GenAiService.synthesizeCollection(itemsForSynthesis).catch(() => undefined);
-            const res = await FirebaseService.createSessionObservation(selectedSnapshots, activeUserId, { feed: postToFeed, journal: true }, cleanTags, synthesizedData, caption);
+            const res = await FirebaseService.publishPost(selectedSnapshots, activeUserId, { feed: postToFeed, journal: true }, cleanTags, { caption, title: synthesizedData?.title, description: synthesizedData?.description, requestReview });
             if (res?.id) lastCreatedId = res.id;
+            if (res?.held) held = res.message || '';
         } else {
             for (const snap of selectedSnapshots) {
-                const res = await FirebaseService.createSessionObservation([snap], activeUserId, { feed: postToFeed, journal: true }, cleanTags, undefined, caption);
+                const res = await FirebaseService.publishPost([snap], activeUserId, { feed: postToFeed, journal: true }, cleanTags, { caption, requestReview });
                 if (res?.id) lastCreatedId = res.id;
+                if (res?.held) held = res.message || '';
             }
         }
         if (lastCreatedId) setCreatedPostId(lastCreatedId);
+        setHeldMessage(held);
         FirebaseService.logAiFeedback(selectedSnapshots, lastCreatedId).catch(() => {});
         const fresh = Array.from(new Set(selectedSnapshots.map(s => (s.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l) && !before.has(l.toLowerCase()))));
         setNewSpecies(fresh);
@@ -346,6 +357,13 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         }
     } catch (e) {
         console.error('Publish failed', e);
+        if (e instanceof PublishError) {
+            // The server says what to fix: crop, retake, change the words, or wait for tomorrow's allowance
+            track('post_held', { code: e.code });
+            setPublishError(e.message);
+            if (e.details?.canRequestReview) setReviewOffer({ mode });
+            return;
+        }
         track('post_publish_failed', { offline: navigator.onLine === false });
         setPublishError(navigator.onLine === false
             ? "You're offline. Your captures are safe here. Reconnect and tap Share again, or save a draft."
@@ -371,8 +389,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                        {newSpecies.length > 0 && <span className="absolute -inset-16"><WonderBurst count={24} /></span>}
                    </div>
                )}
-               <h2 className="text-3xl font-display text-theme-primary mb-2 font-semibold">{postToFeed ? 'Shared with the field' : 'Saved to your journal'}</h2>
-               <p className="text-stone-600 mb-6 text-base max-w-xs">{postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.'}</p>
+               <h2 className="text-3xl font-display text-theme-primary mb-2 font-semibold">{postToFeed && !heldMessage ? 'Shared with the field' : 'Saved to your journal'}</h2>
+               <p className="text-stone-600 mb-6 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.')}</p>
                {newSpecies.length > 0 && (
                    <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
                        <p className="text-sm font-display text-theme-accent mb-1">First time you've recorded</p>
@@ -381,7 +399,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    </div>
                )}
                <div className="w-full max-w-xs flex flex-col gap-3">
-                   {createdPostId && postToFeed && (
+                   {createdPostId && postToFeed && !heldMessage && (
                        <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
                            <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : 'Share'}
                        </button>
@@ -601,10 +619,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           </section>
 
                           <section>
-                              <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-                                  <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800">What did you see?</label>
-                                  <AiBadge confidence={currentSnapshot?.aiConfidence} compact={false} />
-                              </div>
+                              <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800 mb-2">What did you see?</label>
                               <input 
                                   id="post-labels"
                                   type="text" 
@@ -614,7 +629,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   onBlur={() => editLabels(labels.map(l => l.trim()).filter(Boolean))}
                                   className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base font-semibold text-stone-900 focus:border-theme-accent"
                               />
-                              <p className="text-xs text-stone-500 mt-1.5">Common name first, then scientific name, separated by commas. Correct the AI if it's wrong; your fixes make NatureGram smarter for everyone.</p>
+                              <p className="text-xs text-stone-500 mt-1.5">Common name first, then scientific name, separated by commas. Correct it if it's wrong; your fixes make NatureGram smarter for everyone.</p>
                               {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <div className="mt-3"><FungiWarning /></div>}
                               {currentSnapshot?.aiError && (
                                   <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own identification above. You know what you saw.</p>
@@ -641,7 +656,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           </section>
                           
                           <section>
-                              <label htmlFor="post-insight" className="block text-sm font-bold text-stone-800 mb-2">Behaviour & ecology <span className="font-normal text-stone-500">(AI draft, edit freely)</span></label>
+                              <label htmlFor="post-insight" className="block text-sm font-bold text-stone-800 mb-2">Behaviour & ecology <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
                               <div className="relative">
                                   <textarea 
                                       id="post-insight"
@@ -731,7 +746,21 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
           {/* Static Finalize Button at Bottom */}
           <div className="shrink-0 p-4 bg-white border-t border-theme-primary/10 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              {publishError && <p role="alert" className="mb-3 text-sm text-red-800 bg-red-50 rounded-xl p-3">{publishError}</p>}
+              {sharesLeft !== null && !publishError && (
+                  <p className="mb-2 text-xs text-stone-600 text-center">
+                      {sharesLeft === 0 ? "You've shared today's sightings. Save this one as a draft and share it tomorrow." : `You can share ${sharesLeft} more sighting${sharesLeft === 1 ? '' : 's'} today.`}
+                  </p>
+              )}
+              {publishError && (
+                  <div role="alert" className="mb-3 text-sm text-stone-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      <p>{publishError}</p>
+                      {reviewOffer && (
+                          <button onClick={() => executeDispatch(reviewOffer.mode, true)} disabled={isProcessing} className="mt-2 text-sm font-bold text-theme-accent underline underline-offset-2">
+                              I think this is fine. Ask for a review
+                          </button>
+                      )}
+                  </div>
+              )}
               <button 
                   onClick={handleFinalizeClick} 
                   disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))} 
@@ -790,7 +819,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               </div>
                               <div>
                                   <div className="font-bold text-theme-primary text-sm">One carousel post</div>
-                                  <div className="text-xs text-theme-primary/60">Swipeable, with an AI summary of the whole expedition</div>
+                                  <div className="text-xs text-theme-primary/60">Swipeable, with a summary of the whole expedition</div>
                               </div>
                           </div>
                       </button>

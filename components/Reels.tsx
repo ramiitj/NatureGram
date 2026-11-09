@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode } from '../types';
-import { likeTotal } from '../utils';
+import { likeTotal, isDataSaver } from '../utils';
 import { track } from '../services/analytics';
-import AiBadge, { hedgedName } from './AiBadge';
 import { resolvePlayableVideo } from './PlayableVideo';
-import { WonderBurst, WonderIcon, wonderLabel, observedBehaviour } from './Wonder';
+import { WonderBurst, WonderIcon, wonderLabel } from './Wonder';
 
 interface Props {
   currentUserMode: UserMode;
@@ -16,26 +15,8 @@ interface Props {
 }
 
 /**
- * One thing to watch for, drawn from the AI behaviour note: the first sentence that adds
- * something beyond the behaviour line already on screen. Not an essay.
- */
-const watchForLine = (text?: string | null, behaviour?: string | null) => {
-  if (!text) return '';
-  const clean = text.replace(/\s+/g, ' ').trim();
-  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)/g)?.map(x => x.trim()) || [clean];
-  const seen = (behaviour || '').toLowerCase().replace(/\W+/g, ' ').trim();
-  const fresh = sentences.find(x => {
-    const k = x.toLowerCase().replace(/\W+/g, ' ').trim().slice(0, 40);
-    return x.length >= 20 && !(seen && (seen.includes(k) || k.includes(seen.slice(0, 40))));
-  });
-  if (!fresh) return '';
-  return fresh.length > 220 ? fresh.slice(0, 217).trimEnd() + '…' : fresh;
-};
-
-/**
- * Moments: video sightings, one at a time, full screen. Built for watching closely rather than
- * scrolling past: after a moment settles on screen, a single line appears telling the explorer
- * what to watch for, drawn from the sighting's behaviour note.
+ * Moments: video sightings, one at a time, full screen, with nothing written over the video.
+ * The name, notes and explorer are one tap away in the sighting's field notes.
  */
 const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, onRequireAccount, onBack }) => {
   const [items, setItems] = useState<CommunityPost[]>([]);
@@ -46,10 +27,9 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
   const [muted, setMuted] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
   const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
-  const [insights, setInsights] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState('');
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [burst, setBurst] = useState<{ id: string; x: number; y: number; key: number } | null>(null);
-  const [settledIdx, setSettledIdx] = useState(-1);
   const lastTapRef = useRef(0);
   const isMember = !!currentUserMode.userId && currentUserMode.userId !== 'explorer_guest' && !currentUserMode.isAnonymous;
 
@@ -66,15 +46,14 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
 
   useEffect(() => { loadMore(); track('reels_open'); /* eslint-disable-next-line */ }, []);
 
-  // Resolve the playable URL (and the behaviour note) for the active moment and its neighbours
+  // Resolve the playable URL for the active moment and its neighbours
   useEffect(() => {
-    [activeIdx, activeIdx + 1, activeIdx + 2].forEach(i => {
+    // On slow connections, fetch only the moment on screen
+    (isDataSaver() ? [activeIdx] : [activeIdx, activeIdx + 1, activeIdx + 2]).forEach(i => {
       const p = items[i];
       if (!p || videoUrls[p.id]) return;
-      FirebaseService.getFullPost(p.id).then(full => {
-        const note = full?.items?.[0]?.aiInsight || full?.aiInsight;
-        const line = watchForLine(note, full?.items?.[0]?.behavior || full?.behavior || p.behavior);
-        if (line) setInsights(prev => ({ ...prev, [p.id]: line }));
+      const direct = (p as any).videoUrl as string | undefined;
+      (direct ? Promise.resolve({ videoUrl: direct } as any) : FirebaseService.getFullPost(p.id)).then((full: any) => {
         resolvePlayableVideo(full?.items?.[0]?.videoUrl || full?.videoUrl).then(url => {
           if (url) setVideoUrls(prev => ({ ...prev, [p.id]: url }));
         });
@@ -82,13 +61,6 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
     });
     if (activeIdx >= items.length - 3 && hasMore) loadMore();
   }, [activeIdx, items, hasMore, loadMore, videoUrls]);
-
-  // Let a moment settle before offering something to watch for
-  useEffect(() => {
-    setSettledIdx(-1);
-    const t = window.setTimeout(() => setSettledIdx(activeIdx), 2200);
-    return () => window.clearTimeout(t);
-  }, [activeIdx]);
 
   // Track which moment is in view
   const containerRef = useRef<HTMLDivElement>(null);
@@ -138,14 +110,13 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
 
   return (
     <div className="fixed inset-0 z-[45] bg-black text-white">
-      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 bg-gradient-to-b from-black/60 to-transparent">
+      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 land:pl-20 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 bg-gradient-to-b from-black/30 to-transparent">
         <button onClick={onBack} aria-label="Back to the wild" className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <div className="text-center">
-          <h1 className="text-xl font-display font-semibold leading-none">Moments</h1>
-        </div>
+        <h1 className="sr-only">Moments</h1>
         <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'graphic_eq'}</span></button>
       </header>
 
+      {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold">{toast}</div>}
       {loading ? (
         <div className="h-full flex flex-col items-center justify-center gap-3" role="status">
           <span className="material-symbols-outlined text-4xl text-white/70 animate-pulse" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">wb_twilight</span>
@@ -165,63 +136,42 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
             const isLiked = !!liked[p.id] || !!p.likes?.includes(currentUserMode.userId || '');
             const src = videoUrls[p.id];
             const near = Math.abs(idx - activeIdx) <= 2;
-            const watchFor = insights[p.id];
-            const species = hedgedName(p.labels?.[0], p.aiConfidence, !!(p as any).humanDelta) || p.title || 'Unnamed sighting';
+            const species = p.labels?.[0] || p.title || 'Unnamed sighting';
             const n = likeTotal(p);
             return (
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
                 <div className="absolute inset-0 flex items-center justify-center" onClick={(e) => onTap(e, p)}>
                   {near && src ? (
-                    <video data-idx={idx} src={src} poster={p.thumbnailUrl || undefined} muted={muted} loop playsInline preload={idx === activeIdx ? 'auto' : 'metadata'} controlsList="nodownload" onContextMenu={e => e.preventDefault()} className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))]" />
+                    <video data-idx={idx} src={src} poster={p.thumbnailUrl || undefined} muted={muted} loop playsInline preload={idx === activeIdx ? 'auto' : isDataSaver() ? 'none' : 'metadata'} controlsList="nodownload" onContextMenu={e => e.preventDefault()} className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))]" />
                   ) : p.thumbnailUrl ? (
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
                 </div>
 
-                <div className="absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 z-10 flex flex-col items-center gap-5">
+                <div className="absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5">
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`} className="flex flex-col items-center gap-0.5">
                     <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-vivid/90 text-white shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
                       <WonderIcon active={isLiked} className="text-[28px] drop-shadow" />
                     </span>
-                    {n > 0 && <span className="text-xs font-semibold tabular drop-shadow">{n}</span>}
                   </button>
-                  <button onClick={() => onOpenPost(p.id)} aria-label={`Field notes${p.commentCount ? `, ${p.commentCount}` : ''}`} className="flex flex-col items-center gap-0.5">
+                  <button onClick={() => onOpenPost(p.id)} aria-label={`${species} by ${p.userName}: field notes${p.commentCount ? `, ${p.commentCount}` : ''}`} className="flex flex-col items-center gap-0.5">
                     <span className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
                       <span className="material-symbols-outlined text-[26px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
                     </span>
-                    {!!p.commentCount && <span className="text-xs font-semibold tabular drop-shadow">{p.commentCount}</span>}
                   </button>
                   <button onClick={async () => {
                     const url = `${window.location.origin}/post/${p.id}`;
-                    try { if (navigator.share) await navigator.share({ title: `${species} on NatureGram`, url }); else await navigator.clipboard.writeText(url); track('share', { surface: 'moments' }); } catch { /* cancelled */ }
+                    try {
+                      if (navigator.share) await navigator.share({ title: `${species} on NatureGram`, url });
+                      else { await navigator.clipboard.writeText(url); setToast('Link copied'); window.setTimeout(() => setToast(''), 1800); }
+                      track('share', { surface: 'moments' });
+                    } catch { /* cancelled */ }
                   }} aria-label="Share this moment" className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
                     <span className="material-symbols-outlined text-[24px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
                   </button>
                 </div>
 
-                <div className="absolute left-0 right-16 bottom-0 z-10 p-4 lg:pl-28 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-                  <h2 className="text-2xl font-display italic font-semibold leading-tight drop-shadow">{species}</h2>
-                  {observedBehaviour(p.behavior) && <p className="text-[15px] text-white/90 mt-1 leading-snug drop-shadow line-clamp-2">{observedBehaviour(p.behavior)}</p>}
-
-                  {watchFor && (
-                    <button
-                      onClick={() => onOpenPost(p.id)}
-                      className={`mt-3 max-w-md text-left rounded-xl bg-white/10 backdrop-blur-md border border-white/15 px-3.5 py-2.5 transition-all duration-700 ${settledIdx === idx ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
-                      aria-hidden={settledIdx !== idx}
-                      tabIndex={settledIdx === idx ? 0 : -1}
-                    >
-                      <span className="block text-xs font-semibold text-white/70 mb-0.5">Watch for this</span>
-                      <span className="block text-sm text-white/95 leading-snug">{watchFor}</span>
-                    </button>
-                  )}
-
-                  <div className="mt-3 flex items-center gap-2 text-[13px] text-white/80 flex-wrap">
-                    <button onClick={() => onViewProfile(p.userId)} className="font-semibold text-white py-1.5 min-h-[36px] hover:underline">{p.userName}</button>
-                    {p.locationArea && <span className="flex items-center gap-0.5"><span className="material-symbols-outlined text-[15px]" aria-hidden="true">location_on</span>{p.locationArea}</span>}
-                  </div>
-                  <div className="mt-0.5"><AiBadge confidence={p.aiConfidence} compact tone="dark" /></div>
-                </div>
               </article>
             );
           })}

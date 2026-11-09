@@ -1,4 +1,3 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { apiUrl } from './apiOrigin';
 import { auth } from "../firebaseConfig";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
@@ -54,6 +53,8 @@ export interface AnalysisResult {
   safetyNote: string;
   model: string;
   promptVersion: string;
+  /** The server's record of this answer; lets a published post keep the guide's own words. */
+  resultId?: string;
 }
 
 export class AiError extends Error {
@@ -70,7 +71,32 @@ export const getApiKey = async (): Promise<string> => {
   return "PROXY";
 };
 
-const client = async () => new GoogleGenAI({ apiKey: await getApiKey(), httpOptions: { baseUrl: apiUrl('/api-proxy') } });
+// Schema shapes are kept for readability; the server applies its own schema to every task.
+const Type = { OBJECT: 'OBJECT', ARRAY: 'ARRAY', STRING: 'STRING', NUMBER: 'NUMBER', BOOLEAN: 'BOOLEAN' } as const;
+
+/**
+ * A few lines of fetch instead of the full Gemini SDK (about 280 KB), so the feed loads fast on
+ * slow connections. The server decides prompts, models and limits; the app only names the task.
+ */
+const client = async () => {
+  const token = await getApiKey();
+  return {
+    models: {
+      generateContent: async ({ model, contents }: { model: string; contents: string | { parts: any[] }; config?: unknown }) => {
+        const parts = typeof contents === 'string' ? [{ text: contents }] : contents.parts;
+        const res = await fetch(apiUrl(`/api-proxy/v1beta/models/${encodeURIComponent(model)}:generateContent`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
+        });
+        const json: any = await res.json().catch(() => ({}));
+        if (!res.ok) throw Object.assign(new Error(json?.error?.message || `Request failed (${res.status})`), { status: res.status });
+        const text = (json?.candidates?.[0]?.content?.parts || []).map((p: any) => p?.text || '').join('');
+        return { text };
+      },
+    },
+  };
+};
 
 const toBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -83,7 +109,8 @@ const classify = (e: any): AiError => {
   const msg = String(e?.message || e || '');
   const status = e?.status || e?.code || (msg.match(/"code":\s*(\d{3})/)?.[1] ? Number(msg.match(/"code":\s*(\d{3})/)![1]) : 0);
   if (e instanceof AiError) return e;
-  if (status === 429 || /quota|limit reached|too many/i.test(msg)) return new AiError(/Daily AI limit[^"]*/.exec(msg)?.[0] || "You've reached today's AI limit. You can still label sightings yourself.", 'quota');
+  if (status === 429 || /quota|limit reached|too many|today's/i.test(msg)) return new AiError(/(You've used today's[^"]*|Daily AI limit[^"]*)/.exec(msg)?.[0] || "You've reached today's AI limit. You can still label sightings yourself.", 'quota');
+  if (status === 503 && /paused|resume|unavailable for a moment/i.test(msg)) return new AiError(/(AI features[^"]*|The guide is unavailable[^"]*)/.exec(msg)?.[0] || 'AI identification is temporarily unavailable.', 'unavailable');
   if (status === 413 || /too large/i.test(msg)) return new AiError('This file is too large to analyse. Try a shorter clip.', 'too_large');
   if (status === 401 || status === 403) return new AiError('Please sign in again to use AI identification.', 'auth');
   if (/timeout|aborted/i.test(msg)) return new AiError('The analysis took too long. Please try again.', 'timeout');
@@ -101,7 +128,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
       ]);
     } catch (e) {
       last = classify(e);
-      const daily = last.kind === 'quota' && /daily/i.test(last.message);
+      const daily = last.kind === 'quota' && /daily|today/i.test(last.message);
       if (last.kind === 'auth' || last.kind === 'too_large' || daily) break;
       if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * Math.pow(2, i) + Math.random() * 300));
     }
@@ -198,6 +225,7 @@ const normalize = (raw: any, location?: string): AnalysisResult => {
     safetyNote: String(raw?.safetyNote || '').slice(0, 200),
     model: MODEL_IDENTIFY,
     promptVersion: AI_PROMPT_VERSION,
+    resultId: typeof raw?.ngResultId === 'string' ? raw.ngResultId : undefined,
   };
 };
 

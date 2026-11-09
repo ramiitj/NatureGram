@@ -32,6 +32,21 @@ export const resolvePlayableVideo = async (url?: string | null, kind: 'video' | 
   } catch { return url; }
 };
 
+/** A still frame for a video that has none (made by the server when it converts the video). */
+const posterCache = new Map<string, string | null>();
+export const resolvePoster = async (url?: string | null): Promise<string | null> => {
+  if (!url) return null;
+  if (posterCache.has(url)) return posterCache.get(url)!;
+  const path = storagePath(url);
+  if (!path) return null;
+  try {
+    const snap = await getDoc(doc(db, 'media_variants', path.replace(/\//g, '|')));
+    const poster = snap.exists() ? ((snap.data() as any).posterUrl || null) : null;
+    posterCache.set(url, poster);
+    return poster;
+  } catch { return null; }
+};
+
 type Props = React.VideoHTMLAttributes<HTMLVideoElement> & { src?: string };
 
 const PlayableVideo = React.forwardRef<HTMLVideoElement, Props>(({ src, ...rest }, ref) => {

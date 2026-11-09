@@ -86,6 +86,8 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [reporting, setReporting] = useState(false);
+  const [reported, setReported] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const other = (convo?.participants || cid.split('_')).find(p => p !== me) || '';
   const info = convo?.participantInfo?.[other];
@@ -117,7 +119,20 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           <Avatar name={info?.username} url={info?.avatarUrl} size={36} />
           <span className="font-bold text-stone-900 truncate">{info?.username || 'Explorer'}</span>
         </button>
+        <button onClick={() => setReporting(true)} disabled={reported} aria-label="Report this conversation" className="ml-auto w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100 text-stone-600 disabled:opacity-40"><span className="material-symbols-outlined" aria-hidden="true">flag</span></button>
       </header>
+      {reporting && (
+        <div className="px-4 py-3 border-b border-theme-primary/10 bg-white text-sm space-y-2" role="dialog" aria-label="Report this conversation">
+          <p className="text-stone-800">Reporting lets NatureGram read this conversation to look into it. Nobody else can read letters.</p>
+          <div className="flex flex-wrap gap-2">
+            {[['spam', 'Spam or selling'], ['harassment', 'Harassment'], ['unsafe', 'Something unsafe'], ['other', 'Something else']].map(([k, label]) => (
+              <button key={k} onClick={async () => { try { await FirebaseService.reportConversation(cid, k); setReported(true); setReporting(false); } catch { setError('Could not send the report. Please try again.'); } }} className="px-3 py-1.5 rounded-full border border-stone-300 hover:bg-stone-50">{label}</button>
+            ))}
+            <button onClick={() => setReporting(false)} className="px-3 py-1.5 text-stone-600">Cancel</button>
+          </div>
+        </div>
+      )}
+      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their profile.</p>}
       <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4 space-y-1" aria-live="polite" aria-label="Conversation">
         {msgs === null ? <p className="text-center text-stone-500 py-10">Loading…</p> : msgs.length === 0 ? (
           <div className="text-center text-stone-500 py-16">

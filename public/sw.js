@@ -1,5 +1,5 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v4';
+const VERSION = 'ng-v5';
 const SHELL = ['/', '/manifest.json', '/icon.svg', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -22,14 +22,22 @@ self.addEventListener('fetch', (event) => {
   // Cross-origin requests (fonts, Firebase, analytics) are left to the browser's HTTP cache:
   // intercepting them risks serving opaque responses to CORS requests (breaks web fonts).
   if (url.origin !== self.location.origin) return;
+  // The feed's first page: show the last copy at once on repeat visits, refresh it in the background
+  if (url.pathname === '/api/feed/first') {
+    event.respondWith(caches.open(VERSION).then(async (c) => {
+      const hit = await c.match(req);
+      const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit || Response.error());
+      return hit || net;
+    }));
+    return;
+  }
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/s/') || url.pathname === '/healthz') return;
 
   // App navigations: network-first, offline fallback to the cached shell
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(VERSION).then((c) => c.put('/', copy));
+        if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put('/', copy)); }
         return res;
       }).catch(() => caches.match('/'))
     );

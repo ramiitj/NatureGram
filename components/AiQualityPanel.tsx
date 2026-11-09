@@ -1,22 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FirebaseService } from '../services/firebaseService';
-import { GeminiConfig } from '../types';
-
 /**
- * AI governance dashboard (admin): measures identification accuracy from
- * human-in-the-loop feedback and manages the live guide's instructions.
+ * Identification quality (admin): accuracy measured from what explorers change before publishing.
+ * Prompts and models are edited in the admin console's AI governance section.
  */
 const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '–');
 
-const AiQualityPanel: React.FC<{ config: GeminiConfig | null; onConfigSaved: (c: GeminiConfig) => void }> = ({ config, onConfigSaved }) => {
+const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
   const [rows, setRows] = useState<any[] | null>(null);
   const [error, setError] = useState('');
-  const [draft, setDraft] = useState(config?.systemInstruction || '');
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState('');
 
-  useEffect(() => { FirebaseService.getAiFeedback(1000).then(setRows).catch(e => setError(e.message)); }, []);
-  useEffect(() => { setDraft(config?.systemInstruction || ''); }, [config?.systemInstruction]);
+  useEffect(() => { load().then(setRows).catch(e => setError(e.message)); }, [load]);
 
   const stats = useMemo(() => {
     if (!rows) return null;
@@ -44,23 +37,10 @@ const AiQualityPanel: React.FC<{ config: GeminiConfig | null; onConfigSaved: (c:
     return { total, corrected, byConf, byMedia, confusions: [...confusions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10), review, sensitive, people, fungi };
   }, [rows]);
 
-  const saveInstructions = async () => {
-    if (!config) return;
-    if (!note.trim()) { setSaving('Add a short change note so the change is auditable.'); return; }
-    setSaving('Saving…');
-    try {
-      const next = { ...config, systemInstruction: draft };
-      await FirebaseService.updateGeminiConfigAudited(next, note.trim());
-      onConfigSaved(next);
-      setNote('');
-      setSaving('Saved. The server still appends the non-negotiable platform policy.');
-    } catch (e: any) { setSaving('Save failed: ' + (e?.message || 'permission denied')); }
-  };
-
   return (
-    <div className="max-w-6xl mx-auto flex flex-col gap-6">
-      <div className="bg-white shadow-sm border border-stone-200 rounded-2xl p-6">
-        <h2 className="text-2xl font-bold text-stone-900">AI quality & governance</h2>
+    <div className="flex flex-col gap-6">
+      <div className="bg-white border border-stone-200 rounded-2xl p-6">
+        <h2 className="text-xl font-bold text-stone-900">Identification quality</h2>
         <p className="text-sm text-stone-600 mt-1">Accuracy is measured by what explorers change before publishing (human-in-the-loop). A well-calibrated system is corrected rarely at "high" confidence and often at "low".</p>
       </div>
 
@@ -92,7 +72,7 @@ const AiQualityPanel: React.FC<{ config: GeminiConfig | null; onConfigSaved: (c:
                   ))}
                 </tbody>
               </table>
-              <p className="text-xs text-stone-500 mt-3">Target: high &lt; 10%, medium &lt; 30%. If "high" is corrected often, the model is overconfident. Tighten the prompt or switch MODEL_IDENTIFY.</p>
+              <p className="text-xs text-stone-500 mt-3">Target: high &lt; 10%, medium &lt; 30%. If "high" is corrected often, the model is overconfident. Tighten the identify prompt or change its model under AI governance.</p>
             </div>
             <div className="bg-white border border-stone-200 rounded-2xl p-5">
               <h3 className="font-bold text-stone-900 mb-3">By media type</h3>
@@ -119,22 +99,6 @@ const AiQualityPanel: React.FC<{ config: GeminiConfig | null; onConfigSaved: (c:
         </>
       )}
 
-      <div className="bg-white border border-stone-200 rounded-2xl p-5 space-y-3">
-        <h3 className="font-bold text-stone-900">Live guide instructions</h3>
-        <p className="text-sm text-stone-600">Model requested: <code className="bg-stone-100 px-1.5 rounded">{config?.model}</code>. The server pins the actual model to an allow-list and always appends the platform policy (accuracy, uncertainty, safety, wildlife ethics, privacy). Edits here cannot override it.</p>
-        <label className="block">
-          <span className="sr-only">Live guide instructions</span>
-          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={12} className="w-full font-mono text-xs bg-stone-50 border border-stone-200 rounded-xl p-3" />
-        </label>
-        <label className="block">
-          <span className="block text-sm font-semibold text-stone-700 mb-1">Change note (required, kept in the audit log)</span>
-          <input value={note} onChange={e => setNote(e.target.value)} maxLength={200} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm" placeholder="e.g. Ask the guide to mention look-alike species for warblers" />
-        </label>
-        <div className="flex items-center gap-3">
-          <button onClick={saveInstructions} className="px-5 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold">Save instructions</button>
-          {saving && <span role="status" className="text-sm text-stone-600">{saving}</span>}
-        </div>
-      </div>
     </div>
   );
 };

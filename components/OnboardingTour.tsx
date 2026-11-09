@@ -9,7 +9,7 @@ const STEPS = [
   {
     id: "brain",
     title: "Meet your guide",
-    description: "Your AI naturalist sees what your camera sees and hears what you hear. Just point it at anything alive and ask questions out loud. Its status shows here.",
+    description: "Your guide sees what your camera sees and hears what you hear. Just point it at anything alive and ask questions out loud. Its status shows here.",
     // Spotlight Coordinates (approximate percentages for responsive layout)
     x: 50,
     y: 12, 
@@ -28,7 +28,7 @@ const STEPS = [
   {
     id: "tools",
     title: "Capture the moment",
-    description: "Tap the shutter for a photo, hold it for up to 30 s of video. Tap Sound to record a bird call. Talk mutes and unmutes your voice. Tap Done to review and share. Remember: AI can be wrong, so you have the final say.",
+    description: "Tap the shutter for a photo, hold it for up to 30 s of video. Tap Sound to record a bird call. Talk mutes and unmutes your voice. Tap Done to review and share. The guide can be wrong, so you have the final say.",
     x: 50,
     y: 88, 
     radius: 100,

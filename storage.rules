@@ -1,47 +1,52 @@
 rules_version = '2';
 // NatureGram Cloud Storage rules
-// - Users can only write into their own folders, only media types, with size caps.
-// - Media is publicly readable (posts are shared publicly via download URLs).
+// - Only members (not guests) can upload, only into their own folders, only media types, with size caps,
+//   and only while the admin has uploads switched on.
+// - Published media is readable by download URL (the URL carries an unguessable token);
+//   folders can't be listed by others. Drafts stay private.
 service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() { return request.auth != null; }
     function isAdmin() {
-      return signedIn() && (
-        request.auth.token.admin == true ||
-        (request.auth.token.email == 'ram@iitj.ac.in' && request.auth.token.email_verified == true)
-      );
+      return signedIn() && request.auth.token.admin == true && request.auth.token.email_verified == true;
     }
+    function isMember() { return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous'; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function uploadsOn() {
+      return !firestore.exists(/databases/(default)/documents/app_config/flags)
+        || firestore.get(/databases/(default)/documents/app_config/flags).data.get('uploadsEnabled', true) != false;
+    }
+    function canUpload(uid) { return isOwner(uid) && isMember() && uploadsOn(); }
     function underMB(mb) { return request.resource.size < mb * 1024 * 1024; }
 
     match /snapshots/{uid}/{file} {
       allow get: if true;
       allow list: if isOwner(uid) || isAdmin();
-      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp|gif|heic|heif)') && underMB(15);
+      allow create, update: if canUpload(uid) && request.resource.contentType.matches('(image/(jpeg|png|webp|heic|heif))(;.*)?') && underMB(15);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /videos/{uid}/{file} {
       allow get: if true;
       allow list: if isOwner(uid) || isAdmin();
-      allow create, update: if isOwner(uid) && request.resource.contentType.matches('video/.*') && underMB(100);
+      allow create, update: if canUpload(uid) && request.resource.contentType.matches('(video/(mp4|webm|quicktime))(;.*)?') && underMB(100);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /audio/{uid}/{file} {
       allow get: if true;
       allow list: if isOwner(uid) || isAdmin();
-      allow create, update: if isOwner(uid) && request.resource.contentType.matches('audio/.*|video/webm') && underMB(30);
+      allow create, update: if canUpload(uid) && request.resource.contentType.matches('(audio/(webm|ogg|mp4|mpeg|wav|aac|x-m4a)|video/webm)(;.*)?') && underMB(30);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /avatars/{uid}/{file} {
       allow get: if true;
       allow list: if isOwner(uid) || isAdmin();
-      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp)') && underMB(5);
+      allow create, update: if canUpload(uid) && request.resource.contentType.matches('(image/(jpeg|png|webp))(;.*)?') && underMB(5);
       allow delete: if isOwner(uid) || isAdmin();
     }
     // Draft media: private to the owner until published
     match /drafts/{uid}/{file} {
       allow read: if isOwner(uid) || isAdmin();
-      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/.*|video/.*|audio/.*') && underMB(100);
+      allow create, update: if canUpload(uid) && request.resource.contentType.matches('(image/(jpeg|png|webp|heic|heif)|video/(mp4|webm|quicktime)|audio/(webm|ogg|mp4|mpeg|wav|aac|x-m4a))(;.*)?') && underMB(100);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /themes/{file} {

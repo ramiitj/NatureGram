@@ -1,23 +1,21 @@
 
 import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import PlayableVideo, { PlayableAudio } from './PlayableVideo';
+import PlayableVideo, { PlayableAudio, resolvePoster } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
-import AiBadge, { isFungiPost, FungiWarning, hedgedName } from './AiBadge';
+import { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
-import { GenAiService } from '../services/genAiService';
 import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
-import ShareStudio from './ShareStudio';
-import PublisherStudio from './PublisherStudio';
+const ShareStudio = React.lazy(() => import('./ShareStudio'));
+const PublisherStudio = React.lazy(() => import('./PublisherStudio'));
 import MediaEditor from './MediaEditor';
 import SkeletonPost from './SkeletonPost';
 import AuthModal from './AuthModal';
-import { AnimatePresence, motion } from 'motion/react';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
 
@@ -76,6 +74,15 @@ const FeedCard: React.FC<{
 
     const videoUrl = post.videoUrl || fullMedia?.videoUrl;
     const audioUrl = post.audioUrl || fullMedia?.audioUrl;
+    // Video sightings without a still: use the frame the server made when it converted the video
+    const [poster, setPoster] = useState<string | null>(null);
+    useEffect(() => {
+        if (post.mediaType !== 'video' || post.thumbnailUrl || post.imageUrl || !isHovered) return;
+        let live = true;
+        (videoUrl ? Promise.resolve(videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
+          .then(u => resolvePoster(u)).then(p => { if (live && p) setPoster(p); });
+        return () => { live = false; };
+    }, [post.id, post.mediaType, post.thumbnailUrl, post.imageUrl, isHovered, videoUrl]);
 
     return (
         <div 
@@ -99,8 +106,8 @@ const FeedCard: React.FC<{
                     </div>
                 ) : post.mediaType === 'video' ? (
                     <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
+                        {post.thumbnailUrl || post.imageUrl || poster ? (
+                            <img src={post.thumbnailUrl || post.imageUrl || poster!} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : (
                             <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
@@ -617,6 +624,8 @@ const Community: React.FC<CommunityProps> = ({
   const [lastTap, setLastTap] = useState<number>(0);
   const [wonderBurst, setWonderBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetDrag = useRef<{ y: number; t: number; on: boolean }>({ y: 0, t: 0, on: false });
   
   // Advanced Species Intelligence
   const [selectedSpecies, setSelectedSpecies] = useState<{name: string, location: string, id: string} | null>(null);
@@ -637,7 +646,7 @@ const Community: React.FC<CommunityProps> = ({
             }
         }
         setSpeciesData({
-            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group or an uncertain AI suggestion.`,
+            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group rather than a single species.`,
             thumbnail: found?.thumbnail?.source || "",
             loading: false,
             url: found?.content_urls?.desktop?.page || '',
@@ -719,11 +728,13 @@ const Community: React.FC<CommunityProps> = ({
     if (curatedForRef.current === key) return;
     curatedForRef.current = key;
     const firstPage = posts.slice(0, 15);
-    GenAiService.curateAgenticFeed(userPersona, firstPage).then(curated => {
-      setPosts(prev => {
-        const ids = new Set(curated.map(p => p.id));
-        return [...curated, ...prev.filter(p => !ids.has(p.id))];
-      });
+    // Curator notes are added in place: the feed never reshuffles under the explorer's thumb
+    import('../services/genAiService').then(({ GenAiService }) => GenAiService.curateAgenticFeed(userPersona, firstPage)).then(curated => {
+      const byId = new Map(curated.map(p => [p.id, p]));
+      setPosts(prev => prev.map(p => {
+        const c: any = byId.get(p.id);
+        return c && c.curatorNote ? { ...p, curatorNote: c.curatorNote } as any : p;
+      }));
     }).catch(() => {});
   }, [userPersona, posts, isJournalOnly, feedMode, searchTag]);
 
@@ -1222,7 +1233,7 @@ const Community: React.FC<CommunityProps> = ({
                 <button
                     type="button"
                     onClick={() => onLogoClick?.()}
-                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, scroll to top'}
+                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram home'}
                     className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary">
@@ -1725,16 +1736,12 @@ const Community: React.FC<CommunityProps> = ({
             )}
         </div>
 
-        <AnimatePresence>
+        <>
         {activePost && (
-            <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                transition={{ duration: 0.2 }}
+            <div 
                 onTouchStart={handleSwipeTouchStart}
                 onTouchEnd={handleSwipeTouchEnd}
-                className="fixed inset-0 z-[150] bg-white md:bg-theme-shadow flex flex-col h-full w-full overflow-hidden"
+                className="animate-in fade-in slide-in-from-bottom-4 duration-200 fixed inset-0 z-[150] bg-white md:bg-theme-shadow flex flex-col h-full w-full overflow-hidden"
             >
                 <header className="h-16 px-3 flex items-center justify-between bg-white border-b border-theme-primary/10 shrink-0 z-[160] shadow-sm safe-pt box-content">
                     <button onClick={closeDetail} aria-label={`Back to ${isJournalOnly ? 'journal' : (searchTag ? 'search' : backLabel.toLowerCase())}`} className="flex items-center gap-2 transition-all active:scale-95 h-11 pr-3 rounded-full">
@@ -1773,7 +1780,7 @@ const Community: React.FC<CommunityProps> = ({
                                         {(((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType !== 'audio') && (
                                             <button role="menuitem" onClick={() => { setPostMenuOpen(false); setIsEditing(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">tune</span>{((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType === 'video' ? 'Rotate video' : 'Edit photo'}</button>
                                         )}
-                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now visible in the feed' : 'Now only in your journal'); } catch { showToast('Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make journal-only' : 'Share to feed'}</button>
+                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now visible in the feed' : 'Now only in your journal'); } catch (err: any) { showToast(err?.message || 'Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make journal-only' : 'Share to feed'}</button>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); setPublishingPost(activePost); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">campaign</span>Share to other apps</button>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete post</button>
                                     </>
@@ -1789,14 +1796,10 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                 </header>
 
-                <motion.div 
+                <div 
                     key={activePost.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.25 }}
                     ref={mainScrollRef}
-                    className="flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row overflow-hidden bg-white w-full h-full"
+                    className="animate-in fade-in slide-in-from-right-4 duration-200 flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row overflow-hidden bg-white w-full h-full"
                 >
                     {(() => {
                         const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
@@ -1820,7 +1823,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
+                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : item.mediaType === 'audio' ? (
                                                             <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : (
@@ -1870,7 +1873,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
+                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : currentItem.mediaType === 'audio' ? (
                                                 <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : (
@@ -1912,7 +1915,6 @@ const Community: React.FC<CommunityProps> = ({
                                             <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
                                         )}
                                         {(() => {
-                                            const checked = !!(currentItem as any).humanDelta || !!activePost.humanDelta;
                                             const species = currentItem.labels?.[0];
                                             const behaviour = observedBehaviour(currentItem.behavior);
                                             const alsoSeen = (currentItem.labels || []).slice(1);
@@ -1922,13 +1924,12 @@ const Community: React.FC<CommunityProps> = ({
                                                     <div>
                                                         {species ? (
                                                             <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${species}`}>
-                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{hedgedName(species, (currentItem as any).aiConfidence, checked)}</h2>
+                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{species}</h2>
                                                             </button>
                                                         ) : activePost.title ? (
                                                             <h2 className="text-[26px] font-display font-medium text-theme-primary leading-tight">{activePost.title}</h2>
                                                         ) : null}
                                                         {behaviour && <p className="text-base text-stone-700 mt-1.5 leading-snug">{behaviour}</p>}
-                                                        {species && <div className="mt-2"><AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={checked} /></div>}
                                                         {alsoSeen.length > 0 && (
                                                             <p className="text-sm text-stone-600 mt-1">Also in view: {alsoSeen.map((l, i) => (
                                                                 <React.Fragment key={l}>{i > 0 && ', '}<button onClick={() => handleSpeciesClick(l, currentItem.locationArea)} className="italic text-theme-primary hover:underline">{l}</button></React.Fragment>
@@ -2010,34 +2011,23 @@ const Community: React.FC<CommunityProps> = ({
                             </>
                         );
                     })()}
-                </motion.div>
+                </div>
     
-    <AnimatePresence>
+    <>
         {isCommentsOpen && (
             <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 bg-black/60 backdrop-blur-sm font-body">
-                <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0" 
+                <div 
+                    className="absolute inset-0 animate-in fade-in duration-200" 
                     onClick={() => setIsCommentsOpen(false)}
                 />
-                <motion.div 
-                    initial={{ y: "100%" }}
-                    animate={{ y: 0 }}
-                    exit={{ y: "100%" }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    drag="y"
-                    dragConstraints={{ top: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(e, { offset, velocity }) => {
-                        if (offset.y > 100 || velocity.y > 500) {
-                            setIsCommentsOpen(false);
-                        }
-                    }}
-                    className="w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
+                <div 
+                    ref={sheetRef}
+                    onTouchStart={(e) => { sheetDrag.current = { y: e.touches[0].clientY, t: Date.now(), on: !!(e.target as HTMLElement).closest('[data-sheet-handle]') }; }}
+                    onTouchMove={(e) => { const d = e.touches[0].clientY - sheetDrag.current.y; if (sheetDrag.current.on && d > 0 && sheetRef.current) sheetRef.current.style.transform = `translateY(${d}px)`; }}
+                    onTouchEnd={(e) => { if (!sheetDrag.current.on) return; const d = e.changedTouches[0].clientY - sheetDrag.current.y; const v = d / Math.max(1, Date.now() - sheetDrag.current.t); if (sheetRef.current) sheetRef.current.style.transform = ''; if (d > 100 || v > 0.5) setIsCommentsOpen(false); }}
+                    className="animate-in slide-in-from-bottom duration-300 transition-transform w-full max-w-md mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
                 >
-                    <div className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
+                    <div data-sheet-handle className="w-full flex justify-center pt-4 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
                         <div className="w-12 h-1.5 bg-theme-primary/30 rounded-full"></div>
                     </div>
                     
@@ -2094,24 +2084,24 @@ const Community: React.FC<CommunityProps> = ({
                             </button>
                         </form>
                     </div>
-                </motion.div>
+                </div>
             </div>
         )}
-    </AnimatePresence>
+    </>
 
-    <AnimatePresence>
-        {sharingPost && <ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} />}
-    </AnimatePresence>
+    <>
+        {sharingPost && <React.Suspense fallback={null}><ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} /></React.Suspense>}
+    </>
 
-    <AnimatePresence>
+    <>
         {publishingPost && (
-            <PublisherStudio 
+            <React.Suspense fallback={null}><PublisherStudio 
                 post={publishingPost} 
                 activeItemIndex={activeItemIndex} 
                 onClose={() => setPublishingPost(null)} 
-            />
+            /></React.Suspense>
         )}
-    </AnimatePresence>
+    </>
                 {isEditing && activePost && (() => {
                     const currentItem = activePost.items && activePost.items.length > 0 ? activePost.items[activeItemIndex] : activePost;
                     return (
@@ -2124,9 +2114,9 @@ const Community: React.FC<CommunityProps> = ({
                         />
                     );
                 })()}
-            </motion.div>
+            </div>
         )}
-        </AnimatePresence>
+        </>
 
         {reportOpen && activePost && (
             <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
