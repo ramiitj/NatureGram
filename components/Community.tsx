@@ -1,10 +1,10 @@
 
 import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import PlayableVideo, { PlayableAudio } from './PlayableVideo';
+import PlayableVideo, { PlayableAudio, resolvePoster } from './PlayableVideo';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
-import AiBadge, { isFungiPost, FungiWarning, hedgedName } from './AiBadge';
+import { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
@@ -76,6 +76,15 @@ const FeedCard: React.FC<{
 
     const videoUrl = post.videoUrl || fullMedia?.videoUrl;
     const audioUrl = post.audioUrl || fullMedia?.audioUrl;
+    // Video sightings without a still: use the frame the server made when it converted the video
+    const [poster, setPoster] = useState<string | null>(null);
+    useEffect(() => {
+        if (post.mediaType !== 'video' || post.thumbnailUrl || post.imageUrl || !isHovered) return;
+        let live = true;
+        (videoUrl ? Promise.resolve(videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
+          .then(u => resolvePoster(u)).then(p => { if (live && p) setPoster(p); });
+        return () => { live = false; };
+    }, [post.id, post.mediaType, post.thumbnailUrl, post.imageUrl, isHovered, videoUrl]);
 
     return (
         <div 
@@ -99,8 +108,8 @@ const FeedCard: React.FC<{
                     </div>
                 ) : post.mediaType === 'video' ? (
                     <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
+                        {post.thumbnailUrl || post.imageUrl || poster ? (
+                            <img src={post.thumbnailUrl || post.imageUrl || poster!} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : (
                             <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
@@ -637,7 +646,7 @@ const Community: React.FC<CommunityProps> = ({
             }
         }
         setSpeciesData({
-            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group or an uncertain AI suggestion.`,
+            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group rather than a single species.`,
             thumbnail: found?.thumbnail?.source || "",
             loading: false,
             url: found?.content_urls?.desktop?.page || '',
@@ -1222,7 +1231,7 @@ const Community: React.FC<CommunityProps> = ({
                 <button
                     type="button"
                     onClick={() => onLogoClick?.()}
-                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, scroll to top'}
+                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram home'}
                     className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary">
@@ -1820,7 +1829,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
+                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : item.mediaType === 'audio' ? (
                                                             <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : (
@@ -1870,7 +1879,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
+                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : currentItem.mediaType === 'audio' ? (
                                                 <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : (
@@ -1912,7 +1921,6 @@ const Community: React.FC<CommunityProps> = ({
                                             <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
                                         )}
                                         {(() => {
-                                            const checked = !!(currentItem as any).humanDelta || !!activePost.humanDelta;
                                             const species = currentItem.labels?.[0];
                                             const behaviour = observedBehaviour(currentItem.behavior);
                                             const alsoSeen = (currentItem.labels || []).slice(1);
@@ -1922,13 +1930,12 @@ const Community: React.FC<CommunityProps> = ({
                                                     <div>
                                                         {species ? (
                                                             <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${species}`}>
-                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{hedgedName(species, (currentItem as any).aiConfidence, checked)}</h2>
+                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{species}</h2>
                                                             </button>
                                                         ) : activePost.title ? (
                                                             <h2 className="text-[26px] font-display font-medium text-theme-primary leading-tight">{activePost.title}</h2>
                                                         ) : null}
                                                         {behaviour && <p className="text-base text-stone-700 mt-1.5 leading-snug">{behaviour}</p>}
-                                                        {species && <div className="mt-2"><AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={checked} /></div>}
                                                         {alsoSeen.length > 0 && (
                                                             <p className="text-sm text-stone-600 mt-1">Also in view: {alsoSeen.map((l, i) => (
                                                                 <React.Fragment key={l}>{i > 0 && ', '}<button onClick={() => handleSpeciesClick(l, currentItem.locationArea)} className="italic text-theme-primary hover:underline">{l}</button></React.Fragment>

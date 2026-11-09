@@ -611,7 +611,7 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     res.json({
       available: used !== null,
       posts: { limit: a.postsPerDay, used: used?.posts || 0 },
-      liveMinutes: { limit: a.liveMinutesPerDay, used: Math.ceil((used?.liveMs || 0) / 60_000) },
+      liveMinutes: { limit: a.liveMinutesPerDay, used: Math.ceil((used?.liveMs || 0) / 60_000), usedMs: used?.liveMs || 0 },
       identifications: { limit: a.identificationsPerDay, used: used?.identify || 0 },
       resetsAt: new Date(new Date().toISOString().slice(0, 10) + 'T24:00:00Z').toISOString(),
     });
@@ -635,9 +635,14 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       index: false,
       setHeaders: (res, p) => { if (p.endsWith('.html') || p.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); },
     }));
+    // Friendly addresses for the legal pages
+    app.get(['/privacy', '/terms'], (req, res) => res.redirect(301, `${req.path}.html`));
+    // Only real app routes get the app; anything else is a proper 404
+    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|lens\/?$|review\/?$|admin\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
       res.setHeader('Cache-Control', 'no-cache');
+      if (!APP_ROUTE.test(req.path)) return res.status(404).sendFile(path.join(staticPath, '404.html'));
       res.sendFile(path.join(staticPath, 'index.html'));
     });
   }

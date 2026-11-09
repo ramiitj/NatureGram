@@ -21,7 +21,7 @@ interface UploadedFileItem {
 
 export /** Map a governed AI result (or a failure) onto snapshot fields. Never invents labels or locations. */
 const governedFields = (r: any): Pick<Snapshot, "labels" | "behavior" | "aiInsight"> & Partial<Snapshot> => r?.failed ? {
-  labels: [], behavior: '', aiInsight: '', aiError: r.message || 'AI identification unavailable',
+  labels: [], behavior: '', aiInsight: '', aiError: r.message || 'Identification unavailable right now',
 } : {
   labels: r.taxonomy,
   behavior: r.ecologic,
@@ -156,7 +156,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
     if (items.length === 0) return;
 
     setIsProcessing(true);
-    setProcessingStatus("Analyzing observations with NatureGram AI...");
+    setProcessingStatus("Looking closely at your observations…");
 
     try {
       const processedSnapshots: Snapshot[] = [];

@@ -9,7 +9,7 @@ const ConsentBanner: React.FC = () => {
   return (
     <div role="region" aria-label="Usage statistics choice" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[90] bg-white rounded-2xl shadow-2xl border border-stone-200 p-4 animate-slide-up">
       <p className="text-sm text-stone-800 leading-relaxed">
-        Help us improve NatureGram? We'd like to collect usage statistics (screens used, crashes, speed). Never your photos, location or messages. <a href="/privacy.html" target="_blank" rel="noopener" className="underline">Privacy</a>
+        Help us improve NatureGram? With your OK we collect usage statistics (screens used, crashes, speed) and let Google measure our ads. Never your photos, location or messages. <a href="/privacy.html" target="_blank" rel="noopener" className="underline">Privacy</a>
       </p>
       <div className="flex gap-2 mt-3">
         <button onClick={() => choose('granted')} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold">Allow</button>

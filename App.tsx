@@ -583,7 +583,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24' : ''}`}>
+      <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24 land:pl-20' : ''}`}>
         {currentView === AppView.LANDING && (
           <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
             <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
@@ -742,7 +742,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
-                  onLogoClick={scrollFeedToTop}
+                  onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
                   onRequireAccount={requireAccount}
                   dailyTheme={dailyTheme}
                   onOpenActivity={openActivity}
@@ -868,10 +868,10 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
-          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0">
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
+          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+              <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
                 <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">camera</span>
               </button>
             ) : (
@@ -880,7 +880,7 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
+                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
               >
                 <span className={`material-symbols-outlined text-[25px] transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} style={{ fontVariationSettings: item.active ? "'FILL' 1, 'wght' 400" : "'FILL' 0, 'wght' 300" }} aria-hidden="true">{item.icon}</span>
                 <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>

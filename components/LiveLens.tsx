@@ -4,7 +4,7 @@ import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AudioVisualizer from './AudioVisualizer.tsx';
 import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode } from '../types.ts';
 import { compressImageToBlob } from '../services/audioUtils.ts';
-import { FirebaseService } from '../services/firebaseService.ts';
+import { FirebaseService, getMyAllowance } from '../services/firebaseService.ts';
 import { track } from '../services/analytics';
 import { getDailyTheme as getDailyThemeConst } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
@@ -71,8 +71,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode);
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
   const [pendingAnalyses, setPendingAnalyses] = useState(0);
-  // Session limits from main: conversation length cap, idle timeout, capture cap in observation mode
-  const CONVERSATION_MAX_MS = 60_000;
+  // Session limits: the conversation runs until today's live minutes are used (the server enforces
+  // the same daily allowance for everyone); idle timeout; capture cap in observation mode.
+  const CONVERSATION_FALLBACK_MS = 60_000;
   const OBSERVATION_MAX_CAPTURES = 3;
   const IDLE_LIMIT_MS = 60_000;
   const conversationEndsAtRef = useRef<number | null>(null);
@@ -288,7 +289,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               showStatus('success', 'Identified. Added to this session.');
           }).catch(err => {
               console.error("Background analysis failed", err);
-              updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
+              updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
               setPendingAnalyses(n => Math.max(0, n - 1));
               showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
           });
@@ -445,7 +446,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       showStatus('success', 'Identified. Added to this session.');
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
-                      updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
+                      updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
                       setPendingAnalyses(n => Math.max(0, n - 1));
                       showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
                   });
@@ -572,7 +573,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           showStatus('success', 'Identified. Added to this session.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
-          updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
+          updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
           setPendingAnalyses(n => Math.max(0, n - 1));
           showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
       });
@@ -653,7 +654,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           if (conversationEndsAtRef.current) {
               const left = Math.max(0, Math.ceil((conversationEndsAtRef.current - Date.now()) / 1000));
               setSecondsLeft(left);
-              if (left === 0) finalizeSession('Conversation reached its time limit.');
+              if (left === 0) finalizeSession("That's today's live time. Captures still work, and live time resets at midnight UTC.");
           }
       }, 1000);
       const onHide = () => { if (document.visibilityState === 'hidden') finalizeSession('Session ended because the app went to the background.'); };
@@ -1018,7 +1019,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 switch (state) {
                     case 'CONNECTED':
                         setAgentState('IDLE');
-                        if (!conversationEndsAtRef.current) conversationEndsAtRef.current = Date.now() + CONVERSATION_MAX_MS;
+                        if (!conversationEndsAtRef.current) {
+                            const startedAt = Date.now();
+                            conversationEndsAtRef.current = startedAt + CONVERSATION_FALLBACK_MS;
+                            getMyAllowance().then(a => {
+                                if (!a) return;
+                                const leftMs = Math.max(0, a.liveMinutes.limit * 60_000 - (a.liveMinutes.usedMs ?? a.liveMinutes.used * 60_000));
+                                conversationEndsAtRef.current = startedAt + leftMs;
+                            });
+                        }
                         break;
                     case 'RECONNECTING': setAgentState('RECONNECTING'); break;
                     case 'DISCONNECTED': setAgentState('DISCONNECTED'); break;
@@ -1213,7 +1222,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
       {secondsLeft !== null && selectedMode === 'conversation' && agentState !== 'FINALIZING' && (
           <div className="absolute top-[calc(var(--sat)+9.5rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1 tabular" role="timer" aria-live="off">
-              {secondsLeft}s left in this conversation
+              {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')} of live time left today
           </div>
       )}
       {idleWarning !== null && agentState !== 'FINALIZING' && (
@@ -1343,7 +1352,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
                   {/* Ecological Insight detail */}
                   <div className="border-t border-white/15 pt-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-theme-vivid mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-sm" aria-hidden="true">auto_awesome</span>AI suggestion · verify before relying on it</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-theme-vivid mb-1.5">Field note</p>
                       <p className="text-sm font-medium text-white/90 leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
                           {latestSighting.aiInsight}
                       </p>

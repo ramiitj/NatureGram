@@ -5,6 +5,8 @@ export default {
   content: ['./index.html', './App.tsx', './index.tsx', './components/**/*.{ts,tsx}', './services/**/*.ts', './constants/**/*.ts', './*.ts'],
   theme: {
     extend: {
+      // Phones held sideways: the navigation moves to a side rail so it never covers content
+      screens: { land: { raw: '(orientation: landscape) and (max-height: 520px)' } },
       colors: {
         primary: 'var(--theme-primary, #44403c)',
         accent: 'rgb(var(--theme-accent-rgb, 194 65 12) / <alpha-value>)',

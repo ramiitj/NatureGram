@@ -101,7 +101,7 @@ export const transcodeMedia = onObjectFinalized({ region: 'asia-east1', memory: 
 
 /** Admin-only: transcode existing WebM media (run once after deploying). */
 export const backfillTranscodes = onCall({ region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (req) => {
-  const isAdmin = req.auth?.token?.admin === true || (req.auth?.token?.email === 'ram@iitj.ac.in' && req.auth?.token?.email_verified === true);
+  const isAdmin = req.auth?.token?.admin === true && req.auth?.token?.email_verified === true;
   if (!isAdmin) throw new HttpsError('permission-denied', 'Admins only');
   const bucket = getStorage().bucket();
   let done = 0;

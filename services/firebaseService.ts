@@ -69,7 +69,7 @@ export class PublishError extends Error {
 }
 
 /** What an explorer has left today (same allowance for everyone, set by the admin). */
-export const getMyAllowance = async (): Promise<null | { posts: { limit: number; used: number }; liveMinutes: { limit: number; used: number }; identifications: { limit: number; used: number }; resetsAt: string }> => {
+export const getMyAllowance = async (): Promise<null | { posts: { limit: number; used: number }; liveMinutes: { limit: number; used: number; usedMs?: number }; identifications: { limit: number; used: number }; resetsAt: string }> => {
   try {
     const token = await auth.currentUser?.getIdToken();
     if (!token) return null;
