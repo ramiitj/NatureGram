@@ -63,3 +63,20 @@ export const openExternal = (url?: string | null) => {
         window.open(u.toString(), '_blank', 'noopener,noreferrer');
     } catch { /* ignore malformed */ }
 };
+
+/** Compact relative time ("now", "5m", "3h", "2d", "Mar 4") for feeds and notifications. */
+export const timeAgo = (ts: any): string => {
+    let ms = 0;
+    if (!ts) return '';
+    if (typeof ts?.toMillis === 'function') ms = ts.toMillis();
+    else if (typeof ts?.seconds === 'number') ms = ts.seconds * 1000;
+    else if (ts instanceof Date) ms = ts.getTime();
+    else ms = new Date(ts).getTime();
+    if (!ms || Number.isNaN(ms)) return '';
+    const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+    if (s < 60) return 'now';
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    if (s < 7 * 86400) return `${Math.floor(s / 86400)}d`;
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(Date.now() - ms > 300 * 86400000 ? { year: 'numeric' } : {}) });
+};

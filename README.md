@@ -1,21 +1,43 @@
-# AI Studio Gemini App Proxy Server
+# NatureGram
 
-This nodejs proxy server lets you run your AI Studio Gemini application unmodified, without exposing your API key in the frontend code.
+**The living field guide.** Point your camera at nature and a live AI naturalist tells you what you're seeing and why it behaves that way. Capture sightings, keep a private field journal and life list, and share discoveries with explorers worldwide.
 
+Production: https://thenaturegram.com
 
-## Instructions
+## Features
+- **Live Lens.** A real-time voice and vision guide built on the Gemini Live API. It can capture frames, zoom and switch cameras through tool calls, and keeps a transcript you can re-read.
+- **Capture → review → share.** Photos, video, sound recordings and hybrid captures. You get an editable AI identification with a confidence level, plus a caption, hashtags and an audience choice (feed or journal only).
+- **Social.** Following and For-you feeds, likes (including double-tap), comments, saves, follows, profiles with a post grid and life list, notifications, share links with rich previews.
+- **Safety.** Report, block, a moderation queue, fungi safety warnings, and AI labelling on every identification.
+- **Privacy.** Exact GPS is never public and image metadata is stripped. You can download your data and delete your account.
+- **Naturalist of the fortnight.** Every ~15 days the palette, landing story and a community field challenge change to honour one of 24 naturalists.
 
-**Prerequisites**:
-- [Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)
-- (Optional) Gemini API Key
+## Architecture
+| Layer | Tech |
+|---|---|
+| Web app | React 19, TypeScript, Vite, Tailwind (compiled), Motion |
+| Server | Node / Express (`server/server.js`): static hosting, share previews, media proxy, authenticated Gemini proxy (HTTP + Live WebSocket) |
+| AI governance | `server/aiGovernance.js`: model allowlist, Live model pinning, platform policy injected into every call, safety settings, per-user quotas |
+| Data | Firebase Auth, Firestore (`firestore.rules`, `firestore.indexes.json`), Cloud Storage (`storage.rules`) |
+| Hosting | Cloud Run (`Dockerfile`), PWA with service worker (`public/sw.js`) |
 
-1. Download or copy the files of your AI Studio app into this directory at the root level.
-2. If your app calls the Gemini API, create a Secret for your API key:
-     ```
-     echo -n "${GEMINI_API_KEY}" | gcloud secrets create gemini_api_key --data-file=-
-     ```
+Key client modules:
+- `services/firebaseService.ts`: data access, social graph, publishing, data export and account deletion
+- `services/genAiService.ts`: media analysis
+- `services/geminiLiveService.ts`: Live sessions
+- `services/themeService.ts`: naturalist theming with automatic contrast correction
+- `constants/naturalists.ts` and `constants/naturalistExtras.ts`: the 24 naturalist themes, their bios and challenges
 
-3.  Deploy to Cloud Run (optionally including API key):
-    ```
-    gcloud run deploy my-app --source=. --update-secrets=GEMINI_API_KEY=gemini_api_key:latest
-    ```
+## Running locally
+```bash
+npm install
+cp .env.example .env   # add GEMINI_API_KEY
+npm run dev            # http://localhost:3000
+```
+Type-check: `npm run lint`. Production build: `npm run build && npm start`.
+
+## Deploying
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. Indexes must be deployed before rules. Admin access requires a verified email.
+
+## AI governance
+See **[docs/AI_GOVERNANCE.md](docs/AI_GOVERNANCE.md)** for how NatureGram keeps AI output accurate, safe and accountable.

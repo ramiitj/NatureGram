@@ -124,7 +124,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                                   ) : (
                                       <img 
                                           src={item.originalImageUrl || item.imageUrl || item.thumbnailUrl!} 
-                                          alt="Discovery" 
+                                          alt={post?.labels?.[0] || "Nature sighting"} 
                                           className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                                       />
                                   )}
@@ -176,13 +176,13 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                            <div className="flex flex-col items-center justify-center w-full h-full bg-theme-primary/10 p-8 shadow-2xl rounded-sm">
                                 <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
                                 {currentItem.audioUrl && (
-                                     <audio src={currentItem.audioUrl} controls autoPlay className="w-full max-w-xs" />
+                                     <audio src={currentItem.audioUrl} controls className="w-full max-w-xs" />
                                 )}
                            </div>
                       ) : (
                           <img 
                               src={currentItem.originalImageUrl || currentItem.imageUrl || currentItem.thumbnailUrl!} 
-                              alt="Discovery" 
+                              alt={post?.labels?.[0] || "Nature sighting"} 
                               className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                           />
                       )}
@@ -199,7 +199,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                          </div>
                          <div className="flex flex-col">
                              <span className="font-bold text-sm tracking-tight">{post.userName}</span>
-                             <span className="text-[10px] text-theme-primary/60 uppercase tracking-wider font-bold">Explorer</span>
+                             <span className="text-xs text-theme-primary/60 uppercase tracking-wider font-bold">Explorer</span>
                          </div>
                      </div>
                  </div>
@@ -209,13 +209,13 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                      
                      <div className="flex flex-wrap gap-2 mt-2">
                          {post.labels.slice(0, 4).map((label: string, i: number) => (
-                             <span key={i} className="bg-theme-primary px-3 py-1 text-[10px] uppercase font-black tracking-widest rounded-full text-white">
+                             <span key={i} className="bg-theme-primary px-3 py-1 text-xs uppercase font-black tracking-widest rounded-full text-white">
                                  {label}
                              </span>
                          ))}
                          {post.tags && post.tags.length > 0 && post.tags.map((tag: string, i: number) => (
-                             <span key={`tag-${i}`} className="bg-stone-200 text-stone-700 px-3 py-1 text-[10px] font-bold tracking-widest rounded-full lowercase">
-                                 #{tag}
+                             <span key={`tag-${i}`} className="bg-stone-200 text-stone-700 px-3 py-1 text-xs font-bold tracking-widest rounded-full lowercase">
+                                 #{String(tag).replace(/^#+/, '')}
                              </span>
                          ))}
                      </div>

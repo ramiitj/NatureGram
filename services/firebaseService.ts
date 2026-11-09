@@ -20,11 +20,14 @@ import {
   increment,
   writeBatch,
   deleteField,
+  collectionGroup,
 } from "firebase/firestore";
 import {
   ref,
   uploadBytes,
   getDownloadURL,
+  listAll,
+  deleteObject,
 } from "firebase/storage";
 import {
   signInAnonymously,
@@ -35,10 +38,13 @@ import {
   deleteUser,
   updateProfile,
   sendEmailVerification,
+  sendPasswordResetEmail,
+  linkWithCredential,
+  EmailAuthProvider,
 } from "firebase/auth";
 import { auth, db, storage } from "../firebaseConfig";
 import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft } from "../types";
-import { SYSTEM_INSTRUCTION } from "../constants";
+import { SYSTEM_INSTRUCTION } from "../constants/prompts";
 import { generateThumbnail, reencodeImage } from "../utils";
 
 export const AI_CLIENT_POLICY_VERSION = "2026.11-1";
@@ -231,14 +237,29 @@ export const FirebaseService = {
     return cred;
   },
 
-  registerUser: async (email: string, pass: string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+  registerUser: async (email: string, pass: string, username?: string) => {
+    // Upgrade a guest session in place so the explorer keeps the same identity
+    const current = auth.currentUser;
+    const cred = current && current.isAnonymous
+      ? await linkWithCredential(current, EmailAuthProvider.credential(email, pass))
+      : await createUserWithEmailAndPassword(auth, email, pass);
     try {
         await FirebaseService.ensureUserProfile(cred.user.uid, email, false);
+        const desired = (username || '').trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
+        const updates: any = { isAnonymous: false };
+        if (desired) updates.username = desired;
+        await updateDoc(doc(db, "users", cred.user.uid), updates);
+        if (desired) await updateProfile(cred.user, { displayName: desired });
+        else if (!cred.user.displayName) await updateProfile(cred.user, { displayName: email.split('@')[0].slice(0, 30) });
+        sendEmailVerification(cred.user).catch(() => {});
     } catch (err) {
-        console.warn("Silent profile creation error caught during registerUser:", err);
+        console.warn("Profile setup after registration failed:", err);
     }
     return cred;
+  },
+
+  sendPasswordReset: async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
   },
 
   loginUser: async (email: string, pass: string) => {
@@ -309,7 +330,23 @@ export const FirebaseService = {
     }
   },
 
-  saveDraft: async (userId: string, snapshots: Snapshot[], summary: string) => {
+  saveDraft: async (userId: string, inputSnapshots: Snapshot[], summary: string) => {
+    // Media blobs can't live in Firestore: upload them to the owner's private drafts folder first,
+    // otherwise drafts would lose their photos/videos/sounds after a reload.
+    const canUpload = !!auth.currentUser && !auth.currentUser.isAnonymous && userId === auth.currentUser.uid;
+    const persistBlob = async (b: Blob | undefined, kind: 'image' | 'video' | 'audio', fallback?: string) => {
+      if (b && canUpload) {
+        try { return await FirebaseService.uploadMedia(b, userId, kind, `drafts/${userId}`); } catch (e) { console.warn('Draft media upload failed', e); }
+      }
+      return fallback && !fallback.startsWith('blob:') ? fallback : '';
+    };
+    const snapshots: Snapshot[] = await Promise.all(inputSnapshots.map(async (s) => ({
+      ...s,
+      url: await persistBlob(s.blob, 'image', s.url),
+      videoUrl: await persistBlob(s.videoBlob, 'video', s.videoUrl),
+      audioUrl: await persistBlob(s.audioBlob, 'audio', s.audioUrl),
+      associatedImages: s.associatedImages ? await Promise.all(s.associatedImages.map(async img => ({ url: await persistBlob(img.blob, 'image', img.url) }))) : undefined,
+    })));
     // Strip Blobs and non-serializable properties before storing (otherwise setDoc throws)
     const cleanSnapshots = snapshots.map(s => {
       const cleanImg = s.associatedImages ? s.associatedImages.map(img => ({
@@ -330,7 +367,11 @@ export const FirebaseService = {
         location: s.location || '',
         locationArea: s.locationArea || '',
         rotation: s.rotation || 0,
-        associatedImages: cleanImg
+        associatedImages: cleanImg,
+        aiProposedLabels: s.aiProposedLabels || null,
+        aiConfidence: s.aiConfidence || null,
+        showLocation: (s as any).showLocation ?? null,
+        rawLocation: s.rawLocation || null,
       };
     });
 
@@ -429,7 +470,7 @@ export const FirebaseService = {
     }
   },
 
-  uploadMedia: async (data: Blob | string, userId: string, type: 'image' | 'video' | 'audio'): Promise<string> => {
+  uploadMedia: async (data: Blob | string, userId: string, type: 'image' | 'video' | 'audio', folderOverride?: string): Promise<string> => {
     let blob: Blob;
     if (typeof data === 'string') {
         // Already-hosted media: reuse it instead of re-uploading
@@ -448,7 +489,7 @@ export const FirebaseService = {
     else if (mime.includes('png')) ext = 'png';
     else if (mime.includes('webp')) ext = 'webp';
 
-    const folder = type === 'image' ? 'snapshots' : (type === 'audio' ? 'audio' : 'videos');
+    const folder = folderOverride || (type === 'image' ? 'snapshots' : (type === 'audio' ? 'audio' : 'videos'));
     const filename = `${folder}/${userId}/${Date.now()}_${crypto.randomUUID()}.${ext}`;
     const storageRef = ref(storage, filename);
     await uploadBytes(storageRef, blob, { contentType: mime });
@@ -861,6 +902,265 @@ export const FirebaseService = {
 
   markNotificationRead: async (userId: string, notifId: string) => {
     await updateDoc(doc(db, "users", userId, "notifications", notifId), { isRead: true });
+  },
+
+  /** Distinct species already in the signed-in explorer's records (for "new to your life list"). */
+  getMySpeciesSet: async (): Promise<Set<string>> => {
+    const me = auth.currentUser?.uid;
+    const out = new Set<string>();
+    if (!me) return out;
+    try {
+      const snap = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", me), limit(500)));
+      snap.forEach(d => { const l = (d.data() as any).labels?.[0]; if (l) out.add(String(l).trim().toLowerCase()); });
+    } catch { /* ignore */ }
+    return out;
+  },
+
+  // ------------------------------------------------------------------ social graph
+  isFollowing: async (targetUid: string): Promise<boolean> => {
+    const me = auth.currentUser?.uid;
+    if (!me || me === targetUid) return false;
+    try { return (await getDoc(doc(db, "users", me, "following", targetUid))).exists(); } catch { return false; }
+  },
+
+  followUser: async (targetUid: string) => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw new Error("Please sign in to follow explorers.");
+    if (me.uid === targetUid) return;
+    if (await FirebaseService.isFollowing(targetUid)) return;
+    const batch = writeBatch(db);
+    batch.set(doc(db, "users", me.uid, "following", targetUid), { createdAt: serverTimestamp() });
+    batch.set(doc(db, "users", targetUid, "followers", me.uid), { createdAt: serverTimestamp() });
+    batch.update(doc(db, "users", targetUid), { followersCount: increment(1) });
+    batch.update(doc(db, "users", me.uid), { followingCount: increment(1) });
+    await batch.commit();
+    try {
+      const myProfile = await FirebaseService.getUserProfile(me.uid);
+      const name = myProfile?.username || me.displayName || 'An explorer';
+      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} started following you.`, senderId: me.uid, senderName: name });
+    } catch { /* notification is best-effort */ }
+  },
+
+  unfollowUser: async (targetUid: string) => {
+    const me = auth.currentUser;
+    if (!me || me.uid === targetUid) return;
+    if (!(await FirebaseService.isFollowing(targetUid))) return;
+    const batch = writeBatch(db);
+    batch.delete(doc(db, "users", me.uid, "following", targetUid));
+    batch.delete(doc(db, "users", targetUid, "followers", me.uid));
+    batch.update(doc(db, "users", targetUid), { followersCount: increment(-1) });
+    batch.update(doc(db, "users", me.uid), { followingCount: increment(-1) });
+    await batch.commit();
+  },
+
+  getFollowingIds: async (uid: string, max = 500): Promise<string[]> => {
+    try {
+      const snap = await getDocs(query(collection(db, "users", uid, "following"), limit(max)));
+      return snap.docs.map(d => d.id);
+    } catch { return []; }
+  },
+
+  /** People list for followers/following sheets (profiles fetched in parallel). */
+  getConnections: async (uid: string, kind: 'followers' | 'following', max = 100): Promise<UserProfileData[]> => {
+    try {
+      const snap = await getDocs(query(collection(db, "users", uid, kind), limit(max)));
+      const profiles = await Promise.all(snap.docs.map(d => FirebaseService.getUserProfile(d.id)));
+      return profiles.filter(Boolean).map((p, i) => ({ ...(p as UserProfileData), uid: (p as any)?.uid || snap.docs[i].id }));
+    } catch { return []; }
+  },
+
+  /** Home timeline: recent public posts from explorers you follow (fan-out on read, 30 ids per query). */
+  getFollowingFeed: async (followingIds: string[], perAuthorLimit = 30): Promise<CommunityPost[]> => {
+    if (!followingIds.length) return [];
+    const chunks: string[][] = [];
+    for (let i = 0; i < followingIds.length; i += 30) chunks.push(followingIds.slice(i, i + 30));
+    const results = await Promise.all(chunks.map(async ids => {
+      try {
+        const snap = await getDocs(query(collection(db, "feed_thumbnails"), where("userId", "in", ids), where("isPublic", "==", true), orderBy("timestamp", "desc"), limit(perAuthorLimit)));
+        return snap.docs.map(d => ({ id: d.id, ...d.data(), labels: (d.data() as any).labels || ["Nature"] } as CommunityPost));
+      } catch (e) {
+        console.warn("Following feed chunk failed", e);
+        return [];
+      }
+    }));
+    const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
+    return results.flat().sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
+  },
+
+  // ------------------------------------------------------------------ safety: block & save
+  getBlockedIds: async (): Promise<string[]> => {
+    const me = auth.currentUser?.uid;
+    if (!me) return [];
+    try { return (await getDocs(collection(db, "users", me, "blocked"))).docs.map(d => d.id); } catch { return []; }
+  },
+  blockUser: async (targetUid: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me || me === targetUid) return;
+    await setDoc(doc(db, "users", me, "blocked", targetUid), { createdAt: serverTimestamp() });
+    await FirebaseService.unfollowUser(targetUid).catch(() => {});
+  },
+  unblockUser: async (targetUid: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me) return;
+    await deleteDoc(doc(db, "users", me, "blocked", targetUid));
+  },
+
+  isSaved: async (postId: string): Promise<boolean> => {
+    const me = auth.currentUser?.uid;
+    if (!me) return false;
+    try { return (await getDoc(doc(db, "users", me, "saved", postId))).exists(); } catch { return false; }
+  },
+  toggleSave: async (postId: string, save: boolean, thumb?: Partial<CommunityPost>) => {
+    const me = auth.currentUser?.uid;
+    if (!me) throw new Error("Please sign in to save posts.");
+    if (save) {
+      await setDoc(doc(db, "users", me, "saved", postId), {
+        createdAt: serverTimestamp(),
+        thumbnailUrl: thumb?.thumbnailUrl || thumb?.imageUrl || null,
+        label: thumb?.labels?.[0] || null,
+        mediaType: thumb?.mediaType || 'image',
+      });
+    } else {
+      await deleteDoc(doc(db, "users", me, "saved", postId));
+    }
+  },
+  getSavedPosts: async (): Promise<{ id: string; thumbnailUrl?: string; label?: string; mediaType?: string }[]> => {
+    const me = auth.currentUser?.uid;
+    if (!me) return [];
+    try {
+      const snap = await getDocs(query(collection(db, "users", me, "saved"), orderBy("createdAt", "desc"), limit(200)));
+      return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    } catch { return []; }
+  },
+
+  // ------------------------------------------------------------------ profile
+  updateMyProfile: async (updates: { username?: string; bio?: string; displayName?: string }) => {
+    const me = auth.currentUser;
+    if (!me) throw new Error("Not signed in");
+    const clean: any = {};
+    if (updates.username !== undefined) {
+      const u = updates.username.trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
+      if (u.length < 3) throw new Error("Usernames need at least 3 letters or numbers.");
+      clean.username = u;
+    }
+    if (updates.bio !== undefined) clean.bio = updates.bio.trim().slice(0, 300);
+    if (updates.displayName !== undefined) clean.displayName = updates.displayName.trim().slice(0, 60);
+    await updateDoc(doc(db, "users", me.uid), clean);
+    if (clean.username) await updateProfile(me, { displayName: clean.username }).catch(() => {});
+  },
+
+  uploadAvatar: async (file: Blob): Promise<string> => {
+    const me = auth.currentUser;
+    if (!me) throw new Error("Not signed in");
+    const square = await reencodeImage(file, 512, 'image/jpeg', 0.88);
+    const r = ref(storage, `avatars/${me.uid}/avatar_${Date.now()}.jpg`);
+    await uploadBytes(r, square, { contentType: 'image/jpeg' });
+    const url = await getDownloadURL(r);
+    await updateDoc(doc(db, "users", me.uid), { avatarUrl: url });
+    await updateProfile(me, { photoURL: url }).catch(() => {});
+    return url;
+  },
+
+  // ------------------------------------------------------------------ data rights (GDPR/CCPA)
+  exportMyData: async (): Promise<Blob> => {
+    const me = auth.currentUser;
+    if (!me) throw new Error("Not signed in");
+    const uid = me.uid;
+    const safe = async <T,>(fn: () => Promise<T>, fallback: T) => { try { return await fn(); } catch { return fallback; } };
+    const docsOf = (snap: any) => snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    const [profile, posts, following, followers, saved, drafts, privateDocs, comments, memory] = await Promise.all([
+      safe(() => FirebaseService.getUserProfile(uid), null),
+      safe(async () => docsOf(await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", uid)))), []),
+      safe(async () => docsOf(await getDocs(collection(db, "users", uid, "following"))), []),
+      safe(async () => docsOf(await getDocs(collection(db, "users", uid, "followers"))), []),
+      safe(async () => docsOf(await getDocs(collection(db, "users", uid, "saved"))), []),
+      safe(async () => docsOf(await getDocs(collection(db, "users", uid, "drafts"))), []),
+      safe(async () => docsOf(await getDocs(collection(db, "users", uid, "private"))), []),
+      safe(async () => docsOf(await getDocs(query(collectionGroup(db, "comments"), where("userId", "==", uid)))), []),
+      safe(() => FirebaseService.getNaturalistMemory(uid), null),
+    ]);
+    const data = {
+      exportedAt: new Date().toISOString(),
+      account: { uid, email: me.email, emailVerified: me.emailVerified, createdAt: me.metadata.creationTime },
+      profile, posts, comments, following, followers, saved, drafts, privateObservationData: privateDocs, naturalistMemory: memory,
+    };
+    return new Blob([JSON.stringify(data, (_k, v) => (v && typeof v.toDate === 'function' ? v.toDate().toISOString() : v), 2)], { type: 'application/json' });
+  },
+
+  /**
+   * Permanently deletes the signed-in explorer's account and everything they created.
+   * Requires a recent login (Firebase); throws 'auth/requires-recent-login' otherwise.
+   */
+  deleteMyAccount: async (onProgress?: (step: string) => void) => {
+    const me = auth.currentUser;
+    if (!me) throw new Error("Not signed in");
+    const uid = me.uid;
+    const step = (s: string) => onProgress?.(s);
+
+    step('Removing your posts…');
+    const posts = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", uid)));
+    for (const p of posts.docs) {
+      try {
+        const cs = await getDocs(collection(db, "ecosystem_feed", p.id, "comments"));
+        await Promise.all(cs.docs.map(c => deleteDoc(c.ref).catch(() => {})));
+      } catch { /* continue */ }
+      await deleteDoc(doc(db, "feed_thumbnails", p.id)).catch(() => {});
+      await deleteDoc(p.ref).catch(() => {});
+    }
+
+    step('Removing your comments…');
+    try {
+      const myComments = await getDocs(query(collectionGroup(db, "comments"), where("userId", "==", uid)));
+      for (const c of myComments.docs) {
+        await deleteDoc(c.ref).catch(() => {});
+        const postId = c.ref.parent.parent?.id;
+        if (postId) {
+          await updateDoc(doc(db, "ecosystem_feed", postId), { commentCount: increment(-1) }).catch(() => {});
+          await updateDoc(doc(db, "feed_thumbnails", postId), { commentCount: increment(-1) }).catch(() => {});
+        }
+      }
+    } catch (e) { console.warn("Comment cleanup incomplete", e); }
+
+    step('Removing your likes…');
+    try {
+      const liked = await getDocs(query(collection(db, "feed_thumbnails"), where("isPublic", "==", true), where("likes", "array-contains", uid), limit(500)));
+      for (const l of liked.docs) {
+        await updateDoc(doc(db, "ecosystem_feed", l.id), { likes: arrayRemove(uid) }).catch(() => {});
+        await updateDoc(l.ref, { likes: arrayRemove(uid) }).catch(() => {});
+      }
+    } catch (e) { console.warn("Like cleanup incomplete", e); }
+
+    step('Removing follows…');
+    for (const target of await FirebaseService.getFollowingIds(uid, 1000)) {
+      await FirebaseService.unfollowUser(target).catch(() => {});
+    }
+    try {
+      const followers = await getDocs(collection(db, "users", uid, "followers"));
+      // Follower docs live under our own profile; removing them is enough (their counters self-heal on next follow)
+      await Promise.all(followers.docs.map(f => deleteDoc(f.ref).catch(() => {})));
+    } catch { /* ignore */ }
+
+    step('Removing private data…');
+    for (const sub of ['drafts', 'private', 'notifications', 'saved', 'blocked', 'following']) {
+      try {
+        const snap = await getDocs(collection(db, "users", uid, sub));
+        await Promise.all(snap.docs.map(d => deleteDoc(d.ref).catch(() => {})));
+      } catch { /* ignore */ }
+    }
+    await deleteDoc(doc(db, "naturalist_memories", uid)).catch(() => {});
+
+    step('Removing uploaded media…');
+    for (const folder of ['snapshots', 'videos', 'audio', 'avatars', 'drafts']) {
+      try {
+        const listing = await listAll(ref(storage, `${folder}/${uid}`));
+        await Promise.all(listing.items.map(i => deleteObject(i).catch(() => {})));
+      } catch { /* folder may not exist */ }
+    }
+
+    step('Closing your account…');
+    await deleteDoc(doc(db, "users", uid)).catch(() => {});
+    await deleteUser(me);
+    try { localStorage.removeItem(`drafts_${uid}`); } catch { /* ignore */ }
   },
 
   /** Admin = custom claim `admin`, or the owner email once verified (matches security rules). */

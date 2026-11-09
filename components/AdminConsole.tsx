@@ -247,7 +247,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
             </button>
             {status && <p className="text-red-400 text-sm mt-2">{status}</p>}
           </form>
-          <button onClick={onBack} className="mt-6 text-white/40 text-sm hover:text-white">← Back to App</button>
+          <button onClick={onBack} className="mt-6 text-white/60 text-sm hover:text-white">← Back to App</button>
         </div>
       </div>
     );
@@ -262,11 +262,11 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
             <h1 className="text-xl font-bold font-display italic tracking-tight text-theme-primary">Admin Console</h1>
         </div>
         <div className="flex items-center gap-4">
-            <span className="text-theme-primary/40 text-sm font-bold uppercase tracking-widest">{status}</span>
-            <button onClick={onBack} className="bg-theme-primary/5 hover:bg-theme-primary/10 text-theme-primary px-4 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all">
+            <span className="text-theme-primary/60 text-sm font-bold uppercase tracking-widest">{status}</span>
+            <button onClick={onBack} className="bg-theme-primary/5 hover:bg-theme-primary/10 text-theme-primary px-4 py-2 rounded-lg font-black text-xs uppercase tracking-widest transition-all">
                 Exit Console
             </button>
-            <button onClick={handleSignOut} className="text-theme-primary/40 hover:text-red-500 font-bold text-[10px] uppercase tracking-widest transition-colors">
+            <button onClick={handleSignOut} className="text-theme-primary/60 hover:text-red-500 font-bold text-xs uppercase tracking-widest transition-colors">
                 Sign Out
             </button>
         </div>
@@ -286,7 +286,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 border-r border-theme-primary/10 bg-black/[0.02] p-4 shrink-0">
-            <h3 className="text-white/40 text-xs font-bold uppercase tracking-wider mb-4">Modules</h3>
+            <h3 className="text-white/60 text-xs font-bold uppercase tracking-wider mb-4">Modules</h3>
             <div className="flex flex-col gap-2">
                 <button 
                     onClick={() => setActiveTab('activity')}
@@ -301,7 +301,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                 >
                     <span className="material-symbols-outlined text-sm">gavel</span>
                     Moderation
-                    {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 rounded-full">{reportedPosts.length}</span>}
+                    {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-xs px-1.5 rounded-full">{reportedPosts.length}</span>}
                 </button>
             </div>
         </aside>
@@ -358,7 +358,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 <span className="material-symbols-outlined text-2xl">group</span>
                             </div>
                             <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Total Explorers</p>
+                                <p className="text-theme-primary/60 text-xs font-black uppercase tracking-widest">Total Explorers</p>
                                 <p className="text-2xl font-black text-theme-primary">{allUsers.length}</p>
                             </div>
                         </div>
@@ -368,7 +368,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 <span className="material-symbols-outlined text-2xl">explore</span>
                             </div>
                             <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Sightings Recorded</p>
+                                <p className="text-theme-primary/60 text-xs font-black uppercase tracking-widest">Sightings Recorded</p>
                                 <p className="text-2xl font-black text-theme-primary">{allPosts.length}</p>
                             </div>
                         </div>
@@ -378,7 +378,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 <span className="material-symbols-outlined text-2xl">forum</span>
                             </div>
                             <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Social Interactions</p>
+                                <p className="text-theme-primary/60 text-xs font-black uppercase tracking-widest">Social Interactions</p>
                                 <p className="text-2xl font-black text-theme-primary">
                                     {allPosts.reduce((sum, p) => sum + (p.likes?.length || 0) + (p.commentCount || 0), 0)}
                                 </p>
@@ -390,7 +390,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                 <span className="material-symbols-outlined text-2xl">psychology</span>
                             </div>
                             <div>
-                                <p className="text-theme-primary/40 text-[9px] font-black uppercase tracking-widest">Species Wealth</p>
+                                <p className="text-theme-primary/60 text-xs font-black uppercase tracking-widest">Species Wealth</p>
                                 <p className="text-2xl font-black text-theme-primary">
                                     {new Set(allPosts.flatMap(p => p.labels || [])).size}
                                 </p>
@@ -403,7 +403,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                         {/* Users access list */}
                         <div className="lg:col-span-4 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest flex items-center gap-2">
+                                <h3 className="text-theme-primary font-black text-xs uppercase tracking-widest flex items-center gap-2">
                                     <span className="material-symbols-outlined text-xs text-theme-primary/50">people</span>
                                     Registered Explorers ({allUsers.length})
                                 </h3>
@@ -428,12 +428,12 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                         <div className="flex-1 min-w-0">
                                             <p className="text-stone-800 font-bold text-xs flex items-center gap-2">
                                                 {user.username || 'Anonymous'}
-                                                {user.isAnonymous && <span className="bg-theme-accent/20 text-theme-accent px-1.5 py-0.5 rounded text-[8px] uppercase font-black">Anonymous</span>}
+                                                {user.isAnonymous && <span className="bg-theme-accent/20 text-theme-accent px-1.5 py-0.5 rounded text-[11px] uppercase font-black">Anonymous</span>}
                                             </p>
-                                            <p className="text-theme-primary/50 text-[9px] truncate mt-0.5">Joined {user.joinedAt?.toDate ? new Date(user.joinedAt.toDate()).toLocaleDateString() : 'Just Now'} • {user.location || 'Unknown Location'}</p>
+                                            <p className="text-theme-primary/50 text-xs truncate mt-0.5">Joined {user.joinedAt?.toDate ? new Date(user.joinedAt.toDate()).toLocaleDateString() : 'Just Now'} • {user.location || 'Unknown Location'}</p>
                                         </div>
                                         <div className="text-right">
-                                            <span className="bg-white/5 border border-white/10 text-white/70 px-2 py-1 rounded text-[8px] font-bold">
+                                            <span className="bg-white/5 border border-white/10 text-white/70 px-2 py-1 rounded text-[11px] font-bold">
                                                 {user.stats?.observations || 0} Obs
                                             </span>
                                         </div>
@@ -444,13 +444,13 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
 
                         {/* Recent Activity Thread list */}
                         <div className="lg:col-span-8 bg-white border border-theme-primary/10 rounded-3xl p-6 flex flex-col h-[500px] shadow-sm">
-                            <h3 className="text-theme-primary font-black text-[10px] uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <h3 className="text-theme-primary font-black text-xs uppercase tracking-widest mb-4 flex items-center gap-2">
                                 <span className="material-symbols-outlined text-xs text-theme-primary/50">history</span>
                                 Incident & Observation Thread ({allPosts.length})
                             </h3>
                             <div className="flex-1 overflow-y-auto space-y-4 pr-1 no-scrollbar flex flex-col">
                                 {allPosts.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-theme-primary/30 italic text-sm font-display tracking-wide">
+                                    <div className="h-full flex flex-col items-center justify-center text-theme-primary/55 italic text-sm font-display tracking-wide">
                                         No observations captured on the field yet.
                                     </div>
                                 ) : (
@@ -470,19 +470,19 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start mb-1">
                                                     <span className="text-theme-primary font-bold text-xs truncate">{post.userName || 'Unknown Explorer'}</span>
-                                                    <span className="text-theme-primary/30 text-[9px]">
+                                                    <span className="text-theme-primary/55 text-xs">
                                                         {post.timestamp?.toDate ? new Date(post.timestamp.toDate()).toLocaleDateString() : 'Active'}
                                                     </span>
                                                 </div>
                                                 
                                                 <div className="flex gap-1.5 flex-wrap my-1.5">
                                                     {(post.labels || []).slice(0, 3).map((lbl, i) => (
-                                                        <span key={i} className="bg-theme-accent/10 border border-theme-accent/20 text-theme-primary rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest">
+                                                        <span key={i} className="bg-theme-accent/10 border border-theme-accent/20 text-theme-primary rounded px-1.5 py-0.5 text-[11px] font-black uppercase tracking-widest">
                                                             {lbl}
                                                         </span>
                                                     ))}
                                                     {post.locationArea && (
-                                                        <span className="bg-blue-500/10 border border-blue-500/20 text-blue-600 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest font-black">
+                                                        <span className="bg-blue-500/10 border border-blue-500/20 text-blue-600 rounded px-1.5 py-0.5 text-[11px] uppercase tracking-widest font-black">
                                                             {post.locationArea}
                                                         </span>
                                                     )}
@@ -492,7 +492,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                                                     "{post.behavior || post.aiInsight || 'No description provided.'}"
                                                 </p>
 
-                                                <div className="mt-3 flex gap-4 items-center text-theme-primary/30 text-[10px] font-bold">
+                                                <div className="mt-3 flex gap-4 items-center text-theme-primary/55 text-xs font-bold">
                                                     <span className="flex items-center gap-1">
                                                         <span className="material-symbols-outlined text-xs">thumb_up</span>
                                                         {post.likes?.length || 0} Likes

@@ -1,7 +1,7 @@
 
 export interface FieldNotification {
   id: string;
-  type: 'like' | 'comment' | 'sighting' | 'system';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'reply' | 'sighting' | 'system';
   message: string;
   timestamp: any;
   postId?: string;
@@ -19,6 +19,10 @@ export interface UserProfileData {
   isAnonymous?: boolean;
   followersCount?: number;
   followingCount?: number;
+  /** Legacy fields kept for existing documents */
+  email?: string;
+  location?: string;
+  lastVisit?: any;
   joinedAt: any;
   stats?: {
     observations: number;
@@ -180,6 +184,7 @@ export interface CommunityPost extends FeedThumbnail {
   reportStatus?: string;
   reportCount?: number;
   aiPolicyVersion?: string;
+  sourceUrl?: string;
   items?: CommunityPostItem[];
   rotation?: number;
   rawLocation?: { lat: number; lng: number } | null;

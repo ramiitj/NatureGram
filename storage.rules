@@ -15,23 +15,33 @@ service firebase.storage {
     function underMB(mb) { return request.resource.size < mb * 1024 * 1024; }
 
     match /snapshots/{uid}/{file} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isOwner(uid) || isAdmin();
       allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp|gif|heic|heif)') && underMB(15);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /videos/{uid}/{file} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isOwner(uid) || isAdmin();
       allow create, update: if isOwner(uid) && request.resource.contentType.matches('video/.*') && underMB(100);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /audio/{uid}/{file} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isOwner(uid) || isAdmin();
       allow create, update: if isOwner(uid) && request.resource.contentType.matches('audio/.*|video/webm') && underMB(30);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /avatars/{uid}/{file} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isOwner(uid) || isAdmin();
       allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/(jpeg|png|webp)') && underMB(5);
+      allow delete: if isOwner(uid) || isAdmin();
+    }
+    // Draft media: private to the owner until published
+    match /drafts/{uid}/{file} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create, update: if isOwner(uid) && request.resource.contentType.matches('image/.*|video/.*|audio/.*') && underMB(100);
       allow delete: if isOwner(uid) || isAdmin();
     }
     match /themes/{file} {

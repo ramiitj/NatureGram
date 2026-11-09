@@ -190,6 +190,12 @@ service cloud.firestore {
       }
     }
 
+    // Collection-group access to one's own comments (data export / account deletion)
+    match /{path=**}/comments/{commentId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
     // ------------------------------------------------- lightweight feed index
     match /feed_thumbnails/{postId} {
       allow read: if existing().isPublic == true || isOwner(existing().userId) || isAdmin();

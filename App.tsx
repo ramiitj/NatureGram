@@ -1,109 +1,134 @@
-
-import React, { useState, useEffect, useRef } from 'react';
-import LiveLens from './components/LiveLens.tsx';
+import React, { useState, useEffect, useRef, Suspense, lazy, useCallback } from 'react';
 import Journal from './components/Journal.tsx';
 import Community from './components/Community.tsx';
-import AdminConsole from './components/AdminConsole.tsx';
-import PostSessionView from './components/PostSessionView.tsx';
-import UserProfile from './components/UserProfile.tsx';
-import DraftsTray from './components/DraftsTray.tsx';
-import SharedPostView from './components/SharedPostView.tsx';
 import AuthModal from './components/AuthModal.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
-import { FirebaseService, getCorsProxyUrl } from './services/firebaseService.ts';
+import { FirebaseService } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
 import { AnimatePresence } from 'motion/react';
-import { hapticFeedback } from './utils.ts';
+import { hapticFeedback, timeAgo } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
+import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 
-const getInitialView = () => {
-  if (new URLSearchParams(window.location.search).has('post')) return AppView.SHARED_POST;
-  const p = window.location.pathname;
-  if (p === '/') return AppView.LANDING;
-  if (p.startsWith('/feed')) return AppView.COMMUNITY;
+// Heavy, rarely-first views are loaded on demand to keep first paint fast
+const LiveLens = lazy(() => import('./components/LiveLens.tsx'));
+const AdminConsole = lazy(() => import('./components/AdminConsole.tsx'));
+const PostSessionView = lazy(() => import('./components/PostSessionView.tsx'));
+const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
+const DraftsTray = lazy(() => import('./components/DraftsTray.tsx'));
+const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
+
+const ViewLoader: React.FC<{ dark?: boolean }> = ({ dark }) => (
+  <div className={`flex-1 flex items-center justify-center ${dark ? 'bg-black' : ''}`} role="status" aria-live="polite">
+    <span className={`material-symbols-outlined text-4xl animate-spin ${dark ? 'text-white/60' : 'text-theme-primary/40'}`} aria-hidden="true">progress_activity</span>
+    <span className="sr-only">Loading…</span>
+  </div>
+);
+
+const PATHS: Record<AppView, string> = {
+  [AppView.LANDING]: '/',
+  [AppView.COMMUNITY]: '/feed',
+  [AppView.JOURNAL]: '/journal',
+  [AppView.USER_PROFILE]: '/profile',
+  [AppView.ADMIN]: '/admin',
+  [AppView.DRAFTS]: '/drafts',
+  [AppView.LENS]: '/lens',
+  [AppView.POST_SESSION]: '/review',
+  [AppView.SHARED_POST]: '/feed',
+};
+
+const viewFromPath = (p: string): AppView => {
+  if (p === '/' || p === '') return AppView.LANDING;
   if (p.startsWith('/journal')) return AppView.JOURNAL;
   if (p.startsWith('/profile')) return AppView.USER_PROFILE;
   if (p.startsWith('/admin')) return AppView.ADMIN;
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
-  if (p.startsWith('/lens')) return AppView.LENS;
-  return AppView.COMMUNITY; // fallback
+  // Lens and review need live state; after a refresh, land on the feed instead of an empty screen
+  return AppView.COMMUNITY;
 };
+
+const getInitialView = () => {
+  if (new URLSearchParams(window.location.search).has('post')) return AppView.SHARED_POST;
+  return viewFromPath(window.location.pathname);
+};
+
+const MODE_PREF_KEY = 'naturegram_lens_mode';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
   const currentViewRef = useRef<AppView>(currentView);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(new URLSearchParams(window.location.search).get('user') || null);
-  
+
+  // Keep the URL in sync with the current view (real back/forward support)
   useEffect(() => {
     currentViewRef.current = currentView;
-    const pathMap: Record<AppView, string> = {
-      [AppView.LANDING]: '/',
-      [AppView.COMMUNITY]: '/feed',
-      [AppView.JOURNAL]: '/journal',
-      [AppView.USER_PROFILE]: '/profile',
-      [AppView.ADMIN]: '/admin',
-      [AppView.DRAFTS]: '/drafts',
-      [AppView.LENS]: '/lens',
-      [AppView.POST_SESSION]: '/post-session',
-      [AppView.SHARED_POST]: '/shared-post'
-    };
-    
-    if (currentView !== AppView.SHARED_POST) {
-        let newPath = pathMap[currentView] || '/';
-        if (currentView === AppView.USER_PROFILE && targetProfileId) {
-            newPath += `?user=${targetProfileId}`;
-        }
-        if (window.location.pathname !== newPath && window.location.pathname + window.location.search !== newPath) {
-             window.history.pushState({}, '', newPath);
-        }
+    if (currentView === AppView.SHARED_POST) return;
+    let newPath = PATHS[currentView] || '/';
+    if (currentView === AppView.USER_PROFILE && targetProfileId) newPath += `?user=${encodeURIComponent(targetProfileId)}`;
+    const here = window.location.pathname + window.location.search;
+    if (here !== newPath && !(currentView === AppView.COMMUNITY && window.location.search.includes('p='))) {
+      window.history.pushState({ view: currentView }, '', newPath);
     }
   }, [currentView, targetProfileId]);
 
   useEffect(() => {
     const handlePopState = () => {
-      const p = window.location.pathname;
-      if (p === '/') setCurrentView(AppView.LANDING);
-      else if (p.startsWith('/feed')) setCurrentView(AppView.COMMUNITY);
-      else if (p.startsWith('/journal')) setCurrentView(AppView.JOURNAL);
-      else if (p.startsWith('/profile')) {
-          const userParams = new URLSearchParams(window.location.search);
-          if (userParams.has('user')) setTargetProfileId(userParams.get('user'));
-          setCurrentView(AppView.USER_PROFILE);
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('post')) {
+        setSelectedPostId(params.get('post'));
+        setCurrentView(AppView.SHARED_POST);
+        return;
       }
-      else if (p.startsWith('/admin')) setCurrentView(AppView.ADMIN);
-      else if (p.startsWith('/drafts')) setCurrentView(AppView.DRAFTS);
-      else if (p.startsWith('/lens')) setCurrentView(AppView.LENS);
+      // Leaving the live lens or review via Back: never silently drop captures
+      if (currentViewRef.current === AppView.POST_SESSION && currentSessionRef.current.length > 0) {
+        if (!window.confirm(`Leave review? Your ${currentSessionRef.current.length} capture(s) will be saved as a draft.`)) {
+          window.history.pushState({ view: AppView.POST_SESSION }, '', PATHS[AppView.POST_SESSION]);
+          return;
+        }
+        handleSaveDraftRef.current?.();
+        return;
+      }
+      const view = viewFromPath(window.location.pathname);
+      if (view === AppView.USER_PROFILE) setTargetProfileId(params.get('user'));
+      setCurrentView(view);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const [returnView, setReturnView] = useState<AppView | null>(null);
-  const [isInitializingDeepLink, setIsInitializingDeepLink] = useState(
-      new URLSearchParams(window.location.search).has('post')
-  );
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [currentSessionSnapshots, setCurrentSessionSnapshots] = useState<Snapshot[]>([]);
+  const currentSessionRef = useRef<Snapshot[]>([]);
+  useEffect(() => { currentSessionRef.current = currentSessionSnapshots; }, [currentSessionSnapshots]);
   const [config, setConfig] = useState<GeminiConfig | null>(null);
   const [userMode, setUserMode] = useState<UserMode | null>({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
   const [sessionSummary, setSessionSummary] = useState("");
   const [dailyTheme, setDailyTheme] = useState<DailyTheme | any>(getFallbackTheme());
-  
+  const [resumedDraftId, setResumedDraftId] = useState<string | null>(null);
+
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [authType, setAuthType] = useState<'signin' | 'signup' | null>(null);
-  const [showGlobalAuthModal, setShowGlobalAuthModal] = useState(false);
+  const [authModal, setAuthModal] = useState<{ signUp: boolean; reason?: string } | null>(null);
+  const pendingAuthActionRef = useRef<(() => void) | null>(null);
   const [notifications, setNotifications] = useState<FieldNotification[]>([]);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [isDetailActive, setIsDetailActive] = useState(false);
-  
+
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [activeDraftsCount, setActiveDraftsCount] = useState(0);
 
-  const refreshDraftsCount = React.useCallback(async () => {
+  /** Ask for an account, then continue what the explorer was doing. */
+  const requireAccount = useCallback((reason: string, then?: () => void) => {
+    pendingAuthActionRef.current = then || null;
+    setAuthModal({ signUp: true, reason });
+  }, []);
+
+  const refreshDraftsCount = useCallback(async () => {
     if (userMode?.userId) {
       try {
         const d = await FirebaseService.getDrafts(userMode.userId);
@@ -116,106 +141,87 @@ const App: React.FC = () => {
     }
   }, [userMode?.userId]);
 
-  useEffect(() => {
-    refreshDraftsCount();
-  }, [userMode?.userId, refreshDraftsCount]);
+  useEffect(() => { refreshDraftsCount(); }, [userMode?.userId, refreshDraftsCount]);
 
   const [showModeSelection, setShowModeSelection] = useState(false);
+  const [rememberMode, setRememberMode] = useState(false);
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('conversation');
 
   const geminiServiceRef = useRef<GeminiLiveService | null>(null);
   const pendingSnapshotIdRef = useRef<string | null>(null);
 
-  const updateSnapshot = React.useCallback((id: string, updates: Partial<Snapshot>) => {
-      setCurrentSessionSnapshots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-      setSnapshots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  const updateSnapshot = useCallback((id: string, updates: Partial<Snapshot>) => {
+    setCurrentSessionSnapshots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+    setSnapshots(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   }, []);
 
   useEffect(() => {
     FirebaseService.getGeminiConfig().then(setConfig);
-    const checkFirstTime = async () => {
-        const hasSeen = localStorage.getItem('naturegram_has_seen_tour');
-        if (!hasSeen) setIsFirstTime(true);
-    };
-    checkFirstTime();
+    if (!localStorage.getItem('naturegram_has_seen_tour')) setIsFirstTime(true);
 
     const unsubscribeAuth = FirebaseService.subscribeToAuthChanges((user) => {
-        if (user) {
-            setUserMode({
-                type: 'community',
-                userId: user.uid,
-                isAnonymous: user.isAnonymous,
-                email: user.email,
-                displayName: user.displayName
-            });
-            FirebaseService.getDrafts(user.uid).then(d => setActiveDraftsCount(d.length));
-            
-            // Auto-redirect from landing to community if already logged in (only on initial load)
-            if (currentViewRef.current === AppView.LANDING && !user.isAnonymous) {
-                setCurrentView(AppView.COMMUNITY);
-            }
-        } else {
-            setUserMode(currentViewRef.current !== AppView.LANDING ? { type: 'anonymous', userId: 'explorer_guest', isAnonymous: true } : null);
-            setActiveDraftsCount(0);
+      if (user) {
+        setUserMode({
+          type: 'community',
+          userId: user.uid,
+          isAnonymous: user.isAnonymous,
+          email: user.email,
+          displayName: user.displayName
+        });
+        FirebaseService.getDrafts(user.uid).then(d => setActiveDraftsCount(d.length)).catch(() => {});
+        if (currentViewRef.current === AppView.LANDING && !user.isAnonymous) {
+          setCurrentView(AppView.COMMUNITY);
         }
+        // Continue the action that required an account (like, comment, publish…)
+        if (!user.isAnonymous && pendingAuthActionRef.current) {
+          const action = pendingAuthActionRef.current;
+          pendingAuthActionRef.current = null;
+          setTimeout(action, 0);
+        }
+      } else {
+        setUserMode(currentViewRef.current !== AppView.LANDING ? { type: 'anonymous', userId: 'explorer_guest', isAnonymous: true } : null);
+        setActiveDraftsCount(0);
+      }
     });
     return () => unsubscribeAuth();
   }, []);
 
   useEffect(() => {
-    if (userMode?.userId && userMode.userId !== 'explorer_guest') {
-      const unsubscribe = FirebaseService.subscribeToNotifications(userMode.userId, (notifs) => {
-        setNotifications(notifs);
-      });
+    if (userMode?.userId && userMode.userId !== 'explorer_guest' && !userMode.isAnonymous) {
+      const unsubscribe = FirebaseService.subscribeToNotifications(userMode.userId, setNotifications);
       return () => unsubscribe();
-    } else {
-      setNotifications([]);
     }
-  }, [userMode?.userId]);
+    setNotifications([]);
+  }, [userMode?.userId, userMode?.isAnonymous]);
 
   useEffect(() => {
-    const loadTheme = async () => {
+    (async () => {
       let theme = await ThemeService.getDailyTheme();
-      if (!theme) {
-        theme = await ThemeService.generateAndSaveDailyTheme();
-      }
+      if (!theme) theme = await ThemeService.generateAndSaveDailyTheme();
       if (theme) {
         setDailyTheme(theme);
         ThemeService.applyThemeToDOM(theme);
       }
-    };
-    loadTheme();
+    })();
   }, []);
 
-  // Robust Deep Link Handler: monitors the URL and displays SharedPostView immediately for deep links
+  // Deep links (?post=ID) are handled once on load and on history navigation (no polling)
   useEffect(() => {
-    const checkDeepLink = () => {
-      const params = new URLSearchParams(window.location.search);
-      const postId = params.get('post');
-      if (postId) {
-        setSelectedPostId(postId);
-        setCurrentView(AppView.SHARED_POST);
-        setIsInitializingDeepLink(false);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    };
-
-    // Run check immediately on mount/update
-    checkDeepLink();
-
-    // Register listeners for dynamic history/navigation events
-    window.addEventListener('popstate', checkDeepLink);
-    window.addEventListener('hashchange', checkDeepLink);
-
-    // Periodically monitor the URL at brief intervals in case transitions or proxy redirects are silent
-    const interval = setInterval(checkDeepLink, 300);
-
-    return () => {
-      window.removeEventListener('popstate', checkDeepLink);
-      window.removeEventListener('hashchange', checkDeepLink);
-      clearInterval(interval);
-    };
+    const params = new URLSearchParams(window.location.search);
+    const postId = params.get('post');
+    if (postId) {
+      setSelectedPostId(postId);
+      setCurrentView(AppView.SHARED_POST);
+    }
   }, []);
+
+  // Protect unsaved captures from accidental tab close/refresh
+  useEffect(() => {
+    if (currentSessionSnapshots.length === 0) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [currentSessionSnapshots.length]);
 
   const handleCapture = (snap: Snapshot) => {
     setSnapshots(prev => [...prev, snap]);
@@ -223,397 +229,503 @@ const App: React.FC = () => {
   };
 
   const handleEndSession = (summary: string) => {
-      setSessionSummary(summary);
-      setIsFinalizing(false);
-      setCurrentView(AppView.POST_SESSION);
+    setSessionSummary(summary);
+    setIsFinalizing(false);
+    setCurrentView(AppView.POST_SESSION);
+  };
+
+  const clearSession = () => {
+    setCurrentSessionSnapshots([]);
+    setSnapshots([]);
+    setSessionSummary("");
   };
 
   const handleSaveDraft = async () => {
-    let activeUserId = userMode?.userId;
     if (userMode?.isAnonymous) {
-        setShowGlobalAuthModal(true);
-        return;
+      requireAccount('Create a free account to keep drafts of your expeditions.', () => handleSaveDraftRef.current?.());
+      return;
     }
-
-    if (activeUserId && currentSessionSnapshots.length > 0) {
-        try {
-            await FirebaseService.saveDraft(activeUserId, currentSessionSnapshots, sessionSummary || "Unfinished expedition.");
-        } catch (e) {
-            console.error("Failed to save draft:", e);
+    const activeUserId = userMode?.userId;
+    if (activeUserId && currentSessionRef.current.length > 0) {
+      try {
+        await FirebaseService.saveDraft(activeUserId, currentSessionRef.current, sessionSummary || "Unfinished expedition.");
+        if (resumedDraftId) {
+          await FirebaseService.deleteDraft(activeUserId, resumedDraftId).catch(() => {});
+          setResumedDraftId(null);
         }
-        setCurrentSessionSnapshots([]);
-        setSnapshots([]);
-        setSessionSummary("");
-        refreshDraftsCount();
-        setCurrentView(AppView.COMMUNITY);
+      } catch (e) {
+        console.error("Failed to save draft:", e);
+      }
+      clearSession();
+      refreshDraftsCount();
+      setCurrentView(AppView.COMMUNITY);
     }
   };
+  const handleSaveDraftRef = useRef(handleSaveDraft);
+  handleSaveDraftRef.current = handleSaveDraft;
 
+  /** Drafts reopen in review where they were saved; the draft is only removed once published or re-saved. */
   const handleResumeDraft = async (draft: ExpeditionDraft) => {
-      setCurrentSessionSnapshots(draft.snapshots);
-      setSnapshots(draft.snapshots);
-      setSessionSummary(draft.summary);
-      if (userMode?.userId) {
-          try {
-              await FirebaseService.deleteDraft(userMode.userId, draft.id);
-          } catch (e) {
-              console.error("Failed to delete draft:", e);
-          }
-          refreshDraftsCount();
-      }
-      await initAudioContext();
-      setCurrentView(AppView.LENS);
+    setCurrentSessionSnapshots(draft.snapshots);
+    setSnapshots(draft.snapshots);
+    setSessionSummary(draft.summary);
+    setResumedDraftId(draft.id);
+    setCurrentView(AppView.POST_SESSION);
   };
 
-  const handleNavigationRequest = async (targetView: AppView, params?: any) => {
-      // Require authentication for certain routes
-      if (userMode?.isAnonymous) {
-          if (
-              targetView === AppView.JOURNAL || 
-              targetView === AppView.DRAFTS || 
-              (targetView === AppView.USER_PROFILE && (!params || params.userId === userMode.userId))
-          ) {
-              setShowGlobalAuthModal(true);
-              return;
-          }
-      }
-
-      hapticFeedback(10);
-      setIsDetailActive(false);
-      setSelectedPostId(null);
-      
-      if (targetView === AppView.COMMUNITY || targetView === AppView.LANDING) {
-          if (geminiServiceRef.current) {
-              geminiServiceRef.current.disconnect();
-              geminiServiceRef.current = null;
-          }
-      }
-
-      if (targetView === AppView.LENS) {
-          await initAudioContext();
-          setShowModeSelection(true);
-          return;
-      }
-
-      if (targetView === AppView.USER_PROFILE) {
-          if (params?.userId && params.userId !== userMode?.userId) {
-              setTargetProfileId(params.userId);
-          } else {
-              setTargetProfileId(null);
-          }
-          setCurrentView(AppView.USER_PROFILE);
-      } else if (targetView === AppView.LANDING) {
-          setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
-          FirebaseService.logout();
-          setCurrentView(AppView.LANDING);
-      } else {
-          setCurrentView(targetView);
-          setReturnView(null);
-      }
+  const handlePublished = async () => {
+    if (resumedDraftId && userMode?.userId) {
+      await FirebaseService.deleteDraft(userMode.userId, resumedDraftId).catch(() => {});
+      setResumedDraftId(null);
+      refreshDraftsCount();
+    }
   };
 
   const initAudioContext = async () => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-        const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
-        const ctx = new AudioContextClass({ sampleRate: 24000 });
-        audioContextRef.current = ctx;
-        setAudioContext(ctx);
+      const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+      const ctx = new AudioContextClass({ sampleRate: 24000 });
+      audioContextRef.current = ctx;
+      setAudioContext(ctx);
     }
     if (audioContextRef.current.state === 'suspended') await audioContextRef.current.resume();
     return audioContextRef.current;
   };
 
-  const handleNotificationClick = async (alert: FieldNotification) => {
-      if (userMode?.userId) await FirebaseService.markNotificationRead(userMode.userId, alert.id);
-      setIsNotificationsOpen(false);
-      if (currentView !== AppView.COMMUNITY) setReturnView(currentView);
-      if (alert.postId) {
-          setSelectedPostId(alert.postId);
-          setCurrentView(AppView.COMMUNITY);
-          setIsDetailActive(true);
-      } else {
-          setCurrentView(AppView.COMMUNITY);
-      }
-  };
-
-  const handlePostClose = () => {
-      setSelectedPostId(null);
-      setIsDetailActive(false);
-      if (returnView) {
-          setCurrentView(returnView);
-          setReturnView(null);
-      }
-  };
-
-  const selectMode = async (mode: 'anonymous' | 'community') => {
+  const openLens = async () => {
     await initAudioContext();
-    if (!FirebaseService.getCurrentUserId()) {
-        try {
-            await FirebaseService.loginAnonymous();
-        } catch (e) {
-            console.error("Anonymous login failed, using guest fallback:", e);
-            setUserMode({ type: mode, userId: 'explorer_guest', isAnonymous: true });
-        }
+    const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
+    if (saved) {
+      setSelectedMode(saved);
+      setCurrentView(AppView.LENS);
+    } else {
+      setShowModeSelection(true);
+    }
+  };
+
+  const chooseMode = (mode: 'observation' | 'conversation') => {
+    setSelectedMode(mode);
+    if (rememberMode) localStorage.setItem(MODE_PREF_KEY, mode);
+    setShowModeSelection(false);
+    setCurrentView(AppView.LENS);
+  };
+
+  const handleNavigationRequest = async (targetView: AppView, params?: any) => {
+    if (userMode?.isAnonymous) {
+      if (targetView === AppView.JOURNAL || targetView === AppView.DRAFTS) {
+        requireAccount('Your journal keeps every sighting you make. Create a free account to start one.', () => handleNavigationRequest(targetView, params));
+        return;
+      }
+      if (targetView === AppView.USER_PROFILE && (!params || !params.userId || params.userId === userMode.userId)) {
+        requireAccount('Create a free account to get your own explorer profile.', () => handleNavigationRequest(targetView, params));
+        return;
+      }
+    }
+
+    hapticFeedback(10);
+    setIsDetailActive(false);
+    setSelectedPostId(null);
+
+    if ((targetView === AppView.COMMUNITY || targetView === AppView.LANDING) && geminiServiceRef.current) {
+      geminiServiceRef.current.disconnect();
+      geminiServiceRef.current = null;
+    }
+
+    if (targetView === AppView.LENS) {
+      await openLens();
+      return;
+    }
+
+    if (targetView === AppView.USER_PROFILE) {
+      setTargetProfileId(params?.userId && params.userId !== userMode?.userId ? params.userId : null);
+      setCurrentView(AppView.USER_PROFILE);
+      return;
+    }
+
+    setCurrentView(targetView);
+    setReturnView(null);
+  };
+
+  const handleSignOut = async () => {
+    if (currentSessionRef.current.length > 0 && !window.confirm('You have unsaved captures. Sign out anyway?')) return;
+    clearSession();
+    await FirebaseService.logout();
+    setUserMode(null);
+    setCurrentView(AppView.LANDING);
+  };
+
+  const scrollFeedToTop = () => {
+    const el = document.getElementById('main-scroll');
+    el?.scrollTo({ top: 0, behavior: 'smooth' });
+    window.dispatchEvent(new CustomEvent('ng:feed-top'));
+  };
+
+  const handleNotificationClick = async (alert: FieldNotification) => {
+    if (userMode?.userId && !alert.isRead) FirebaseService.markNotificationRead(userMode.userId, alert.id).catch(() => {});
+    setIsNotificationsOpen(false);
+    if (alert.type === 'follow' && alert.senderId) {
+      handleNavigationRequest(AppView.USER_PROFILE, { userId: alert.senderId });
+      return;
+    }
+    if (currentView !== AppView.COMMUNITY) setReturnView(currentView);
+    if (alert.postId) {
+      setSelectedPostId(alert.postId);
+      setIsDetailActive(true);
     }
     setCurrentView(AppView.COMMUNITY);
   };
 
-  const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
+  const markAllRead = () => {
+    if (!userMode?.userId) return;
+    notifications.filter(n => !n.isRead).forEach(n => FirebaseService.markNotificationRead(userMode.userId!, n.id).catch(() => {}));
+  };
 
-  if (isInitializingDeepLink) {
-      return (
-          <div className="fixed inset-0 bg-[#0ea5e9] flex flex-col items-center justify-center p-6 text-white font-body">
-              <h1 className="text-3xl font-display font-black italic tracking-tight mb-4">NatureGram</h1>
-              <div className="flex gap-2">
-                  <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-white rounded-full animate-bounce delay-100"></div>
-                  <div className="w-2 h-2 bg-white rounded-full animate-bounce delay-200"></div>
-              </div>
-          </div>
-      );
-  }
+  const handlePostClose = () => {
+    setSelectedPostId(null);
+    setIsDetailActive(false);
+    if (returnView) {
+      setCurrentView(returnView);
+      setReturnView(null);
+    }
+  };
+
+  const enterApp = async () => {
+    try { await initAudioContext(); } catch { /* audio is optional here */ }
+    if (!FirebaseService.getCurrentUserId()) {
+      try {
+        await FirebaseService.loginAnonymous();
+      } catch (e) {
+        console.error("Guest sign-in failed, continuing in read-only mode:", e);
+        setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
+      }
+    }
+    setCurrentView(AppView.COMMUNITY);
+  };
+
+  // Escape closes the activity panel
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsNotificationsOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isNotificationsOpen]);
+
+  const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
+  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE) && !isDetailActive;
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const period = getThemePeriod();
+  const extra = getNaturalistExtra(dailyTheme?.id);
+
+  const navItems: { key: string; label: string; icon: string; active: boolean; onClick: () => void; badge?: number }[] = [
+    { key: 'feed', label: 'Feed', icon: 'home', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
+    { key: 'journal', label: 'Journal', icon: 'menu_book', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'capture', label: 'Capture', icon: 'add', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
+    {
+      key: 'activity', label: 'Activity', icon: 'favorite', active: isNotificationsOpen, badge: unreadCount,
+      onClick: () => userMode?.isAnonymous ? requireAccount('Create a free account to see who liked and commented on your sightings.') : setIsNotificationsOpen(true),
+    },
+    { key: 'profile', label: 'Profile', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
+  ];
 
   return (
     <div className="fixed inset-0 bg-day-bg text-text-main font-body flex flex-col overflow-hidden h-[100dvh]">
-      
+      <a href="#main-content" className="sr-only-focusable absolute top-2 left-2 z-[300] bg-white px-4 py-2 rounded-lg shadow font-bold">Skip to content</a>
+
       {isNotificationsOpen && (
-          <div className="fixed inset-0 z-[100] flex justify-end animate-fade-in">
-              <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsNotificationsOpen(false)}></div>
-              <div className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-in-right">
-                  <header className="p-8 pb-4 flex items-center justify-between border-b border-stone-100 shrink-0">
-                      <div><h2 className="text-2xl font-display font-black italic text-text-main">Field Alerts</h2><p className="catalog-label text-[9px]">Platform Updates</p></div>
-                      <button onClick={() => setIsNotificationsOpen(false)} className="w-10 h-10 rounded-full bg-stone-50 text-theme-accent flex items-center justify-center"><span className="material-symbols-outlined">close</span></button>
-                  </header>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
-                      {notifications.length === 0 ? <div className="flex flex-col items-center justify-center h-40 opacity-30"><span className="material-symbols-outlined text-4xl mb-2">notifications_off</span><p className="text-xs font-bold uppercase tracking-widest">No Alerts</p></div> : notifications.map(alert => (
-                          <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-5 rounded-2xl text-left border flex items-start gap-4 ${alert.isRead ? 'bg-white border-stone-50 opacity-60' : 'bg-stone-50/50 border-stone-100 shadow-sm'}`}>
-                              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent"><span className="material-symbols-outlined text-sm">{alert.type === 'sighting' ? 'park' : alert.type === 'comment' ? 'chat_bubble' : 'favorite'}</span></div>
-                              <div className="flex-1"><div className="flex justify-between items-start mb-1"><p className="catalog-label text-[8px]">{alert.senderName || 'Platform'}</p></div><p className="text-sm font-medium text-text-main leading-tight">{alert.message}</p></div>
-                          </button>
-                      ))}
-                  </div>
+        <div className="fixed inset-0 z-[100] flex justify-end animate-fade-in">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsNotificationsOpen(false)} aria-hidden="true"></div>
+          <section role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-in-right safe-pt">
+            <header className="p-6 pb-4 flex items-center justify-between border-b border-stone-100 shrink-0">
+              <div>
+                <h2 id="activity-title" className="text-2xl font-display font-bold text-text-main">Activity</h2>
+                <p className="text-sm text-stone-500">{unreadCount ? `${unreadCount} new` : 'You\'re all caught up'}</p>
               </div>
-          </div>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} className="text-sm font-semibold text-theme-accent px-3 py-2 rounded-full hover:bg-stone-50">Mark all read</button>
+                )}
+                <button onClick={() => setIsNotificationsOpen(false)} aria-label="Close activity" className="w-11 h-11 rounded-full bg-stone-50 text-stone-700 flex items-center justify-center" autoFocus>
+                  <span className="material-symbols-outlined" aria-hidden="true">close</span>
+                </button>
+              </div>
+            </header>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
+              {notifications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-60 text-center px-8 text-stone-500">
+                  <span className="material-symbols-outlined text-4xl mb-3" aria-hidden="true">notifications</span>
+                  <p className="font-semibold text-stone-700">No activity yet</p>
+                  <p className="text-sm mt-1">When explorers like, comment on or follow your sightings, you'll see it here.</p>
+                </div>
+              ) : notifications.map(alert => (
+                <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
+                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'chat_bubble' : alert.type === 'follow' ? 'person_add' : alert.type === 'mention' ? 'alternate_email' : 'favorite'}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-main leading-snug"><span className="font-bold">{alert.senderName || 'NatureGram'}</span> {alert.message?.replace(alert.senderName || '', '').trim()}</p>
+                    <p className="text-xs text-stone-500 mt-1">{timeAgo(alert.timestamp)}</p>
+                  </div>
+                  {!alert.isRead && <span className="w-2.5 h-2.5 rounded-full bg-theme-accent mt-2 shrink-0" aria-label="Unread"></span>}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
       )}
 
-      <main className="flex-1 relative overflow-hidden flex flex-col">
-         {currentView === AppView.LANDING && (
-             <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-hidden">
-                <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${getCorsProxyUrl(dailyTheme.imageUrl)}')`, opacity: 0.6 }}></div>
-                <div className={`absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply`}></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent"></div>
-                
-                <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up h-full justify-between py-12">
-                    <div className="text-center pb-[50px] pl-[2px]">
-                        <div className={`w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float`}>
-                            <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
-                        </div>
-                        <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
-                        <p className={`text-theme-text font-bold uppercase tracking-[0.4em] text-[10px] mt-2 drop-shadow-md`}>The Living Field Guide</p>
-                    </div>
-                    
-                    <div className="w-full max-w-xs px-6 cursor-pointer" onClick={() => selectMode('community')}>
-                        <div className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 group shadow-2xl border border-white/20">
-                            <div className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow">
-                                <span className="material-symbols-outlined text-3xl">explore</span>
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</h3>
-                                <p className="text-white/70 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="text-center px-6 max-w-md mx-auto">
-                        <p className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</p>
-                        <div className="mt-6 flex flex-col items-center gap-1">
-                            <p className="text-white font-bold tracking-widest uppercase text-[10px]">{dailyTheme.naturalist}</p>
-                            <div className="flex items-center gap-1 text-white/60 mt-1">
-                                <span className="material-symbols-outlined text-[12px]">location_on</span>
-                                <p className="text-[10px] tracking-wider uppercase">{dailyTheme.locationName}</p>
-                            </div>
-                            <p className="text-white/40 text-[9px] italic mt-1">{dailyTheme.locationCaption}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-         )}
+      <main id="main-content" className="flex-1 relative overflow-hidden flex flex-col">
+        {currentView === AppView.LANDING && (
+          <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
+            <div className="absolute inset-0 bg-cover bg-center transition-opacity duration-1000" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply" aria-hidden="true"></div>
+            <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent" aria-hidden="true"></div>
 
-         {authType !== null && (
-             <AuthModal 
-                 onClose={() => setAuthType(null)} 
-                 onSuccess={() => {
-                     setAuthType(null);
-                     setCurrentView(AppView.COMMUNITY);
-                 }}
-                 initialIsSignUp={authType === 'signup'}
-             />
-         )}
+            <div className="max-w-xl w-full flex flex-col items-center relative z-10 animate-slide-up min-h-full justify-between py-10 gap-8 safe-pt">
+              <div className="text-center">
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float" aria-hidden="true">
+                  <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
+                </div>
+                <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
+                <p className="text-white/90 font-bold uppercase tracking-[0.3em] text-xs mt-2 drop-shadow-md">The Living Field Guide</p>
+                <p className="text-white/85 text-base mt-4 max-w-xs mx-auto leading-relaxed">Point your camera at nature. A live naturalist tells you what you're seeing and why.</p>
+              </div>
+
+              <div className="w-full max-w-xs px-2 flex flex-col items-center gap-4">
+                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-7 rounded-[2.5rem] flex flex-col items-center gap-4 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
+                  <span className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow" aria-hidden="true">
+                    <span className="material-symbols-outlined text-3xl">explore</span>
+                  </span>
+                  <span>
+                    <span className="block font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</span>
+                    <span className="block text-white/80 text-xs mt-2 tracking-[0.25em] uppercase font-bold">Enter the field guide</span>
+                  </span>
+                </button>
+                <button onClick={() => setAuthModal({ signUp: false })} className="text-white/90 text-sm font-semibold underline underline-offset-4 decoration-white/40 hover:decoration-white py-2">
+                  Already an explorer? Log in
+                </button>
+              </div>
+
+              {/* Naturalist of the fortnight: the app's guiding philosophy, refreshed every ~15 days */}
+              <figure className="text-center px-4 max-w-md mx-auto">
+                <p className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-white/80 bg-white/10 border border-white/15 rounded-full px-3 py-1.5 mb-5">
+                  <span className="material-symbols-outlined text-sm" aria-hidden="true">auto_stories</span>
+                  Naturalist of the fortnight · {period.daysRemaining} {period.daysRemaining === 1 ? 'day' : 'days'} left
+                </p>
+                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md">"{dailyTheme.quote}"</blockquote>
+                <figcaption className="mt-5 flex flex-col items-center gap-1">
+                  <p className="text-white font-bold tracking-widest uppercase text-sm">{dailyTheme.naturalist}{extra.lifespan && <span className="font-normal text-white/70 normal-case tracking-normal"> · {extra.lifespan}</span>}</p>
+                  <p className="text-white/80 text-sm leading-relaxed mt-1 max-w-sm">{extra.bio}</p>
+                  <div className="flex items-center gap-1 text-white/70 mt-2">
+                    <span className="material-symbols-outlined text-sm" aria-hidden="true">location_on</span>
+                    <p className="text-xs tracking-wider uppercase">{dailyTheme.locationName}</p>
+                  </div>
+                  <div className="mt-4 w-full rounded-2xl bg-white/10 border border-white/15 p-4 text-left backdrop-blur">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70 mb-1">This fortnight's field challenge</p>
+                    <p className="text-white text-sm leading-relaxed">{extra.challenge}</p>
+                    <p className="text-white/70 text-xs mt-2">Tag {extra.challengeTag} · Next: {period.next.naturalist}</p>
+                  </div>
+                </figcaption>
+              </figure>
+            </div>
+          </div>
+        )}
 
         {currentView === AppView.LENS && config && userMode && (
-            <div className="flex-1 relative z-50">
-                <LiveLens 
-                    onCapture={handleCapture} 
-                    onEndSession={handleEndSession}
-                    onExit={() => handleNavigationRequest(AppView.COMMUNITY)}
-                    config={config} 
-                    userMode={userMode} 
-                    audioContext={audioContext} 
-                    isFirstTime={isFirstTime}
-                    isFinalizing={isFinalizing}
-                    geminiServiceRef={geminiServiceRef}
-                    updateSnapshot={updateSnapshot}
-                    pendingSnapshotIdRef={pendingSnapshotIdRef}
-                    selectedMode={selectedMode}
-                    initialAudioMode={selectedMode === 'observation' ? 'silent' : 'voice'}
+          <div className="flex-1 relative z-50">
+            <ErrorBoundary label="lens" onReset={() => setCurrentView(AppView.COMMUNITY)}>
+              <Suspense fallback={<ViewLoader dark />}>
+                <LiveLens
+                  onCapture={handleCapture}
+                  onEndSession={handleEndSession}
+                  onExit={() => {
+                    if (currentSessionRef.current.length > 0) {
+                      handleEndSession(sessionSummary || 'Exploration concluded.');
+                    } else {
+                      handleNavigationRequest(AppView.COMMUNITY);
+                    }
+                  }}
+                  config={config}
+                  userMode={userMode}
+                  audioContext={audioContext}
+                  isFirstTime={isFirstTime}
+                  isFinalizing={isFinalizing}
+                  geminiServiceRef={geminiServiceRef}
+                  updateSnapshot={updateSnapshot}
+                  pendingSnapshotIdRef={pendingSnapshotIdRef}
+                  selectedMode={selectedMode}
+                  initialAudioMode={selectedMode === 'observation' ? 'silent' : 'voice'}
                 />
-            </div>
+              </Suspense>
+            </ErrorBoundary>
+          </div>
         )}
 
         {showModeSelection && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)}></div>
-                <div className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
-                    <div className="p-8 text-center">
-                        <h2 className="text-2xl font-display font-black italic text-stone-900 mb-2">Select Expedition Mode</h2>
-                        <p className="text-xs text-stone-500 mb-8 uppercase tracking-widest font-bold">How should the agent behave?</p>
-                        
-                        <div className="space-y-4">
-                            <button 
-                                onClick={() => {
-                                    setSelectedMode('observation');
-                                    setShowModeSelection(false);
-                                    setCurrentView(AppView.LENS);
-                                }}
-                                className="w-full p-6 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
-                            >
-                                <div className="flex items-center gap-4 mb-2">
-                                    <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
-                                        <span className="material-symbols-outlined">visibility</span>
-                                    </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Observation</h3>
-                                </div>
-                                <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent acts as a silent observer, providing insights only when significant events occur or when asked.
-                                </p>
-                            </button>
-
-                            <button 
-                                onClick={() => {
-                                    setSelectedMode('conversation');
-                                    setShowModeSelection(false);
-                                    setCurrentView(AppView.LENS);
-                                }}
-                                className="w-full p-6 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95"
-                            >
-                                <div className="flex items-center gap-4 mb-2">
-                                    <div className="w-10 h-10 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors">
-                                        <span className="material-symbols-outlined">forum</span>
-                                    </div>
-                                    <h3 className="font-bold text-lg text-stone-900">Conversation</h3>
-                                </div>
-                                <p className="text-xs text-stone-600 leading-relaxed">
-                                    The agent is an active companion, engaging in real-time dialogue about your surroundings and findings.
-                                </p>
-                            </button>
-                        </div>
-
-                        <button 
-                            onClick={() => setShowModeSelection(false)}
-                            className="mt-8 text-xs font-bold text-stone-400 uppercase tracking-widest hover:text-stone-600 transition-colors"
-                        >
-                            Cancel
-                        </button>
-                    </div>
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in">
+            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)} aria-hidden="true"></div>
+            <section role="dialog" aria-modal="true" aria-labelledby="mode-title" className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
+              <div className="p-7 text-center">
+                <h2 id="mode-title" className="text-2xl font-display font-bold text-stone-900 mb-1">How should your guide behave?</h2>
+                <p className="text-sm text-stone-500 mb-6">You can change this any time from the lens.</p>
+                <div className="space-y-3">
+                  {([
+                    { mode: 'conversation', icon: 'forum', title: 'Talk with me', desc: 'Your guide chats with you in real time about what you see and answers your questions.' },
+                    { mode: 'observation', icon: 'visibility', title: 'Quiet observer', desc: 'Your guide stays silent and only speaks up for notable moments or when you ask.' },
+                  ] as const).map(opt => (
+                    <button key={opt.mode} onClick={() => chooseMode(opt.mode)} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
+                      <span className="flex items-center gap-4 mb-1">
+                        <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
+                          <span className="material-symbols-outlined">{opt.icon}</span>
+                        </span>
+                        <span className="font-bold text-lg text-stone-900">{opt.title}</span>
+                      </span>
+                      <span className="block text-sm text-stone-600 leading-relaxed">{opt.desc}</span>
+                    </button>
+                  ))}
                 </div>
-            </div>
+                <label className="mt-5 flex items-center justify-center gap-2 text-sm text-stone-600 cursor-pointer">
+                  <input type="checkbox" checked={rememberMode} onChange={e => setRememberMode(e.target.checked)} className="w-4 h-4" />
+                  Remember my choice
+                </label>
+                <button onClick={() => setShowModeSelection(false)} className="mt-4 text-sm font-semibold text-stone-500 hover:text-stone-800 py-2 px-4">Cancel</button>
+              </div>
+            </section>
+          </div>
         )}
 
         {currentView === AppView.SHARED_POST && selectedPostId && (
+          <Suspense fallback={<ViewLoader />}>
             <SharedPostView postId={selectedPostId} onGoToApp={() => {
-                setSelectedPostId(null);
-                setCurrentView(AppView.COMMUNITY);
-                window.history.replaceState({}, document.title, window.location.pathname);
+              setSelectedPostId(null);
+              window.history.replaceState({}, document.title, '/feed');
+              enterApp();
             }} />
-        )}
-      
-        {isDashboardMode && (
-          <div className="flex-1 overflow-y-auto no-scrollbar relative animate-fade-in pb-28">
-             {currentView === AppView.COMMUNITY && userMode && (
-                 <Community 
-                     currentUserMode={userMode} 
-                     selectedPostId={selectedPostId} 
-                     onPostClose={handlePostClose} 
-                     onPostOpen={() => setIsDetailActive(true)} 
-                     backLabel={returnView === AppView.JOURNAL ? "Archive" : "Feed"} 
-                     onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })} 
-                     activeDraftsCount={activeDraftsCount}
-                     onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
-                     onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
-                 />
-             )}
-             {currentView === AppView.JOURNAL && userMode && <Journal 
-                     userId={userMode.userId!} 
-                     activeDraftsCount={activeDraftsCount}
-                     onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
-                     onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
-                     onPostOpen={() => setIsDetailActive(true)}
-                     onPostClose={handlePostClose}
-                     onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
-                 />}
-             {currentView === AppView.DRAFTS && userMode && <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); setCurrentView(AppView.COMMUNITY); }} />}
-          </div>
-        )}
-        
-        {currentView === AppView.USER_PROFILE && userMode && (
-            <UserProfile userId={targetProfileId || userMode.userId!} currentUserId={userMode.userId} isAnonymous={userMode.isAnonymous} onBack={() => handleNavigationRequest(AppView.COMMUNITY)} onSignOut={() => handleNavigationRequest(AppView.LANDING)} onViewJournal={() => handleNavigationRequest(AppView.JOURNAL)} onAdminConsole={() => setCurrentView(AppView.ADMIN)} />
+          </Suspense>
         )}
 
-        {currentView === AppView.ADMIN && <AdminConsole onBack={() => setCurrentView(AppView.USER_PROFILE)} />}
-        
-        <AnimatePresence>
-        {currentView === AppView.POST_SESSION && userMode && (
-             <PostSessionView 
-                 snapshots={currentSessionSnapshots} 
-                 summary={sessionSummary} 
-                 userMode={userMode} 
-                 onClose={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }} 
-                 onViewFeed={() => { setCurrentSessionSnapshots([]); setSnapshots([]); setSessionSummary(""); setCurrentView(AppView.COMMUNITY); }} 
-                 onSaveDraft={handleSaveDraft} 
-                 geminiServiceRef={geminiServiceRef}
-                 updateSnapshot={updateSnapshot}
-                 pendingSnapshotIdRef={pendingSnapshotIdRef}
-             />
+        {isDashboardMode && (
+          <div id="main-scroll" className="flex-1 overflow-y-auto no-scrollbar relative animate-fade-in pb-28">
+            <ErrorBoundary label="dashboard">
+              {currentView === AppView.COMMUNITY && userMode && (
+                <Community
+                  currentUserMode={userMode}
+                  selectedPostId={selectedPostId}
+                  onPostClose={handlePostClose}
+                  onPostOpen={() => setIsDetailActive(true)}
+                  backLabel={returnView === AppView.JOURNAL ? "Journal" : "Feed"}
+                  onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                  activeDraftsCount={activeDraftsCount}
+                  onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
+                  onLogoClick={scrollFeedToTop}
+                  onRequireAccount={requireAccount}
+                  dailyTheme={dailyTheme}
+                />
+              )}
+              {currentView === AppView.JOURNAL && userMode && (
+                <Journal
+                  userId={userMode.userId!}
+                  activeDraftsCount={activeDraftsCount}
+                  onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
+                  onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                  onPostOpen={() => setIsDetailActive(true)}
+                  onPostClose={handlePostClose}
+                  onLogoClick={scrollFeedToTop}
+                />
+              )}
+              {currentView === AppView.DRAFTS && userMode && (
+                <Suspense fallback={<ViewLoader />}>
+                  <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); setCurrentView(AppView.COMMUNITY); }} />
+                </Suspense>
+              )}
+            </ErrorBoundary>
+          </div>
         )}
+
+        {currentView === AppView.USER_PROFILE && userMode && (
+          <div className="flex-1 overflow-hidden flex flex-col pb-16">
+            <ErrorBoundary label="profile">
+              <Suspense fallback={<ViewLoader />}>
+                <UserProfile
+                  userId={targetProfileId || userMode.userId!}
+                  currentUserId={userMode.userId}
+                  isAnonymous={userMode.isAnonymous}
+                  onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onSignOut={handleSignOut}
+                  onViewJournal={() => handleNavigationRequest(AppView.JOURNAL)}
+                  onAdminConsole={() => setCurrentView(AppView.ADMIN)}
+                  onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
+                  onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                  onRequireAccount={requireAccount}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {currentView === AppView.ADMIN && (
+          <Suspense fallback={<ViewLoader />}>
+            <AdminConsole onBack={() => setCurrentView(AppView.USER_PROFILE)} />
+          </Suspense>
+        )}
+
+        <AnimatePresence>
+          {currentView === AppView.POST_SESSION && userMode && (
+            <Suspense fallback={<ViewLoader />}>
+              <ErrorBoundary label="review" onReset={() => setCurrentView(AppView.COMMUNITY)}>
+                <PostSessionView
+                  snapshots={currentSessionSnapshots}
+                  summary={sessionSummary}
+                  userMode={userMode}
+                  onClose={() => { clearSession(); setResumedDraftId(null); setCurrentView(AppView.COMMUNITY); }}
+                  onViewFeed={() => { clearSession(); setCurrentView(AppView.COMMUNITY); }}
+                  onCaptureMore={() => { clearSession(); openLens(); }}
+                  onPublished={handlePublished}
+                  onSaveDraft={handleSaveDraft}
+                  onRequireAccount={requireAccount}
+                  onUpdateSnapshots={(snaps: Snapshot[]) => { setCurrentSessionSnapshots(snaps); setSnapshots(snaps); }}
+                  geminiServiceRef={geminiServiceRef}
+                  updateSnapshot={updateSnapshot}
+                  pendingSnapshotIdRef={pendingSnapshotIdRef}
+                />
+              </ErrorBoundary>
+            </Suspense>
+          )}
         </AnimatePresence>
-        
-        {showGlobalAuthModal && (
-            <AuthModal 
-                onClose={() => setShowGlobalAuthModal(false)}
-                onSuccess={() => setShowGlobalAuthModal(false)}
-            />
+
+        {authModal && (
+          <AuthModal
+            initialIsSignUp={authModal.signUp}
+            reason={authModal.reason}
+            onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
+            onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.COMMUNITY); }}
+          />
         )}
       </main>
 
-      {isDashboardMode && !isDetailActive && (
-          <div className="absolute bottom-0 left-0 right-0 z-[40] pointer-events-none transition-all duration-300 translate-y-0 opacity-100 animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white border-t border-stone-100">
-              <nav className="h-16 flex justify-around items-center px-2 pointer-events-auto max-w-md mx-auto transition-all">
-                <button onClick={() => handleNavigationRequest(AppView.COMMUNITY)} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.COMMUNITY ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.COMMUNITY ? 'fill-current' : ''}`}>home</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.JOURNAL)} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.JOURNAL ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.JOURNAL ? 'fill-current' : ''}`}>fingerprint</span></button>
-                <button onClick={() => handleNavigationRequest(AppView.LENS)} className="group relative w-12 h-12 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all"><span className="material-symbols-outlined text-2xl font-black">add</span></button>
-                <button onClick={() => {
-                    if (userMode?.isAnonymous) {
-                        setShowGlobalAuthModal(true);
-                        return;
-                    }
-                    setIsNotificationsOpen(true);
-                }} className={`relative flex flex-col items-center gap-1 transition-all duration-300 ${isNotificationsOpen ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}>
-                    <span className={`material-symbols-outlined text-2xl ${isNotificationsOpen ? 'fill-current' : ''}`}>favorite</span>
-                    {notifications.filter(n => !n.isRead).length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-theme-accent rounded-full"></span>}
-                </button>
-                <button onClick={() => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId })} className={`flex flex-col items-center gap-1 transition-all duration-300 ${currentView === AppView.USER_PROFILE ? 'text-stone-900 scale-110' : 'text-stone-400 hover:text-stone-600'}`}><span className={`material-symbols-outlined text-2xl ${currentView === AppView.USER_PROFILE ? 'fill-current' : ''}`}>person</span></button>
-              </nav>
-          </div>
+      {showNav && (
+        <div className="absolute bottom-0 left-0 right-0 z-[40] animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur border-t border-stone-100">
+          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto">
+            {navItems.map(item => item.key === 'capture' ? (
+              <button key={item.key} onClick={item.onClick} aria-label="Capture a new sighting" className="relative w-14 h-14 -mt-3 rounded-full flex items-center justify-center shadow-lg bg-theme-accent text-white active:scale-95 transition-all">
+                <span className="material-symbols-outlined text-3xl" aria-hidden="true">add</span>
+              </button>
+            ) : (
+              <button
+                key={item.key}
+                onClick={item.onClick}
+                aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
+                aria-current={item.active ? 'page' : undefined}
+                className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] h-14 rounded-xl transition-colors ${item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800'}`}
+              >
+                <span className="material-symbols-outlined text-[26px]" style={item.active ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">{item.icon}</span>
+                <span className={`text-[11px] leading-none ${item.active ? 'font-bold' : 'font-medium'}`}>{item.label}</span>
+                {!!item.badge && (
+                  <span className="absolute top-1 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-theme-accent text-white text-[11px] font-bold flex items-center justify-center" aria-hidden="true">{item.badge > 9 ? '9+' : item.badge}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
       )}
     </div>
   );

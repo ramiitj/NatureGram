@@ -74,32 +74,43 @@ export const ThemeService = {
 
   applyThemeToDOM: (theme: DailyTheme) => {
     const root = document.documentElement;
-    
-    // Helper to convert hex to rgb string "r g b"
-    const hexToRgb = (hex: string) => {
-      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-      return result ? 
-        `${parseInt(result[1], 16)} ${parseInt(result[2], 16)} ${parseInt(result[3], 16)}` : 
-        null;
+    const toRgb = (hex: string): [number, number, number] | null => {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+      return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
     };
+    const lum = ([r, g, b]: number[]) => {
+      const c = [r, g, b].map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const contrast = (a: number[], b: number[]) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
+    // Darken a colour until it reaches the target contrast against the light app background
+    const BG = [252, 250, 248];
+    const ensureContrast = (rgb: [number, number, number], target = 4.5): [number, number, number] => {
+      let c = [...rgb] as [number, number, number];
+      for (let i = 0; i < 40 && contrast(c, BG) < target; i++) c = c.map(v => Math.max(0, Math.round(v * 0.92))) as [number, number, number];
+      return c;
+    };
+    const str = (c: number[]) => `${c[0]} ${c[1]} ${c[2]}`;
 
     root.style.setProperty('--theme-primary', theme.colors.primary);
     root.style.setProperty('--theme-primary-gradient', theme.colors.primaryGradient);
     root.style.setProperty('--theme-shadow', theme.colors.shadow);
     root.style.setProperty('--theme-text', theme.colors.text);
-    root.style.setProperty('--font-display', theme.fontFamily);
-    
-    const primaryRgb = hexToRgb(theme.colors.primary);
-    if (primaryRgb) root.style.setProperty('--theme-primary-rgb', primaryRgb);
-    
-    const shadowRgb = hexToRgb(theme.colors.shadow);
-    if (shadowRgb) root.style.setProperty('--theme-shadow-rgb', shadowRgb);
-    
-    if (theme.colors.accent) {
-      root.style.setProperty('--theme-accent', theme.colors.accent);
-      const accentRgb = hexToRgb(theme.colors.accent);
-      if (accentRgb) root.style.setProperty('--theme-accent-rgb', accentRgb);
+    root.style.setProperty('--font-display', theme.fontFamily?.includes('Space Grotesk') ? '"Playfair Display", serif' : (theme.fontFamily || '"Playfair Display", serif'));
+
+    const primary = toRgb(theme.colors.primary);
+    if (primary) root.style.setProperty('--theme-primary-rgb', str(ensureContrast(primary, 7)));
+    const shadow = toRgb(theme.colors.shadow);
+    if (shadow) root.style.setProperty('--theme-shadow-rgb', str(shadow));
+    const accent = toRgb(theme.colors.accent || theme.colors.primaryGradient);
+    if (accent) {
+      const safe = ensureContrast(accent, 4.5);
+      root.style.setProperty('--theme-accent', `rgb(${safe.join(',')})`);
+      root.style.setProperty('--theme-accent-rgb', str(safe));
+      root.style.setProperty('--theme-accent-vivid-rgb', str(accent));
     }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme.colors.shadow || '#1c1917');
   },
 
   getDailyTheme: async (): Promise<DailyTheme | null> => {

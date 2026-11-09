@@ -1,7 +1,9 @@
 
-import { openExternal } from '../utils';
+import { openExternal, timeAgo } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
+import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
+import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
 import { CommunityPost, UserMode, Comment } from '../types';
 import ShareStudio from './ShareStudio';
 import PublisherStudio from './PublisherStudio';
@@ -17,7 +19,9 @@ const FeedCard: React.FC<{
     loadedImages: Record<string, boolean>;
     onImageLoad: (id: string) => void;
 }> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const isLoaded = post.mediaType === 'audio' ? true : loadedImages[post.id];
+    const hasThumb = !!(post.thumbnailUrl || post.imageUrl);
+    const isLoaded = post.mediaType === 'audio' || !hasThumb ? true : loadedImages[post.id];
+    const label = post.title || post.caption || post.labels?.[0] || 'Sighting';
     const [isHovered, setIsHovered] = useState(false);
     const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
     const cardRef = useRef<HTMLDivElement>(null);
@@ -58,6 +62,10 @@ const FeedCard: React.FC<{
     return (
         <div 
             ref={cardRef}
+            role="button"
+            tabIndex={0}
+            aria-label={`${label} by ${post.userName || 'an explorer'}`}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPostClick(post); } }}
             onClick={() => { setIsHovered(false); onPostClick(post); }} 
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -67,14 +75,14 @@ const FeedCard: React.FC<{
                 {post.mediaType === 'audio' ? (
                     <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="Audio thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="" loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : null}
                         <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
                     </div>
                 ) : post.mediaType === 'video' ? (
                     <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
                         {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt="Video thumbnail" onLoad={() => onImageLoad(post.id)} />
+                            <img src={post.thumbnailUrl || post.imageUrl} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
                         ) : (
                             <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                 <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
@@ -85,9 +93,11 @@ const FeedCard: React.FC<{
                 ) : (
                     <img 
                         src={post.thumbnailUrl || post.imageUrl} 
-                        alt="Observation" 
+                        alt={label}
                         loading="lazy" 
+                        decoding="async"
                         onLoad={() => onImageLoad(post.id)}
+                        onError={() => onImageLoad(post.id)}
                         className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
                     />
                 )}
@@ -98,32 +108,30 @@ const FeedCard: React.FC<{
                 )}
                 {post.mediaType === 'video' ? (
                     <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">play_arrow</span>
+                        <span className="material-symbols-outlined text-white text-xs">play_arrow</span>
                     </div>
                 ) : post.mediaType === 'audio' ? (
                     <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">mic</span>
+                        <span className="material-symbols-outlined text-white text-xs">mic</span>
                     </div>
                 ) : post.audioUrl ? (
                     <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-[10px]">music_note</span>
+                        <span className="material-symbols-outlined text-white text-xs">music_note</span>
                     </div>
                 ) : null}
             </div>
             
-            <div className={`px-1 mt-2 text-center md:text-left transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h4 className="text-[10px] font-display font-bold italic text-theme-primary leading-tight truncate tracking-tight group-hover:text-theme-accent transition-colors">
-                    {post.title || post.labels?.[0] || "Specimen"}
-                </h4>
-                <div className="flex items-center justify-center md:justify-start gap-1 mt-1 opacity-40">
-                    <p className="catalog-label text-[6px] tracking-[0.2em] uppercase font-bold text-theme-primary/60">
-                        {post.locationArea || "Earth"}
-                    </p>
-                    <span className="w-0.5 h-0.5 rounded-full bg-theme-primary/30 shrink-0"></span>
-                    <div className="flex items-center gap-0.5">
-                            <span className="material-symbols-outlined text-[7px] text-theme-accent">favorite</span>
-                            <span className="text-[7px] font-bold text-theme-primary/60">{post.likes?.length || 0}</span>
-                    </div>
+            <div className={`px-1 mt-2 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
+                <h3 className="text-sm font-display font-bold italic text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
+                    {label}
+                </h3>
+                <div className="flex items-center gap-1.5 mt-1 text-xs text-stone-600 min-w-0">
+                    <span className="truncate font-medium">{post.userName || 'Explorer'}</span>
+                    {post.locationArea && <><span aria-hidden="true">·</span><span className="truncate">{post.locationArea}</span></>}
+                    <span className="ml-auto flex items-center gap-0.5 shrink-0" aria-label={`${post.likes?.length || 0} likes`}>
+                        <span className="material-symbols-outlined text-sm text-theme-accent" aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
+                        <span className="font-semibold tabular">{post.likes?.length || 0}</span>
+                    </span>
                 </div>
             </div>
         </div>
@@ -141,6 +149,8 @@ interface CommunityProps {
   activeDraftsCount?: number;
   onViewDrafts?: () => void;
   onLogoClick?: () => void;
+  onRequireAccount?: (reason: string, then?: () => void) => void;
+  dailyTheme?: any;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -153,7 +163,9 @@ const Community: React.FC<CommunityProps> = ({
     isJournalOnly = false,
     activeDraftsCount = 0,
     onViewDrafts,
-    onLogoClick
+    onLogoClick,
+    onRequireAccount,
+    dailyTheme
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -167,6 +179,27 @@ const Community: React.FC<CommunityProps> = ({
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [feedMode, setFeedMode] = useState<'foryou' | 'following'>('foryou');
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [loadMoreState, setLoadMoreState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [isSaved, setIsSaved] = useState(false);
+  const [postMenuOpen, setPostMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [toast, setToast] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
+  const isMember = !!currentUserMode.userId && currentUserMode.userId !== 'explorer_guest' && !currentUserMode.isAnonymous;
+  const showToast = (m: string) => { setToast(m); window.setTimeout(() => setToast(''), 2600); };
+  /** Gate an action behind an account, then resume it after sign-up. */
+  const askAccount = (reason: string, then?: () => void) => {
+    if (onRequireAccount) onRequireAccount(reason, then);
+    else setShowAuthModal(true);
+  };
+  const themeExtra = getNaturalistExtra(dailyTheme?.id);
+  const themePeriod = getThemePeriod();
+
+  useEffect(() => {
+    if (isMember) FirebaseService.getBlockedIds().then(setBlockedIds);
+  }, [isMember]);
 
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
@@ -206,6 +239,7 @@ const Community: React.FC<CommunityProps> = ({
   const filteredAndSortedPosts = React.useMemo(() => {
     return posts
       .filter(post => {
+        if (blockedIds.includes(post.userId)) return false;
         // 1. Full-text search match (Titles, Labels, Descriptions, Locations, Insights)
         if (searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
@@ -296,7 +330,7 @@ const Community: React.FC<CommunityProps> = ({
         }
         return 0;
       });
-  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels]);
+  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, blockedIds]);
 
   // Extract all categories / species labels currently present in observations for selection
   const allAvailableLabels = React.useMemo(() => {
@@ -402,16 +436,22 @@ const Community: React.FC<CommunityProps> = ({
   const [publishingPost, setPublishingPost] = useState<CommunityPost | null>(null);
 
   const loadMore = useCallback(async () => {
-      if (!hasMore || isLoading || isJournalOnly) return;
+      if (!hasMore || isLoading || isJournalOnly || feedMode === 'following' || loadMoreState === 'loading') return;
+      setLoadMoreState('loading');
       try {
           const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(lastVisible, searchTag);
-          setPosts(prev => [...prev, ...newPosts]);
+          setPosts(prev => {
+              const seen = new Set(prev.map(p => p.id));
+              return [...prev, ...newPosts.filter(p => !seen.has(p.id))];
+          });
           setLastVisible(newLastVisible);
           setHasMore(newLastVisible !== null);
+          setLoadMoreState('idle');
       } catch (err) {
           console.error("Failed to load more posts:", err);
+          setLoadMoreState('error');
       }
-  }, [hasMore, isLoading, lastVisible, searchTag, isJournalOnly]);
+  }, [hasMore, isLoading, lastVisible, searchTag, isJournalOnly, feedMode, loadMoreState]);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -442,21 +482,30 @@ const Community: React.FC<CommunityProps> = ({
   
   // Advanced Species Intelligence
   const [selectedSpecies, setSelectedSpecies] = useState<{name: string, location: string, id: string} | null>(null);
-  const [speciesData, setSpeciesData] = useState<{extract: string, thumbnail: string, loading: boolean} | null>(null);
+  const [speciesData, setSpeciesData] = useState<{extract: string, thumbnail: string, loading: boolean, url?: string} | null>(null);
 
   const handleSpeciesClick = async (label: string, locationArea?: string) => {
     setSelectedSpecies({name: label, location: locationArea || "Unknown Habitat", id: label});
     setSpeciesData({extract: "", thumbnail: "", loading: true});
     try {
-        const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(label.split(' ')[0])}`);
-        const data = await res.json();
+        const clean = label.replace(/\(.*?\)/g, '').trim();
+        const candidates = Array.from(new Set([clean, clean.split(' ').slice(0, 2).join(' ')])).filter(Boolean);
+        let found: any = null;
+        for (const c of candidates) {
+            const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(c)}?redirect=true`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.type !== 'disambiguation' && data.extract) { found = data; break; }
+            }
+        }
         setSpeciesData({
-            extract: data.extract || "No specific encyclopedia data tracked for this taxonomy.",
-            thumbnail: data.thumbnail?.source || "",
-            loading: false
-        });
+            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group or an uncertain AI suggestion.`,
+            thumbnail: found?.thumbnail?.source || "",
+            loading: false,
+            url: found?.content_urls?.desktop?.page || '',
+        } as any);
     } catch(e) {
-        setSpeciesData({extract: "Could not fetch biological details.", thumbnail: "", loading: false});
+        setSpeciesData({extract: "We couldn't reach the encyclopedia right now. Please try again later.", thumbnail: "", loading: false});
     }
   };
 
@@ -507,7 +556,36 @@ const Community: React.FC<CommunityProps> = ({
 
   // Original Global Feed loaded paginated query
   useEffect(() => {
-    if (isJournalOnly) return;
+    if (isJournalOnly || feedMode !== 'following') return;
+    let active = true;
+    setIsLoading(true);
+    setError(null);
+    setHasMore(false);
+    (async () => {
+      try {
+        const ids = currentUserMode.userId ? await FirebaseService.getFollowingIds(currentUserMode.userId) : [];
+        const feed = await FirebaseService.getFollowingFeed(ids);
+        if (active) setPosts(feed);
+      } catch (e: any) {
+        if (active) setError(e?.message || 'failed');
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [feedMode, isJournalOnly, currentUserMode.userId]);
+
+  // Logo / Feed tab re-tap: back to the top of the main feed
+  useEffect(() => {
+    const onTop = () => {
+      document.getElementById('community-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('ng:feed-top', onTop);
+    return () => window.removeEventListener('ng:feed-top', onTop);
+  }, []);
+
+  useEffect(() => {
+    if (isJournalOnly || feedMode !== 'foryou') return;
     
     window.scrollTo(0, 0);
     const container = document.getElementById('community-scroll-container');
@@ -534,7 +612,7 @@ const Community: React.FC<CommunityProps> = ({
         setError(msg);
         setIsLoading(false);
     });
-  }, [searchTag, isJournalOnly]);
+  }, [searchTag, isJournalOnly, feedMode]);
 
   useEffect(() => {
     if (selectedPostId) {
@@ -581,6 +659,40 @@ const Community: React.FC<CommunityProps> = ({
   }, [activePost?.id]);
 
   useEffect(() => {
+      setPostMenuOpen(false);
+      setReportOpen(false);
+      if (activePost && isMember) FirebaseService.isSaved(activePost.id).then(setIsSaved);
+      else setIsSaved(false);
+  }, [activePost?.id, isMember]);
+
+  // Real back-button support: opening a post adds a history entry; Back closes it
+  const historyPushedRef = useRef(false);
+  useEffect(() => {
+      if (activePost && !historyPushedRef.current) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('p', activePost.id);
+          window.history.pushState({ post: activePost.id }, '', url.toString());
+          historyPushedRef.current = true;
+      } else if (activePost && historyPushedRef.current) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('p', activePost.id);
+          window.history.replaceState({ post: activePost.id }, '', url.toString());
+      }
+  }, [activePost?.id]);
+  useEffect(() => {
+      const onPop = () => {
+          if (historyPushedRef.current && !new URLSearchParams(window.location.search).get('p')) {
+              historyPushedRef.current = false;
+              setIsCommentsOpen(false);
+              setActivePost(null);
+              onPostClose?.();
+          }
+      };
+      window.addEventListener('popstate', onPop);
+      return () => window.removeEventListener('popstate', onPop);
+  }, [onPostClose]);
+
+  useEffect(() => {
       if (unsubscribeCommentsRef.current) unsubscribeCommentsRef.current();
       if (activePost) {
           unsubscribeCommentsRef.current = FirebaseService.subscribeToComments(activePost.id, (newComments) => {
@@ -603,43 +715,119 @@ const Community: React.FC<CommunityProps> = ({
     }
   };
 
-  const handleLike = async (e: React.MouseEvent, post: CommunityPost) => {
-      e.stopPropagation();
-      if (currentUserMode.isAnonymous) {
-          setShowAuthModal(true);
-          return;
-      }
-      if (!currentUserMode.userId) return;
-      hapticFeedback(10);
-      const isLiked = post.likes?.includes(currentUserMode.userId);
-      await FirebaseService.toggleLike(post.id, currentUserMode.userId, !!isLiked);
+  const applyLikeLocally = (postId: string, uid: string, like: boolean) => {
+      const update = (p: CommunityPost) => {
+          if (p.id !== postId) return p;
+          const set = new Set(p.likes || []);
+          if (like) set.add(uid); else set.delete(uid);
+          return { ...p, likes: [...set] };
+      };
+      setPosts(prev => prev.map(update));
+      setActivePost(prev => prev ? update(prev) : prev);
   };
 
-  const handleDoubleTap = (e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
+  const setLike = async (post: CommunityPost, like: boolean) => {
+      if (!isMember) {
+          askAccount('Create a free account to like sightings and support other explorers.', () => setLike(post, like));
+          return;
+      }
+      const uid = currentUserMode.userId!;
+      const isLiked = !!post.likes?.includes(uid);
+      if (isLiked === like) return;
+      hapticFeedback(10);
+      applyLikeLocally(post.id, uid, like);
+      try {
+          await FirebaseService.toggleLike(post.id, uid, isLiked);
+      } catch (err) {
+          console.error('Like failed', err);
+          applyLikeLocally(post.id, uid, !like);
+          showToast('Could not save your like. Please try again.');
+      }
+  };
+
+  const handleLike = (e: React.MouseEvent, post: CommunityPost) => {
+      e.stopPropagation();
+      setLike(post, !post.likes?.includes(currentUserMode.userId || ''));
+  };
+
+  const handleDoubleTap = (_e: React.MouseEvent | React.TouchEvent, post: CommunityPost) => {
       const now = Date.now();
-      const DOUBLE_TAP_DELAY = 300;
-      if (now - lastTap < DOUBLE_TAP_DELAY) {
-          hapticFeedback([50, 50, 50]);
-          if (currentUserMode.isAnonymous) {
-              setShowAuthModal(true);
-              return;
-          }
-          handleLike(e as any, post);
+      if (now - lastTap < 300) {
+          hapticFeedback([30, 40, 30]);
           setShowHeartAnimation(true);
-          setTimeout(() => setShowHeartAnimation(false), 800);
+          window.setTimeout(() => setShowHeartAnimation(false), 900);
+          setLike(post, true);
+          setLastTap(0);
+          return;
       }
       setLastTap(now);
   };
 
+  const handleSave = async () => {
+      if (!activePost) return;
+      if (!isMember) { askAccount('Create a free account to save sightings to your collection.', handleSave); return; }
+      const next = !isSaved;
+      setIsSaved(next);
+      try {
+          await FirebaseService.toggleSave(activePost.id, next, activePost);
+          showToast(next ? 'Saved to your collection' : 'Removed from saved');
+      } catch {
+          setIsSaved(!next);
+          showToast('Could not update saved posts.');
+      }
+  };
+
+  const handleReport = async (reason: string) => {
+      if (!activePost) return;
+      setReportOpen(false);
+      if (!isMember) { askAccount('Create a free account to report content.'); return; }
+      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this post. Thank you.'); return; }
+      try {
+          await FirebaseService.reportPost(activePost.id, reason);
+          setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
+          showToast('Thanks. Our moderators will review this post.');
+      } catch {
+          showToast('Could not send the report. Please try again.');
+      }
+  };
+
+  const handleBlockAuthor = async () => {
+      if (!activePost) return;
+      setPostMenuOpen(false);
+      if (!isMember) { askAccount('Create a free account to block explorers.'); return; }
+      if (!window.confirm(`Block ${activePost.userName}? You won't see their posts or comments.`)) return;
+      try {
+          await FirebaseService.blockUser(activePost.userId);
+          setBlockedIds(prev => [...prev, activePost.userId]);
+          closeDetail();
+          showToast(`${activePost.userName} blocked`);
+      } catch { showToast('Could not block. Please try again.'); }
+  };
+
   const handleSendComment = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (currentUserMode.isAnonymous) {
-          setShowAuthModal(true);
+      if (!isMember) {
+          askAccount('Create a free account to join the conversation.');
           return;
       }
-      if (!newComment.trim() || !activePost || !currentUserMode.userId) return;
-      await FirebaseService.addComment(activePost.id, currentUserMode.userId, newComment);
-      setNewComment("");
+      if (!newComment.trim() || !activePost || !currentUserMode.userId || sendingComment) return;
+      setSendingComment(true);
+      try {
+          await FirebaseService.addComment(activePost.id, currentUserMode.userId, newComment);
+          setNewComment("");
+          setActivePost(prev => prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev);
+      } catch {
+          showToast('Your comment could not be posted. Please try again.');
+      } finally {
+          setSendingComment(false);
+      }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+      if (!activePost || !window.confirm('Delete this comment?')) return;
+      try {
+          await FirebaseService.deleteComment(activePost.id, commentId);
+      } catch { showToast('Could not delete the comment.'); }
   };
 
   const handleProfileClick = (userId: string) => {
@@ -661,6 +849,13 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   const closeDetail = () => {
+    if (historyPushedRef.current) {
+        historyPushedRef.current = false;
+        const url = new URL(window.location.href);
+        url.searchParams.delete('p');
+        window.history.replaceState({}, '', url.toString());
+    }
+    setIsCommentsOpen(false);
     setActivePost(null);
     setLocalFlipH(false);
     setLocalFlipV(false);
@@ -754,13 +949,13 @@ const Community: React.FC<CommunityProps> = ({
                             </div>
                             <div>
                                 <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{selectedSpecies.name}</h3>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
-                                    <span className="material-symbols-outlined text-[10px]">public</span>
+                                <p className="text-xs font-black uppercase tracking-widest text-theme-primary/50 flex items-center gap-1 mt-0.5">
+                                    <span className="material-symbols-outlined text-xs">public</span>
                                     {selectedSpecies.location}
                                 </p>
                             </div>
                         </div>
-                        <button onClick={() => setSelectedSpecies(null)} className="text-theme-primary/40 hover:text-theme-primary transition-colors">
+                        <button onClick={() => setSelectedSpecies(null)} className="text-theme-primary/60 hover:text-theme-primary transition-colors">
                             <span className="material-symbols-outlined text-2xl">close</span>
                         </button>
                     </div>
@@ -769,7 +964,7 @@ const Community: React.FC<CommunityProps> = ({
                         {speciesData?.loading ? (
                             <div className="flex flex-col items-center justify-center py-12 gap-4">
                                 <span className="material-symbols-outlined text-4xl text-theme-accent animate-spin">sync</span>
-                                <p className="text-theme-primary/40 font-black text-[10px] uppercase tracking-widest animate-pulse">Running Global Biological Sweep...</p>
+                                <p className="text-stone-600 text-sm" role="status">Looking up {selectedSpecies.name}…</p>
                             </div>
                         ) : (
                             <div className="flex flex-col gap-6">
@@ -779,7 +974,7 @@ const Community: React.FC<CommunityProps> = ({
                                     </div>
                                 )}
                                 <div className="space-y-4">
-                                    <p className="catalog-label text-[9px] font-black tracking-[0.2em] text-theme-primary uppercase flex items-center gap-1.5 opacity-60">
+                                    <p className="catalog-label text-xs font-black tracking-[0.2em] text-theme-primary uppercase flex items-center gap-1.5 opacity-60">
                                         <span className="material-symbols-outlined text-xs">science</span>
                                         Encyclopedia Data
                                     </p>
@@ -787,13 +982,9 @@ const Community: React.FC<CommunityProps> = ({
                                         {speciesData?.extract}
                                     </p>
                                 </div>
-                                <div className="bg-blue-500/5 border border-blue-500/10 rounded-2xl p-4 mt-2 relative overflow-hidden flex items-center gap-4">
-                                    <span className="material-symbols-outlined text-blue-500 text-3xl opacity-50">map</span>
-                                    <div>
-                                        <p className="text-blue-600 font-bold text-xs">Geo-Spatial Sighting</p>
-                                        <p className="text-blue-600/70 text-[10px] leading-relaxed mt-1">This species was encountered within the <strong>{selectedSpecies.location}</strong> ecological zone. Local coordinates match observation bounds.</p>
-                                    </div>
-                                </div>
+                                <p className="text-xs text-stone-500">
+                                    Source: Wikipedia{(speciesData as any)?.url && <> · <a href={(speciesData as any).url} target="_blank" rel="noopener noreferrer" className="underline">Read more</a></>}. Sighted near {selectedSpecies.location}.
+                                </p>
                             </div>
                         )}
                     </div>
@@ -816,13 +1007,13 @@ const Community: React.FC<CommunityProps> = ({
                     <div className="flex flex-col gap-3">
                         <button 
                             onClick={executeDelete}
-                            className="w-full py-4 bg-red-600 text-white font-black text-[10px] uppercase tracking-widest rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
+                            className="w-full py-4 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-full shadow-lg shadow-red-500/20 active:scale-95 transition-all"
                         >
                             Confirm Deletion
                         </button>
                         <button 
                             onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/40 font-black text-[10px] uppercase tracking-widest rounded-full active:scale-95 transition-all"
+                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/60 font-black text-xs uppercase tracking-widest rounded-full active:scale-95 transition-all"
                         >
                             Keep Observation
                         </button>
@@ -835,21 +1026,19 @@ const Community: React.FC<CommunityProps> = ({
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
             {/* Header branding & stats */}
             <div className="flex items-center justify-between gap-4">
-                <div 
-                    onClick={() => {
-                        if (onLogoClick && !isJournalOnly) {
-                            onLogoClick();
-                        }
-                    }}
-                    className={onLogoClick && !isJournalOnly ? "cursor-pointer hover:opacity-80 active:scale-95 transition-all outline-none" : ""}
+                <button
+                    type="button"
+                    onClick={() => onLogoClick?.()}
+                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, scroll to top'}
+                    className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-black italic text-theme-primary tracking-tight">
                         {isJournalOnly ? "My Journal" : "NatureGram"}
                     </h2>
-                    <p className="text-[9px] md:text-[10px] font-black text-theme-primary/30 uppercase tracking-widest mt-0.5">
-                        {isJournalOnly ? "Personal species catalog" : "Living field guide"}
+                    <p className="text-xs font-bold text-theme-primary/70 uppercase tracking-widest mt-0.5">
+                        {isJournalOnly ? "Every sighting you've made" : "Living field guide"}
                     </p>
-                </div>
+                </button>
 
                 {/* Drafts Drawer Toggle Button */}
                 <div className="flex items-center gap-3">
@@ -857,11 +1046,11 @@ const Community: React.FC<CommunityProps> = ({
                         <button 
                             onClick={onViewDrafts} 
                             className="relative w-10 h-10 rounded-full bg-stone-100 border border-theme-primary/5 hover:bg-stone-200/50 flex items-center justify-center text-theme-accent active:scale-95 transition-all"
-                            title="Active drafts"
+                            aria-label={activeDraftsCount > 0 ? `Drafts, ${activeDraftsCount} unfinished` : 'Drafts'}
                         >
                             <span className="material-symbols-outlined text-lg">inventory</span>
                             {activeDraftsCount > 0 ? (
-                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-theme-accent rounded-full border border-white flex items-center justify-center text-[8px] font-bold text-white animate-pulse">
+                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-theme-accent rounded-full border border-white flex items-center justify-center text-[11px] font-bold text-white animate-pulse">
                                     {activeDraftsCount}
                                 </span>
                             ) : null}
@@ -869,6 +1058,38 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
             </div>
+
+            {!isJournalOnly && (
+                <div className="flex items-center gap-2" role="tablist" aria-label="Feed">
+                    {([['foryou', 'For you'], ['following', 'Following']] as const).map(([key, label]) => (
+                        <button
+                            key={key}
+                            role="tab"
+                            aria-selected={feedMode === key}
+                            onClick={() => {
+                                if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and build your own feed.'); return; }
+                                setFeedMode(key);
+                            }}
+                            className={`px-4 py-2 rounded-full text-sm font-bold transition-colors ${feedMode === key ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'}`}
+                        >{label}</button>
+                    ))}
+                </div>
+            )}
+
+            {!isJournalOnly && dailyTheme?.naturalist && (
+                <button
+                    type="button"
+                    onClick={() => { setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
+                    className="w-full text-left rounded-2xl p-4 bg-gradient-to-r from-theme-primary to-theme-primary-gradient text-white shadow-md flex items-start gap-3 active:scale-[0.99] transition-transform"
+                >
+                    <span className="material-symbols-outlined text-2xl shrink-0 mt-0.5" aria-hidden="true">flag</span>
+                    <span className="flex-1 min-w-0">
+                        <span className="block text-[11px] font-bold uppercase tracking-[0.18em] text-white/80">{dailyTheme.naturalist}'s fortnight · {themePeriod.daysRemaining}d left</span>
+                        <span className="block text-sm font-semibold leading-snug mt-1">{themeExtra.challenge}</span>
+                        <span className="block text-xs text-white/80 mt-1">See posts tagged {themeExtra.challengeTag} →</span>
+                    </span>
+                </button>
+            )}
 
             {/* Instagram Search Input with Cancel State transition */}
             <div className="relative flex flex-col gap-3">
@@ -882,7 +1103,7 @@ const Community: React.FC<CommunityProps> = ({
 
                 <div className={`flex items-center gap-3 relative ${isSearchFocused ? 'z-[160]' : ''}`}>
                     <div className="relative flex-1">
-                        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-theme-primary/30 text-lg font-bold select-none">
+                        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-theme-primary/55 text-lg font-bold select-none">
                             search
                         </span>
                         <input 
@@ -893,13 +1114,14 @@ const Community: React.FC<CommunityProps> = ({
                                 setShowFilters(false);
                             }}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder={isJournalOnly ? "Search your journal..." : "Search species, bios, creators..."}
+                            aria-label={isJournalOnly ? 'Search your journal' : 'Search sightings, species, places and explorers'}
+                            placeholder={isJournalOnly ? "Search your journal…" : "Search species, places, explorers…"}
                             className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-theme-primary/40 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
                         />
                         {searchQuery && (
                             <button 
                                 onClick={() => setSearchQuery("")}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 text-theme-primary/30 hover:text-theme-primary transition-colors flex items-center justify-center p-1"
+                                className="absolute right-4 top-1/2 -translate-y-1/2 text-theme-primary/55 hover:text-theme-primary transition-colors flex items-center justify-center p-1"
                             >
                                 <span className="material-symbols-outlined text-sm font-bold">close</span>
                             </button>
@@ -925,14 +1147,14 @@ const Community: React.FC<CommunityProps> = ({
                             setShowFilters(!showFilters);
                             setIsSearchFocused(false);
                         }}
-                        className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-bold text-[9px] uppercase tracking-wider cursor-pointer ${
+                        className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider cursor-pointer ${
                             showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag
                                 ? 'bg-theme-accent/15 text-theme-accent' 
                                 : 'bg-stone-100 text-theme-primary/60 hover:bg-stone-200/50'
                         }`}
                     >
-                        <span className="material-symbols-outlined text-base">tune</span>
-                        <span className="hidden sm:inline">Refine</span>
+                        <span className="material-symbols-outlined text-base" aria-hidden="true">tune</span>
+                        <span className="hidden sm:inline">Filters</span><span className="sr-only sm:hidden">Filters</span>
                     </button>
                 </div>
 
@@ -940,10 +1162,10 @@ const Community: React.FC<CommunityProps> = ({
                 {isSearchFocused && (
                     <div className="absolute top-[105%] left-0 right-0 bg-white border border-theme-primary/10 rounded-2xl p-5 shadow-2xl animate-slide-up flex flex-col gap-5 max-h-[380px] overflow-y-auto no-scrollbar z-[160]">
                         <div className="flex items-center justify-between border-b border-theme-primary/5 pb-2">
-                            <span className="text-[9px] font-black uppercase text-theme-primary/40 tracking-wider">Suggested Searches & Accounts</span>
+                            <span className="text-xs font-black uppercase text-theme-primary/60 tracking-wider">Suggested Searches & Accounts</span>
                             <button 
                                 onClick={() => setIsSearchFocused(false)} 
-                                className="text-[9px] font-black text-theme-primary/30 hover:text-theme-primary uppercase"
+                                className="text-xs font-black text-theme-primary/55 hover:text-theme-primary uppercase"
                             >
                                 Hide
                             </button>
@@ -952,8 +1174,8 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Species & Hashtags Suggestions */}
                         {dynamicSuggestions.tags.length > 0 && (
                             <div className="space-y-2">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-theme-primary/40 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-[10px] text-theme-accent">local_offer</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-xs text-theme-accent">local_offer</span>
                                     Popular Tags
                                 </span>
                                 <div className="flex flex-wrap gap-1.5">
@@ -964,7 +1186,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 setSearchQuery(tag.startsWith('#') ? tag : `#${tag}`);
                                                 setIsSearchFocused(false);
                                             }}
-                                            className="px-3 py-1.5 bg-stone-50 hover:bg-theme-accent/5 hover:text-theme-accent border border-theme-primary/5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all text-theme-primary/60"
+                                            className="px-3 py-1.5 bg-stone-50 hover:bg-theme-accent/5 hover:text-theme-accent border border-theme-primary/5 text-xs font-black uppercase tracking-wider rounded-lg transition-all text-theme-primary/60"
                                         >
                                             {tag}
                                         </button>
@@ -976,8 +1198,8 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Creators & Observers list like IG find accounts */}
                         {dynamicSuggestions.creators.length > 0 && !isJournalOnly && (
                             <div className="space-y-2.5">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-theme-primary/40 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-[10px] text-theme-accent">alternate_email</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-xs text-theme-accent">alternate_email</span>
                                     Observers
                                 </span>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -990,7 +1212,7 @@ const Community: React.FC<CommunityProps> = ({
                                             }}
                                             className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 hover:bg-stone-100 transition-all text-left text-xs text-theme-primary font-semibold"
                                         >
-                                            <div className="w-6 h-6 rounded-full bg-theme-primary/10 flex items-center justify-center text-[10px] font-black text-theme-primary">
+                                            <div className="w-6 h-6 rounded-full bg-theme-primary/10 flex items-center justify-center text-xs font-black text-theme-primary">
                                                 {name.slice(0, 2).toUpperCase()}
                                             </div>
                                             <span className="truncate">@{name}</span>
@@ -1003,8 +1225,8 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Recent Habitats & Places suggestions */}
                         {dynamicSuggestions.locations.length > 0 && (
                             <div className="space-y-2.5">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-theme-primary/40 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-[10px] text-theme-accent">distance</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-theme-primary/60 flex items-center gap-1">
+                                    <span className="material-symbols-outlined text-xs text-theme-accent">distance</span>
                                     Recent Habitats
                                 </span>
                                 <div className="flex flex-wrap gap-2">
@@ -1015,7 +1237,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 setSearchQuery(loc);
                                                 setIsSearchFocused(false);
                                             }}
-                                            className="text-[10px] text-theme-primary/70 hover:text-theme-accent font-sans font-medium flex items-center gap-1 bg-stone-50 p-1.5 px-3 rounded-lg hover:bg-stone-100"
+                                            className="text-xs text-theme-primary/70 hover:text-theme-accent font-sans font-medium flex items-center gap-1 bg-stone-50 p-1.5 px-3 rounded-lg hover:bg-stone-100"
                                         >
                                             <span className="material-symbols-outlined text-xs select-none">place</span>
                                             {loc}
@@ -1033,13 +1255,13 @@ const Community: React.FC<CommunityProps> = ({
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {/* Format Filter */}
                             <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Category Format</label>
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Category Format</label>
                                 <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['all', 'image', 'video', 'audio'] as const).map((media) => (
                                         <button
                                             key={media}
                                             onClick={() => setMediaFilter(media)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
                                                 mediaFilter === media 
                                                     ? 'bg-theme-primary text-white font-black shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
@@ -1053,13 +1275,13 @@ const Community: React.FC<CommunityProps> = ({
 
                             {/* Timeline Filter */}
                             <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Timeline Range</label>
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Timeline Range</label>
                                 <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['all', 'today', 'week', 'month'] as const).map((opt) => (
                                         <button
                                             key={opt}
                                             onClick={() => setDateFilter(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
                                                 dateFilter === opt 
                                                     ? 'bg-theme-primary text-white font-black shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
@@ -1073,13 +1295,13 @@ const Community: React.FC<CommunityProps> = ({
 
                             {/* Ordering Selection */}
                             <div className="space-y-2.5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Sort Sequence</label>
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Sort Sequence</label>
                                 <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl">
                                     {(['newest', 'likes', 'title'] as const).map((opt) => (
                                         <button
                                             key={opt}
                                             onClick={() => setSortOrder(opt)}
-                                            className={`py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                                            className={`py-1.5 text-[11px] font-black uppercase tracking-widest rounded-lg transition-all ${
                                                 sortOrder === opt 
                                                     ? 'bg-theme-primary text-white font-black shadow-sm' 
                                                     : 'text-theme-primary/50 hover:text-theme-primary'
@@ -1095,7 +1317,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Species taxonomic selection */}
                         {allAvailableLabels.length > 0 && (
                             <div className="space-y-2 pt-2 border-t border-theme-primary/5">
-                                <label className="block text-[8px] font-black uppercase tracking-wider text-theme-primary/40">Filter Specific Taxons Native</label>
+                                <label className="block text-[11px] font-black uppercase tracking-wider text-theme-primary/60">Filter Specific Taxons Native</label>
                                 <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-2 no-scrollbar">
                                     {allAvailableLabels.map((lbl) => {
                                         const isSelected = selectedLabels.includes(lbl);
@@ -1103,7 +1325,7 @@ const Community: React.FC<CommunityProps> = ({
                                             <button
                                                 key={lbl}
                                                 onClick={() => toggleLabelFilter(lbl)}
-                                                className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-widest rounded-full border transition-all ${
+                                                className={`px-2.5 py-1 text-[11px] font-black uppercase tracking-widest rounded-full border transition-all ${
                                                     isSelected 
                                                         ? 'bg-theme-accent border-theme-accent text-white font-bold' 
                                                         : 'bg-white border-theme-primary/10 text-theme-primary/60 hover:bg-stone-50'
@@ -1123,13 +1345,13 @@ const Community: React.FC<CommunityProps> = ({
             {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
                 {[
-                    { id: 'all', label: 'All Sighting', icon: '✨' },
-                    { id: 'flora', label: 'Flora', icon: '🌿' },
-                    { id: 'fauna', label: 'Fauna', icon: '🐦' },
-                    { id: 'fungi', label: 'Fungi / Spores', icon: '🍄' },
-                    { id: 'audio', label: 'Audio Reels', icon: '🎙️' },
-                    { id: 'video', label: 'Clip Reels', icon: '🎥' },
-                    { id: 'popular', label: 'Top Voted', icon: '🔥' },
+                    { id: 'all', label: 'All', icon: '✨' },
+                    { id: 'fauna', label: 'Animals', icon: '🐦' },
+                    { id: 'flora', label: 'Plants', icon: '🌿' },
+                    { id: 'fungi', label: 'Fungi', icon: '🍄' },
+                    { id: 'audio', label: 'Sounds', icon: '🎙️' },
+                    { id: 'video', label: 'Videos', icon: '🎥' },
+                    { id: 'popular', label: 'Popular', icon: '🔥' },
                 ].map((tab) => {
                     const isActive = activeExploreTab === tab.id;
                     return (
@@ -1139,13 +1361,13 @@ const Community: React.FC<CommunityProps> = ({
                                 setActiveExploreTab(tab.id as any);
                                 hapticFeedback();
                             }}
-                            className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
+                            className={`px-4 py-2 text-xs font-black uppercase tracking-widest rounded-full transition-all shrink-0 flex items-center gap-1.5 border cursor-pointer ${
                                 isActive 
                                     ? 'bg-theme-primary text-white border-theme-primary shadow-lg shadow-theme-primary/10 scale-[1.03]' 
                                     : 'bg-stone-50 border-theme-primary/5 hover:border-theme-primary/10 text-theme-primary/60 hover:bg-stone-100'
                             }`}
                         >
-                            <span>{tab.icon}</span>
+                            <span aria-hidden="true">{tab.icon}</span>
                             <span>{tab.label}</span>
                         </button>
                     );
@@ -1155,16 +1377,16 @@ const Community: React.FC<CommunityProps> = ({
             {/* Reset status bar if any dynamic filter keyword is active */}
             {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-stone-50 border border-theme-primary/5 rounded-2xl">
-                    <div className="text-[9px] font-black text-theme-primary/40 uppercase tracking-widest flex items-center gap-1.5">
+                    <div className="text-xs font-black text-theme-primary/60 uppercase tracking-widest flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-theme-accent rounded-full animate-pulse"></span>
-                        <span>Active Search Filters</span>
+                        <span>Filters on{posts.length && !isJournalOnly ? ` · searching ${posts.length} loaded posts` : ''}</span>
                     </div>
                     <button 
                         onClick={resetAllFilters}
-                        className="text-[8px] font-black uppercase tracking-wider text-theme-accent hover:opacity-80 transition-all flex items-center gap-1 cursor-pointer"
+                        className="text-[11px] font-black uppercase tracking-wider text-theme-accent hover:opacity-80 transition-all flex items-center gap-1 cursor-pointer"
                     >
-                        <span className="material-symbols-outlined text-[10px] font-bold">restart_alt</span>
-                        Reset Filters
+                        <span className="material-symbols-outlined text-xs font-bold">restart_alt</span>
+                        Clear
                     </button>
                 </div>
             )}
@@ -1177,7 +1399,7 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : error ? (
                 <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/40 mb-6" aria-hidden="true">cloud_off</span>
+                    <span className="material-symbols-outlined text-5xl text-theme-primary/60 mb-6" aria-hidden="true">cloud_off</span>
                     <h3 className="text-xl font-display font-bold text-stone-900 mb-3">The field guide didn't load</h3>
                     <p className="text-stone-600 text-base max-w-sm mb-8 leading-relaxed">
                         {typeof navigator !== 'undefined' && navigator.onLine === false
@@ -1194,14 +1416,22 @@ const Community: React.FC<CommunityProps> = ({
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
                     <span className="material-symbols-outlined text-5xl text-theme-primary/20 mb-6 select-none">search_off</span>
-                    <h3 className="text-lg font-display italic text-theme-primary/60 mb-1 font-bold">No Matching Specimens</h3>
-                    <p className="text-[10px] uppercase tracking-wider text-theme-primary/30 max-w-xs mb-8">Refining your query terms, timeline filters, or media constraints might match observations.</p>
-                    <button onClick={resetAllFilters} className="px-8 py-3.5 bg-theme-primary text-white font-black text-[9px] uppercase tracking-widest rounded-full shadow-lg hover:shadow-xl active:scale-95 transition-all cursor-pointer">
-                        Clear All Filters
-                    </button>
+                    {feedMode === 'following' && !searchQuery ? (
+                        <>
+                            <h3 className="text-lg font-display text-stone-800 mb-2 font-bold">Your following feed is quiet</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">Follow explorers whose sightings inspire you. Open any post and tap their name.</p>
+                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full">Discover explorers</button>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="text-lg font-display text-stone-800 mb-2 font-bold">No sightings match</h3>
+                            <p className="text-base text-stone-600 max-w-xs mb-8">Try a different word, or clear the filters.</p>
+                            <button onClick={resetAllFilters} className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full">Clear filters</button>
+                        </>
+                    )}
                 </div>
             ) : (
-                <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 pb-56 space-y-2 md:space-y-4">
+                <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 space-y-2 md:space-y-4">
                     {filteredAndSortedPosts.map((post) => (
                         <FeedCard 
                             key={post.id} 
@@ -1211,7 +1441,17 @@ const Community: React.FC<CommunityProps> = ({
                             onImageLoad={onImageLoad} 
                         />
                     ))}
-                    <div ref={loadMoreRef} className="h-10" />
+                </div>
+            )}
+            {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
+                <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
+                    {loadMoreState === 'loading' ? (
+                        <span className="flex items-center gap-2"><span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>Loading more sightings…</span>
+                    ) : loadMoreState === 'error' ? (
+                        <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
+                    ) : !hasMore && !isJournalOnly ? (
+                        <span>You're all caught up 🌿</span>
+                    ) : null}
                 </div>
             )}
         </div>
@@ -1227,12 +1467,10 @@ const Community: React.FC<CommunityProps> = ({
                 onTouchEnd={handleSwipeTouchEnd}
                 className="fixed inset-0 z-[150] bg-white md:bg-theme-shadow flex flex-col h-full w-full overflow-hidden"
             >
-                <header className="h-16 px-6 flex items-center justify-between bg-white border-b border-theme-primary/10 shrink-0 z-[160] shadow-sm">
-                    <button onClick={closeDetail} className="flex items-center gap-3 transition-all active:scale-95 group">
-                        <span className="material-symbols-outlined text-theme-primary text-2xl font-black">arrow_back</span>
-                        <span className="text-[11px] font-black text-theme-primary uppercase tracking-[0.3em] border-b-2 border-theme-accent pb-0.5">
-                            {isJournalOnly ? "MY JOURNAL" : (searchTag ? "SEARCH" : (backLabel === "Archive" ? "MY LOGS" : "FEED"))}
-                        </span>
+                <header className="h-16 px-3 flex items-center justify-between bg-white border-b border-theme-primary/10 shrink-0 z-[160] shadow-sm safe-pt box-content">
+                    <button onClick={closeDetail} aria-label={`Back to ${isJournalOnly ? 'journal' : (searchTag ? 'search' : backLabel.toLowerCase())}`} className="flex items-center gap-2 transition-all active:scale-95 h-11 pr-3 rounded-full">
+                        <span className="material-symbols-outlined text-stone-800 text-2xl" aria-hidden="true">arrow_back</span>
+                        <span className="text-sm font-bold text-stone-800">{isJournalOnly ? 'Journal' : (searchTag ? 'Search' : backLabel)}</span>
                     </button>
 
                     {/* Desktop floating navigation chevrons - replacing top header numbered pagination */}
@@ -1240,7 +1478,7 @@ const Community: React.FC<CommunityProps> = ({
                         <button 
                             onClick={() => navigateSequential('prev')}
                             className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
-                            title="Previous specimen"
+                            aria-label="Previous post"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_left</span>
                         </button>
@@ -1249,33 +1487,36 @@ const Community: React.FC<CommunityProps> = ({
                         <button 
                             onClick={() => navigateSequential('next')}
                             className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
-                            title="Next specimen"
+                            aria-label="Next post"
                         >
                             <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_right</span>
                         </button>
                     )}
 
-                    <div className="flex items-center gap-4">
-                        {activePost.userId === currentUserMode.userId && (
-                            <>
-                                <button 
-                                    onClick={() => setPublishingPost(activePost)} 
-                                    className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center text-emerald-700 transition-colors cursor-pointer"
-                                    title="Launch Publisher Studio"
-                                >
-                                    <span className="material-symbols-outlined text-xl">campaign</span>
-                                </button>
-                                <button onClick={() => setIsEditing(true)} className="w-10 h-10 rounded-full bg-theme-accent/10 flex items-center justify-center text-theme-accent hover:bg-theme-accent/20 transition-colors">
-                                    <span className="material-symbols-outlined text-xl">edit</span>
-                                </button>
-                                <button onClick={() => handleDeletePost(activePost.id)} className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-600 hover:bg-red-100 transition-colors">
-                                    <span className="material-symbols-outlined text-xl">delete</span>
-                                </button>
-                            </>
-                        )}
-                        <button onClick={() => setSharingPost(activePost)} className="w-10 h-10 rounded-full bg-theme-primary/5 flex items-center justify-center text-theme-accent">
-                            <span className="material-symbols-outlined text-xl">share</span>
+                    <div className="flex items-center gap-1 relative">
+                        <button onClick={() => setPostMenuOpen(o => !o)} aria-label="More options" aria-expanded={postMenuOpen} className="w-11 h-11 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100">
+                            <span className="material-symbols-outlined" aria-hidden="true">more_horiz</span>
                         </button>
+                        {postMenuOpen && (
+                            <div role="menu" className="absolute right-0 top-12 w-60 bg-white rounded-2xl shadow-2xl border border-stone-100 p-1.5 z-[200] animate-fade-in">
+                                {activePost.userId === currentUserMode.userId ? (
+                                    <>
+                                        {(((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType !== 'audio') && (
+                                            <button role="menuitem" onClick={() => { setPostMenuOpen(false); setIsEditing(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">tune</span>{((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType === 'video' ? 'Rotate video' : 'Edit photo'}</button>
+                                        )}
+                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now visible in the feed' : 'Now only in your journal'); } catch { showToast('Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make journal-only' : 'Share to feed'}</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setPublishingPost(activePost); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">campaign</span>Share to other apps</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete post</button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">person</span>View {activePost.userName}</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report post</button>
+                                        <button role="menuitem" onClick={handleBlockAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">block</span>Block {activePost.userName}</button>
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </header>
 
@@ -1294,7 +1535,15 @@ const Community: React.FC<CommunityProps> = ({
                         
                         return (
                             <>
-                                <div className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden">
+                                <div
+                                    className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden"
+                                    onClick={(e) => { if ((e.target as HTMLElement).closest('button,video,audio')) return; handleDoubleTap(e, activePost); }}
+                                >
+                                    {showHeartAnimation && (
+                                        <span className="pointer-events-none absolute inset-0 z-[190] flex items-center justify-center" aria-hidden="true">
+                                            <span className="material-symbols-outlined text-white text-[120px] drop-shadow-2xl animate-heart-burst" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
+                                        </span>
+                                    )}
                                     {hasMultipleItems ? (
                                         <>
                                             <div 
@@ -1330,8 +1579,8 @@ const Community: React.FC<CommunityProps> = ({
                                                         ) : (
                                                             <img 
                                                                 src={item.imageUrl || item.thumbnailUrl} 
-                                                                className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                                onClick={() => openExternal(item.imageUrl || item.thumbnailUrl)}
+                                                                alt={item.labels?.[0] ? `${item.labels[0]}${item.behavior ? `: ${item.behavior}` : ''}` : 'Sighting'}
+                                                                className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                             />
                                                         )}
                                                     </div>
@@ -1342,7 +1591,7 @@ const Community: React.FC<CommunityProps> = ({
                                             {activeItemIndex > 0 && (
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }}
-                                                    className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                                                    className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_left</span>
                                                 </button>
@@ -1352,20 +1601,22 @@ const Community: React.FC<CommunityProps> = ({
                                             {activeItemIndex < (activePost.items?.length || 1) - 1 && (
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }}
-                                                    className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                                                    className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_right</span>
                                                 </button>
                                             )}
 
                                             {/* Subtle Overlay Dots centered near bottom */}
-                                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5 z-[175] py-1 px-2.5 rounded-full bg-black/20 backdrop-blur-sm">
+                                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-0.5 z-[175] px-1 rounded-full bg-black/25 backdrop-blur-sm">
                                                 {activePost.items!.map((_, index) => (
                                                     <button
                                                         key={index}
                                                         onClick={() => scrollToItem(index)}
-                                                        className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${index === activeItemIndex ? 'bg-white scale-110 opacity-100' : 'bg-white/40 hover:bg-white/60 opacity-30'}`}
-                                                    />
+                                                        aria-label={`Show item ${index + 1} of ${activePost.items!.length}`}
+                                                        aria-current={index === activeItemIndex}
+                                                        className="w-6 h-6 flex items-center justify-center"
+                                                    ><span className={`block w-2 h-2 rounded-full transition-all duration-300 ${index === activeItemIndex ? 'bg-white' : 'bg-white/50'}`} /></button>
                                                 ))}
                                             </div>
                                         </>
@@ -1397,8 +1648,8 @@ const Community: React.FC<CommunityProps> = ({
                                             ) : (
                                                 <img 
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl} 
-                                                    className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl cursor-pointer drop-shadow-none md:drop-shadow-xl"
-                                                    onClick={() => openExternal(currentItem.imageUrl || currentItem.thumbnailUrl)}
+                                                    alt={currentItem.labels?.[0] ? `${currentItem.labels[0]}${currentItem.behavior ? `: ${currentItem.behavior}` : ''}` : 'Sighting'}
+                                                    className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-2xl drop-shadow-none md:drop-shadow-xl"
                                                 />
                                             )}
                                         </div>
@@ -1406,25 +1657,38 @@ const Community: React.FC<CommunityProps> = ({
                                 </div>
 
                                 <div className="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-theme-primary/10 bg-white flex flex-col hidden-scrollbar">
-                                    <div className="p-4 md:p-6 flex items-center justify-between shrink-0 border-b border-theme-primary/5">
-                                        <div className="flex items-center gap-3 cursor-pointer group" onClick={() => handleProfileClick(activePost.userId)}>
-                                            <div className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-black text-[10px] uppercase border border-theme-primary/20 group-hover:border-theme-accent transition-colors">
-                                                {activePost.userName.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <p className="font-black text-xs text-theme-primary tracking-tight leading-none mb-0.5 group-hover:text-theme-accent transition-colors">{activePost.userName}</p>
-                                                <p className="catalog-label text-[7px] opacity-40 lowercase tracking-[0.1em] font-bold">
-                                                    {currentItem.locationArea || "Wilderness"}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button onClick={(e) => handleLike(e, activePost)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${activePost.likes?.includes(currentUserMode.userId!) ? 'bg-theme-accent border-theme-accent text-white shadow-lg' : 'border-theme-primary/10 text-theme-accent'}`}>
-                                            <span className={`material-symbols-outlined text-[13px] ${activePost.likes?.includes(currentUserMode.userId!) ? 'fill-current' : ''}`}>favorite</span>
-                                            <span className="text-[10px] font-black tracking-tighter">{activePost.likes?.length || 0}</span>
+                                    <div className="px-4 pt-3 pb-2 md:px-6 flex items-center justify-between shrink-0">
+                                        <button className="flex items-center gap-3 group text-left min-w-0" onClick={() => handleProfileClick(activePost.userId)}>
+                                            {activePost.userAvatar
+                                                ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                                : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(activePost.userName || '?').charAt(0)}</span>}
+                                            <span className="min-w-0">
+                                                <span className="block font-bold text-sm text-stone-900 truncate group-hover:underline">{activePost.userName}</span>
+                                                <span className="block text-xs text-stone-500 truncate">{[currentItem.locationArea, timeAgo(activePost.timestamp)].filter(Boolean).join(' · ')}</span>
+                                            </span>
                                         </button>
                                     </div>
-                                    
+                                    <div className="px-2 md:px-4 flex items-center shrink-0 border-b border-theme-primary/5 pb-1">
+                                        {(() => { const liked = !!activePost.likes?.includes(currentUserMode.userId!); return (
+                                            <button onClick={(e) => handleLike(e, activePost)} aria-pressed={liked} aria-label={liked ? 'Unlike' : 'Like'} className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-90 ${liked ? 'text-red-600' : 'text-stone-800'}`}>
+                                                <span className="material-symbols-outlined text-[28px]" style={liked ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">favorite</span>
+                                            </button>
+                                        ); })()}
+                                        <button onClick={() => setIsCommentsOpen(true)} aria-label="Comments" className="w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
+                                            <span className="material-symbols-outlined text-[28px]" aria-hidden="true">chat_bubble</span>
+                                        </button>
+                                        <button onClick={() => setSharingPost(activePost)} aria-label="Share" className="w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
+                                            <span className="material-symbols-outlined text-[28px]" aria-hidden="true">send</span>
+                                        </button>
+                                        <button onClick={handleSave} aria-pressed={isSaved} aria-label={isSaved ? 'Remove from saved' : 'Save'} className="ml-auto w-11 h-11 rounded-full flex items-center justify-center text-stone-800">
+                                            <span className="material-symbols-outlined text-[28px]" style={isSaved ? { fontVariationSettings: "'FILL' 1" } : undefined} aria-hidden="true">bookmark</span>
+                                        </button>
+                                    </div>
+                                    <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{(activePost.likes?.length || 0).toLocaleString()} {(activePost.likes?.length || 0) === 1 ? 'like' : 'likes'}</p>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
+                                        {activePost.caption && (
+                                            <p className="text-[15px] text-stone-900 leading-relaxed whitespace-pre-line"><button onClick={() => handleProfileClick(activePost.userId)} className="font-bold mr-1.5">{activePost.userName}</button>{activePost.caption}</p>
+                                        )}
                                         {activePost.title && <h2 className="text-xl font-display italic font-bold text-theme-primary">{activePost.title}</h2>}
 
                                         {activePost.description && (
@@ -1437,12 +1701,16 @@ const Community: React.FC<CommunityProps> = ({
                                             <div className="space-y-4 pt-2 border-t border-theme-primary/10">
                                                 {currentItem.labels && currentItem.labels.length > 0 && (
                                                     <div className="space-y-2">
-                                                        <p className="catalog-label opacity-60 text-[8px] font-black tracking-[0.2em] text-theme-primary uppercase">Taxonomy</p>
+                                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                                            <p className="text-xs font-bold tracking-[0.15em] text-stone-600 uppercase">Identification</p>
+                                                            <AiBadge confidence={(currentItem as any).aiConfidence} humanVerified={!!(currentItem as any).humanDelta || !!activePost.humanDelta} />
+                                                        </div>
+                                                        {isFungiPost(currentItem as any) && <FungiWarning />}
                                                         <div className="flex flex-wrap gap-1.5">
                                                             {currentItem.labels.map((l, i) => (
-                                                                <span key={i} onClick={() => handleSpeciesClick(l, currentItem.locationArea)} className="cursor-pointer px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-black text-[9px] uppercase tracking-widest rounded-sm hover:bg-theme-accent/20 transition-colors">
+                                                                <button key={i} onClick={() => handleSpeciesClick(l, currentItem.locationArea)} aria-label={`Learn about ${l}`} className="px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-bold text-sm rounded-lg hover:bg-theme-accent/20 transition-colors">
                                                                     {l}
-                                                                </span>
+                                                                </button>
                                                             ))}
                                                         </div>
                                                     </div>
@@ -1450,13 +1718,13 @@ const Community: React.FC<CommunityProps> = ({
 
                                                 {currentItem.aiInsight && (
                                                     <div className="p-5 bg-insight-bg border border-theme-accent/30 rounded-xl space-y-3">
-                                                        <p className="catalog-label text-[8px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
-                                                            <span className="material-symbols-outlined text-[11px]">auto_awesome</span>
-                                                            Ecologic Analysis
+                                                        <p className="catalog-label text-[11px] font-black tracking-[0.25em] text-theme-accent uppercase flex items-center gap-1.5 border-b border-theme-accent/20 pb-2">
+                                                            <span className="material-symbols-outlined text-[11px]" aria-hidden="true">auto_awesome</span>
+                                                            Behaviour & ecology (AI)
                                                         </p>
                                                         <div className="space-y-3 mt-2">
                                                             {currentItem.aiInsight.split(/\n+/).filter(Boolean).map((para, idx) => (
-                                                                <p key={idx} className="text-[13px] font-serif text-theme-primary/90 leading-relaxed text-justify">
+                                                                <p key={idx} className="text-[15px] font-serif text-stone-800 leading-relaxed">
                                                                     {para}
                                                                 </p>
                                                             ))}
@@ -1469,9 +1737,9 @@ const Community: React.FC<CommunityProps> = ({
                                         {activePost.tags && activePost.tags.length > 0 && (
                                             <div className="flex flex-wrap gap-2 pt-2 border-t border-theme-primary/10">
                                                 {activePost.tags.map(tag => (
-                                                    <span key={tag} onClick={() => handleTagClick(tag)} className="cursor-pointer px-3 py-1.5 bg-theme-accent/10 border border-theme-accent/20 text-theme-primary font-black italic text-[9px] uppercase tracking-widest rounded-sm hover:bg-theme-accent/30 transition-colors">
+                                                    <button key={tag} onClick={() => handleTagClick(tag)} className="text-sm font-semibold text-sky-800 hover:underline">
                                                         {tag.startsWith('#') ? tag : `#${tag}`}
-                                                    </span>
+                                                    </button>
                                                 ))}
                                             </div>
                                         )}
@@ -1481,8 +1749,8 @@ const Community: React.FC<CommunityProps> = ({
                                                 onClick={() => setIsCommentsOpen(true)}
                                                 className="w-full py-3 px-4 bg-theme-primary/5 hover:bg-theme-primary/10 rounded-xl flex items-center justify-between transition-colors mb-4 md:mb-0"
                                             >
-                                                <span className="text-xs font-bold text-theme-primary">View Field Notes ({comments.length})</span>
-                                                <span className="material-symbols-outlined text-theme-primary/40 text-sm">chevron_right</span>
+                                                <span className="text-sm font-semibold text-stone-700">{comments.length ? `View all ${comments.length} comment${comments.length === 1 ? '' : 's'}` : 'Add a comment'}</span>
+                                                <span className="material-symbols-outlined text-theme-primary/60 text-sm">chevron_right</span>
                                             </button>
                                         </div>
                                     </div>
@@ -1522,23 +1790,34 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                     
                     <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-theme-primary/10">
-                        <h3 className="font-display font-black text-xl italic text-theme-primary">Field Notes</h3>
-                        <button onClick={() => setIsCommentsOpen(false)} className="w-8 h-8 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary/60 hover:bg-theme-primary/20">
+                        <h3 id="comments-title" className="font-bold text-lg text-stone-900">Comments</h3>
+                        <button onClick={() => setIsCommentsOpen(false)} aria-label="Close comments" className="w-11 h-11 rounded-full bg-stone-100 flex items-center justify-center text-stone-700 hover:bg-stone-200">
                             <span className="material-symbols-outlined text-lg">close</span>
                         </button>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        {comments.length === 0 ? (
-                            <div className="h-full flex flex-col items-center justify-center text-theme-primary/40">
-                                <span className="material-symbols-outlined text-4xl mb-2 opacity-50">forum</span>
-                                <p className="text-xs font-medium">No field notes yet.</p>
+                        {comments.filter(c => !blockedIds.includes(c.userId)).length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-stone-500 text-center">
+                                <span className="material-symbols-outlined text-4xl mb-2" aria-hidden="true">forum</span>
+                                <p className="font-semibold text-stone-700">No comments yet</p>
+                                <p className="text-sm mt-1">Share what you know about this sighting.</p>
                             </div>
                         ) : (
-                            comments.map(c => (
-                                <div key={c.id} className="animate-fade-in group">
-                                    <p onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="text-[8px] font-black text-theme-primary/40 uppercase tracking-widest mb-1 leading-none cursor-pointer hover:text-theme-accent">{c.userName}</p>
-                                    <p className="text-[12px] text-theme-primary/80 leading-relaxed font-medium tracking-tight">{c.text}</p>
+                            comments.filter(c => !blockedIds.includes(c.userId)).map(c => (
+                                <div key={c.id} className="flex gap-3 group animate-fade-in">
+                                    <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
+                                        {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(c.userName || '?').charAt(0)}</span>}
+                                    </button>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><span className="whitespace-pre-line break-words">{c.text}</span></p>
+                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
+                                            <span>{timeAgo(c.timestamp)}</span>
+                                            {(c.userId === currentUserMode.userId || activePost.userId === currentUserMode.userId) && (
+                                                <button onClick={() => handleDeleteComment(c.id)} className="font-semibold hover:text-red-700">Delete</button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             ))
                         )}
@@ -1546,14 +1825,17 @@ const Community: React.FC<CommunityProps> = ({
 
                     <div className="p-4 border-t border-theme-primary/10 bg-white shrink-0">
                         <form onSubmit={handleSendComment} className="flex gap-2.5">
+                            <label htmlFor="new-comment" className="sr-only">Add a comment</label>
                             <input 
+                                id="new-comment"
                                 value={newComment} 
-                                onChange={e => setNewComment(e.target.value)} 
-                                placeholder="Append field note..." 
-                                className="flex-1 bg-theme-primary/5 border border-theme-primary/10 rounded-lg px-4 py-3 text-xs outline-none focus:border-theme-accent transition-colors font-semibold"
+                                onChange={e => setNewComment(e.target.value.slice(0, 1000))} 
+                                onFocus={() => { if (!isMember) askAccount('Create a free account to join the conversation.'); }}
+                                placeholder={`Add a comment for ${activePost.userName}…`}
+                                className="flex-1 bg-stone-50 border border-stone-200 rounded-full px-4 py-3 text-base focus:border-theme-accent transition-colors"
                             />
-                            <button type="submit" disabled={!newComment.trim()} className="px-5 py-3 bg-theme-primary text-white text-[9px] font-black uppercase tracking-widest rounded-lg disabled:opacity-30 transition-all active:scale-95">
-                                Log
+                            <button type="submit" disabled={!newComment.trim() || sendingComment} className="px-5 py-3 text-theme-accent text-base font-bold rounded-full disabled:opacity-40 transition-all active:scale-95">
+                                {sendingComment ? 'Posting…' : 'Post'}
                             </button>
                         </form>
                     </div>
@@ -1590,6 +1872,35 @@ const Community: React.FC<CommunityProps> = ({
             </motion.div>
         )}
         </AnimatePresence>
+
+        {reportOpen && activePost && (
+            <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
+                <div className="absolute inset-0 bg-black/50" onClick={() => setReportOpen(false)} aria-hidden="true" />
+                <div className="relative w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] animate-slide-up">
+                    <h2 id="report-title" className="text-lg font-bold text-stone-900">Why are you reporting this post?</h2>
+                    <p className="text-sm text-stone-600 mt-1 mb-4">Your report is anonymous to the author.</p>
+                    <div className="flex flex-col gap-1">
+                        {[
+                            ['sensitive_location', 'Reveals a sensitive species location'],
+                            ['wildlife_harm', 'Harming or disturbing wildlife'],
+                            ['misidentification', 'Dangerous misidentification'],
+                            ['spam', 'Spam or scam'],
+                            ['harassment', 'Harassment or hate'],
+                            ['nudity_violence', 'Nudity or graphic violence'],
+                            ['ip', 'Not their photo / copyright'],
+                            ['other', 'Something else'],
+                        ].map(([key, label]) => (
+                            <button key={key} onClick={() => handleReport(key)} className="text-left px-3 py-3 rounded-xl hover:bg-stone-50 text-[15px] font-medium text-stone-900 flex items-center justify-between">
+                                {label}<span className="material-symbols-outlined text-stone-400" aria-hidden="true">chevron_right</span>
+                            </button>
+                        ))}
+                    </div>
+                    <button onClick={() => setReportOpen(false)} className="w-full mt-3 py-3 rounded-xl bg-stone-100 font-bold text-stone-800">Cancel</button>
+                </div>
+            </div>
+        )}
+
+        {toast && <div role="status" className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-stone-900 text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg animate-fade-in">{toast}</div>}
 
         {showAuthModal && (
             <AuthModal 

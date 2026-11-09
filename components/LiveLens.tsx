@@ -31,8 +31,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const isCameraActiveRef = useRef(false); 
+  const [isCameraActive, setIsCameraActive] = useState(true);
+  const isCameraActiveRef = useRef(true); 
   
   const [zoom, setZoom] = useState(1);
   const [torch, setTorch] = useState(false);
@@ -65,7 +65,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   
   const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode);
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
-  const [isProcessingCapture, setIsProcessingCapture] = useState(false);
+  const [pendingAnalyses, setPendingAnalyses] = useState(0);
+  const isProcessingCapture = pendingAnalyses > 0;
+  const [showTranscript, setShowTranscript] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
   const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string} | null>(null);
 
@@ -195,8 +197,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       const finishCapture = (imgBlob?: Blob, imgUrl?: string) => {
           const snapId = Date.now().toString();
           pendingSnapshotIdRef.current = snapId;
-          setIsProcessingCapture(true);
-          showStatus('processing', 'Analyzing field data...');
+          setPendingAnalyses(n => n + 1);
+          showStatus('processing', 'Analysing your capture…');
           
           if (type === 'audio') {
               setLastAudioSnapshotId(snapId);
@@ -249,15 +251,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   locationArea: result.location,
                   isAnalyzing: false,
                   aiProposedLabels: result.taxonomy,
-                  aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)' 
+                  aiProposedBehavior: result.ecologic,
+                  aiConfidence: (result as any).confidence || null
               });
-              setIsProcessingCapture(false);
-              showStatus('success', 'Analysis complete. Saved to field notes.');
+              setPendingAnalyses(n => Math.max(0, n - 1));
+              showStatus('success', 'Identified. Added to this session.');
           }).catch(err => {
               console.error("Background analysis failed", err);
               updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-              setIsProcessingCapture(false);
-              showStatus('error', 'Analysis failed. Please try again.');
+              setPendingAnalyses(n => Math.max(0, n - 1));
+              showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
           });
       };
 
@@ -359,8 +362,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
                   const snapId = Date.now().toString();
                   pendingSnapshotIdRef.current = snapId;
-                  setIsProcessingCapture(true);
-                  showStatus('processing', 'Analyzing image...');
+                  setPendingAnalyses(n => n + 1);
+                  showStatus('processing', 'Analysing your photo…');
                   const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
                   
                   retakesCountRef.current += 1;
@@ -390,15 +393,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           locationArea: result.location,
                           isAnalyzing: false,
                           aiProposedLabels: result.taxonomy,
-                          aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+                          aiProposedBehavior: result.ecologic,
+                          aiConfidence: (result as any).confidence || null
                       });
-                      setIsProcessingCapture(false);
-                      showStatus('success', 'Analysis complete. Saved to field notes.');
+                      setPendingAnalyses(n => Math.max(0, n - 1));
+                      showStatus('success', 'Identified. Added to this session.');
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
                       updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-                      setIsProcessingCapture(false);
-                      showStatus('error', 'Analysis failed. Please try again.');
+                      setPendingAnalyses(n => Math.max(0, n - 1));
+                      showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
                   });
               });
           }
@@ -411,29 +415,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }
   }, [isMuted, audioContext]);
 
-  const handleMicPress = useCallback(() => {
-    micHoldTimeoutRef.current = window.setTimeout(() => {
-        micHoldTimeoutRef.current = null;
-        startRecording('audio');
-    }, 500);
-  }, [startRecording]);
-
-  const handleMicRelease = useCallback(() => {
-    let wasHold = false;
-    if (micHoldTimeoutRef.current) {
-        clearTimeout(micHoldTimeoutRef.current);
-        micHoldTimeoutRef.current = null;
-    } else {
-        wasHold = true;
-    }
-    
-    if (isRecordingAudio && wasHold) {
-        stopRecording();
-    } else if (!wasHold) {
-        // Tap: Toggle Mute
-        setIsMuted(prev => !prev);
-    }
-  }, [isRecordingAudio, stopRecording]);
+  /** Sound recording: one tap to start, one tap to stop (max 30 s). */
+  const toggleSoundRecording = useCallback(() => {
+    if (isRecordingVideo) return;
+    if (isRecordingAudio) stopRecording();
+    else startRecording('audio');
+  }, [isRecordingAudio, isRecordingVideo, startRecording, stopRecording]);
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -452,13 +439,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           });
           
           if (media.duration > 30) {
-              alert("Please select a file that is 30 seconds or shorter.");
+              showStatus('error', 'Please choose a clip of 30 seconds or less.');
+              URL.revokeObjectURL(media.src);
               return;
           }
       }
 
-      setIsProcessingCapture(true);
-      showStatus('processing', `Analyzing uploaded media...`);
+      setPendingAnalyses(n => n + 1);
+      showStatus('processing', 'Analysing your upload…');
       const snapId = Date.now().toString();
       const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
       const mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
@@ -519,41 +507,30 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               locationArea: result.location,
               isAnalyzing: false,
               aiProposedLabels: result.taxonomy,
-              aiProposedBehavior: 'Analyzing... (from insight: ' + result.ecologic.substring(0, 30) + '...)'
+              aiProposedBehavior: result.ecologic,
+                          aiConfidence: (result as any).confidence || null
           });
-          setIsProcessingCapture(false);
-          showStatus('success', 'Upload analyzed. Saved to field notes.');
+          setPendingAnalyses(n => Math.max(0, n - 1));
+          showStatus('success', 'Identified. Added to this session.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
           updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
-          setIsProcessingCapture(false);
-          showStatus('error', 'Analysis failed. Please try again.');
+          setPendingAnalyses(n => Math.max(0, n - 1));
+          showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
       });
   };
 
   const getStatusText = () => {
-    if (agentState === 'FINALIZING') return "Archiving Field Data...";
-    if (agentState === 'RECONNECTING') return "Lost Link - Syncing...";
-    if (isCameraActive) {
-        switch (agentState) {
-            case 'BOOTING': return "Calibrating Visual Sensors...";
-            case 'IDLE': return "Scanning Habitat...";
-            case 'HEARING_USER': return isMuted ? "Observing (Muted)..." : "Observing & Listening...";
-            case 'THINKING': return "Identifying Specimen...";
-            case 'SPEAKING': return "Narrating Observation...";
-            case 'DISCONNECTED': return "Offline - Tap to retry";
-            default: return "Watching...";
-        }
-    } else {
-        switch (agentState) {
-            case 'BOOTING': return "Syncing Audio Uplink...";
-            case 'IDLE': return "Listening to Wild...";
-            case 'HEARING_USER': return isMuted ? "Muted" : "Listening...";
-            case 'THINKING': return "Analyzing Calls...";
-            case 'SPEAKING': return "Speaking...";
-            case 'DISCONNECTED': return "Offline - Tap to retry";
-            default: return "Standby";
-        }
+    if (agentState === 'FINALIZING') return "Wrapping up…";
+    if (agentState === 'RECONNECTING') return "Reconnecting…";
+    switch (agentState) {
+        case 'BOOTING': return "Waking your guide…";
+        case 'IDLE': return isCameraActive ? "Guide is watching" : "Guide is listening";
+        case 'HEARING_USER': return isMuted ? "Guide can't hear you (muted)" : "Guide is listening";
+        case 'THINKING': return "Guide is thinking…";
+        case 'SPEAKING': return "Guide is speaking";
+        case 'DISCONNECTED': return "Guide offline · tap to retry";
+        default: return "Guide ready";
     }
   };
 
@@ -562,9 +539,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     if (agentState === 'RECONNECTING') return { color: "bg-theme-accent animate-pulse", icon: "sync" };
     if (isCameraActive) {
         switch (agentState) {
-            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-accent/30", icon: "hourglass_empty" };
+            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-vivid/30", icon: "hourglass_empty" };
             case 'IDLE': return { color: "bg-theme-accent/40 animate-pulse-gentle", icon: "visibility" };
-            case 'HEARING_USER': return { color: "bg-white text-theme-accent scale-110", icon: isMuted ? "mic_off" : "mic" };
+            case 'HEARING_USER': return { color: "bg-white text-theme-vivid scale-110", icon: isMuted ? "mic_off" : "mic" };
             case 'THINKING': return { color: "bg-theme-accent animate-pulse", icon: "smart_toy" };
             case 'SPEAKING': return { color: "bg-theme-accent/80", icon: "record_voice_over" };
             case 'DISCONNECTED': return { color: "bg-red-500", icon: "wifi_off" };
@@ -572,9 +549,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
     } else {
         switch (agentState) {
-            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-accent/30", icon: "hourglass_empty" };
+            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-vivid/30", icon: "hourglass_empty" };
             case 'IDLE': return { color: isMuted ? "bg-white/10" : "bg-theme-accent/40", icon: isMuted ? "mic_off" : "mic_none" };
-            case 'HEARING_USER': return { color: "bg-white text-theme-accent scale-110", icon: isMuted ? "mic_off" : "mic" };
+            case 'HEARING_USER': return { color: "bg-white text-theme-vivid scale-110", icon: isMuted ? "mic_off" : "mic" };
             case 'THINKING': return { color: "bg-theme-accent animate-pulse", icon: "psychology" };
             case 'SPEAKING': return { color: "bg-theme-accent/80", icon: "volume_up" };
             case 'DISCONNECTED': return { color: "bg-red-500", icon: "wifi_off" };
@@ -1052,15 +1029,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     <div className="relative h-full w-full bg-black overflow-hidden font-body flex flex-col">
       <div className={`absolute inset-0 bg-white z-[100] transition-opacity duration-150 pointer-events-none ${isFlashing ? 'opacity-100' : 'opacity-0'}`} />
 
-      <button onClick={() => {
-          if (isProcessingCapture) {
-              alert("Please wait while the ecological analysis is finalized.");
-              return;
-          }
-          finalizeSession();
-      }} className="absolute top-10 right-6 z-[120] w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center active:scale-90 transition-transform shadow-lg"><span className="material-symbols-outlined">close</span></button>
+      <button
+          onClick={() => finalizeSession()}
+          aria-label="Finish session and review captures"
+          className="absolute safe-top right-4 z-[120] h-11 px-4 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center gap-1.5 active:scale-95 transition-transform shadow-lg text-sm font-bold"
+      >
+          <span className="material-symbols-outlined text-xl" aria-hidden="true">check</span>Done
+      </button>
+      <button
+          onClick={() => setShowTranscript(v => !v)}
+          aria-expanded={showTranscript}
+          aria-label="Show what your guide said"
+          className="absolute safe-top left-4 z-[120] h-11 px-3 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center gap-1.5 active:scale-95 shadow-lg text-sm font-semibold"
+      >
+          <span className="material-symbols-outlined text-xl" aria-hidden="true">subject</span>
+          <span className="hidden sm:inline">Transcript</span>
+      </button>
+      {showTranscript && (
+          <div className="absolute top-20 left-4 right-4 max-w-md z-[125] max-h-[50vh] overflow-y-auto no-scrollbar bg-stone-950/90 backdrop-blur-xl rounded-3xl border border-white/10 p-4 space-y-3" role="log" aria-label="Guide transcript" aria-live="polite">
+              {chatHistory.filter(m => m.role !== 'system' && m.text).length === 0
+                  ? <p className="text-sm text-white/70">Nothing said yet. Point the camera at something alive.</p>
+                  : chatHistory.filter(m => m.role !== 'system' && m.text).map(m => (
+                      <p key={m.id} className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-white/70 text-right' : 'text-white'}`}>
+                          <span className="block text-[11px] font-bold uppercase tracking-widest text-white/50 mb-0.5">{m.role === 'user' ? 'You' : 'Guide'}</span>{m.text}
+                      </p>
+                  ))}
+          </div>
+      )}
+      {pendingAnalyses > 0 && (
+          <div className="absolute safe-top left-1/2 -translate-x-1/2 mt-12 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1" role="status">
+              Analysing {pendingAnalyses} capture{pendingAnalyses === 1 ? '' : 's'}…
+          </div>
+      )}
 
-      <div className="absolute top-12 left-1/2 -translate-x-1/2 z-[120] pointer-events-auto flex flex-col items-center gap-2">
+      <div className="absolute safe-top left-1/2 -translate-x-1/2 z-[118] pointer-events-auto flex flex-col items-center gap-2 max-w-[55vw]">
           {!analysisStatus && (
               <button 
                   disabled={agentState !== 'DISCONNECTED'}
@@ -1077,7 +1079,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   <span className={`material-symbols-outlined text-[12px] text-white/90 ${(agentState === 'RECONNECTING' || agentState === 'BOOTING') ? 'animate-spin' : ''} ${agentState === 'DISCONNECTED' ? 'text-red-500' : ''}`}>
                       {getPebbleStyle().icon === 'sync' ? 'autorenew' : getPebbleStyle().icon}
                   </span>
-                  <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${agentState === 'DISCONNECTED' ? 'text-red-100' : 'text-white/90'}`}>
+                  <span className={`text-xs font-semibold truncate ${agentState === 'DISCONNECTED' ? 'text-red-100' : 'text-white/90'}`}>
                       {getStatusText()}
                   </span>
               </button>
@@ -1089,7 +1091,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       {analysisStatus.type === 'processing' ? 'autorenew' : 
                        analysisStatus.type === 'success' ? 'check_circle' : 'error'}
                   </span>
-                  <span className={`text-[10px] font-bold uppercase tracking-[0.2em] ${analysisStatus.type === 'success' ? 'text-green-100' : analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
+                  <span role="status" className={`text-xs font-semibold ${analysisStatus.type === 'success' ? 'text-green-100' : analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
                       {analysisStatus.text}
                   </span>
               </div>
@@ -1098,7 +1100,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {sessionError && (
           <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
-              <span className="material-symbols-outlined text-theme-accent text-6xl mb-4" aria-hidden="true">eco</span>
+              <span className="material-symbols-outlined text-theme-vivid text-6xl mb-4" aria-hidden="true">eco</span>
               <h2 className="text-2xl font-display font-black text-white mb-4">{sessionError.title}</h2>
               <p className="text-base text-white/85 mb-8 max-w-md leading-relaxed">{sessionError.message}</p>
                <div className="flex gap-4">
@@ -1129,8 +1131,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {agentState === 'FINALIZING' && (
           <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-20 h-20 rounded-full border-4 border-theme-accent border-t-transparent animate-spin mb-8"></div>
-              <h2 className="text-3xl font-display font-black italic text-white mb-2">Archiving Discovery...</h2>
+              <div className="w-20 h-20 rounded-full border-4 border-theme-vivid border-t-transparent animate-spin mb-8"></div>
+              <h2 className="text-3xl font-display font-bold italic text-white mb-2">Gathering your sightings…</h2>
           </div>
       )}
 
@@ -1149,7 +1151,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   {/* Close Button */}
                   <button 
                       onClick={() => setLatestSighting(null)} 
-                      className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all duration-300 pointer-events-auto"
+                      aria-label="Dismiss sighting card"
+                      className="absolute top-3 right-3 w-11 h-11 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all duration-300 pointer-events-auto"
                   >
                       <span className="material-symbols-outlined text-[16px]">close</span>
                   </button>
@@ -1157,7 +1160,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   {/* Header labels */}
                   <div className="flex flex-wrap gap-1.5 pr-8">
                       {latestSighting.labels.map((label, idx) => (
-                          <span key={idx} className="bg-theme-accent/20 border border-theme-accent/30 text-theme-accent font-sans px-2.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase animate-fade-in">
+                          <span key={idx} className="bg-theme-accent/20 border border-theme-vivid/30 text-theme-vivid font-sans px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wider uppercase animate-fade-in">
                               {label}
                           </span>
                       ))}
@@ -1172,8 +1175,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
                   {/* Ecological Insight detail */}
                   <div className="border-t border-white/15 pt-3">
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-theme-accent mb-1.5">Ecological Insight</p>
-                      <p className="text-xs font-medium text-white/90 leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-theme-vivid mb-1.5 flex items-center gap-1"><span className="material-symbols-outlined text-sm" aria-hidden="true">auto_awesome</span>AI suggestion · verify before relying on it</p>
+                      <p className="text-sm font-medium text-white/90 leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
                           {latestSighting.aiInsight}
                       </p>
                   </div>
@@ -1198,45 +1201,45 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {aiOpticActive && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60] animate-bounce">
-              <div className="bg-theme-accent/90 backdrop-blur-md px-5 py-2 rounded-full border border-theme-accent/50 shadow-xl flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[10px] text-white animate-spin">sync</span>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">AI Sync Active</span>
+              <div className="bg-theme-accent/90 backdrop-blur-md px-5 py-2 rounded-full border border-theme-vivid/50 shadow-xl flex items-center gap-2">
+                  <span className="material-symbols-outlined text-xs text-white animate-spin">sync</span>
+                  <span className="text-xs font-bold text-white">Guide is adjusting the camera</span>
               </div>
           </div>
       )}
 
       {isCameraActive && canZoom && (
           <div className="absolute right-6 top-1/2 -translate-y-1/2 z-[50] flex flex-col items-center gap-4 bg-black/30 backdrop-blur-2xl p-4 rounded-full border border-white/20 shadow-2xl">
-              <button onClick={() => applyOpticalSettings({ zoom: zoom + 0.5 })} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">add</span></button>
+              <button onClick={() => applyOpticalSettings({ zoom: zoom + 0.5 })} aria-label="Zoom in" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">add</span></button>
               <div className="relative h-48 w-2 bg-white/10 rounded-full overflow-hidden group cursor-pointer flex flex-col justify-end">
-                  <input type="range" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoom} onChange={(e) => applyOpticalSettings({ zoom: parseFloat(e.target.value) })} className="absolute inset-0 w-48 h-2 opacity-0 cursor-pointer origin-center -rotate-90 translate-y-24" style={{ transform: 'rotate(-90deg) translateX(-96px)' }} />
+                  <input type="range" aria-label="Zoom level" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoom} onChange={(e) => applyOpticalSettings({ zoom: parseFloat(e.target.value) })} className="absolute inset-0 w-48 h-2 opacity-0 cursor-pointer origin-center -rotate-90 translate-y-24" style={{ transform: 'rotate(-90deg) translateX(-96px)' }} />
                   <div className="w-full bg-theme-accent transition-all duration-300" style={{ height: `${((zoom - zoomRange.min) / (zoomRange.max - zoomRange.min)) * 100}%` }} />
               </div>
-              <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">remove</span></button>
+              <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} aria-label="Zoom out" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">remove</span></button>
               <div className="text-center">
-                  <span className="text-[8px] font-mono font-black text-white block opacity-60">ZOOM</span>
-                  <span className="text-[10px] font-mono font-black text-white block">{zoom.toFixed(1)}x</span>
+                  <span className="text-[11px] font-mono font-black text-white block opacity-60">ZOOM</span>
+                  <span className="text-xs font-mono font-black text-white block">{zoom.toFixed(1)}x</span>
               </div>
           </div>
       )}
 
       {isCameraActive && (
-          <div className="absolute left-6 top-32 z-50 flex flex-col gap-6">
+          <div className="absolute left-4 top-[calc(var(--sat)+5.5rem)] z-50 flex flex-col gap-4">
               {hasTorch && (
-                <button onClick={() => applyOpticalSettings({ torch: !torch })} className={`w-14 h-14 rounded-full backdrop-blur-xl border transition-all flex flex-col items-center justify-center gap-1 shadow-2xl ${torch ? 'bg-theme-accent border-theme-accent/50 text-white scale-110' : 'bg-black/30 border-white/10 text-white/40'}`}>
+                <button onClick={() => applyOpticalSettings({ torch: !torch })} aria-pressed={torch} aria-label="Torch" className={`w-14 h-14 rounded-full backdrop-blur-xl border transition-all flex flex-col items-center justify-center gap-1 shadow-2xl ${torch ? 'bg-theme-accent border-theme-vivid/50 text-white scale-110' : 'bg-black/30 border-white/10 text-white/60'}`}>
                     <span className="material-symbols-outlined text-xl">{torch ? 'flashlight_on' : 'flashlight_off'}</span>
-                    <span className="text-[7px] font-black uppercase tracking-tighter">Torch</span>
+                    <span className="text-[11px] font-black uppercase tracking-tighter">Torch</span>
                 </button>
               )}
-              <button onClick={() => switchCameraMode(facingMode === 'environment' ? 'user' : 'environment')} className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl">
+              <button onClick={() => switchCameraMode(facingMode === 'environment' ? 'user' : 'environment')} aria-label="Switch camera" className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/60 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl">
                   <span className="material-symbols-outlined text-xl">cached</span>
-                  <span className="text-[7px] font-black uppercase tracking-tighter">Flip</span>
+                  <span className="text-[11px] font-black uppercase tracking-tighter">Flip</span>
               </button>
               
-              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/40 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
+              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/60 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
                   <span className="material-symbols-outlined text-xl">upload_file</span>
-                  <span className="text-[7px] font-black uppercase tracking-tighter">Upload</span>
-                  <input type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={handleMediaUpload} />
+                  <span className="text-[11px] font-black uppercase tracking-tighter">Upload</span>
+                  <input type="file" accept="image/*,video/*,audio/*" className="sr-only" aria-label="Upload a photo, video or sound" onChange={(e) => { handleMediaUpload(e); e.currentTarget.value = ''; }} />
               </label>
           </div>
       )}
@@ -1244,11 +1247,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
 
       <div className="flex-1 flex flex-col justify-end items-center pointer-events-none relative z-20 pb-20">
-          <AudioVisualizer isActive={agentState === 'SPEAKING' || (isCameraActive && agentState === 'IDLE')} color="bg-theme-accent" />
+          <AudioVisualizer isActive={agentState === 'SPEAKING'} color="bg-theme-vivid" />
           <div className="mt-8 px-10 text-center">
               {liveCaption && (
                   <div className="animate-fade-in bg-black/40 backdrop-blur-2xl px-8 py-5 rounded-[2.5rem] border border-white/10 max-w-sm mx-auto shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-                      <p className={`text-[9px] font-black uppercase tracking-[0.3em] mb-2 text-theme-accent`}>Field Guide Transcription</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] mb-2 text-theme-vivid">Your guide</p>
                       <p className="text-xl font-display italic font-medium text-white leading-tight">"{liveCaption}"</p>
                   </div>
               )}
@@ -1270,7 +1273,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                                 setShowModalityTooltip(false);
                                 localStorage.setItem('naturegram_has_seen_modality_tooltip', 'true');
                             }} 
-                            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors"
+                            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-full text-xs font-black uppercase tracking-widest transition-colors"
                           >
                             Skip
                           </button>
@@ -1279,7 +1282,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                                 setShowModalityTooltip(false);
                                 localStorage.setItem('naturegram_has_seen_modality_tooltip', 'true');
                             }} 
-                            className="px-4 py-2 bg-white text-theme-accent rounded-full text-[10px] font-black uppercase tracking-widest transition-colors"
+                            className="px-4 py-2 bg-white text-theme-vivid rounded-full text-xs font-black uppercase tracking-widest transition-colors"
                           >
                             Got it
                           </button>
@@ -1287,48 +1290,56 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   </div>
               </div>
           )}
-          <div className="flex items-center justify-between max-w-md mx-auto pointer-events-auto">
-              <div className="w-14 h-14" />
-              
-              <div className="flex items-center gap-8">
-                  <div className="flex flex-col items-center gap-2">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
-                          {isRecordingAudio ? "Recording..." : (isMuted ? "Muted" : "Listening")}
-                      </span>
-                      <button 
-                        onPointerDown={handleMicPress}
-                        onPointerUp={handleMicRelease}
-                        onPointerLeave={handleMicRelease}
-                        disabled={isProcessingCapture}
-                        className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl touch-none ${isRecordingAudio ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : (isMuted ? 'bg-white/5 border-white/10 text-white/20' : 'bg-theme-accent/20 border-theme-accent/30 text-theme-accent active:scale-95')} ${isProcessingCapture ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                          <span className="material-symbols-outlined">{isRecordingAudio ? 'stop_circle' : (isMuted ? 'mic_off' : 'mic')}</span>
-                          {isRecordingAudio && <span className="text-[8px] font-black">{recordingTime}s</span>}
-                      </button>
-                      <span className="text-[8px] font-bold text-white/30 uppercase tracking-tighter">Tap: Mute • Hold: Rec</span>
-                  </div>
+          <div className="flex items-end justify-between max-w-md mx-auto pointer-events-auto">
+              <div className="flex flex-col items-center gap-1.5">
+                  <button
+                      onClick={() => setIsMuted(m => !m)}
+                      aria-pressed={isMuted}
+                      aria-label={isMuted ? 'Unmute: let your guide hear you' : 'Mute: your guide stops listening'}
+                      className={`w-14 h-14 rounded-full backdrop-blur-xl border flex items-center justify-center transition-all shadow-2xl active:scale-95 ${isMuted ? 'bg-white text-stone-900 border-white' : 'bg-black/40 border-white/20 text-white'}`}
+                  >
+                      <span className="material-symbols-outlined" aria-hidden="true">{isMuted ? 'mic_off' : 'mic'}</span>
+                  </button>
+                  <span className="text-[11px] font-semibold text-white/80">{isMuted ? 'Muted' : 'Talk'}</span>
+              </div>
+
+              <div className="flex flex-col items-center gap-1.5">
+                  <button
+                      onClick={toggleSoundRecording}
+                      disabled={isRecordingVideo}
+                      aria-pressed={isRecordingAudio}
+                      aria-label={isRecordingAudio ? `Stop sound recording, ${recordingTime} seconds left` : 'Record a sound (up to 30 seconds)'}
+                      className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl active:scale-95 disabled:opacity-40 ${isRecordingAudio ? 'bg-red-600 border-red-400 text-white animate-pulse' : 'bg-black/40 border-white/20 text-white'}`}
+                  >
+                      <span className="material-symbols-outlined" aria-hidden="true">{isRecordingAudio ? 'stop' : 'graphic_eq'}</span>
+                      {isRecordingAudio && <span className="text-[11px] font-bold tabular">{recordingTime}s</span>}
+                  </button>
+                  <span className="text-[11px] font-semibold text-white/80">{isRecordingAudio ? 'Stop' : 'Sound'}</span>
+              </div>
+
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (
                           <div className="absolute -top-16 left-1/2 -translate-x-1/2 z-[60] w-48 animate-bounce pointer-events-none">
                               <div className="bg-theme-accent text-white p-3 rounded-2xl shadow-xl relative text-center">
                                   <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-3 h-3 bg-theme-accent rotate-45" />
-                                  <p className="text-[10px] font-black uppercase tracking-widest leading-tight">
+                                  <p className="text-xs font-black uppercase tracking-widest leading-tight">
                                       Add a photo cover for your audio
                                   </p>
                               </div>
                           </div>
                       )}
-                      <span className="text-[10px] font-black uppercase tracking-widest text-white/50 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md">
-                          {isCameraActive ? "Tap: Photo • Hold: Video" : "Tap to activate camera"}
+                      <span className="text-xs font-semibold text-white/90 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap">
+                          {isRecordingVideo ? 'Release to stop' : isCameraActive ? "Tap photo · hold video" : "Tap to turn camera on"}
                       </span>
                       <button 
                           onPointerDown={handleShutterPress}
                           onPointerUp={handleShutterRelease}
-                          onPointerLeave={handleShutterRelease}
-                          disabled={isProcessingCapture}
-                          className={`group relative w-24 h-24 flex items-center justify-center active:scale-90 transition-all touch-none ${isProcessingCapture ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          onPointerLeave={() => { if (holdTimeoutRef.current || isRecordingVideo) handleShutterRelease(); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleShutterPress(); window.setTimeout(handleShutterRelease, 50); } }}
+                          aria-label={isRecordingVideo ? 'Stop video' : isCameraActive ? 'Take photo. Hold to record video' : 'Turn camera on'}
+                          className="group relative w-24 h-24 flex items-center justify-center active:scale-90 transition-all touch-none"
                       >
-                          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-500 ${isCameraActive ? 'border-theme-accent scale-110 opacity-60' : 'border-white/10'} ${isRecordingVideo ? 'border-red-500 animate-pulse' : ''}`} />
+                          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-500 ${isCameraActive ? 'border-theme-vivid scale-110 opacity-60' : 'border-white/10'} ${isRecordingVideo ? 'border-red-500 animate-pulse' : ''}`} />
                           
                           {isRecordingVideo && (
                               <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
@@ -1338,17 +1349,18 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           )}
 
                           <div className={`w-20 h-20 rounded-full shadow-[0_0_30px_rgba(255,165,0,0.3)] flex items-center justify-center transition-all ${isCameraActive ? 'bg-white' : 'bg-white/10 border border-white/20'} ${isRecordingVideo ? 'bg-red-500' : ''}`}>
-                              <span className={`material-symbols-outlined text-4xl transition-colors ${isCameraActive ? 'text-theme-accent' : 'text-theme-accent/60'} ${isRecordingVideo ? 'text-white' : ''}`}>
+                              <span className={`material-symbols-outlined text-4xl transition-colors ${isCameraActive ? 'text-theme-vivid' : 'text-theme-vivid/60'} ${isRecordingVideo ? 'text-white' : ''}`}>
                                   {isRecordingVideo ? 'videocam' : (isCameraActive ? 'photo_camera' : 'sensors')}
                               </span>
                           </div>
                       </button>
                   </div>
-                  <button onClick={() => setIsCameraActive(!isCameraActive)} className={`w-14 h-14 rounded-full backdrop-blur-xl border flex items-center justify-center transition-all ${isCameraActive ? 'bg-theme-accent/20 border-theme-accent text-theme-accent' : 'bg-white/5 border-white/10 text-theme-accent/30'}`}>
-                      <span className="material-symbols-outlined">{isCameraActive ? 'visibility' : 'visibility_off'}</span>
-                  </button>
-              </div>
-              <div className="w-14 h-14" />
+                  <div className="flex flex-col items-center gap-1.5">
+                      <button onClick={() => setIsCameraActive(!isCameraActive)} aria-pressed={isCameraActive} aria-label={isCameraActive ? 'Turn camera off (guide listens only)' : 'Turn camera on'} className={`w-14 h-14 rounded-full backdrop-blur-xl border flex items-center justify-center transition-all shadow-2xl active:scale-95 ${isCameraActive ? 'bg-black/40 border-white/20 text-white' : 'bg-white text-stone-900 border-white'}`}>
+                          <span className="material-symbols-outlined" aria-hidden="true">{isCameraActive ? 'videocam' : 'videocam_off'}</span>
+                      </button>
+                      <span className="text-[11px] font-semibold text-white/80">{isCameraActive ? 'Camera' : 'Off'}</span>
+                  </div>
           </div>
       </div>
     </div>

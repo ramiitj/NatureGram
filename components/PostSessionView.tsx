@@ -1,9 +1,9 @@
 
 import { getShareUrl } from '../utils';
+import AiBadge, { FungiWarning, isFungiPost } from './AiBadge';
 import React, { useState, useEffect, useRef } from 'react';
 import { Snapshot, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
-import { generateFieldCard } from '../services/audioUtils.ts';
 import { rotateImageBlob } from '../services/imageUtils.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
@@ -17,15 +17,25 @@ interface PostSessionViewProps {
   onClose: () => void;
   onViewFeed: () => void;
   onSaveDraft: () => void;
+  onCaptureMore?: () => void;
+  onPublished?: () => void;
+  onRequireAccount?: (reason: string, then?: () => void) => void;
+  onUpdateSnapshots?: (snaps: Snapshot[]) => void;
   geminiServiceRef: React.MutableRefObject<GeminiLiveService | null>;
   updateSnapshot: (id: string, updates: Partial<Snapshot>) => void;
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
 }
 
-const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
+const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onCaptureMore, onPublished, onRequireAccount, onUpdateSnapshots, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
   const [snapshots, setSnapshots] = useState<Snapshot[]>(initialSnapshots);
-  // Default to selecting only the first snapshot, as per user request to not post all by default
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set([0]));
+  // Every capture is selected by default; explorers deselect what they don't want to share
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set(initialSnapshots.map((_, i) => i)));
+  const [caption, setCaption] = useState("");
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [publishError, setPublishError] = useState('');
+  const [newSpecies, setNewSpecies] = useState<string[]>([]);
+  const [publishedThumb, setPublishedThumb] = useState<string | null>(null);
+  const tagsTouchedRef = useRef(false);
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -42,8 +52,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [showLocation, setShowLocation] = useState(true);
   const [showPostOptionsModal, setShowPostOptionsModal] = useState(false);
   
-  const [fieldCardBlob, setFieldCardBlob] = useState<Blob | null>(null);
-  const [isGeneratingCard, setIsGeneratingCard] = useState(false);
+  const isGeneratingCard = false;
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [resolvedArea, setResolvedArea] = useState<string>("");
   const locationResolvedRef = useRef(false);
@@ -54,6 +63,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     setSnapshots(initialSnapshots);
   }, [initialSnapshots]);
 
+  // Preview URLs depend only on which media exist, not on text edits (avoids flicker while typing)
+  const mediaKey = initialSnapshots.map(s => `${s.id}:${s.blob ? s.blob.size : 0}:${s.videoBlob ? 1 : 0}:${s.audioBlob ? 1 : 0}`).join('|');
   useEffect(() => {
     const newUrls: Record<string, { image?: string; video?: string; audio?: string }> = {};
     initialSnapshots.forEach(snap => {
@@ -70,9 +81,20 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             if (urls.audio) URL.revokeObjectURL(urls.audio);
         });
     };
-  }, [initialSnapshots]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaKey]);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  /** Write an edit into the current capture so switching captures never loses it. */
+  const persistCurrent = (updates: Partial<Snapshot>) => {
+      setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, ...updates } : s));
+  };
+  const editLabels = (v: string[]) => { setLabels(v); persistCurrent({ labels: v }); };
+  const editInsight = (v: string) => { setAiInsight(v); persistCurrent({ aiInsight: v }); };
+
+  // Keep the parent session in sync (drafts saved from the header include these edits)
+  useEffect(() => { onUpdateSnapshots?.(snapshots); }, [snapshots]);
 
   useEffect(() => {
     const analyzeCurrent = async () => {
@@ -115,7 +137,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                 if (result) {
                     setAiInsight(result.ecologic);
                     setLabels(result.taxonomy);
-                    setTags(result.hashtags);
+                    if (!tagsTouchedRef.current) setTags((result.hashtags || []).map((h: string) => `#${String(h).replace(/^#/, '')}`));
                     if (result.location && !resolvedArea) setResolvedArea(result.location);
 
                     setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? {
@@ -123,6 +145,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                         aiInsight: result.ecologic,
                         labels: result.taxonomy,
                         locationArea: result.location,
+                        aiProposedLabels: s.aiProposedLabels || result.taxonomy,
+                        aiProposedBehavior: s.aiProposedBehavior || result.ecologic,
+                        aiConfidence: (result as any).confidence || s.aiConfidence || null,
                     } : s));
                 }
             } catch (e) {
@@ -185,30 +210,19 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   }, [snapshots, currentSnapIndex, resolvedArea]);
 
   useEffect(() => {
-    if (snapshots.length > 0 && snapshots[currentSnapIndex]) {
-        const current = snapshots[currentSnapIndex];
-        const newTags = new Set<string>();
-        newTags.add("#FIELDGUIDE");
-        if (current.isHybrid) newTags.add("#URBANWILD");
-        labels.forEach(l => newTags.add(`#${l.replace(/\s+/g, '').toLowerCase()}`));
-        setTags(Array.from(newTags));
-    }
-  }, [currentSnapIndex, snapshots, behavior, aiInsight, labels]);
-
-  useEffect(() => {
-      const prepareFieldCard = async () => {
-          if (snapshots.length > 0 && snapshots[currentSnapIndex] && snapshots[currentSnapIndex].type === 'image') {
-              setIsGeneratingCard(true);
-              const current = snapshots[currentSnapIndex];
-              try {
-                  const source = current.blob || current.url;
-                  const blob = await generateFieldCard(source, labels[0] || "Nature", "FIELD LOG");
-                  setFieldCardBlob(blob);
-              } catch (e) { console.error(e); } finally { setIsGeneratingCard(false); }
-          }
-      };
-      prepareFieldCard();
-  }, [currentSnapIndex, snapshots, labels]);
+    if (tagsTouchedRef.current) return;
+    const newTags = new Set<string>();
+    snapshots.forEach((snap, i) => {
+        if (!selectedIndices.has(i)) return;
+        (snap.labels || []).slice(0, 2).forEach(l => {
+            const t = l.replace(/\(.*?\)/g, '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+            if (t && !/^(unknown|nature|unidentified)/.test(t)) newTags.add(`#${t}`);
+        });
+        if (snap.isHybrid) newTags.add('#urbanwild');
+    });
+    newTags.add('#naturegram');
+    setTags(Array.from(newTags).slice(0, 12));
+  }, [snapshots, selectedIndices]);
 
   const toggleSelection = (idx: number) => {
       const next = new Set(selectedIndices);
@@ -229,20 +243,20 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     }
   };
 
+  const handleFinalizeRef = useRef<() => void>(() => {});
   const handleFinalizeClick = async () => {
-    let activeUserId = FirebaseService.getCurrentUserId();
-    if (!activeUserId || activeUserId === 'explorer_guest' || userMode.isAnonymous) {
-        setShowAuthModal(true);
+    setPublishError('');
+    const activeUserId = FirebaseService.getCurrentUserId();
+    const isGuest = !activeUserId || activeUserId === 'explorer_guest' || FirebaseService.isCurrentUserAnonymous();
+    if (isGuest) {
+        if (onRequireAccount) onRequireAccount('Create a free account to publish your sightings and keep them in your journal.', () => handleFinalizeRef.current());
+        else setShowAuthModal(true);
         return;
     }
-    if (snapshots.length > 0 && selectedIndices.size === 0) return alert("Select at least one observation to log.");
-    
-    // Check if any selected snapshot is still being analyzed
-    const selectedSnapshots = Array.from(selectedIndices).map(idx => snapshots[idx]);
-    const isStillAnalyzing = selectedSnapshots.some(s => s.aiInsight === "Processing...");
-    
-    if (isStillAnalyzing) {
-        alert("Please wait for the ecological analysis to complete before finalizing your expedition.");
+    if (snapshots.length === 0 || selectedIndices.size === 0) { setPublishError('Select at least one capture to share.'); return; }
+    const selectedSnapshots = Array.from(selectedIndices).map(idx => snapshots[idx]).filter(Boolean);
+    if (selectedSnapshots.some(s => s.aiInsight === "Processing...")) {
+        setPublishError('Your guide is still analysing a capture. It will be ready in a moment.');
         return;
     }
 
@@ -253,72 +267,94 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     }
   };
 
+  handleFinalizeRef.current = handleFinalizeClick;
+
   const executeDispatch = async (mode: 'stitch' | 'separate') => {
     setShowPostOptionsModal(false);
     setIsProcessing(true);
+    setPublishError('');
     try {
         const activeUserId = FirebaseService.getCurrentUserId()!;
-        const selectedSnapshots = Array.from(selectedIndices).map(idx => {
+        const before = await FirebaseService.getMySpeciesSet();
+        const selectedSnapshots = Array.from(selectedIndices).sort((a, b) => a - b).map(idx => {
             const current = snapshots[idx];
+            const proposed = current.aiProposedLabels || [];
             return { 
                 ...current, 
-                blob: (idx === currentSnapIndex && fieldCardBlob) ? fieldCardBlob : current.blob, 
                 locationArea: resolvedArea, 
                 showLocation, 
-                behavior: idx === currentSnapIndex ? behavior : current.behavior, 
-                aiInsight: idx === currentSnapIndex ? aiInsight : current.aiInsight, 
-                labels: idx === currentSnapIndex ? labels : current.labels,
-                humanDelta: idx === currentSnapIndex ? (
-                    JSON.stringify(labels) !== JSON.stringify(current.aiProposedLabels || []) ||
-                    behavior !== (current.aiProposedBehavior || '')
-                ) : current.humanDelta || false
+                // Human-in-the-loop signal: did the explorer change what the AI proposed?
+                humanDelta: proposed.length > 0 && JSON.stringify((current.labels || []).map(l => l.toLowerCase())) !== JSON.stringify(proposed.map(l => l.toLowerCase())),
             };
         });
+        const cleanTags = tags.map(t => t.trim()).filter(Boolean);
 
         let lastCreatedId = null;
         if (mode === 'stitch') {
             const itemsForSynthesis = selectedSnapshots.map(s => ({ taxonomy: s.labels || [], ecologic: s.aiInsight || '' }));
             const synthesizedData = await GenAiService.synthesizeCollection(itemsForSynthesis);
-            const res = await FirebaseService.createSessionObservation(selectedSnapshots, activeUserId, { feed: postToFeed, journal: saveToJournal }, tags, synthesizedData);
+            const res = await FirebaseService.createSessionObservation(selectedSnapshots, activeUserId, { feed: postToFeed, journal: true }, cleanTags, synthesizedData, caption);
             if (res?.id) lastCreatedId = res.id;
         } else {
             for (const snap of selectedSnapshots) {
-                const res = await FirebaseService.createSessionObservation([snap], activeUserId, { feed: postToFeed, journal: saveToJournal }, tags);
+                const res = await FirebaseService.createSessionObservation([snap], activeUserId, { feed: postToFeed, journal: true }, cleanTags, undefined, caption);
                 if (res?.id) lastCreatedId = res.id;
             }
         }
-        if (lastCreatedId) {
-            setCreatedPostId(lastCreatedId);
-        }
-
+        if (lastCreatedId) setCreatedPostId(lastCreatedId);
+        const fresh = Array.from(new Set(selectedSnapshots.map(s => (s.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l) && !before.has(l.toLowerCase()))));
+        setNewSpecies(fresh);
+        const first = selectedSnapshots[0];
+        setPublishedThumb(first ? (objectUrls[first.id]?.image || first.url || null) : null);
         setIsDone(true);
+        onPublished?.();
         
         if (geminiServiceRef.current) {
             geminiServiceRef.current.disconnect();
             geminiServiceRef.current = null;
         }
-    } catch (e) { alert("Dispatch failed."); } finally { setIsProcessing(false); }
+    } catch (e) {
+        console.error('Publish failed', e);
+        setPublishError(navigator.onLine === false
+            ? "You're offline. Your captures are safe here. Reconnect and tap Share again, or save a draft."
+            : "We couldn't publish just now. Your captures are safe. Please try again or save a draft.");
+    } finally { setIsProcessing(false); }
   };
 
   if (isDone) {
+      const share = async () => {
+          if (!createdPostId) return;
+          const url = getShareUrl(createdPostId);
+          try {
+              if (navigator.share) await navigator.share({ title: newSpecies[0] ? `I spotted a ${newSpecies[0]} on NatureGram` : 'My NatureGram sighting', url });
+              else handleCopyLink();
+          } catch { /* cancelled */ }
+      };
       return (
-          <div className="fixed inset-0 bg-day-bg flex flex-col items-center justify-center p-8 text-center animate-fade-in z-[70]">
-               <h2 className="text-4xl font-display italic text-theme-primary mb-4 font-bold tracking-tight">Observations Logged</h2>
-               <p className="text-theme-primary/60 mb-12 text-sm font-medium">Findings archived in your persistent record.</p>
-               
-               {createdPostId && (
-                   <button 
-                       id="copy_shared_link_btn"
-                       onClick={handleCopyLink} 
-                       className={`w-full max-w-xs px-8 py-5 rounded-lg font-bold uppercase tracking-widest text-[10px] mb-4 shadow-lg transition-all flex items-center justify-center gap-2 ${copied ? 'bg-emerald-600 text-white' : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 active:scale-95'}`}
-                   >
-                       <span className="material-symbols-outlined text-sm">{copied ? 'check_circle' : 'link'}</span>
-                       <span>{copied ? 'Link Copied!' : 'Copy Shareable Link'}</span>
-                   </button>
+          <div className="fixed inset-0 bg-day-bg flex flex-col items-center justify-center p-8 text-center animate-fade-in z-[70] overflow-y-auto">
+               {publishedThumb && (
+                   <div className="relative mb-6">
+                       <img src={publishedThumb} alt="" className="w-40 h-40 rounded-[2rem] object-cover shadow-2xl rotate-[-3deg]" />
+                       <span className="absolute -bottom-3 -right-3 w-12 h-12 rounded-full bg-theme-accent text-white flex items-center justify-center shadow-lg" aria-hidden="true"><span className="material-symbols-outlined">check</span></span>
+                   </div>
                )}
-
-               <button onClick={onViewFeed} className="w-full max-w-xs bg-theme-accent text-white px-8 py-5 rounded-lg font-bold uppercase tracking-widest text-[10px] mb-4 shadow-xl shadow-theme-accent/20">View Ecosystem</button>
-               <button onClick={onClose} className="catalog-label hover:opacity-70 transition-opacity">Return to Field</button>
+               <h2 className="text-3xl font-display italic text-theme-primary mb-2 font-bold tracking-tight">{postToFeed ? 'Shared with the field' : 'Saved to your journal'}</h2>
+               <p className="text-stone-600 mb-6 text-base max-w-xs">{postToFeed ? 'Explorers can now see, like and learn from your sighting.' : 'Only you can see it. You can share it to the feed any time.'}</p>
+               {newSpecies.length > 0 && (
+                   <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
+                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-theme-accent mb-1">New to your life list</p>
+                       <p className="text-lg font-display font-bold text-stone-900">{newSpecies.join(', ')}</p>
+                   </div>
+               )}
+               <div className="w-full max-w-xs flex flex-col gap-3">
+                   {createdPostId && postToFeed && (
+                       <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+                           <span className="material-symbols-outlined" aria-hidden="true">ios_share</span>{copied ? 'Link copied!' : 'Share'}
+                       </button>
+                   )}
+                   <button onClick={onViewFeed} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base">Go to feed</button>
+                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full bg-stone-100 text-stone-900 px-6 py-4 rounded-2xl font-bold text-base">Capture more</button>}
+               </div>
           </div>
       );
   }
@@ -337,13 +373,13 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="fixed inset-0 bg-day-bg flex flex-col z-[70] overflow-hidden"
     >
-      <header className="h-16 px-6 flex justify-between items-center bg-white border-b border-theme-primary/10 shrink-0 z-20">
-          <button onClick={onClose} className="text-theme-primary/40 hover:text-theme-accent transition-colors"><span className="material-symbols-outlined">close</span></button>
+      <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-theme-primary/10 shrink-0 z-20 safe-pt box-content">
+          <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="w-11 h-11 -ml-2 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
           <div className="text-center">
-              <h2 className="text-sm font-display font-black italic text-theme-primary">Review Expedition</h2>
-              <p className="catalog-label text-[8px] opacity-40 uppercase tracking-widest">{selectedIndices.size} Observations Selected</p>
+              <h2 className="text-base font-bold text-stone-900">New post</h2>
+              <p className="text-xs text-stone-500">{selectedIndices.size} of {snapshots.length} capture{snapshots.length === 1 ? '' : 's'} selected</p>
           </div>
-          <button onClick={onSaveDraft} className="text-theme-accent text-[9px] font-black uppercase tracking-widest px-4 py-2 bg-theme-accent/10 rounded-full hover:bg-theme-accent/20 transition-colors">Save Draft</button>
+          <button onClick={onSaveDraft} disabled={!snapshots.length} className="text-theme-accent text-sm font-bold px-3 py-2 rounded-full hover:bg-theme-accent/10 transition-colors disabled:opacity-40">Save draft</button>
       </header>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -390,7 +426,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       controls 
                                       className="w-64 h-10" 
                                   />
-                                  <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.3em]">Acoustic Signature</p>
+                                  <p className="text-xs font-black text-white/60 uppercase tracking-[0.3em]">Acoustic Signature</p>
                               </div>
                           </div>
                       ) : (
@@ -412,6 +448,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       )}
                       <button 
                           onClick={() => toggleSelection(currentSnapIndex)} 
+                          aria-pressed={selectedIndices.has(currentSnapIndex)}
+                          aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected for posting. Tap to exclude' : 'Not selected. Tap to include'}
                           className={`absolute top-6 right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${selectedIndices.has(currentSnapIndex) ? 'bg-theme-accent text-white' : 'bg-white/20 backdrop-blur-md text-white border border-white/20'}`}
                       >
                           <span className="material-symbols-outlined text-2xl">{selectedIndices.has(currentSnapIndex) ? 'check_circle' : 'add_circle'}</span>
@@ -439,7 +477,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                           }
                                       } catch (e) {
                                           console.error("Failed to rotate image", e);
-                                          alert("Failed to rotate image.");
+                                          setPublishError("Couldn't rotate that image.");
                                       } finally {
                                           setIsProcessing(false);
                                       }
@@ -450,6 +488,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   }
                               }} 
                               disabled={isProcessing}
+                              aria-label="Rotate 90 degrees"
                               className="absolute top-6 left-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 bg-white/20 backdrop-blur-md text-white border border-white/20 disabled:opacity-50"
                           >
                               <span className="material-symbols-outlined text-2xl">rotate_right</span>
@@ -459,7 +498,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
               ) : (
                   <div className="text-center opacity-20">
                       <span className="material-symbols-outlined text-6xl text-white mb-4">landscape</span>
-                      <h3 className="text-xl font-display font-bold italic text-white">No Media Selected</h3>
+                      <h3 className="text-xl font-display font-bold italic text-white">No captures in this session</h3>
                   </div>
               )}
           </div>
@@ -470,10 +509,10 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   {snapshots.length > 1 && (
                       <div className="mb-10">
                           <div className="flex items-center justify-between mb-4">
-                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-theme-primary/40">Expedition Timeline</span>
+                              <span className="text-sm font-bold text-stone-700">Your captures</span>
                               <button 
                                   onClick={() => setSelectedIndices(selectedIndices.size === snapshots.length ? new Set() : new Set(snapshots.map((_, i) => i)))}
-                                  className="text-[9px] font-black uppercase tracking-widest text-theme-accent hover:text-theme-accent/80"
+                                  className="text-xs font-black uppercase tracking-widest text-theme-accent hover:text-theme-accent/80"
                               >
                                   {selectedIndices.size === snapshots.length ? 'Deselect All' : 'Select All'}
                               </button>
@@ -515,30 +554,51 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   {snapshots.length > 0 && (
                       <div className="space-y-8">
                           <section>
-                              <label className="catalog-label text-[9px] mb-3 block opacity-50">Taxonomy & Identification</label>
-                              <input 
-                                  type="text" 
-                                  placeholder="Species Name..."
-                                  value={labels.join(', ')} 
-                                  onChange={(e) => setLabels(e.target.value.split(',').map(l => l.trim()).filter(Boolean))} 
-                                  className="w-full p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-[9px] font-black uppercase tracking-widest text-theme-primary outline-none focus:border-theme-accent/30 transition-colors placeholder:text-[9px] placeholder:font-black placeholder:uppercase placeholder:tracking-widest placeholder:text-theme-primary/30"
+                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Caption</label>
+                              <textarea
+                                  id="post-caption"
+                                  value={caption}
+                                  onChange={(e) => setCaption(e.target.value.slice(0, 2200))}
+                                  placeholder="What did you notice? Where were you, what was it doing?"
+                                  rows={3}
+                                  className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base text-stone-900 leading-relaxed resize-none focus:border-theme-accent"
                               />
+                              <p className="text-xs text-stone-500 text-right mt-1 tabular">{caption.length}/2200</p>
+                          </section>
+
+                          <section>
+                              <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                                  <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800">What did you see?</label>
+                                  <AiBadge confidence={currentSnapshot?.aiConfidence} compact={false} />
+                              </div>
+                              <input 
+                                  id="post-labels"
+                                  type="text" 
+                                  placeholder="e.g. Indian Peafowl, Pavo cristatus"
+                                  value={labels.join(', ')} 
+                                  onChange={(e) => editLabels(e.target.value.split(',').map(l => l.trimStart()).filter((l, i, arr) => l || i === arr.length - 1))} 
+                                  onBlur={() => editLabels(labels.map(l => l.trim()).filter(Boolean))}
+                                  className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base font-semibold text-stone-900 focus:border-theme-accent"
+                              />
+                              <p className="text-xs text-stone-500 mt-1.5">Common name first, then scientific name, separated by commas. Correct the AI if it's wrong; your fixes make NatureGram smarter for everyone.</p>
+                              {isFungiPost({ labels }) && <div className="mt-3"><FungiWarning /></div>}
                           </section>
                           
                           <section>
-                              <label className="catalog-label text-[9px] mb-3 block opacity-50">Ecological Insight</label>
+                              <label htmlFor="post-insight" className="block text-sm font-bold text-stone-800 mb-2">Behaviour & ecology <span className="font-normal text-stone-500">(AI draft, edit freely)</span></label>
                               <div className="relative">
                                   <textarea 
+                                      id="post-insight"
                                       value={aiInsight} 
-                                      onChange={(e) => setAiInsight(e.target.value)} 
-                                      placeholder="Describe the observation..."
-                                      className={`w-full p-6 bg-theme-accent/5 border rounded-3xl text-base font-display italic text-theme-primary/90 leading-relaxed outline-none resize-none h-48 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
+                                      onChange={(e) => editInsight(e.target.value)} 
+                                      placeholder="Describe the behaviour and why it matters…"
+                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display italic text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
                                   />
                                   {isAnalyzing && aiInsight === "Processing..." && (
-                                      <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px] rounded-3xl pointer-events-none">
+                                      <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-3xl pointer-events-none" role="status">
                                           <div className="flex flex-col items-center gap-3">
-                                              <div className="w-8 h-8 rounded-full border-2 border-theme-accent border-t-transparent animate-spin" />
-                                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-theme-accent">Deep Analysis...</span>
+                                              <div className="w-8 h-8 rounded-full border-2 border-theme-accent border-t-transparent animate-spin" aria-hidden="true" />
+                                              <span className="text-sm font-semibold text-theme-accent">Your guide is analysing…</span>
                                           </div>
                                       </div>
                                   )}
@@ -560,7 +620,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       </label>
                                   </div>
                                   <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
-                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/40 text-sm" aria-hidden="true">location_on</span>
+                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">location_on</span>
                                       <input 
                                           id="post-location"
                                           type="text" 
@@ -574,61 +634,64 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               </section>
 
                               <section>
-                                  <label className="catalog-label text-[9px] mb-3 block opacity-50">Hashtags</label>
+                                  <label htmlFor="post-tags" className="block text-xs font-bold text-theme-primary/70 mb-3">Hashtags</label>
                                   <div className="relative">
-                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/40 text-sm">tag</span>
+                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">tag</span>
                                       <input 
+                                          id="post-tags"
                                           type="text" 
                                           value={tags.join(' ')} 
-                                          onChange={(e) => setTags(e.target.value.split(' ').filter(Boolean))} 
-                                          className="w-full pl-11 p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-[9px] font-black italic uppercase tracking-widest text-theme-primary outline-none focus:border-theme-accent/30 transition-colors placeholder:text-[9px] placeholder:font-black placeholder:italic placeholder:uppercase placeholder:tracking-widest placeholder:text-theme-primary/30"
+                                          onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }} 
+                                          placeholder="#birding #monsoon"
+                                          className="w-full pl-11 p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-sky-900 focus:border-theme-accent/30 transition-colors"
                                       />
                                   </div>
                               </section>
                           </div>
 
-                          <div className="flex gap-4 pt-4">
-                              <button 
-                                  onClick={() => setSaveToJournal(!saveToJournal)} 
-                                  className={`flex-1 py-5 border transition-all flex items-center justify-center gap-3 rounded-2xl ${saveToJournal ? 'bg-theme-primary border-theme-primary text-white shadow-xl' : 'bg-white border-theme-primary/10 text-theme-primary/30'}`}
-                              >
-                                  <span className="material-symbols-outlined text-xl">fingerprint</span>
-                                  <span className="text-[10px] font-black uppercase tracking-widest">Journal</span>
-                              </button>
-                              <button 
-                                  onClick={() => setPostToFeed(!postToFeed)} 
-                                  className={`flex-1 py-5 border transition-all flex items-center justify-center gap-3 rounded-2xl ${postToFeed ? 'bg-theme-accent border-theme-accent text-white shadow-xl' : 'bg-white border-theme-primary/10 text-theme-primary/30'}`}
-                              >
-                                  <span className="material-symbols-outlined text-xl">public</span>
-                                  <span className="text-[10px] font-black uppercase tracking-widest">Ecosystem</span>
-                              </button>
-                          </div>
+                          <fieldset className="pt-2">
+                              <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see this?</legend>
+                              <div className="grid grid-cols-2 gap-3">
+                                  {([
+                                      { v: true, icon: 'public', title: 'Feed & journal', desc: 'Everyone on NatureGram' },
+                                      { v: false, icon: 'lock', title: 'Journal only', desc: 'Only you' },
+                                  ]).map(opt => (
+                                      <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
+                                          <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
+                                          <span className="flex items-center gap-2 font-bold text-stone-900"><span className="material-symbols-outlined text-xl" aria-hidden="true">{opt.icon}</span>{opt.title}</span>
+                                          <span className="block text-xs text-stone-600 mt-1">{opt.desc}</span>
+                                      </label>
+                                  ))}
+                              </div>
+                          </fieldset>
                       </div>
                   )}
               </div>
           </div>
 
           {/* Static Finalize Button at Bottom */}
-          <div className="shrink-0 p-6 bg-white border-t border-theme-primary/10 z-20 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+          <div className="shrink-0 p-4 bg-white border-t border-theme-primary/10 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+              {publishError && <p role="alert" className="mb-3 text-sm text-red-800 bg-red-50 rounded-xl p-3">{publishError}</p>}
               <button 
                   onClick={handleFinalizeClick} 
-                  disabled={isGeneratingCard || isProcessing || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))} 
-                  className="w-full py-6 bg-theme-accent text-white font-black uppercase tracking-[0.4em] text-[11px] rounded-2xl shadow-2xl shadow-theme-accent/30 disabled:opacity-30 transition-all active:scale-95 flex items-center justify-center gap-3"
+                  disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))} 
+                  aria-busy={isProcessing}
+                  className="w-full py-4 bg-theme-accent text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-accent/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
               >
                   {isProcessing ? (
                       <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" />
-                          <span>Syncing Discovery...</span>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" aria-hidden="true" />
+                          <span>Publishing…</span>
                       </>
                   ) : (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing...") ? (
                       <>
-                          <span className="material-symbols-outlined animate-pulse">psychology</span>
-                          <span>Waiting for Analysis...</span>
+                          <span className="material-symbols-outlined animate-pulse" aria-hidden="true">psychology</span>
+                          <span>Waiting for your guide…</span>
                       </>
                   ) : (
                       <>
-                          <span className="material-symbols-outlined">send</span>
-                          <span>Finalize Expedition</span>
+                          <span className="material-symbols-outlined" aria-hidden="true">{postToFeed ? 'send' : 'menu_book'}</span>
+                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? `Share ${selectedIndices.size > 1 ? `${selectedIndices.size} sightings` : 'sighting'}` : 'Save to journal'}</span>
                       </>
                   ))}
               </button>
@@ -638,8 +701,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       {showPostOptionsModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl">
-                  <h3 className="text-2xl font-display italic font-bold text-theme-primary mb-2">Post Options</h3>
-                  <p className="text-sm text-theme-primary/60 mb-8">You have selected multiple observations. How would you like to post them?</p>
+                  <h3 className="text-2xl font-display font-bold text-stone-900 mb-2">Share {selectedIndices.size} captures as…</h3>
+                  <p className="text-sm text-stone-600 mb-6">Your caption and hashtags apply to each post.</p>
                   
                   <div className="space-y-4">
                       <button 
@@ -651,7 +714,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <span className="material-symbols-outlined">grid_view</span>
                               </div>
                               <div>
-                                  <div className="font-bold text-theme-primary text-sm">Post Separately</div>
+                                  <div className="font-bold text-theme-primary text-sm">Separate posts</div>
                                   <div className="text-xs text-theme-primary/60">Create {selectedIndices.size} individual posts</div>
                               </div>
                           </div>
@@ -666,8 +729,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <span className="material-symbols-outlined">view_carousel</span>
                               </div>
                               <div>
-                                  <div className="font-bold text-theme-primary text-sm">Stitch as Collection</div>
-                                  <div className="text-xs text-theme-primary/60">Create 1 post with a unified summary</div>
+                                  <div className="font-bold text-theme-primary text-sm">One carousel post</div>
+                                  <div className="text-xs text-theme-primary/60">Swipeable, with an AI summary of the whole expedition</div>
                               </div>
                           </div>
                       </button>
@@ -675,7 +738,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   
                   <button 
                       onClick={() => setShowPostOptionsModal(false)}
-                      className="w-full mt-6 py-4 text-xs font-bold text-theme-primary/40 hover:text-theme-primary/70 uppercase tracking-widest transition-colors"
+                      className="w-full mt-6 py-4 text-xs font-bold text-theme-primary/60 hover:text-theme-primary/70 uppercase tracking-widest transition-colors"
                   >
                       Cancel
                   </button>
@@ -683,7 +746,21 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           </div>
       )}
 
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onSuccess={() => { setShowAuthModal(false); handleFinalizeClick(); }} />}
+      {confirmLeave && (
+          <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+              <div className="w-full sm:max-w-sm bg-white rounded-t-[2rem] sm:rounded-[2rem] p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
+                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Keep your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
+                  <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
+                  <div className="flex flex-col gap-2">
+                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold">Save draft</button>
+                      <button onClick={() => { setConfirmLeave(false); onClose(); }} className="w-full py-3.5 rounded-xl bg-red-50 text-red-700 font-bold">Discard</button>
+                      <button onClick={() => setConfirmLeave(false)} className="w-full py-3.5 rounded-xl bg-stone-100 text-stone-800 font-bold">Keep editing</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onSuccess={() => { setShowAuthModal(false); setTimeout(() => handleFinalizeRef.current(), 300); }} />}
     </motion.div>
   );
 };

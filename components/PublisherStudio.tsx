@@ -146,7 +146,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
             <span className="material-symbols-outlined text-emerald-700 text-2xl">campaign</span>
             <div>
               <h3 className="text-sm font-black font-display text-stone-900 tracking-tight uppercase">Publisher Studio</h3>
-              <p className="text-[10px] text-stone-500 font-medium tracking-wide">Optimize speciman for social distribution</p>
+              <p className="text-xs text-stone-500 font-medium tracking-wide">Optimize speciman for social distribution</p>
             </div>
           </div>
           <button 
@@ -163,10 +163,10 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
           {/* Formatted Caption Preview */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-[9px] font-black uppercase text-stone-400 tracking-wider">Formatted Message Caption</span>
+              <span className="text-xs font-black uppercase text-stone-400 tracking-wider">Formatted Message Caption</span>
               <button 
                 onClick={copyTextToClipboard} 
-                className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:text-emerald-800 transition-colors"
+                className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 transition-colors"
               >
                 <span className="material-symbols-outlined text-sm">{copiedText ? 'done' : 'content_copy'}</span>
                 <span>{copiedText ? 'Copied' : 'Copy Text'}</span>
@@ -193,8 +193,8 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 )}
               </div>
               <div className="space-y-0.5">
-                <p className="text-[10px] font-black uppercase tracking-wider text-stone-800">Download Specimen</p>
-                <p className="text-[8px] text-stone-400 uppercase font-bold">{extension === 'mp4' ? 'Video File' : extension === 'mp3' ? 'Audio File' : 'HQ Image'}</p>
+                <p className="text-xs font-black uppercase tracking-wider text-stone-800">Download Specimen</p>
+                <p className="text-[11px] text-stone-400 uppercase font-bold">{extension === 'mp4' ? 'Video File' : extension === 'mp3' ? 'Audio File' : 'HQ Image'}</p>
               </div>
             </button>
 
@@ -206,15 +206,15 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 <span className="material-symbols-outlined text-lg">{copiedLink ? 'check_circle' : 'link'}</span>
               </div>
               <div className="space-y-0.5">
-                <p className="text-[10px] font-black uppercase tracking-wider text-stone-800">{copiedLink ? 'Link Copied!' : 'Copy Share Link'}</p>
-                <p className="text-[8px] text-stone-400 uppercase font-bold">OG Meta Link</p>
+                <p className="text-xs font-black uppercase tracking-wider text-stone-800">{copiedLink ? 'Link Copied!' : 'Copy Share Link'}</p>
+                <p className="text-[11px] text-stone-400 uppercase font-bold">OG Meta Link</p>
               </div>
             </button>
           </div>
 
           {/* Platform Launchers */}
           <div className="space-y-3">
-            <span className="text-[9px] font-black uppercase text-stone-400 tracking-wider">Select Publishing Destination</span>
+            <span className="text-xs font-black uppercase text-stone-400 tracking-wider">Select Publishing Destination</span>
             
             <div className="grid grid-cols-2 gap-3">
               {/* WhatsApp */}
@@ -229,7 +229,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-stone-800 uppercase tracking-wide">WhatsApp</h4>
-                  <p className="text-[9px] text-stone-400">Share text + link directly</p>
+                  <p className="text-xs text-stone-400">Share text + link directly</p>
                 </div>
               </button>
 
@@ -245,7 +245,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-stone-800 uppercase tracking-wide">Instagram</h4>
-                  <p className="text-[9px] text-stone-400">Launch & drag-and-drop info</p>
+                  <p className="text-xs text-stone-400">Launch & drag-and-drop info</p>
                 </div>
               </button>
 
@@ -261,7 +261,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-stone-800 uppercase tracking-wide">LinkedIn</h4>
-                  <p className="text-[9px] text-stone-400">Feed post with full metadata</p>
+                  <p className="text-xs text-stone-400">Feed post with full metadata</p>
                 </div>
               </button>
 
@@ -277,7 +277,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-stone-800 uppercase tracking-wide">Facebook</h4>
-                  <p className="text-[9px] text-stone-400">Pristine image preview post</p>
+                  <p className="text-xs text-stone-400">Pristine image preview post</p>
                 </div>
               </button>
             </div>
@@ -286,7 +286,7 @@ const PublisherStudio: React.FC<PublisherStudioProps> = ({ post, activeItemIndex
           {/* Guidelines info */}
           <div className="p-3.5 bg-stone-50/80 rounded-2xl border border-stone-100 flex gap-2.5 items-start">
             <span className="material-symbols-outlined text-[15px] text-emerald-700 font-bold shrink-0 mt-0.5">info</span>
-            <p className="text-[9px] font-medium text-stone-500 leading-normal uppercase tracking-wide">
+            <p className="text-xs font-medium text-stone-500 leading-normal uppercase tracking-wide">
               PRO TIP: Click "Download Specimen" to save the pristine media asset. Click "Copy Text" to get your formatted description and tags. When you launch Instagram or Facebook, simply choose your downloaded media and paste the copied caption in one tab!
             </p>
           </div>

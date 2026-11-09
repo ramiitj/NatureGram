@@ -235,12 +235,12 @@ async function startServer() {
     if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://apis.google.com https://cdn.tailwindcss.com https://esm.sh",
+      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob: https:",
-      "connect-src 'self' wss: https://esm.sh https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
+      "connect-src 'self' wss: https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
       "worker-src 'self' blob:",
       "frame-ancestors 'self' https://aistudio.google.com https://*.google.com",

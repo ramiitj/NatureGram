@@ -42,8 +42,10 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
         }
         
         onSave({ blob: blob as Blob, rotation: 0 });
+      } else if (type === 'video' && rotation !== initialRotation) {
+        // Videos keep their file; the rotation is stored and applied on playback
+        onSave({ rotation });
       } else {
-        // For video/audio, we just close (volume is handled by HTML5 controls)
         onCancel();
       }
     } catch (e) {
@@ -103,8 +105,9 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
                     <button onClick={() => setFilter(filter === 'grayscale' ? 'none' : 'grayscale')} className={`p-3 rounded-full ${filter === 'grayscale' ? 'bg-theme-accent' : 'bg-white/10'}`}>BW</button>
                 </div>
                 <div className="flex gap-4 text-xs">
-                    <label>Brightness: <input type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} /></label>
-                    <label>Contrast: <input type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(Number(e.target.value))} /></label>
+                    <label className="flex items-center gap-2">Brightness <input type="range" min="50" max="150" value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} /> <span className="tabular w-10">{brightness}%</span></label>
+                    <label className="flex items-center gap-2">Contrast <input type="range" min="50" max="150" value={contrast} onChange={(e) => setContrast(Number(e.target.value))} /> <span className="tabular w-10">{contrast}%</span></label>
+                    <button type="button" onClick={() => { setBrightness(100); setContrast(100); }} className="underline">Reset</button>
                 </div>
             </>
         )}
