@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
+import { track } from '../services/analytics';
 
 interface AuthModalProps {
   onClose?: () => void;
@@ -64,9 +65,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         setMode('login');
       } else if (mode === 'signup') {
         await FirebaseService.registerUser(email, password, username);
+        track('sign_up', { with_username: !!username });
         onSuccess();
       } else {
         await FirebaseService.loginUser(email, password);
+        track('login');
         onSuccess();
       }
     } catch (err: any) {

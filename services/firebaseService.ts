@@ -13,6 +13,8 @@ import {
   orderBy,
   limit,
   startAfter,
+  startAt,
+  endAt,
   onSnapshot,
   serverTimestamp,
   arrayUnion,
@@ -164,6 +166,7 @@ export const FirebaseService = {
         const profile: any = {
           uid: userId,
           username,
+          usernameLower: username.toLowerCase(),
           isAnonymous,
           joinedAt: serverTimestamp(),
           lastVisit: serverTimestamp(),
@@ -183,6 +186,8 @@ export const FirebaseService = {
         const data = docSnap.data();
         const updates: any = { lastVisit: serverTimestamp() };
         if (data.isAnonymous && !isAnonymous) updates.isAnonymous = false;
+        // Backfill the search key for existing accounts on their next visit (no data rewritten)
+        if (data.username && !data.usernameLower) updates.usernameLower = String(data.username).toLowerCase();
         try {
           await updateDoc(docRef, updates);
         } catch (updErr) {
@@ -247,7 +252,7 @@ export const FirebaseService = {
         await FirebaseService.ensureUserProfile(cred.user.uid, email, false);
         const desired = (username || '').trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
         const updates: any = { isAnonymous: false };
-        if (desired) updates.username = desired;
+        if (desired) { updates.username = desired; updates.usernameLower = desired.toLowerCase(); }
         await updateDoc(doc(db, "users", cred.user.uid), updates);
         if (desired) await updateProfile(cred.user, { displayName: desired });
         else if (!cred.user.displayName) await updateProfile(cred.user, { displayName: email.split('@')[0].slice(0, 30) });
@@ -618,6 +623,7 @@ export const FirebaseService = {
         await FirebaseService.upsertThumbnail(docRef.id, { ...postData, timestamp: postData.timestamp });
       }
       await FirebaseService.savePrivateObservationData(effectiveUserId, docRef.id, snapshots);
+      if (caption && flags.feed) FirebaseService.notifyMentions(caption, docRef.id, 'caption').catch(() => {});
 
       try {
         await updateDoc(doc(db, "users", effectiveUserId), {
@@ -673,9 +679,16 @@ export const FirebaseService = {
       const normalizedTag = searchTag
           ? (searchTag.startsWith('#') ? searchTag : `#${searchTag}`).toLowerCase().replace(/\s+/g, '')
           : null;
+      // Legacy posts use mixed-case tags (#FIELDGUIDE, #NatureGram): match common case variants
+      const tagVariants = normalizedTag ? Array.from(new Set([
+          normalizedTag,
+          normalizedTag.toUpperCase(),
+          '#' + normalizedTag.slice(1, 2).toUpperCase() + normalizedTag.slice(2),
+          searchTag && searchTag.startsWith('#') ? searchTag : `#${searchTag || ''}`,
+      ])).slice(0, 10) : [];
       const build = (publicOnly: boolean) => {
           const c: any[] = [];
-          if (normalizedTag) c.push(where("tags", "array-contains", normalizedTag));
+          if (normalizedTag) c.push(where("tags", "array-contains-any", tagVariants));
           if (publicOnly) c.push(where("isPublic", "==", true));
           c.push(orderBy("timestamp", "desc"), limit(PAGE_SIZE));
           if (lastVisible) c.push(startAfter(lastVisible));
@@ -685,12 +698,17 @@ export const FirebaseService = {
       try {
           snapshot = await getDocs(build(true));
       } catch (error: any) {
-          // Index still building: fall back to an unfiltered query (works only under legacy rules)
-          if (error?.code === 'failed-precondition') {
-              snapshot = await getDocs(build(false));
-          } else {
+          // Composite index not deployed yet: degrade gracefully instead of breaking the feed
+          if (error?.code !== 'failed-precondition') {
               handleFirestoreError(error, OperationType.GET, "feed_thumbnails");
               throw error;
+          }
+          try {
+              snapshot = await getDocs(build(false));
+          } catch (e2: any) {
+              if (!normalizedTag || lastVisible) throw e2;
+              // Tag search without ordering (single-field index only); sorted client-side below
+              snapshot = await getDocs(query(collection(db, "feed_thumbnails"), where("tags", "array-contains-any", tagVariants), limit(100)));
           }
       }
       const posts: CommunityPost[] = [];
@@ -700,6 +718,8 @@ export const FirebaseService = {
               posts.push({ id: d.id, ...data, labels: data.labels || (data.label ? [data.label] : ["Nature"]) } as CommunityPost);
           }
       });
+      const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
+      posts.sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
       return { posts, lastVisible: snapshot.docs.length === PAGE_SIZE ? snapshot.docs[snapshot.docs.length - 1] : null };
   },
 
@@ -833,6 +853,7 @@ export const FirebaseService = {
     } catch (notifErr) {
       console.warn("Comment notification skipped:", notifErr);
     }
+    FirebaseService.notifyMentions(clean, postId, 'comment').catch(() => {});
   },
 
   deleteComment: async (postId: string, commentId: string) => {
@@ -914,6 +935,53 @@ export const FirebaseService = {
       snap.forEach(d => { const l = (d.data() as any).labels?.[0]; if (l) out.add(String(l).trim().toLowerCase()); });
     } catch { /* ignore */ }
     return out;
+  },
+
+  // ------------------------------------------------------------------ search
+  /** Account search by username prefix (server-side, case-insensitive for new accounts). */
+  searchUsers: async (term: string, max = 8): Promise<UserProfileData[]> => {
+    const q = term.trim().replace(/^@/, '');
+    if (q.length < 2) return [];
+    const lower = q.toLowerCase();
+    const run = async (field: string, value: string) => {
+      try {
+        const snap = await getDocs(query(collection(db, "users"), orderBy(field), startAt(value), endAt(value + '\uf8ff'), limit(max)));
+        return snap.docs.map(d => ({ uid: d.id, ...(d.data() as any) } as UserProfileData));
+      } catch { return []; }
+    };
+    const [a, b, c] = await Promise.all([run('usernameLower', lower), run('username', q), run('username', lower)]);
+    const seen = new Set<string>();
+    return [...a, ...b, ...c].filter(u => !u.isAnonymous && !seen.has(u.uid) && seen.add(u.uid)).slice(0, max);
+  },
+
+  findUserByUsername: async (username: string): Promise<UserProfileData | null> => {
+    const u = username.replace(/^@/, '');
+    for (const [field, value] of [['usernameLower', u.toLowerCase()], ['username', u]] as const) {
+      try {
+        const snap = await getDocs(query(collection(db, "users"), where(field, "==", value), limit(1)));
+        if (!snap.empty) return { uid: snap.docs[0].id, ...(snap.docs[0].data() as any) } as UserProfileData;
+      } catch { /* try next */ }
+    }
+    return null;
+  },
+
+  /** Notify explorers @mentioned in a caption or comment (max 5 per text). */
+  notifyMentions: async (text: string, postId: string, context: 'comment' | 'caption') => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) return;
+    const names = Array.from(new Set((text.match(/@([a-zA-Z0-9_.]{3,30})/g) || []).map(m => m.slice(1).toLowerCase()))).slice(0, 5);
+    if (!names.length) return;
+    const myProfile = await FirebaseService.getUserProfile(me.uid);
+    const senderName = myProfile?.username || me.displayName || 'An explorer';
+    await Promise.all(names.map(async n => {
+      const target = await FirebaseService.findUserByUsername(n);
+      if (!target || target.uid === me.uid) return;
+      await FirebaseService.addNotification(target.uid, {
+        type: 'mention',
+        message: `${senderName} mentioned you in a ${context}: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+        postId, senderId: me.uid, senderName,
+      }).catch(() => {});
+    }));
   },
 
   // ------------------------------------------------------------------ social graph
@@ -1042,6 +1110,7 @@ export const FirebaseService = {
       const u = updates.username.trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
       if (u.length < 3) throw new Error("Usernames need at least 3 letters or numbers.");
       clean.username = u;
+      clean.usernameLower = u.toLowerCase();
     }
     if (updates.bio !== undefined) clean.bio = updates.bio.trim().slice(0, 300);
     if (updates.displayName !== undefined) clean.displayName = updates.displayName.trim().slice(0, 60);

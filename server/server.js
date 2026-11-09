@@ -267,6 +267,32 @@ async function startServer() {
   // Health check (Cloud Run / load balancers)
   app.get('/healthz', (req, res) => res.json({ ok: true, policy: AI_POLICY_VERSION }));
 
+  // First-party analytics + client error intake → structured logs (Cloud Logging / BigQuery sink)
+  const eventsLimiter = rateLimit({ windowMs: 60_000, max: 60, standardHeaders: true, legacyHeaders: false });
+  const EVENT_NAME_RE = /^[a-z][a-z0-9_]{1,39}$/;
+  app.post('/api/events', eventsLimiter, express.json({ limit: '32kb', type: ['application/json', 'text/plain'] }), (req, res) => {
+    const body = req.body || {};
+    const events = Array.isArray(body.events) ? body.events.slice(0, 50) : [];
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId.slice(0, 64) : null;
+    const uid = typeof body.uid === 'string' ? body.uid.slice(0, 128) : null;
+    const pagePath = typeof body.path === 'string' ? body.path.slice(0, 64) : null;
+    for (const e of events) {
+      if (!e || typeof e.name !== 'string' || !EVENT_NAME_RE.test(e.name)) continue;
+      const props = {};
+      if (e.props && typeof e.props === 'object') {
+        for (const [k, v] of Object.entries(e.props).slice(0, 20)) {
+          if (/^[a-zA-Z0-9_]{1,40}$/.test(k) && ['string', 'number', 'boolean'].includes(typeof v)) props[k] = typeof v === 'string' ? v.slice(0, 200) : v;
+        }
+      }
+      const isError = e.kind === 'error' || e.name === 'client_error';
+      log(isError ? 'error' : 'info', isError ? 'client_error' : 'analytics_event', {
+        event: e.name, kind: e.kind === 'vital' ? 'vital' : isError ? 'error' : 'event',
+        sessionId, uid: isError ? null : uid, path: pagePath, clientTs: Number(e.ts) || null, props,
+      });
+    }
+    res.status(204).end();
+  });
+
   // -------------------------------------------------------------------------
   // Media proxy (allow-listed hosts only, image/video/audio only, size-capped)
   // -------------------------------------------------------------------------

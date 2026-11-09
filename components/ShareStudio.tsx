@@ -1,5 +1,6 @@
 
 import { getShareUrl } from '../utils';
+import { track } from '../services/analytics';
 import React, { useState } from 'react';
 import { CommunityPost } from '../types';
 import { motion } from 'motion/react';
@@ -17,6 +18,7 @@ const ShareStudio: React.FC<ShareStudioProps> = ({ post, onClose }) => {
     setIsSharing(true);
     try {
       const shareUrl = post.sourceUrl || getShareUrl(post.id);
+      track('share', { native: !!navigator.share });
       const title = post.title || 'Discovery';
       
       let text = post.description || '';

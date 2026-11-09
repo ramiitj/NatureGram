@@ -4,6 +4,8 @@ import { FirebaseService } from '../services/firebaseService';
 import { auth } from '../firebaseConfig';
 import AuthModal from './AuthModal';
 import { PUBLIC_ORIGIN, timeAgo } from '../utils';
+import { track } from '../services/analytics';
+import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
 
 interface UserProfileProps {
   userId: string;
@@ -125,6 +127,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
     try {
       if (was) await FirebaseService.unfollowUser(userId);
       else await FirebaseService.followUser(userId);
+      track(was ? 'unfollow' : 'follow');
     } catch (e) {
       setFollowing(was);
       showToast('Could not update follow. Please try again.');
@@ -358,6 +361,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         <Sheet title="Settings" onClose={() => setSheet(null)}>
           <nav className="flex flex-col gap-1" aria-label="Account settings">
             <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit profile</button>
+            {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
             {isAdmin && onAdminConsole && (
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
@@ -378,6 +382,24 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {toast && <div role="status" className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[130] bg-stone-900 text-white text-sm font-semibold px-4 py-2.5 rounded-full shadow-lg animate-fade-in">{toast}</div>}
     </div>
+  );
+};
+
+const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => {
+  const [on, setOn] = useState(pushEnabled());
+  const toggle = async () => {
+    if (on) { disablePush(); setOn(false); onToast('Notifications turned off'); return; }
+    const r = await enablePush();
+    if (r === 'granted') { setOn(true); onToast('Notifications on'); }
+    else if (r === 'denied') onToast('Notifications are blocked in your browser settings');
+    else onToast('This browser does not support notifications');
+  };
+  return (
+    <button role="switch" aria-checked={on} onClick={toggle} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3">
+      <span className="material-symbols-outlined" aria-hidden="true">notifications</span>
+      <span className="flex-1">Notifications<span className="block text-xs font-normal text-stone-500">Likes, comments, follows and mentions</span></span>
+      <span className={`w-11 h-6 rounded-full relative transition-colors ${on ? 'bg-theme-accent' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
+    </button>
   );
 };
 

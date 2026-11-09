@@ -4,6 +4,9 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
+import RichText from './RichText';
+import { UserProfileData } from '../types';
+import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
 import ShareStudio from './ShareStudio';
 import PublisherStudio from './PublisherStudio';
@@ -201,6 +204,29 @@ const Community: React.FC<CommunityProps> = ({
     if (isMember) FirebaseService.getBlockedIds().then(setBlockedIds);
   }, [isMember]);
 
+  // "Fresh sightings" rail: explorers you follow who posted in the last 72 hours
+  const [freshRail, setFreshRail] = useState<{ userId: string; userName: string; avatar?: string | null; post: CommunityPost; count: number }[]>([]);
+  useEffect(() => {
+    if (!isMember || isJournalOnly || !currentUserMode.userId) { setFreshRail([]); return; }
+    let active = true;
+    (async () => {
+      const ids = await FirebaseService.getFollowingIds(currentUserMode.userId!);
+      if (!ids.length) return;
+      const feed = await FirebaseService.getFollowingFeed(ids, 20);
+      const cutoff = Date.now() - 72 * 3600 * 1000;
+      const byUser = new Map<string, { userId: string; userName: string; avatar?: string | null; post: CommunityPost; count: number }>();
+      feed.forEach(p => {
+        const ms = (p.timestamp as any)?.toMillis ? (p.timestamp as any).toMillis() : 0;
+        if (ms < cutoff) return;
+        const e = byUser.get(p.userId);
+        if (e) e.count++;
+        else byUser.set(p.userId, { userId: p.userId, userName: p.userName, avatar: p.userAvatar, post: p, count: 1 });
+      });
+      if (active) setFreshRail([...byUser.values()].slice(0, 20));
+    })().catch(() => {});
+    return () => { active = false; };
+  }, [isMember, isJournalOnly, currentUserMode.userId]);
+
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
   const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all');
@@ -210,6 +236,21 @@ const Community: React.FC<CommunityProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
+  const [serverUsers, setServerUsers] = useState<UserProfileData[]>([]);
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2 || q.startsWith('#') || isJournalOnly) { setServerUsers([]); return; }
+    const t = window.setTimeout(() => {
+      FirebaseService.searchUsers(q).then(setServerUsers);
+      track('search', { length: q.length });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [searchQuery, isJournalOnly]);
+  const openMention = async (username: string) => {
+    const u = await FirebaseService.findUserByUsername(username);
+    if (u) { setIsCommentsOpen(false); onViewProfile?.(u.uid); }
+    else showToast(`@${username} isn't on NatureGram yet`);
+  };
 
   // Dynamically generated Instagram-style search suggestions
   const dynamicSuggestions = React.useMemo(() => {
@@ -704,6 +745,7 @@ const Community: React.FC<CommunityProps> = ({
 
   const handlePostClick = async (post: CommunityPost) => {
     hapticFeedback(10);
+    track('post_open', { media: post.mediaType, feed: feedMode });
     setActivePost(post);
     setActiveItemIndex(0);
     onPostOpen?.();
@@ -736,6 +778,7 @@ const Community: React.FC<CommunityProps> = ({
       if (isLiked === like) return;
       hapticFeedback(10);
       applyLikeLocally(post.id, uid, like);
+      track(like ? 'like' : 'unlike', { media: post.mediaType });
       try {
           await FirebaseService.toggleLike(post.id, uid, isLiked);
       } catch (err) {
@@ -770,6 +813,7 @@ const Community: React.FC<CommunityProps> = ({
       setIsSaved(next);
       try {
           await FirebaseService.toggleSave(activePost.id, next, activePost);
+          track(next ? 'save' : 'unsave');
           showToast(next ? 'Saved to your collection' : 'Removed from saved');
       } catch {
           setIsSaved(!next);
@@ -784,6 +828,7 @@ const Community: React.FC<CommunityProps> = ({
       if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this post. Thank you.'); return; }
       try {
           await FirebaseService.reportPost(activePost.id, reason);
+          track('report', { reason });
           setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
           showToast('Thanks. Our moderators will review this post.');
       } catch {
@@ -814,6 +859,7 @@ const Community: React.FC<CommunityProps> = ({
       setSendingComment(true);
       try {
           await FirebaseService.addComment(activePost.id, currentUserMode.userId, newComment);
+          track('comment', { length: newComment.length, mention: newComment.includes('@') });
           setNewComment("");
           setActivePost(prev => prev ? { ...prev, commentCount: (prev.commentCount || 0) + 1 } : prev);
       } catch {
@@ -921,8 +967,10 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   const handleTagClick = (tag: string) => {
-      const cleanTag = tag.startsWith('#') ? tag.slice(1) : tag;
+      const cleanTag = (tag.startsWith('#') ? tag.slice(1) : tag).toLowerCase();
       setSearchTag(cleanTag);
+      setFeedMode('foryou');
+      track('tag_open', { tag: cleanTag });
       closeDetail();
       window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -1076,6 +1124,28 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             )}
 
+            {freshRail.length > 0 && feedMode === 'foryou' && (
+                <section aria-label="Fresh sightings from explorers you follow">
+                    <p className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">Fresh from explorers you follow</p>
+                    <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" role="list">
+                        {freshRail.map(r => (
+                            <li key={r.userId} className="shrink-0">
+                                <button onClick={() => handlePostClick(r.post)} className="flex flex-col items-center gap-1 w-[72px]" aria-label={`${r.userName}: ${r.count} new sighting${r.count === 1 ? '' : 's'}`}>
+                                    <span className="p-[3px] rounded-full bg-gradient-to-tr from-theme-primary to-theme-vivid">
+                                        <span className="block p-[2px] bg-day-bg rounded-full">
+                                            {r.post.thumbnailUrl || r.avatar
+                                                ? <img src={(r.avatar || r.post.thumbnailUrl)!} alt="" className="w-14 h-14 rounded-full object-cover" />
+                                                : <span className="w-14 h-14 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary">{r.userName?.charAt(0)}</span>}
+                                        </span>
+                                    </span>
+                                    <span className="text-xs text-stone-700 truncate w-full text-center">{r.userName}</span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
             {!isJournalOnly && dailyTheme?.naturalist && (
                 <button
                     type="button"
@@ -1170,6 +1240,29 @@ const Community: React.FC<CommunityProps> = ({
                                 Hide
                             </button>
                         </div>
+
+                        {searchQuery.trim().length >= 2 && !isJournalOnly && (
+                            <div className="space-y-2">
+                                <button
+                                    onClick={() => { const t = searchQuery.trim().replace(/^#/, '').toLowerCase().replace(/\s+/g, ''); setSearchTag(t); setSearchQuery(''); setIsSearchFocused(false); setFeedMode('foryou'); }}
+                                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-stone-50 hover:bg-stone-100 text-left"
+                                >
+                                    <span className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-stone-700" aria-hidden="true"><span className="material-symbols-outlined">tag</span></span>
+                                    <span><span className="block font-semibold text-stone-900">Search all posts for #{searchQuery.trim().replace(/^#/, '').toLowerCase().replace(/\s+/g, '')}</span><span className="block text-xs text-stone-500">Searches every public sighting, not just loaded ones</span></span>
+                                </button>
+                                {serverUsers.length > 0 && (
+                                    <div>
+                                        <p className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-1.5">Accounts</p>
+                                        {serverUsers.map(u => (
+                                            <button key={u.uid} onClick={() => { setIsSearchFocused(false); onViewProfile?.(u.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
+                                                {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary" aria-hidden="true">{u.username?.charAt(0).toUpperCase()}</span>}
+                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.species || 0} species recorded`}</span></span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Species & Hashtags Suggestions */}
                         {dynamicSuggestions.tags.length > 0 && (
@@ -1373,6 +1466,13 @@ const Community: React.FC<CommunityProps> = ({
                     );
                 })}
             </div>
+
+            {searchTag && (
+                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-sky-50 border border-sky-100 rounded-2xl">
+                    <p className="text-sm text-sky-900">Showing all posts tagged <strong>#{searchTag}</strong></p>
+                    <button onClick={() => setSearchTag(null)} className="text-sm font-bold text-sky-900">Clear</button>
+                </div>
+            )}
 
             {/* Reset status bar if any dynamic filter keyword is active */}
             {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag) && (
@@ -1687,7 +1787,7 @@ const Community: React.FC<CommunityProps> = ({
                                     <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{(activePost.likes?.length || 0).toLocaleString()} {(activePost.likes?.length || 0) === 1 ? 'like' : 'likes'}</p>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
                                         {activePost.caption && (
-                                            <p className="text-[15px] text-stone-900 leading-relaxed whitespace-pre-line"><button onClick={() => handleProfileClick(activePost.userId)} className="font-bold mr-1.5">{activePost.userName}</button>{activePost.caption}</p>
+                                            <p className="text-[15px] text-stone-900 leading-relaxed whitespace-pre-line"><button onClick={() => handleProfileClick(activePost.userId)} className="font-bold mr-1.5">{activePost.userName}</button><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></p>
                                         )}
                                         {activePost.title && <h2 className="text-xl font-display italic font-bold text-theme-primary">{activePost.title}</h2>}
 
@@ -1810,9 +1910,12 @@ const Community: React.FC<CommunityProps> = ({
                                         {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm uppercase" aria-hidden="true">{(c.userName || '?').charAt(0)}</span>}
                                     </button>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><span className="whitespace-pre-line break-words">{c.text}</span></p>
+                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
                                         <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
                                             <span>{timeAgo(c.timestamp)}</span>
+                                            {isMember && c.userId !== currentUserMode.userId && (
+                                                <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-semibold hover:text-stone-800">Reply</button>
+                                            )}
                                             {(c.userId === currentUserMode.userId || activePost.userId === currentUserMode.userId) && (
                                                 <button onClick={() => handleDeleteComment(c.id)} className="font-semibold hover:text-red-700">Delete</button>
                                             )}

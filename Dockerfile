@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+ARG VITE_FCM_VAPID_KEY=""
+ENV VITE_FCM_VAPID_KEY=$VITE_FCM_VAPID_KEY
 RUN npm run build
 
 # Stage 2: production runtime

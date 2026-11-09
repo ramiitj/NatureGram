@@ -5,6 +5,7 @@ import AudioVisualizer from './AudioVisualizer.tsx';
 import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode } from '../types.ts';
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
+import { track } from '../services/analytics';
 import { GenAiService } from '../services/genAiService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -240,11 +241,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const associatedBlobs = pendingAssociatedImagesRef.current.map(i => i.blob);
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
           
+          track('capture', { type, keyframes: allImageBlobs.length });
+          const t0 = performance.now();
           GenAiService.analyzeMultimodal(
               (type === 'audio' || type === 'video') ? mediaBlob : null, 
               allImageBlobs, 
               location
           ).then(result => {
+              track('ai_result', { ok: true, type, ms: Math.round(performance.now() - t0), confidence: (result as any).confidence || 'none' });
               updateSnapshot(snapId, {
                   aiInsight: result.ecologic,
                   labels: result.taxonomy,
@@ -386,7 +390,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       sessionRetakes: retakesCountRef.current
                   });
 
+                  track('capture', { type: 'photo' });
+                  const t0 = performance.now();
                   GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
+                      track('ai_result', { ok: true, type: 'photo', ms: Math.round(performance.now() - t0), confidence: (result as any).confidence || 'none' });
                       updateSnapshot(snapId, {
                           aiInsight: result.ecologic,
                           labels: result.taxonomy,
@@ -500,6 +507,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           });
       }
 
+      track('capture', { type: `upload_${mediaType}` });
       GenAiService.analyzeMedia(file, mediaType, location).then(result => {
           updateSnapshot(snapId, {
               aiInsight: result.ecologic,
@@ -898,6 +906,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             onError: (err: any) => {
                 console.error("GeminiLiveService error delegate:", err);
                 if (err?.governed) {
+                    track('live_session_limited', { code: err.code });
                     const limit = err.code === 4429 || err.code === 4408;
                     setSessionError({
                         title: limit ? "Time for a field break" : "Live guide paused",
@@ -980,6 +989,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           console.error("Session init failed:", err);
           setAgentState('DISCONNECTED'); 
           const name = err?.name || '';
+          track('lens_error', { name: name || 'unknown' });
           if (name === 'NotAllowedError' || name === 'SecurityError') {
               setSessionError({ title: "Camera & microphone needed", message: "NatureGram needs camera and microphone access to see and hear nature with you. Allow access in your browser's site settings (the icon next to the address bar), then tap Retry." });
           } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {

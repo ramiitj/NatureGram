@@ -47,3 +47,13 @@ await admin.auth().setCustomUserClaims(user.uid, { admin: true });
 - Rules: redeploy the previous `firestore.rules` from git history (`git show <sha>:firestore.rules`).
 - App: redeploy the previous Cloud Run revision (`gcloud run services update-traffic`).
 - No data migration in these releases deletes data. The location migration moves coordinates to `users/{uid}/private/obs_{postId}`.
+
+## Push notifications (optional)
+1. Firebase console → Project settings → Cloud Messaging → **Web Push certificates** → generate a key pair.
+2. Build the web app with `VITE_FCM_VAPID_KEY=<public key>` set (for example in `.env` or the Cloud Build substitutions).
+3. Deploy the sender function (Blaze plan required): `cd functions && npm install && cd .. && firebase deploy --only functions`.
+
+Without these steps, explorers still get system notifications while NatureGram is open in a background tab, plus all in-app activity.
+
+## Analytics
+See `docs/ANALYTICS.md` for the BigQuery log sink and the event taxonomy.

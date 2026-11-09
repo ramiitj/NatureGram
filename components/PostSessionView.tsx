@@ -1,6 +1,7 @@
 
 import { getShareUrl } from '../utils';
 import AiBadge, { FungiWarning, isFungiPost } from './AiBadge';
+import { track } from '../services/analytics';
 import React, { useState, useEffect, useRef } from 'react';
 import { Snapshot, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
@@ -308,6 +309,10 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         setPublishedThumb(first ? (objectUrls[first.id]?.image || first.url || null) : null);
         setIsDone(true);
         onPublished?.();
+        track('post_published', {
+            count: selectedSnapshots.length, mode, audience: postToFeed ? 'public' : 'journal',
+            corrected: selectedSnapshots.filter(s => s.humanDelta).length, caption: caption.length > 0, new_species: fresh.length,
+        });
         
         if (geminiServiceRef.current) {
             geminiServiceRef.current.disconnect();
@@ -315,6 +320,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         }
     } catch (e) {
         console.error('Publish failed', e);
+        track('post_publish_failed', { offline: navigator.onLine === false });
         setPublishError(navigator.onLine === false
             ? "You're offline. Your captures are safe here. Reconnect and tap Share again, or save a draft."
             : "We couldn't publish just now. Your captures are safe. Please try again or save a draft.");

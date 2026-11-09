@@ -11,6 +11,9 @@ import { hapticFeedback, timeAgo } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
+import ConsentBanner from './components/ConsentBanner.tsx';
+import { identify, track } from './services/analytics.ts';
+import { registerToken, showLocalNotification } from './services/push.ts';
 
 // Heavy, rarely-first views are loaded on demand to keep first paint fast
 const LiveLens = lazy(() => import('./components/LiveLens.tsx'));
@@ -124,6 +127,7 @@ const App: React.FC = () => {
 
   /** Ask for an account, then continue what the explorer was doing. */
   const requireAccount = useCallback((reason: string, then?: () => void) => {
+    track('account_prompt', { reason: reason.slice(0, 60) });
     pendingAuthActionRef.current = then || null;
     setAuthModal({ signUp: true, reason });
   }, []);
@@ -160,6 +164,7 @@ const App: React.FC = () => {
     if (!localStorage.getItem('naturegram_has_seen_tour')) setIsFirstTime(true);
 
     const unsubscribeAuth = FirebaseService.subscribeToAuthChanges((user) => {
+      identify(user && !user.isAnonymous ? user.uid : null);
       if (user) {
         setUserMode({
           type: 'community',
@@ -188,7 +193,20 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userMode?.userId && userMode.userId !== 'explorer_guest' && !userMode.isAnonymous) {
-      const unsubscribe = FirebaseService.subscribeToNotifications(userMode.userId, setNotifications);
+      registerToken().catch(() => {});
+      const seen = new Set<string>();
+      let first = true;
+      const unsubscribe = FirebaseService.subscribeToNotifications(userMode.userId, (list) => {
+        setNotifications(list);
+        // System notification for genuinely new activity while the tab is in the background
+        list.forEach(n => {
+          if (!first && !seen.has(n.id) && !n.isRead) {
+            showLocalNotification('NatureGram', n.message || 'New activity', n.postId ? `/feed?p=${n.postId}` : '/feed');
+          }
+          seen.add(n.id);
+        });
+        first = false;
+      });
       return () => unsubscribe();
     }
     setNotifications([]);
@@ -212,6 +230,13 @@ const App: React.FC = () => {
     if (postId) {
       setSelectedPostId(postId);
       setCurrentView(AppView.SHARED_POST);
+      return;
+    }
+    // Links from notifications: /feed?p=POST_ID opens the post inside the app
+    const inApp = params.get('p');
+    if (inApp && window.location.pathname.startsWith('/feed')) {
+      setSelectedPostId(inApp);
+      setIsDetailActive(true);
     }
   }, []);
 
@@ -229,6 +254,7 @@ const App: React.FC = () => {
   };
 
   const handleEndSession = (summary: string) => {
+    track('lens_session_end', { captures: currentSessionRef.current.length });
     setSessionSummary(summary);
     setIsFinalizing(false);
     setCurrentView(AppView.POST_SESSION);
@@ -296,6 +322,7 @@ const App: React.FC = () => {
     await initAudioContext();
     const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
     if (saved) {
+      track('lens_open', { mode: saved, remembered: true });
       setSelectedMode(saved);
       setCurrentView(AppView.LENS);
     } else {
@@ -304,6 +331,7 @@ const App: React.FC = () => {
   };
 
   const chooseMode = (mode: 'observation' | 'conversation') => {
+    track('lens_open', { mode, remembered: rememberMode });
     setSelectedMode(mode);
     if (rememberMode) localStorage.setItem(MODE_PREF_KEY, mode);
     setShowModeSelection(false);
@@ -390,6 +418,7 @@ const App: React.FC = () => {
   };
 
   const enterApp = async () => {
+    track('landing_enter', { naturalist: dailyTheme?.id || '' });
     try { await initAudioContext(); } catch { /* audio is optional here */ }
     if (!FirebaseService.getCurrentUserId()) {
       try {
@@ -701,6 +730,8 @@ const App: React.FC = () => {
           />
         )}
       </main>
+
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
 
       {showNav && (
         <div className="absolute bottom-0 left-0 right-0 z-[40] animate-fade-in pb-[env(safe-area-inset-bottom)] bg-white/95 backdrop-blur border-t border-stone-100">

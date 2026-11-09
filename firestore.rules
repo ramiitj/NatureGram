@@ -68,7 +68,7 @@ service cloud.firestore {
         || (isOwner(userId)
             && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount'])
             && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
-            && optStr('username', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
+            && optStr('username', 40) && optStr('usernameLower', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
         // Followers counter: only moves with the caller's own follower doc (batched write)
         || (isMember() && !isOwner(userId)
             && changedKeys().hasOnly(['followersCount'])

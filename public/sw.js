@@ -1,5 +1,5 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v2';
+const VERSION = 'ng-v3';
 const SHELL = ['/', '/manifest.json', '/icon.svg', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -64,4 +64,31 @@ self.addEventListener('fetch', (event) => {
     const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
     return hit || net;
   }));
+});
+
+// ---------------------------------------------------------------- push notifications
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { notification: { body: event.data && event.data.text() } }; }
+  const n = data.notification || {};
+  const payload = data.data || {};
+  event.waitUntil(self.registration.showNotification(n.title || 'NatureGram', {
+    body: n.body || 'You have new activity',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: payload.tag || 'naturegram-activity',
+    data: { url: payload.url || '/feed' },
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/feed';
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) {
+      if (new URL(c.url).origin === self.location.origin) { await c.focus(); c.navigate(url).catch(() => {}); return; }
+    }
+    await self.clients.openWindow(url);
+  })());
 });
