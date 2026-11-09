@@ -182,6 +182,18 @@ service cloud.firestore {
           || isAdmin();
       }
 
+      // Community identification: one ID per explorer per post (agree or suggest)
+      match /identifications/{identifierId} {
+        allow read: if get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.isPublic == true
+          || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
+          || isAdmin();
+        allow create, update: if isOwner(identifierId) && isMember()
+          && isStr(incoming().name, 80) && incoming().name.size() > 0
+          && optStr('scientificName', 80) && optStr('note', 280) && optStr('userName', 60)
+          && incoming().keys().hasOnly(['name', 'scientificName', 'note', 'userName', 'agree', 'createdAt']);
+        allow delete: if isOwner(identifierId) || isAdmin();
+      }
+
       // One report per user per post (reason kept private to moderators)
       match /reports/{reporterId} {
         allow create: if isOwner(reporterId) && isMember()

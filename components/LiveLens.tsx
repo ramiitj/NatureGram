@@ -6,6 +6,9 @@ import { Snapshot, GeminiConfig, UserMode, ChatMessage, GroundingLink, AudioMode
 import { compressImageToBlob } from '../services/audioUtils.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 import { track } from '../services/analytics';
+import { getDailyTheme as getDailyThemeConst } from '../constants/naturalists';
+import { getNaturalistExtra } from '../constants/naturalistExtras';
+import { coarsenCoordinate } from '../utils';
 import { GenAiService } from '../services/genAiService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -248,23 +251,30 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               allImageBlobs, 
               location
           ).then(result => {
-              track('ai_result', { ok: true, type, ms: Math.round(performance.now() - t0), confidence: (result as any).confidence || 'none' });
+              track('ai_result', { ok: true, type, ms: Math.round(performance.now() - t0), confidence: result.confidence });
               updateSnapshot(snapId, {
                   aiInsight: result.ecologic,
                   labels: result.taxonomy,
-                  locationArea: result.location,
+                  ...(result.location ? { locationArea: result.location } : {}),
                   isAnalyzing: false,
                   aiProposedLabels: result.taxonomy,
                   aiProposedBehavior: result.ecologic,
-                  aiConfidence: (result as any).confidence || null
+                  aiConfidence: result.confidence,
+                  aiIdentifications: result.identifications,
+                  aiFlags: result.flags,
+                  needsExpertReview: result.needsExpertReview,
+                  aiSafetyNote: result.safetyNote,
+                  aiModel: result.model,
+                  aiPromptVersion: result.promptVersion,
+                  aiError: null
               });
               setPendingAnalyses(n => Math.max(0, n - 1));
               showStatus('success', 'Identified. Added to this session.');
           }).catch(err => {
               console.error("Background analysis failed", err);
-              updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+              updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
               setPendingAnalyses(n => Math.max(0, n - 1));
-              showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
+              showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
           });
       };
 
@@ -393,23 +403,30 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   track('capture', { type: 'photo' });
                   const t0 = performance.now();
                   GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
-                      track('ai_result', { ok: true, type: 'photo', ms: Math.round(performance.now() - t0), confidence: (result as any).confidence || 'none' });
+                      track('ai_result', { ok: true, type: 'photo', ms: Math.round(performance.now() - t0), confidence: result.confidence });
                       updateSnapshot(snapId, {
                           aiInsight: result.ecologic,
                           labels: result.taxonomy,
-                          locationArea: result.location,
+                          ...(result.location ? { locationArea: result.location } : {}),
                           isAnalyzing: false,
                           aiProposedLabels: result.taxonomy,
                           aiProposedBehavior: result.ecologic,
-                          aiConfidence: (result as any).confidence || null
+                          aiConfidence: result.confidence,
+                          aiIdentifications: result.identifications,
+                          aiFlags: result.flags,
+                          needsExpertReview: result.needsExpertReview,
+                          aiSafetyNote: result.safetyNote,
+                          aiModel: result.model,
+                          aiPromptVersion: result.promptVersion,
+                          aiError: null
                       });
                       setPendingAnalyses(n => Math.max(0, n - 1));
                       showStatus('success', 'Identified. Added to this session.');
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
-                      updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+                      updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
                       setPendingAnalyses(n => Math.max(0, n - 1));
-                      showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
+                      showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
                   });
               });
           }
@@ -512,19 +529,26 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           updateSnapshot(snapId, {
               aiInsight: result.ecologic,
               labels: result.taxonomy,
-              locationArea: result.location,
+              ...(result.location ? { locationArea: result.location } : {}),
               isAnalyzing: false,
               aiProposedLabels: result.taxonomy,
               aiProposedBehavior: result.ecologic,
-                          aiConfidence: (result as any).confidence || null
+                          aiConfidence: result.confidence,
+                          aiIdentifications: result.identifications,
+                          aiFlags: result.flags,
+                          needsExpertReview: result.needsExpertReview,
+                          aiSafetyNote: result.safetyNote,
+                          aiModel: result.model,
+                          aiPromptVersion: result.promptVersion,
+                          aiError: null
           });
           setPendingAnalyses(n => Math.max(0, n - 1));
           showStatus('success', 'Identified. Added to this session.');
       }).catch(err => {
           console.error("Upload analysis failed", err);
-          updateSnapshot(snapId, { aiInsight: "Analysis failed.", isAnalyzing: false });
+          updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "AI identification unavailable" });
           setPendingAnalyses(n => Math.max(0, n - 1));
-          showStatus('error', "Couldn't identify this one. You can label it yourself in review.");
+          showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
       });
   };
 
@@ -778,9 +802,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
            
            retakesCountRef.current += 1;
+           const snapId = Date.now().toString();
+           const liveConfidence = ['high', 'medium', 'low'].includes(args.confidence) ? args.confidence : 'low';
 
            onCapture({ 
-               id: Date.now().toString(), 
+               id: snapId, 
                url: objUrl, 
                blob: compressedBlob, 
                timestamp: new Date().toLocaleTimeString(), 
@@ -793,8 +819,35 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
                timeToRecordMs: Date.now() - sessionStartMsRef.current,
-               sessionRetakes: retakesCountRef.current
+               sessionRetakes: retakesCountRef.current,
+               aiConfidence: liveConfidence as any,
+               isAnalyzing: true,
            });
+
+           // Second opinion: the governed identification model verifies the live guide's call.
+           // Disagreement is surfaced (needs review) instead of silently trusting either model.
+           setPendingAnalyses(n => n + 1);
+           GenAiService.analyzeMedia(compressedBlob, 'image').then(result => {
+               const agree = (result.taxonomy[0] || '').toLowerCase() === (resolvedLabels[0] || '').toLowerCase();
+               updateSnapshot(snapId, {
+                   labels: result.taxonomy.length ? result.taxonomy : resolvedLabels,
+                   aiInsight: result.ecologic || resolvedAiInsight,
+                   aiProposedLabels: result.taxonomy.length ? result.taxonomy : resolvedLabels,
+                   aiProposedBehavior: result.ecologic,
+                   aiConfidence: agree ? result.confidence : (result.confidence === 'high' ? 'medium' : 'low'),
+                   aiIdentifications: result.identifications,
+                   aiFlags: result.flags,
+                   needsExpertReview: result.needsExpertReview || !agree,
+                   aiSafetyNote: result.safetyNote,
+                   aiModel: result.model,
+                   aiPromptVersion: result.promptVersion,
+                   isAnalyzing: false,
+                   aiError: null,
+               });
+               track('ai_second_opinion', { agree, live_conf: liveConfidence, verified_conf: result.confidence });
+           }).catch(() => {
+               updateSnapshot(snapId, { isAnalyzing: false, needsExpertReview: true, aiProposedLabels: resolvedLabels });
+           }).finally(() => setPendingAnalyses(n => Math.max(0, n - 1)));
 
            // Push sighting overlay on screen
            setLatestSighting({
@@ -922,9 +975,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             ? "\n[MODE: OBSERVATION. You are a silent observer. IMPORTANT: The user will NOT hear your voice; they will only see your text transcripts. Keep your responses very brief, scientific, and focused. Do not speak unless necessary. When you do respond, provide concise text-based insights.]"
             : "\n[MODE: CONVERSATION. You are an active field companion. Engage in real-time dialogue, ask questions, and be highly interactive. Your goal is to be a conversational partner in this exploration.]";
 
-        service.setSystemInstruction(memoryContext + "\n" + (configSysInstruction || "") + modeInstruction);
+        // The fortnight's naturalist shapes what the guide gently encourages explorers to notice
+        const theme = getDailyThemeConst();
+        const extra = getNaturalistExtra(theme.id);
+        const fortnight = `\n[THIS FORTNIGHT HONOURS ${theme.naturalist.toUpperCase()}: "${extra.philosophy}" When natural, invite the explorer to notice ${extra.lensPrompt}. Mention the community challenge only if relevant: ${extra.challenge}]`;
+        service.setSystemInstruction(memoryContext + "\n" + (configSysInstruction || "") + modeInstruction + fortnight);
         service.setModel(configModel || "");
-        if (lastLocationRef.current) service.setLocation(lastLocationRef.current.lat, lastLocationRef.current.lng);
+        // Only coarse (~1 km) coordinates leave the device for the live guide
+        if (lastLocationRef.current) service.setLocation(coarsenCoordinate(lastLocationRef.current.lat), coarsenCoordinate(lastLocationRef.current.lng));
         
         console.debug("Connecting service...");
         service.connect(); // Do not await to avoid blocking initialization if connection hangs
@@ -966,11 +1024,33 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         agentGainNode.connect(processor);
         processor.connect(inputCtx.destination); 
 
+        // Stream frames to the guide at <=768px (the model's working resolution) and skip
+        // near-identical frames: same accuracy, far less bandwidth and cost.
+        const streamCanvas = document.createElement('canvas');
+        const probe = document.createElement('canvas'); probe.width = 16; probe.height = 16;
+        let lastProbe: Uint8ClampedArray | null = null;
+        let lastSent = 0;
         videoInterval = window.setInterval(() => {
-             if (isCameraActiveRef.current && geminiServiceRef.current && geminiServiceRef.current.isConnected()) { 
-                 const res = captureFrame(false); 
-                 if (res) service.sendVideoFrame(res.dataUrl); 
+             const v = videoRef.current;
+             if (!v || !isCameraActiveRef.current || !geminiServiceRef.current?.isConnected() || !v.videoWidth) return;
+             const pctx = probe.getContext('2d', { willReadFrequently: true });
+             if (pctx) {
+                 pctx.drawImage(v, 0, 0, 16, 16);
+                 const px = pctx.getImageData(0, 0, 16, 16).data;
+                 let diff = 0;
+                 if (lastProbe) for (let i = 0; i < px.length; i += 4) diff += Math.abs(px[i] - lastProbe[i]) + Math.abs(px[i + 1] - lastProbe[i + 1]) + Math.abs(px[i + 2] - lastProbe[i + 2]);
+                 const still = lastProbe && diff / (16 * 16 * 3) < 6;
+                 lastProbe = px;
+                 if (still && Date.now() - lastSent < 4000) return;
              }
+             const scale = Math.min(1, 768 / Math.max(v.videoWidth, v.videoHeight));
+             streamCanvas.width = Math.round(v.videoWidth * scale);
+             streamCanvas.height = Math.round(v.videoHeight * scale);
+             const sctx = streamCanvas.getContext('2d');
+             if (!sctx) return;
+             sctx.drawImage(v, 0, 0, streamCanvas.width, streamCanvas.height);
+             service.sendVideoFrame(streamCanvas.toDataURL('image/jpeg', 0.6));
+             lastSent = Date.now();
         }, 1000); 
 
         console.debug("initSession complete.");
@@ -1067,12 +1147,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           </div>
       )}
       {pendingAnalyses > 0 && (
-          <div className="absolute safe-top left-1/2 -translate-x-1/2 mt-12 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1" role="status">
+          <div className="absolute top-[calc(var(--sat)+7rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1" role="status">
               Analysing {pendingAnalyses} capture{pendingAnalyses === 1 ? '' : 's'}…
           </div>
       )}
 
-      <div className="absolute safe-top left-1/2 -translate-x-1/2 z-[118] pointer-events-auto flex flex-col items-center gap-2 max-w-[55vw]">
+      <div className="absolute top-[calc(var(--sat)+4.25rem)] left-1/2 -translate-x-1/2 z-[118] pointer-events-auto flex flex-col items-center gap-2 max-w-[80vw]">
           {!analysisStatus && (
               <button 
                   disabled={agentState !== 'DISCONNECTED'}
@@ -1234,7 +1314,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
 
       {isCameraActive && (
-          <div className="absolute left-4 top-[calc(var(--sat)+5.5rem)] z-50 flex flex-col gap-4">
+          <div className="absolute left-4 top-[calc(var(--sat)+9rem)] z-50 flex flex-col gap-4">
               {hasTorch && (
                 <button onClick={() => applyOpticalSettings({ torch: !torch })} aria-pressed={torch} aria-label="Torch" className={`w-14 h-14 rounded-full backdrop-blur-xl border transition-all flex flex-col items-center justify-center gap-1 shadow-2xl ${torch ? 'bg-theme-accent border-theme-vivid/50 text-white scale-110' : 'bg-black/30 border-white/10 text-white/60'}`}>
                     <span className="material-symbols-outlined text-xl">{torch ? 'flashlight_on' : 'flashlight_off'}</span>

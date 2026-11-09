@@ -5,6 +5,7 @@ import { FirebaseService } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
+import CommunityId from './CommunityId';
 import { UserProfileData } from '../types';
 import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
@@ -1832,6 +1833,18 @@ const Community: React.FC<CommunityProps> = ({
                                                     </div>
                                                 )}
                                             </div>
+                                        )}
+
+                                        {activePost.isPublic && (
+                                            <CommunityId
+                                                key={activePost.id}
+                                                postId={activePost.id}
+                                                authorId={activePost.userId}
+                                                primaryLabel={activePost.labels?.[0]}
+                                                currentUserId={currentUserMode.userId}
+                                                isMember={isMember}
+                                                onRequireAccount={(r) => askAccount(r)}
+                                            />
                                         )}
 
                                         {activePost.tags && activePost.tags.length > 0 && (

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { GeminiConfig, CommunityPost, UserProfileData } from '../types';
 import { auth } from '../firebaseConfig';
+import AiQualityPanel from './AiQualityPanel';
 
 interface AdminConsoleProps {
   onBack: () => void;
@@ -17,7 +18,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
   const [status, setStatus] = useState('');
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'activity' | 'moderation'>('activity');
+  const [activeTab, setActiveTab] = useState<'activity' | 'moderation' | 'ai'>('activity');
   
   // Moderation Data
   const [reportedPosts, setReportedPosts] = useState<CommunityPost[]>([]);
@@ -303,6 +304,13 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
                     Moderation
                     {reportedPosts.length > 0 && <span className="ml-auto bg-red-500 text-white text-xs px-1.5 rounded-full">{reportedPosts.length}</span>}
                 </button>
+                <button 
+                    onClick={() => setActiveTab('ai')}
+                    className={`text-left px-4 py-3 rounded-lg flex items-center gap-3 ${activeTab === 'ai' ? 'bg-theme-accent/20 text-theme-accent border border-theme-accent/30' : 'text-stone-500 hover:bg-white/5'}`}
+                >
+                    <span className="material-symbols-outlined text-sm" aria-hidden="true">auto_awesome</span>
+                    AI quality
+                </button>
             </div>
         </aside>
 
@@ -515,6 +523,8 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onBack }) => {
             {/* CONFIG AND MAINT DELETED */}
 
             {/* MODERATION TAB */}
+            {activeTab === 'ai' && <AiQualityPanel config={config} onConfigSaved={setConfig} />}
+
             {activeTab === 'moderation' && (
                 <div className="max-w-5xl mx-auto">
                     <h2 className="text-theme-primary text-2xl font-bold mb-6 font-display">Reported Content Queue</h2>

@@ -498,9 +498,36 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     }, (proxyRes) => {
       const headers = { ...proxyRes.headers };
       delete headers['set-cookie'];
-      res.writeHead(proxyRes.statusCode || 502, headers);
+      const status = proxyRes.statusCode || 502;
+      const meta = { uid: user.uid, anon: user.isAnonymous, task: verdict.task, model: verdict.model, method: verdict.method, status };
+      if (verdict.method === 'generateContent') {
+        // Buffer unary responses to record token usage (cost telemetry per task/model)
+        const chunks = [];
+        proxyRes.on('data', (c) => chunks.push(c));
+        proxyRes.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          let usage = null, finish = null, blocked = null;
+          try {
+            const json = JSON.parse(buf.toString('utf8'));
+            usage = json.usageMetadata || null;
+            finish = json.candidates?.[0]?.finishReason || null;
+            blocked = json.promptFeedback?.blockReason || null;
+          } catch { /* non-JSON */ }
+          delete headers['content-length'];
+          delete headers['transfer-encoding'];
+          res.writeHead(status, { ...headers, 'content-length': String(buf.length) });
+          res.end(buf);
+          log(status >= 400 ? 'warn' : 'info', 'gemini http', {
+            ...meta, ms: Date.now() - started,
+            promptTokens: usage?.promptTokenCount ?? null, outputTokens: usage?.candidatesTokenCount ?? null, totalTokens: usage?.totalTokenCount ?? null,
+            finishReason: finish, blockReason: blocked,
+          });
+        });
+        return;
+      }
+      res.writeHead(status, headers);
       proxyRes.pipe(res);
-      proxyRes.on('end', () => log('info', 'gemini http', { uid: user.uid, anon: user.isAnonymous, model: verdict.model, method: verdict.method, status: proxyRes.statusCode, ms: Date.now() - started }));
+      proxyRes.on('end', () => log('info', 'gemini http', { ...meta, ms: Date.now() - started }));
     });
     proxyReq.on('timeout', () => proxyReq.destroy(new Error('timeout')));
     proxyReq.on('error', (err) => {

@@ -60,6 +60,14 @@ export interface Snapshot {
   sessionRetakes?: number;
   aiConfidence?: 'high' | 'medium' | 'low' | null;
   showLocation?: boolean;
+  /** Governed AI output kept for audit + UI (see docs/AI_GOVERNANCE.md) */
+  aiIdentifications?: { commonName: string; scientificName: string; rank: string; confidence: string; evidence: string }[];
+  aiFlags?: { isNatureSubject: boolean; fungi: boolean; dangerous: boolean; sensitiveSpecies: boolean; peopleVisible: boolean } | null;
+  needsExpertReview?: boolean;
+  aiSafetyNote?: string;
+  aiModel?: string;
+  aiPromptVersion?: string;
+  aiError?: string | null;
 }
 
 export interface ExpeditionDraft {
@@ -146,6 +154,10 @@ export interface CommunityPostItem {
   humanDelta?: boolean;
   sessionRetakes?: number;
   aiConfidence?: 'high' | 'medium' | 'low' | null;
+  aiIdentifications?: { commonName: string; scientificName: string; rank: string; confidence: string; evidence: string }[];
+  aiFlags?: { isNatureSubject: boolean; fungi: boolean; dangerous: boolean; sensitiveSpecies: boolean; peopleVisible: boolean } | null;
+  needsExpertReview?: boolean;
+  aiSafetyNote?: string;
 }
 
 export interface FeedThumbnail {
@@ -185,6 +197,9 @@ export interface CommunityPost extends FeedThumbnail {
   reportCount?: number;
   aiPolicyVersion?: string;
   sourceUrl?: string;
+  needsExpertReview?: boolean;
+  aiFlags?: { isNatureSubject: boolean; fungi: boolean; dangerous: boolean; sensitiveSpecies: boolean; peopleVisible: boolean } | null;
+  communityIdCount?: number;
   items?: CommunityPostItem[];
   rotation?: number;
   rawLocation?: { lat: number; lng: number } | null;

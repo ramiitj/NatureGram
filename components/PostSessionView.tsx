@@ -145,14 +145,23 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                         ...s,
                         aiInsight: result.ecologic,
                         labels: result.taxonomy,
-                        locationArea: result.location,
+                        ...(result.location ? { locationArea: result.location } : {}),
                         aiProposedLabels: s.aiProposedLabels || result.taxonomy,
                         aiProposedBehavior: s.aiProposedBehavior || result.ecologic,
-                        aiConfidence: (result as any).confidence || s.aiConfidence || null,
+                        aiConfidence: result.confidence,
+                        aiIdentifications: result.identifications,
+                        aiFlags: result.flags,
+                        needsExpertReview: result.needsExpertReview,
+                        aiSafetyNote: result.safetyNote,
+                        aiModel: result.model,
+                        aiPromptVersion: result.promptVersion,
+                        aiError: null,
                     } : s));
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error("Analysis failed", e);
+                setAiInsight('');
+                setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, aiInsight: '', isAnalyzing: false, aiError: e?.message || 'AI identification unavailable' } : s));
             } finally {
                 setIsAnalyzing(false);
             }
@@ -244,6 +253,10 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     }
   };
 
+  const anySensitive = Array.from(selectedIndices).some(i => snapshots[i]?.aiFlags?.sensitiveSpecies);
+  const anyPeople = Array.from(selectedIndices).some(i => snapshots[i]?.aiFlags?.peopleVisible);
+  useEffect(() => { if (anySensitive) setShowLocation(false); }, [anySensitive]);
+
   const handleFinalizeRef = useRef<() => void>(() => {});
   const handleFinalizeClick = async () => {
     setPublishError('');
@@ -293,7 +306,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         let lastCreatedId = null;
         if (mode === 'stitch') {
             const itemsForSynthesis = selectedSnapshots.map(s => ({ taxonomy: s.labels || [], ecologic: s.aiInsight || '' }));
-            const synthesizedData = await GenAiService.synthesizeCollection(itemsForSynthesis);
+            const synthesizedData = await GenAiService.synthesizeCollection(itemsForSynthesis).catch(() => undefined);
             const res = await FirebaseService.createSessionObservation(selectedSnapshots, activeUserId, { feed: postToFeed, journal: true }, cleanTags, synthesizedData, caption);
             if (res?.id) lastCreatedId = res.id;
         } else {
@@ -303,6 +316,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             }
         }
         if (lastCreatedId) setCreatedPostId(lastCreatedId);
+        FirebaseService.logAiFeedback(selectedSnapshots, lastCreatedId).catch(() => {});
         const fresh = Array.from(new Set(selectedSnapshots.map(s => (s.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified)/i.test(l) && !before.has(l.toLowerCase()))));
         setNewSpecies(fresh);
         const first = selectedSnapshots[0];
@@ -587,7 +601,29 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base font-semibold text-stone-900 focus:border-theme-accent"
                               />
                               <p className="text-xs text-stone-500 mt-1.5">Common name first, then scientific name, separated by commas. Correct the AI if it's wrong; your fixes make NatureGram smarter for everyone.</p>
-                              {isFungiPost({ labels }) && <div className="mt-3"><FungiWarning /></div>}
+                              {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <div className="mt-3"><FungiWarning /></div>}
+                              {currentSnapshot?.aiError && (
+                                  <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own identification above. You know what you saw.</p>
+                              )}
+                              {currentSnapshot?.aiFlags && currentSnapshot.aiFlags.isNatureSubject === false && (
+                                  <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
+                              )}
+                              {currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError && (
+                                  <p className="mt-3 text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once posted, other explorers can confirm or suggest a better ID.</p>
+                              )}
+                              {currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi && (
+                                  <p className="mt-3 text-sm text-red-900 bg-red-50 rounded-xl p-3">{currentSnapshot.aiSafetyNote}</p>
+                              )}
+                              {!!currentSnapshot?.aiIdentifications?.length && (
+                                  <details className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
+                                      <summary className="cursor-pointer font-semibold text-stone-800">Why the AI thinks so</summary>
+                                      <ul className="mt-2 space-y-2">
+                                          {currentSnapshot.aiIdentifications.map((id, i) => (
+                                              <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
+                                          ))}
+                                      </ul>
+                                  </details>
+                              )}
                           </section>
                           
                           <section>
@@ -637,6 +673,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       />
                                   </div>
                                   <p className="text-xs text-theme-primary/50 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your private records.</p>
+                                  {anySensitive && <p className="text-xs text-emerald-900 bg-emerald-50 rounded-lg p-2 mt-2">🛡 Location hidden by default: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</p>}
                               </section>
 
                               <section>
@@ -655,6 +692,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               </section>
                           </div>
 
+                          {anyPeople && (
+                              <p className="text-sm text-sky-900 bg-sky-50 rounded-xl p-3">👤 People may be visible in a capture. Only share it publicly if they're happy to appear.</p>
+                          )}
                           <fieldset className="pt-2">
                               <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see this?</legend>
                               <div className="grid grid-cols-2 gap-3">

@@ -74,15 +74,26 @@ const withPolicy = (si) => {
   return { parts: [{ text: `${base}\n\n${PLATFORM_POLICY}`.trim() }] };
 };
 
+/**
+ * Task aliases → concrete models. Clients request a *task* (ng-identify), the server
+ * decides the model. Change or roll back models with env vars, no client release needed.
+ */
+export const MODEL_ALIASES = {
+  'ng-identify': process.env.MODEL_IDENTIFY || 'gemini-3.1-pro-preview',
+  'ng-synthesize': process.env.MODEL_SYNTHESIZE || process.env.MODEL_IDENTIFY || 'gemini-3.1-pro-preview',
+};
+
 /** Validate a Gemini HTTP path. Returns normalized path + model. */
 export function governGenerateRequest(pathname) {
   const m = /^\/(v1beta|v1alpha|v1)\/models\/([^/:]+):([A-Za-z]+)$/.exec(pathname || '');
   if (!m) return { ok: false, reason: 'This AI endpoint is not available.' };
-  const [, version, model, method] = m;
+  const [, version, requested, method] = m;
+  const alias = MODEL_ALIASES[requested] ? requested : null;
+  const model = alias ? MODEL_ALIASES[requested] : requested;
   if (!HTTP_METHODS.has(method)) return { ok: false, reason: 'This AI operation is not available.' };
   const allowed = HTTP_ALLOWED.size ? HTTP_ALLOWED.has(model) : (HTTP_MODEL_RE.test(model) && !model.includes('tuned'));
   if (!allowed) return { ok: false, reason: 'This AI model is not available.' };
-  return { ok: true, path: `/${version}/models/${model}:${method}`, model, method };
+  return { ok: true, path: `/${version}/models/${model}:${method}`, model, method, task: alias || 'direct' };
 }
 
 /** Apply policy + safety settings to a generateContent body (object). */

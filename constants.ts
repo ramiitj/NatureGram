@@ -58,8 +58,9 @@ export const tools: FunctionDeclaration[] = [
         labels: { 
           type: Type.ARRAY, 
           items: { type: Type.STRING },
-          description: 'List of common names or suitable titles for all visible organisms (e.g., ["European Honeybee", "Lavender"] or ["Unidentified Insect"]).'
+          description: 'Common names for all visible organisms at the rank the evidence supports (e.g., ["European Honeybee", "Lavender"]). Use broader names when unsure (e.g., ["Unidentified bee"]).'
         },
+        confidence: { type: Type.STRING, enum: ['high', 'medium', 'low'], description: 'Confidence in the primary identification: high only when diagnostic features are clearly visible.' },
         behavior: { type: Type.STRING, description: 'Ethological Synthesis: [Action] + [Context]; [Biological Intent].' },
         ai_insight: { type: Type.STRING, description: 'A biological "Aha! Moment" fact.' },
         is_hybrid: { type: Type.BOOLEAN, description: 'True if man-made structures are in frame.' }

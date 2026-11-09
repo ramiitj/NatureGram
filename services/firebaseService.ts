@@ -312,6 +312,19 @@ export const FirebaseService = {
     await setDoc(docRef, config, { merge: true });
   },
 
+  /** Admin: save live-guide config with an audit trail entry (who, when, why, previous text). */
+  updateGeminiConfigAudited: async (config: GeminiConfig, changeNote: string) => {
+    const ref0 = doc(db, "admin_config", "gemini_state");
+    const prev = await getDoc(ref0);
+    await setDoc(doc(db, "admin_config", `gemini_history_${Date.now()}`), {
+      changedBy: auth.currentUser?.email || auth.currentUser?.uid || 'unknown',
+      changedAt: serverTimestamp(),
+      changeNote: changeNote.slice(0, 200),
+      previous: prev.exists() ? prev.data() : null,
+    });
+    await setDoc(ref0, { ...config, updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.email || null, changeNote: changeNote.slice(0, 200) }, { merge: true });
+  },
+
   getDailyTheme: async (dateStr: string): Promise<DailyTheme | null> => {
     try {
       const docRef = doc(db, "daily_themes", dateStr);
@@ -534,7 +547,14 @@ export const FirebaseService = {
         behavior: snapshot.behavior || "Observation.",
         aiInsight: snapshot.aiInsight || null,
         aiConfidence: snapshot.aiConfidence || null,
-        locationArea: (snapshot as any).showLocation === false ? "" : (snapshot.locationArea || ""),
+        aiIdentifications: snapshot.aiIdentifications || null,
+        aiFlags: snapshot.aiFlags || null,
+        needsExpertReview: !!snapshot.needsExpertReview,
+        aiSafetyNote: snapshot.aiSafetyNote || null,
+        aiModel: snapshot.aiModel || null,
+        aiPromptVersion: snapshot.aiPromptVersion || null,
+        // Sensitive species are always obscured (governance rule), regardless of the toggle
+        locationArea: ((snapshot as any).showLocation === false || snapshot.aiFlags?.sensitiveSpecies) ? "" : (snapshot.locationArea || ""),
         showLocation: (snapshot as any).showLocation ?? false,
         rotation: snapshot.rotation || 0,
         timeToRecordMs: snapshot.timeToRecordMs || null,
@@ -596,6 +616,14 @@ export const FirebaseService = {
         aiInsight: primaryItem.aiInsight,
         aiConfidence: primaryItem.aiConfidence,
         aiPolicyVersion: AI_CLIENT_POLICY_VERSION,
+        needsExpertReview: items.some(i => i.needsExpertReview),
+        aiFlags: {
+          isNatureSubject: items.every(i => i.aiFlags?.isNatureSubject !== false),
+          fungi: items.some(i => i.aiFlags?.fungi),
+          dangerous: items.some(i => i.aiFlags?.dangerous),
+          sensitiveSpecies: items.some(i => i.aiFlags?.sensitiveSpecies),
+          peopleVisible: items.some(i => i.aiFlags?.peopleVisible),
+        },
         locationArea: primaryItem.locationArea,
         showLocation: primaryItem.showLocation,
         tags: cleanTags,
@@ -634,6 +662,65 @@ export const FirebaseService = {
         console.warn("Failed to update user stats:", statsErr);
       }
       return { id: docRef.id, url: primaryItem.imageUrl || undefined, videoUrl: primaryItem.videoUrl || undefined, audioUrl: primaryItem.audioUrl || undefined };
+  },
+
+  /**
+   * Human-in-the-loop accuracy signal: what the AI proposed vs what the explorer published.
+   * Feeds the admin "AI quality" dashboard (correction rate, calibration by confidence).
+   */
+  logAiFeedback: async (snapshots: Snapshot[], postId: string | null) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const norm = (a?: string[] | null) => (a || []).map(x => x.trim().toLowerCase()).filter(Boolean);
+    await Promise.all(snapshots.filter(s => s.aiProposedLabels && s.aiProposedLabels.length).map(s => {
+      const ai = norm(s.aiProposedLabels), human = norm(s.labels);
+      const corrected = JSON.stringify(ai[0] || '') !== JSON.stringify(human[0] || '');
+      return addDoc(collection(db, 'ai_feedback'), {
+        userId: uid,
+        kind: corrected ? 'correction' : 'confirmation',
+        postId: postId || null,
+        mediaType: s.type,
+        aiLabels: (s.aiProposedLabels || []).slice(0, 6),
+        humanLabels: (s.labels || []).slice(0, 6),
+        confidence: s.aiConfidence || null,
+        needsExpertReview: !!s.needsExpertReview,
+        flags: s.aiFlags || null,
+        model: s.aiModel || null,
+        promptVersion: s.aiPromptVersion || null,
+        createdAt: serverTimestamp(),
+      }).catch(() => {});
+    }));
+  },
+
+  /** Admin: recent AI feedback for quality monitoring. */
+  getAiFeedback: async (max = 500): Promise<any[]> => {
+    const snap = await getDocs(query(collection(db, 'ai_feedback'), orderBy('createdAt', 'desc'), limit(max)));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+
+  // ------------------------------------------------------------------ community identification
+  getIdentifications: async (postId: string): Promise<{ id: string; name: string; scientificName?: string; note?: string; userName?: string; agree?: boolean }[]> => {
+    try {
+      const snap = await getDocs(collection(db, 'ecosystem_feed', postId, 'identifications'));
+      return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    } catch { return []; }
+  },
+  setIdentification: async (postId: string, data: { name: string; scientificName?: string; note?: string; agree?: boolean }) => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw new Error('Please sign in to identify.');
+    const profile = await FirebaseService.getUserProfile(me.uid);
+    await setDoc(doc(db, 'ecosystem_feed', postId, 'identifications', me.uid), {
+      name: data.name.trim().slice(0, 80),
+      scientificName: (data.scientificName || '').trim().slice(0, 80),
+      note: (data.note || '').trim().slice(0, 280),
+      userName: (profile?.username || me.displayName || 'Explorer').slice(0, 60),
+      agree: !!data.agree,
+      createdAt: serverTimestamp(),
+    });
+  },
+  removeIdentification: async (postId: string) => {
+    const me = auth.currentUser?.uid;
+    if (me) await deleteDoc(doc(db, 'ecosystem_feed', postId, 'identifications', me));
   },
 
   /** Writes the lightweight feed index document for a public post. */
