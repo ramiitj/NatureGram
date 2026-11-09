@@ -3,6 +3,7 @@ import { CommunityPost, UserProfileData } from '../types';
 import { FirebaseService } from '../services/firebaseService';
 import { auth } from '../firebaseConfig';
 import AuthModal from './AuthModal';
+import NaturalistPersonaModal from './NaturalistPersonaModal';
 import { PUBLIC_ORIGIN, timeAgo } from '../utils';
 import { track } from '../services/analytics';
 import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
@@ -64,6 +65,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   const [isAdmin, setIsAdmin] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [toast, setToast] = useState('');
+  const [personaOpen, setPersonaOpen] = useState(false);
 
   const isOwnProfile = userId === currentUserId;
 
@@ -361,6 +363,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         <Sheet title="Settings" onClose={() => setSheet(null)}>
           <nav className="flex flex-col gap-1" aria-label="Account settings">
             <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit profile</button>
+            <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">psychology</span><span className="flex-1">Naturalist persona<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
             {isAdmin && onAdminConsole && (
@@ -376,6 +379,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <button onClick={() => setSheet('delete')} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">delete_forever</span>Delete account</button>
           </nav>
         </Sheet>
+      )}
+
+      {isOwnProfile && (
+        <NaturalistPersonaModal
+          userId={userId}
+          initialPersona={profile?.naturalistPersona}
+          isOpen={personaOpen}
+          onClose={() => setPersonaOpen(false)}
+          onSave={(updated: any) => { setProfile(prev => prev ? { ...prev, naturalistPersona: updated } : prev); setPersonaOpen(false); showToast('Persona saved'); }}
+        />
       )}
 
       {sheet === 'delete' && <DeleteAccountSheet username={username} onClose={() => setSheet(null)} onDeleted={onSignOut} />}

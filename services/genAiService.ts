@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { auth } from "../firebaseConfig";
+import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
 
 /**
  * Governed AI analysis for NatureGram.
@@ -241,6 +242,83 @@ export const GenAiService = {
     for (const img of imageBlobs.slice(0, 4)) parts.push({ inlineData: { data: await toBase64(img), mimeType: img.type || 'image/jpeg' } });
     if (!parts.length) throw new AiError('Nothing to analyse.', 'invalid');
     return identify(parts, 'Identify the organisms using the recording first (sounds and movement), and the key-frame photos to confirm visual features. Describe the behaviour.', location);
+  },
+
+  /**
+   * Structured ethological / bioacoustic descriptors for the research dataset.
+   * Returns null on failure. Never fabricates placeholder measurements.
+   */
+  generateEthologicalDescriptors: async (
+    labels: string[], behavior: string, mediaType: 'image' | 'video' | 'audio', _locationArea?: string
+  ): Promise<EthologicalDescriptors | null> => {
+    if (!labels.length) return null;
+    try {
+      const ai = await client();
+      return await withRetry(async () => {
+        const response = await ai.models.generateContent({
+          model: 'ng-describe',
+          contents: `Give general, literature-level ethological descriptors for these organisms. These describe the species, not measurements of this recording.
+Organisms: ${labels.slice(0, 4).join(', ')}
+Observed behaviour notes: ${behavior.slice(0, 600)}
+Media type: ${mediaType}
+Use "unknown" for any field you are not confident about. Never invent precise numbers. Give frequency ranges only if the species' vocal range is well documented.`,
+          config: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                bioacousticProfile: { type: Type.OBJECT, properties: { frequencyRangeHz: { type: Type.STRING }, vocalizationType: { type: Type.STRING }, callRhythmPattern: { type: Type.STRING } } },
+                visualEthology: { type: Type.OBJECT, properties: { motionPosture: { type: Type.STRING }, diagnosticMarkings: { type: Type.ARRAY, items: { type: Type.STRING } } } },
+                habitatNiche: { type: Type.OBJECT, properties: { microHabitat: { type: Type.STRING }, environmentalContext: { type: Type.STRING } } },
+              },
+            } as any,
+          },
+        });
+        const parsed = JSON.parse(response.text || '{}');
+        return { ...parsed, aiDescriptorVersion: `describe-2026.11-1/${'ng-describe'}` } as EthologicalDescriptors;
+      }, 2);
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Persona-based feed curation: ranks candidates for an explorer's naturalist persona and
+   * writes short, factual curator notes. On failure, returns the input order without notes.
+   */
+  curateAgenticFeed: async (persona: NaturalistPersona, candidatePosts: CommunityPost[]): Promise<CommunityPost[]> => {
+    if (!candidatePosts?.length) return [];
+    const pool = candidatePosts.slice(0, 15);
+    try {
+      const ai = await client();
+      const summary = pool.map(p => `[${p.id}] ${p.labels?.slice(0, 3).join(', ') || 'unidentified'} | ${p.mediaType} | ${(p.caption || p.behavior || '').slice(0, 140)}`).join('\n');
+      const result = await withRetry(async () => {
+        const response = await ai.models.generateContent({
+          model: 'ng-curate',
+          contents: `Explorer persona: archetype "${persona.archetype || 'Explorer'}"; interests: ${(persona.taxaInterests || []).join(', ') || 'all taxa'}; styles: ${(persona.observationStyles || []).join(', ') || 'all'}; habitats: ${(persona.habitatAffinities || []).join(', ') || 'all'}; focus: ${persona.customFocus || 'none'}.
+Rank the most relevant sightings (up to 12) for this explorer. For each, write one factual sentence (no emojis, no invented facts beyond the listed details) on why it matches.
+Sightings:\n${summary}`,
+          config: {
+            temperature: 0.3,
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: { curatedItems: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { postId: { type: Type.STRING }, curatorNote: { type: Type.STRING }, relevanceScore: { type: Type.NUMBER } }, required: ['postId', 'curatorNote', 'relevanceScore'] } } },
+              required: ['curatedItems'],
+            } as any,
+          },
+        });
+        return JSON.parse(response.text || '{}');
+      }, 2);
+      const map = new Map<string, { note: string; score: number }>();
+      (result.curatedItems || []).forEach((i: any) => { if (i?.postId && i.curatorNote) map.set(i.postId, { note: String(i.curatorNote).replace(/\p{Extended_Pictographic}/gu, '').trim().slice(0, 220), score: Number(i.relevanceScore) || 0 }); });
+      const ranked = pool.filter(p => map.has(p.id)).sort((a, b) => map.get(b.id)!.score - map.get(a.id)!.score).map(p => ({ ...p, curatorNote: map.get(p.id)!.note }));
+      const rest = candidatePosts.filter(p => !map.has(p.id));
+      return [...ranked, ...rest];
+    } catch {
+      return candidatePosts;
+    }
   },
 
   /** Title + summary for a multi-capture post. Throws on failure (caller falls back to no title). */

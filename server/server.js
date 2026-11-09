@@ -235,13 +235,13 @@ async function startServer() {
     if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com`,
+      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob: https:",
-      "connect-src 'self' wss: https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
-      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com",
+      "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
+      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com",
       "worker-src 'self' blob:",
       "frame-ancestors 'self' https://aistudio.google.com https://*.google.com",
       "base-uri 'self'",
@@ -352,7 +352,7 @@ async function startServer() {
     if (!POST_ID_RE.test(postId)) return res.redirect(302, '/');
 
     const siteUrl = `${scheme}://${host}/s/${postId}`;
-    const appUrl = `${scheme}://${host}/?post=${encodeURIComponent(postId)}`;
+    const appUrl = `${scheme}://${host}/post/${encodeURIComponent(postId)}`;
     const ua = req.headers['user-agent'] || '';
     const isCrawler = /bot|crawler|spider|crawling|facebookexternalhit|twitterbot|whatsapp|telegram|discord|slack|linkedin|embedly|pinterest/i.test(ua);
     if (!isCrawler) return res.redirect(302, appUrl);
@@ -597,6 +597,11 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       activeLive.set(user.uid, conns);
       const remaining = Math.min(QUOTAS.liveSessionMaxMs, q.liveMsPerDay - e.liveMs);
       const timeout = setTimeout(() => closeWith(4408, 'Live session time limit reached. Start a new session to continue.'), remaining);
+      // Close sessions that stop sending audio/video (closed tab, frozen device) to conserve quota
+      const IDLE_MS = num(process.env.LIVE_IDLE_TIMEOUT_SEC, 60) * 1000;
+      let idleTimer = setTimeout(() => closeWith(4408, 'Session closed after inactivity.'), IDLE_MS);
+      clientWs.isAlive = true;
+      clientWs.on('pong', () => { clientWs.isAlive = true; });
 
       const target = new WebSocket(`wss://${TARGET_HOST}${relPath}?key=${encodeURIComponent(API_KEY)}`, { headers: { host: TARGET_HOST } });
       const queue = [];
@@ -607,6 +612,7 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
         if (finished) return;
         finished = true;
         clearTimeout(timeout);
+        clearTimeout(idleTimer);
         e.liveMs += Date.now() - session.startedAt;
         conns.delete(session);
         if (!conns.size) activeLive.delete(user.uid);
@@ -615,6 +621,9 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       log('info', 'live session started', { uid: user.uid, anon: user.isAnonymous });
 
       const forward = (data, isBinary) => {
+        clientWs.isAlive = true;
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => closeWith(4408, 'Session closed after inactivity.'), IDLE_MS);
         // Govern the first (setup) frame: pin model + inject AI policy
         if (!setupSeen) {
           setupSeen = true;
@@ -654,6 +663,16 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       clientWs.on('error', () => { finish(); try { target.terminate(); } catch { /* noop */ } });
     });
   });
+
+  // Terminate dead WebSocket connections (no pong within 20 s)
+  const sweep = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) { try { ws.terminate(); } catch { /* noop */ } continue; }
+      ws.isAlive = false;
+      try { ws.ping(); } catch { /* noop */ }
+    }
+  }, 20_000);
+  sweep.unref();
 
   server.listen(PORT, '0.0.0.0', () => log('info', 'server listening', { port: PORT, prod: IS_PROD, aiConfigured: Boolean(API_KEY) }));
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { track } from '../services/analytics';
+import NaturalistPersonaModal from './NaturalistPersonaModal';
 
 interface AuthModalProps {
   onClose?: () => void;
@@ -38,6 +39,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const [personaForUid, setPersonaForUid] = useState<string | null>(null);
   const isSignUp = mode === 'signup';
 
   useEffect(() => { firstFieldRef.current?.focus(); }, [mode]);
@@ -64,9 +66,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         setNotice('If an account exists for this email, a reset link is on its way.');
         setMode('login');
       } else if (mode === 'signup') {
-        await FirebaseService.registerUser(email, password, username);
+        const cred = await FirebaseService.registerUser(email, password, username);
         track('sign_up', { with_username: !!username });
-        onSuccess();
+        // Optional second step: the explorer's naturalist persona personalises their feed
+        if (cred?.user?.uid) setPersonaForUid(cred.user.uid);
+        else onSuccess();
       } else {
         await FirebaseService.loginUser(email, password);
         track('login');
@@ -78,6 +82,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
       setLoading(false);
     }
   };
+
+  if (personaForUid) {
+    return (
+      <NaturalistPersonaModal
+        userId={personaForUid}
+        isOpen={true}
+        showSkipOption={true}
+        onClose={() => onSuccess()}
+        onSave={() => onSuccess()}
+      />
+    );
+  }
 
   const title = mode === 'signup' ? 'Join the field' : mode === 'login' ? 'Welcome back' : 'Reset your password';
   const subtitle = reason || (mode === 'signup'

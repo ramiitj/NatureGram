@@ -10,6 +10,39 @@ export interface FieldNotification {
   senderName?: string;
 }
 
+export interface NaturalistPersona {
+  archetype: string;
+  taxaInterests: string[];
+  observationStyles: string[];
+  habitatAffinities: string[];
+  customFocus?: string;
+  curatorPrompt?: string;
+  updatedAt?: any;
+}
+
+export interface BioacousticProfile {
+  frequencyRangeHz?: string;
+  vocalizationType?: string;
+  callRhythmPattern?: string;
+}
+
+export interface VisualEthology {
+  motionPosture?: string;
+  diagnosticMarkings?: string[];
+}
+
+export interface HabitatNiche {
+  microHabitat?: string;
+  environmentalContext?: string;
+}
+
+export interface EthologicalDescriptors {
+  bioacousticProfile?: BioacousticProfile;
+  visualEthology?: VisualEthology;
+  habitatNiche?: HabitatNiche;
+  aiDescriptorVersion?: string;
+}
+
 export interface UserProfileData {
   uid: string;
   username: string;
@@ -19,6 +52,7 @@ export interface UserProfileData {
   isAnonymous?: boolean;
   followersCount?: number;
   followingCount?: number;
+  naturalistPersona?: NaturalistPersona;
   /** Legacy fields kept for existing documents */
   email?: string;
   location?: string;
@@ -181,6 +215,8 @@ export interface FeedThumbnail {
   isHybrid?: boolean;
   caption?: string | null;
   userAvatar?: string | null;
+  ethologicalDescriptors?: EthologicalDescriptors | null;
+  curatorNote?: string;
 }
 
 export interface CommunityPost extends FeedThumbnail {

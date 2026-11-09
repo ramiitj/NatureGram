@@ -112,7 +112,9 @@ export class GeminiLiveService {
                 this.connected = false;
                 // 4xxx = governed by the server (quota, time limit, policy) and 1008 = policy violation:
                 // these must not auto-reconnect; surface the reason to the explorer instead.
-                const governed = e.code === 1008 || (e.code >= 4000 && e.code <= 4999);
+                const governed = e.code === 1008 || (e.code >= 4000 && e.code <= 4999)
+                    || /timeout|session/i.test(e.reason || '')
+                    || (typeof document !== 'undefined' && document.visibilityState === 'hidden');
                 if (governed && !this.isManuallyClosed) {
                     this.isManuallyClosed = true;
                     this.delegate.onError?.(Object.assign(new Error(e.reason || 'The live guide session ended.'), { code: e.code, governed: true }));

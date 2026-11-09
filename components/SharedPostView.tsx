@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CommunityPost } from '../types.ts';
+import { CommunityPost, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
 
 interface SharedPostViewProps {
   postId: string;
   onGoToApp: () => void;
+  userMode?: UserMode;
 }
 
-const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) => {
+const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, userMode }) => {
   const [post, setPost] = useState<CommunityPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -86,6 +87,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
   }
 
   let currentItem = post.items && post.items.length > 0 ? post.items[activeItemIndex] : post;
+  
+  const canDownload = userMode ? (post.userId === userMode.userId || userMode.type === 'admin') : false;
 
   return (
       <div className="fixed inset-0 bg-black text-white flex flex-col font-body md:flex-row overflow-hidden">
@@ -110,6 +113,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                                        <video 
                                            src={item.videoUrl!} 
                                            controls 
+                                           controlsList={!canDownload ? "nodownload" : undefined}
+                                           onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                                            autoPlay={index === 0} 
                                            className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                                            style={{ transform: `rotate(${item.rotation || 0}deg)` }}
@@ -118,13 +123,15 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                                        <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-theme-primary/10 shadow-2xl rounded-sm">
                                             <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
                                             {item.audioUrl && (
-                                                 <audio src={item.audioUrl} controls className="w-full max-w-xs" />
+                                                 <audio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                             )}
                                        </div>
                                   ) : (
                                       <img 
                                           src={item.originalImageUrl || item.imageUrl || item.thumbnailUrl!} 
                                           alt={post?.labels?.[0] || "Nature sighting"} 
+                                          draggable={canDownload}
+                                          onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                                           className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                                       />
                                   )}
@@ -168,6 +175,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                            <video 
                                src={currentItem.videoUrl!} 
                                controls 
+                               controlsList={!canDownload ? "nodownload" : undefined}
+                               onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                                autoPlay 
                                className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                                style={{ transform: `rotate(${currentItem.rotation || 0}deg)` }}
@@ -176,13 +185,15 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                            <div className="flex flex-col items-center justify-center w-full h-full bg-theme-primary/10 p-8 shadow-2xl rounded-sm">
                                 <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
                                 {currentItem.audioUrl && (
-                                     <audio src={currentItem.audioUrl} controls className="w-full max-w-xs" />
+                                     <audio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                 )}
                            </div>
                       ) : (
                           <img 
                               src={currentItem.originalImageUrl || currentItem.imageUrl || currentItem.thumbnailUrl!} 
                               alt={post?.labels?.[0] || "Nature sighting"} 
+                              draggable={canDownload}
+                              onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
                               className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
                           />
                       )}
@@ -199,7 +210,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                          </div>
                          <div className="flex flex-col">
                              <span className="font-bold text-sm tracking-tight">{post.userName}</span>
-                             <span className="text-xs text-theme-primary/60 uppercase tracking-wider font-bold">Explorer</span>
+                             <span className="text-[10px] text-theme-primary/60 uppercase tracking-wider font-bold">Explorer</span>
                          </div>
                      </div>
                  </div>
@@ -209,12 +220,12 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
                      
                      <div className="flex flex-wrap gap-2 mt-2">
                          {post.labels.slice(0, 4).map((label: string, i: number) => (
-                             <span key={i} className="bg-theme-primary px-3 py-1 text-xs uppercase font-black tracking-widest rounded-full text-white">
+                             <span key={i} className="bg-theme-primary px-3 py-1 text-[10px] uppercase font-black tracking-widest rounded-full text-white">
                                  {label}
                              </span>
                          ))}
                          {post.tags && post.tags.length > 0 && post.tags.map((tag: string, i: number) => (
-                             <span key={`tag-${i}`} className="bg-stone-200 text-stone-700 px-3 py-1 text-xs font-bold tracking-widest rounded-full lowercase">
+                             <span key={`tag-${i}`} className="bg-stone-200 text-stone-700 px-3 py-1 text-[10px] font-bold tracking-widest rounded-full lowercase">
                                  #{String(tag).replace(/^#+/, '')}
                              </span>
                          ))}
@@ -231,7 +242,6 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp }) =>
 
                      {post.aiInsight && (
                          <div className="bg-theme-primary/5 rounded-xl p-5 border border-theme-primary/10 mt-6 relative">
-                             <span className="absolute -top-3 -right-2 text-2xl animate-bounce">✨</span>
                              <h4 className="text-xs font-black uppercase tracking-widest text-theme-accent mb-2">Ecological Insight</h4>
                              <p className="text-sm leading-relaxed text-theme-primary/70">{post.aiInsight}</p>
                          </div>

@@ -6,7 +6,7 @@ interface JournalProps {
   activeDraftsCount?: number;
   onViewDrafts?: () => void;
   onViewProfile?: (userId: string) => void;
-  onPostOpen?: () => void;
+  onPostOpen?: (postId?: string) => void;
   onPostClose?: () => void;
   onLogoClick?: () => void;
 }

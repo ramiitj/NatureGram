@@ -78,9 +78,12 @@ const withPolicy = (si) => {
  * Task aliases → concrete models. Clients request a *task* (ng-identify), the server
  * decides the model. Change or roll back models with env vars, no client release needed.
  */
+const FAST_DEFAULT = process.env.MODEL_FAST || 'gemini-3.6-flash';
 export const MODEL_ALIASES = {
-  'ng-identify': process.env.MODEL_IDENTIFY || 'gemini-3.1-pro-preview',
-  'ng-synthesize': process.env.MODEL_SYNTHESIZE || process.env.MODEL_IDENTIFY || 'gemini-3.1-pro-preview',
+  'ng-identify': process.env.MODEL_IDENTIFY || FAST_DEFAULT,
+  'ng-synthesize': process.env.MODEL_SYNTHESIZE || FAST_DEFAULT,
+  'ng-describe': process.env.MODEL_DESCRIBE || FAST_DEFAULT,
+  'ng-curate': process.env.MODEL_CURATE || FAST_DEFAULT,
 };
 
 /** Validate a Gemini HTTP path. Returns normalized path + model. */

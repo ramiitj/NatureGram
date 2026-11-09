@@ -21,7 +21,8 @@
     "motion": "^12.36.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "lucide-react": "^1.31.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

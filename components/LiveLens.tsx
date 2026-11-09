@@ -10,6 +10,7 @@ import { getDailyTheme as getDailyThemeConst } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
 import { coarsenCoordinate } from '../utils';
 import { GenAiService } from '../services/genAiService.ts';
+import { RateLimitService } from '../services/rateLimitService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -70,6 +71,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode);
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
   const [pendingAnalyses, setPendingAnalyses] = useState(0);
+  // Session limits from main: conversation length cap, idle timeout, capture cap in observation mode
+  const CONVERSATION_MAX_MS = 60_000;
+  const OBSERVATION_MAX_CAPTURES = 3;
+  const IDLE_LIMIT_MS = 60_000;
+  const conversationEndsAtRef = useRef<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [idleWarning, setIdleWarning] = useState<number | null>(null);
+  const lastInteractionRef = useRef<number>(Date.now());
   const isProcessingCapture = pendingAnalyses > 0;
   const [showTranscript, setShowTranscript] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
@@ -319,6 +328,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, []);
 
   const handleShutterPress = useCallback(() => {
+      if (selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES && !isRecordingVideo) {
+          showStatus('error', `Observation sessions hold ${OBSERVATION_MAX_CAPTURES} captures. Tap Done to review them.`);
+          return;
+      }
       if (!isCameraActive) {
           setIsCameraActive(true);
           return;
@@ -442,9 +455,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   /** Sound recording: one tap to start, one tap to stop (max 30 s). */
   const toggleSoundRecording = useCallback(() => {
     if (isRecordingVideo) return;
+    if (!isRecordingAudio && selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES) {
+        showStatus('error', `Observation sessions hold ${OBSERVATION_MAX_CAPTURES} captures. Tap Done to review them.`);
+        return;
+    }
     if (isRecordingAudio) stopRecording();
     else startRecording('audio');
-  }, [isRecordingAudio, isRecordingVideo, startRecording, stopRecording]);
+  }, [isRecordingAudio, isRecordingVideo, startRecording, stopRecording, selectedMode, showStatus]);
 
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -606,6 +623,38 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, [naturalistId, onEndSession]);
 
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
+
+  useEffect(() => {
+      const ping = setInterval(() => RateLimitService.pingSessionActive(), 5000);
+      RateLimitService.pingSessionActive();
+      return () => { clearInterval(ping); RateLimitService.clearSessionActive(); };
+  }, []);
+
+  useEffect(() => {
+      const touch = () => { lastInteractionRef.current = Date.now(); setIdleWarning(null); };
+      const events: (keyof WindowEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
+      events.forEach(ev => window.addEventListener(ev, touch, { passive: true }));
+      const tick = setInterval(() => {
+          if (agentState === 'FINALIZING') return;
+          const idle = Date.now() - lastInteractionRef.current;
+          const busy = isRecordingAudio || isRecordingVideo || agentState === 'SPEAKING' || agentState === 'HEARING_USER';
+          if (busy) lastInteractionRef.current = Date.now();
+          else if (idle > IDLE_LIMIT_MS) finalizeSession('Session ended after a minute without activity.');
+          else if (idle > IDLE_LIMIT_MS - 10_000) setIdleWarning(Math.ceil((IDLE_LIMIT_MS - idle) / 1000));
+          if (conversationEndsAtRef.current) {
+              const left = Math.max(0, Math.ceil((conversationEndsAtRef.current - Date.now()) / 1000));
+              setSecondsLeft(left);
+              if (left === 0) finalizeSession('Conversation reached its time limit.');
+          }
+      }, 1000);
+      const onHide = () => { if (document.visibilityState === 'hidden') finalizeSession('Session ended because the app went to the background.'); };
+      document.addEventListener('visibilitychange', onHide);
+      return () => {
+          events.forEach(ev => window.removeEventListener(ev, touch));
+          clearInterval(tick);
+          document.removeEventListener('visibilitychange', onHide);
+      };
+  }, [agentState, isRecordingAudio, isRecordingVideo, finalizeSession]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
     setChatHistory(prev => {
@@ -941,6 +990,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         const stream = await startMediaStream('environment');
         console.debug("Media stream started.");
 
+        if (selectedMode === 'observation') {
+            // Quiet observer: no live AI connection; each capture is identified in the background
+            setAgentState('IDLE');
+            return () => { stream.getTracks().forEach(t => t.stop()); };
+        }
+
         const service = new GeminiLiveService(audioContext, {
             onAudioData: playAudioData,
             onInterrupted: () => { stopAllAudio(); if(agentState !== 'FINALIZING') setAgentState('HEARING_USER'); },
@@ -951,7 +1006,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 console.debug("Connection state changed:", state);
                 if (agentState === 'FINALIZING') return;
                 switch (state) {
-                    case 'CONNECTED': setAgentState('IDLE'); break;
+                    case 'CONNECTED':
+                        setAgentState('IDLE');
+                        if (!conversationEndsAtRef.current) conversationEndsAtRef.current = Date.now() + CONVERSATION_MAX_MS;
+                        break;
                     case 'RECONNECTING': setAgentState('RECONNECTING'); break;
                     case 'DISCONNECTED': setAgentState('DISCONNECTED'); break;
                 }
@@ -971,9 +1029,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
         const memoryContext = memory ? `[NATURALIST PROFILE: ${memory.preferredStyle}. Last summary: ${memory.lastSessionSummary}]` : '';
         
-        const modeInstruction = selectedMode === 'observation' 
-            ? "\n[MODE: OBSERVATION. You are a silent observer. IMPORTANT: The user will NOT hear your voice; they will only see your text transcripts. Keep your responses very brief, scientific, and focused. Do not speak unless necessary. When you do respond, provide concise text-based insights.]"
-            : "\n[MODE: CONVERSATION. You are an active field companion. Engage in real-time dialogue, ask questions, and be highly interactive. Your goal is to be a conversational partner in this exploration.]";
+        const modeInstruction = "\n[MODE: CONVERSATION. You are an active field companion. Engage in real-time dialogue, ask questions, and be highly interactive. Your goal is to be a conversational partner in this exploration.]";
 
         // The fortnight's naturalist shapes what the guide gently encourages explorers to notice
         const theme = getDailyThemeConst();
@@ -1144,6 +1200,18 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           <span className="block text-[11px] font-bold uppercase tracking-widest text-white/50 mb-0.5">{m.role === 'user' ? 'You' : 'Guide'}</span>{m.text}
                       </p>
                   ))}
+          </div>
+      )}
+      {secondsLeft !== null && selectedMode === 'conversation' && agentState !== 'FINALIZING' && (
+          <div className="absolute top-[calc(var(--sat)+9.5rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1 tabular" role="timer" aria-live="off">
+              {secondsLeft}s left in this conversation
+          </div>
+      )}
+      {idleWarning !== null && agentState !== 'FINALIZING' && (
+          <div className="absolute inset-x-4 top-1/3 z-[130] mx-auto max-w-xs bg-white rounded-2xl p-5 text-center shadow-2xl" role="alertdialog" aria-labelledby="idle-title">
+              <p id="idle-title" className="font-bold text-stone-900">Still exploring?</p>
+              <p className="text-sm text-stone-600 mt-1">The session ends in {idleWarning}s to save resources.</p>
+              <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="mt-4 w-full py-3 rounded-xl bg-stone-900 text-white font-bold">Keep going</button>
           </div>
       )}
       {pendingAnalyses > 0 && (
@@ -1326,11 +1394,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   <span className="text-[11px] font-black uppercase tracking-tighter">Flip</span>
               </button>
               
-              <label className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/60 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl cursor-pointer">
-                  <span className="material-symbols-outlined text-xl">upload_file</span>
-                  <span className="text-[11px] font-black uppercase tracking-tighter">Upload</span>
-                  <input type="file" accept="image/*,video/*,audio/*" className="sr-only" aria-label="Upload a photo, video or sound" onChange={(e) => { handleMediaUpload(e); e.currentTarget.value = ''; }} />
-              </label>
+
           </div>
       )}
 

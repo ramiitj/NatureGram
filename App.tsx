@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, Suspense, lazy, useCallback } from 
 import Journal from './components/Journal.tsx';
 import Community from './components/Community.tsx';
 import AuthModal from './components/AuthModal.tsx';
+import UploadModal from './components/UploadModal.tsx';
+import { RateLimitService } from './services/rateLimitService.ts';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService } from './services/firebaseService.ts';
@@ -42,8 +44,13 @@ const PATHS: Record<AppView, string> = {
   [AppView.SHARED_POST]: '/feed',
 };
 
+const pathId = (p: string, prefix: string) => (p.startsWith(prefix) ? decodeURIComponent(p.slice(prefix.length).split('/')[0] || '') || null : null);
+const getInitialPostId = () => pathId(window.location.pathname, '/post/') || new URLSearchParams(window.location.search).get('p');
+const getInitialProfileId = () => pathId(window.location.pathname, '/profile/') || new URLSearchParams(window.location.search).get('user');
+
 const viewFromPath = (p: string): AppView => {
   if (p === '/' || p === '') return AppView.LANDING;
+  if (p.startsWith('/post/')) return AppView.COMMUNITY;
   if (p.startsWith('/journal')) return AppView.JOURNAL;
   if (p.startsWith('/profile')) return AppView.USER_PROFILE;
   if (p.startsWith('/admin')) return AppView.ADMIN;
@@ -62,16 +69,17 @@ const MODE_PREF_KEY = 'naturegram_lens_mode';
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(getInitialView());
   const currentViewRef = useRef<AppView>(currentView);
-  const [targetProfileId, setTargetProfileId] = useState<string | null>(new URLSearchParams(window.location.search).get('user') || null);
+  const [targetProfileId, setTargetProfileId] = useState<string | null>(getInitialProfileId());
 
   // Keep the URL in sync with the current view (real back/forward support)
   useEffect(() => {
     currentViewRef.current = currentView;
     if (currentView === AppView.SHARED_POST) return;
     let newPath = PATHS[currentView] || '/';
-    if (currentView === AppView.USER_PROFILE && targetProfileId) newPath += `?user=${encodeURIComponent(targetProfileId)}`;
+    if (currentView === AppView.USER_PROFILE && targetProfileId) newPath = `/profile/${encodeURIComponent(targetProfileId)}`;
     const here = window.location.pathname + window.location.search;
-    if (here !== newPath && !(currentView === AppView.COMMUNITY && window.location.search.includes('p='))) {
+    const onPostUrl = currentView === AppView.COMMUNITY && (window.location.search.includes('p=') || window.location.pathname.startsWith('/post/'));
+    if (here !== newPath && !onPostUrl) {
       window.history.pushState({ view: currentView }, '', newPath);
     }
   }, [currentView, targetProfileId]);
@@ -94,7 +102,9 @@ const App: React.FC = () => {
         return;
       }
       const view = viewFromPath(window.location.pathname);
-      if (view === AppView.USER_PROFILE) setTargetProfileId(params.get('user'));
+      if (view === AppView.USER_PROFILE) setTargetProfileId(pathId(window.location.pathname, '/profile/') || params.get('user'));
+      const postFromPath = pathId(window.location.pathname, '/post/');
+      if (postFromPath) { setSelectedPostId(postFromPath); setIsDetailActive(true); }
       setCurrentView(view);
     };
     window.addEventListener('popstate', handlePopState);
@@ -148,6 +158,8 @@ const App: React.FC = () => {
   useEffect(() => { refreshDraftsCount(); }, [userMode?.userId, refreshDraftsCount]);
 
   const [showModeSelection, setShowModeSelection] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [limitNotice, setLimitNotice] = useState('');
   const [rememberMode, setRememberMode] = useState(false);
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('conversation');
 
@@ -232,9 +244,9 @@ const App: React.FC = () => {
       setCurrentView(AppView.SHARED_POST);
       return;
     }
-    // Links from notifications: /feed?p=POST_ID opens the post inside the app
-    const inApp = params.get('p');
-    if (inApp && window.location.pathname.startsWith('/feed')) {
+    // In-app post links: /post/POST_ID (shared) or /feed?p=POST_ID (notifications)
+    const inApp = getInitialPostId();
+    if (inApp) {
       setSelectedPostId(inApp);
       setIsDetailActive(true);
     }
@@ -322,6 +334,7 @@ const App: React.FC = () => {
     await initAudioContext();
     const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
     if (saved) {
+      if (!allowSession(saved)) return;
       track('lens_open', { mode: saved, remembered: true });
       setSelectedMode(saved);
       setCurrentView(AppView.LENS);
@@ -330,7 +343,18 @@ const App: React.FC = () => {
     }
   };
 
+  /** Daily session allowance (client-side guard from main; the server enforces the real quota). */
+  const allowSession = (mode: 'observation' | 'conversation') => {
+    const uid = userMode?.userId || 'explorer_guest';
+    if (RateLimitService.isSessionActive()) { setLimitNotice('A session is already open in another tab. Close it to start a new one.'); return false; }
+    const ok = mode === 'observation' ? RateLimitService.canStartObservation(uid) : RateLimitService.canStartConversation(uid);
+    if (!ok) { setLimitNotice(`You've used today's ${mode === 'observation' ? 'observation' : 'conversation'} sessions. They refresh tomorrow. You can still upload sightings.`); return false; }
+    if (mode === 'observation') RateLimitService.incrementObservation(uid); else RateLimitService.incrementConversation(uid);
+    return true;
+  };
+
   const chooseMode = (mode: 'observation' | 'conversation') => {
+    if (!allowSession(mode)) { setShowModeSelection(false); return; }
     track('lens_open', { mode, remembered: rememberMode });
     setSelectedMode(mode);
     if (rememberMode) localStorage.setItem(MODE_PREF_KEY, mode);
@@ -611,6 +635,15 @@ const App: React.FC = () => {
                       <span className="block text-sm text-stone-600 leading-relaxed">{opt.desc}</span>
                     </button>
                   ))}
+                  <button onClick={() => { setShowModeSelection(false); setShowUploadModal(true); }} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
+                    <span className="flex items-center gap-4 mb-1">
+                      <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
+                        <span className="material-symbols-outlined">upload_file</span>
+                      </span>
+                      <span className="font-bold text-lg text-stone-900">Upload from gallery</span>
+                    </span>
+                    <span className="block text-sm text-stone-600 leading-relaxed">Photos, or sound and video clips up to 30 seconds. No live camera needed.</span>
+                  </button>
                 </div>
                 <label className="mt-5 flex items-center justify-center gap-2 text-sm text-stone-600 cursor-pointer">
                   <input type="checkbox" checked={rememberMode} onChange={e => setRememberMode(e.target.checked)} className="w-4 h-4" />
@@ -622,9 +655,30 @@ const App: React.FC = () => {
           </div>
         )}
 
+        <UploadModal
+          isOpen={showUploadModal}
+          onClose={() => setShowUploadModal(false)}
+          userId={userMode?.userId || ''}
+          onProcessUploads={(processed: Snapshot[], summary?: string) => {
+            setShowUploadModal(false);
+            setCurrentSessionSnapshots(processed);
+            setSnapshots(processed);
+            if (summary) setSessionSummary(summary);
+            setCurrentView(AppView.POST_SESSION);
+          }}
+        />
+
+        {limitNotice && (
+          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 shadow-2xl flex items-start gap-3 animate-slide-up">
+            <span className="material-symbols-outlined" aria-hidden="true">schedule</span>
+            <p className="text-sm flex-1">{limitNotice}</p>
+            <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="w-8 h-8 flex items-center justify-center"><span className="material-symbols-outlined text-lg" aria-hidden="true">close</span></button>
+          </div>
+        )}
+
         {currentView === AppView.SHARED_POST && selectedPostId && (
           <Suspense fallback={<ViewLoader />}>
-            <SharedPostView postId={selectedPostId} onGoToApp={() => {
+            <SharedPostView postId={selectedPostId} userMode={userMode || undefined} onGoToApp={() => {
               setSelectedPostId(null);
               window.history.replaceState({}, document.title, '/feed');
               enterApp();
@@ -640,7 +694,7 @@ const App: React.FC = () => {
                   currentUserMode={userMode}
                   selectedPostId={selectedPostId}
                   onPostClose={handlePostClose}
-                  onPostOpen={() => setIsDetailActive(true)}
+                  onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
                   backLabel={returnView === AppView.JOURNAL ? "Journal" : "Feed"}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
@@ -656,7 +710,7 @@ const App: React.FC = () => {
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
-                  onPostOpen={() => setIsDetailActive(true)}
+                  onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
                   onPostClose={handlePostClose}
                   onLogoClick={scrollFeedToTop}
                 />

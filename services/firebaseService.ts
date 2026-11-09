@@ -45,12 +45,15 @@ import {
   EmailAuthProvider,
 } from "firebase/auth";
 import { auth, db, storage } from "../firebaseConfig";
-import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft } from "../types";
+import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, NaturalistPersona } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants/prompts";
 import { generateThumbnail, reencodeImage } from "../utils";
 
 export const AI_CLIENT_POLICY_VERSION = "2026.11-1";
 const PAGE_SIZE = 30;
+const SEED_AUTHORS = ['Jane Goodall', 'Dian Fossey', 'Charles Darwin', 'David Attenborough', 'Jacques-Yves Cousteau'];
+/** Legacy demo posts attributed to real naturalists: never shown as genuine observations. */
+const isSeedPost = (id: string, data: any) => id.startsWith('seed_') || String(data?.userId || '').startsWith('system_seeder_') || SEED_AUTHORS.includes(data?.userName);
 export const ADMIN_EMAIL = "ram@iitj.ac.in";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
@@ -207,6 +210,23 @@ export const FirebaseService = {
     }
   },
 
+  updateNaturalistPersona: async (userId: string, persona: NaturalistPersona) => {
+    if (!userId || userId === 'explorer_guest' || auth.currentUser?.uid !== userId) return;
+    const clean: NaturalistPersona = {
+      archetype: String(persona.archetype || '').slice(0, 80),
+      taxaInterests: (persona.taxaInterests || []).slice(0, 20).map(x => String(x).slice(0, 60)),
+      observationStyles: (persona.observationStyles || []).slice(0, 20).map(x => String(x).slice(0, 60)),
+      habitatAffinities: (persona.habitatAffinities || []).slice(0, 20).map(x => String(x).slice(0, 60)),
+      customFocus: String(persona.customFocus || '').slice(0, 500),
+      curatorPrompt: String(persona.curatorPrompt || '').slice(0, 500),
+    };
+    try {
+      await setDoc(doc(db, "users", userId), { naturalistPersona: { ...clean, updatedAt: serverTimestamp() } }, { merge: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}`);
+    }
+  },
+
   getNaturalistMemory: async (userId: string): Promise<NaturalistMemory | null> => {
     try {
       const docRef = doc(db, "naturalist_memories", userId);
@@ -348,7 +368,7 @@ export const FirebaseService = {
     }
   },
 
-  saveDraft: async (userId: string, inputSnapshots: Snapshot[], summary: string) => {
+  saveDraft: async (userId: string, inputSnapshots: Snapshot[], summary: string, existingDraftId?: string) => {
     // Media blobs can't live in Firestore: upload them to the owner's private drafts folder first,
     // otherwise drafts would lose their photos/videos/sounds after a reload.
     const canUpload = !!auth.currentUser && !auth.currentUser.isAnonymous && userId === auth.currentUser.uid;
@@ -394,8 +414,10 @@ export const FirebaseService = {
     });
 
     try {
-      if (userId && userId !== 'explorer_guest' && auth.currentUser) {
-        const draftRef = doc(collection(db, "users", userId, "drafts"));
+      if (userId && userId !== 'explorer_guest' && auth.currentUser && auth.currentUser.uid === userId) {
+        const draftRef = (existingDraftId && !existingDraftId.startsWith('local_'))
+          ? doc(db, "users", userId, "drafts", existingDraftId)
+          : doc(collection(db, "users", userId, "drafts"));
         const draftData = {
           userId,
           snapshots: cleanSnapshots,
@@ -413,16 +435,18 @@ export const FirebaseService = {
     // LocalStorage Fallback just in case
     try {
       const localDrafts = JSON.parse(localStorage.getItem(`drafts_${userId}`) || "[]");
+      const draftIdToUse = existingDraftId || "local_" + Date.now();
       const newDraft = {
-        id: "local_" + Date.now(),
+        id: draftIdToUse,
         userId,
         snapshots: cleanSnapshots,
         summary,
         timestamp: { toDate: () => new Date() }
       };
-      localDrafts.unshift(newDraft);
-      localStorage.setItem(`drafts_${userId}`, JSON.stringify(localDrafts));
-      return newDraft.id;
+      const filtered = localDrafts.filter((d: any) => d.id !== draftIdToUse);
+      filtered.unshift(newDraft);
+      localStorage.setItem(`drafts_${userId}`, JSON.stringify(filtered));
+      return draftIdToUse;
     } catch (err) {
       console.error("Local draft saving failed:", err);
       return "local_temp";
@@ -432,7 +456,7 @@ export const FirebaseService = {
   getDrafts: async (userId: string): Promise<ExpeditionDraft[]> => {
     let firestoreDrafts: ExpeditionDraft[] = [];
     try {
-      if (userId && userId !== 'explorer_guest' && auth.currentUser) {
+      if (userId && userId !== 'explorer_guest' && auth.currentUser && auth.currentUser.uid === userId) {
         const q = query(collection(db, "users", userId, "drafts"), orderBy("timestamp", "desc"));
         const snap = await getDocs(q);
         firestoreDrafts = snap.docs.map(doc => {
@@ -479,7 +503,7 @@ export const FirebaseService = {
     }
 
     try {
-      if (userId && userId !== 'explorer_guest' && auth.currentUser) {
+      if (userId && userId !== 'explorer_guest' && auth.currentUser && auth.currentUser.uid === userId) {
         await deleteDoc(doc(db, "users", userId, "drafts", draftId));
       }
     } catch (e) {
@@ -652,6 +676,14 @@ export const FirebaseService = {
       }
       await FirebaseService.savePrivateObservationData(effectiveUserId, docRef.id, snapshots);
       if (caption && flags.feed) FirebaseService.notifyMentions(caption, docRef.id, 'caption').catch(() => {});
+      // Research descriptors are generated after publishing so they never delay the explorer
+      import('./genAiService').then(({ GenAiService }) =>
+        GenAiService.generateEthologicalDescriptors(allLabels, postData.behavior || '', primaryItem.mediaType, primaryItem.locationArea)
+      ).then(async (desc) => {
+        if (!desc) return;
+        await updateDoc(doc(db, "ecosystem_feed", docRef.id), { ethologicalDescriptors: desc }).catch(() => {});
+        if (flags.feed) await updateDoc(doc(db, "feed_thumbnails", docRef.id), { ethologicalDescriptors: desc }).catch(() => {});
+      }).catch(() => {});
 
       try {
         await updateDoc(doc(db, "users", effectiveUserId), {
@@ -762,7 +794,7 @@ export const FirebaseService = {
       return FirebaseService.publishPost([snapshot], userId, flags, tags, { caption, behavior: synthesis });
   },
 
-  getMorePosts: async (lastVisible: any, searchTag?: string | null): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
+  getMorePosts: async (lastVisible: any, searchTag?: string | null, pageSize: number = PAGE_SIZE): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
       const normalizedTag = searchTag
           ? (searchTag.startsWith('#') ? searchTag : `#${searchTag}`).toLowerCase().replace(/\s+/g, '')
           : null;
@@ -777,7 +809,7 @@ export const FirebaseService = {
           const c: any[] = [];
           if (normalizedTag) c.push(where("tags", "array-contains-any", tagVariants));
           if (publicOnly) c.push(where("isPublic", "==", true));
-          c.push(orderBy("timestamp", "desc"), limit(PAGE_SIZE));
+          c.push(orderBy("timestamp", "desc"), limit(pageSize));
           if (lastVisible) c.push(startAfter(lastVisible));
           return query(collection(db, "feed_thumbnails"), ...c);
       };
@@ -801,13 +833,13 @@ export const FirebaseService = {
       const posts: CommunityPost[] = [];
       snapshot.forEach((d) => {
           const data = d.data() as any;
-          if (data.isPublic === true) {
+          if (data.isPublic === true && !isSeedPost(d.id, data)) {
               posts.push({ id: d.id, ...data, labels: data.labels || (data.label ? [data.label] : ["Nature"]) } as CommunityPost);
           }
       });
       const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
       posts.sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
-      return { posts, lastVisible: snapshot.docs.length === PAGE_SIZE ? snapshot.docs[snapshot.docs.length - 1] : null };
+      return { posts, lastVisible: snapshot.docs.length === pageSize ? snapshot.docs[snapshot.docs.length - 1] : null };
   },
 
   subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void, opts: { publicOnly?: boolean } = {}) => {
@@ -995,6 +1027,10 @@ export const FirebaseService = {
   },
 
   subscribeToNotifications: (userId: string, callback: (notifs: FieldNotification[]) => void) => {
+    if (!userId || userId === 'explorer_guest' || !auth.currentUser || auth.currentUser.uid !== userId) {
+      callback([]);
+      return () => {};
+    }
     const q = query(collection(db, "users", userId, "notifications"), orderBy("timestamp", "desc"), limit(20));
     return onSnapshot(q, (snapshot) => {
       const notifs: FieldNotification[] = [];
@@ -1009,7 +1045,12 @@ export const FirebaseService = {
   },
 
   markNotificationRead: async (userId: string, notifId: string) => {
-    await updateDoc(doc(db, "users", userId, "notifications", notifId), { isRead: true });
+    if (!userId || auth.currentUser?.uid !== userId) return;
+    try {
+      await updateDoc(doc(db, "users", userId, "notifications", notifId), { isRead: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${userId}/notifications/${notifId}`);
+    }
   },
 
   /** Distinct species already in the signed-in explorer's records (for "new to your life list"). */
@@ -1462,197 +1503,14 @@ export const FirebaseService = {
     }
   },
 
-  seedDefaultObservationsIfNeeded: async (): Promise<void> => {
-    try {
-      const q = query(collection(db, "feed_thumbnails"), limit(5));
-      const snap = await getDocs(q);
-      if (snap.size >= 3) {
-        return; // Content density is healthy; skip seeding
-      }
-      
-      console.log("Low density or no observations found in feed_thumbnails. Seeding default observations...");
-      
-      const seedItems = [
-        {
-          id: "seed_goodall_1",
-          userId: "system_seeder_goodall",
-          userName: "Jane Goodall",
-          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Gombe_Stream_NP_Mutter_und_Kind.jpg/1280px-Gombe_Stream_NP_Mutter_und_Kind.jpg",
-          thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Gombe_Stream_NP_Mutter_und_Kind.jpg/1280px-Gombe_Stream_NP_Mutter_und_Kind.jpg",
-          mediaType: "image",
-          labels: ["Chimpanzee", "Primate", "Hominidae"],
-          behavior: "Observed mother chimpanzee protective behavior with infant in the lush forests of Gombe. Fascinating social hierarchy dynamics.",
-          aiInsight: "This high-fidelity sighting confirms a strong emotional and physical bond between primate mother and offspring, showcasing mutual grooming and behavioral feedback loops.",
-          locationArea: "Gombe Stream, Tanzania",
-          showLocation: true,
-          tags: ["#chimpanzee", "#primate", "#gombe", "#wildlife"],
-          timestamp: new Date(Date.now() - 3600000 * 5), // 5 hours ago
-          likes: [],
-          commentCount: 0,
-          isPublic: true,
-          isJournal: true,
-          reportStatus: "safe",
-          reports: [],
-          isHybrid: false
-        },
-        {
-          id: "seed_fossey_1",
-          userId: "system_seeder_fossey",
-          userName: "Dian Fossey",
-          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Virunga_National_Park_Landscape.jpg/1280px-Virunga_National_Park_Landscape.jpg",
-          thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Virunga_National_Park_Landscape.jpg/1280px-Virunga_National_Park_Landscape.jpg",
-          mediaType: "image",
-          labels: ["Mountain Gorilla", "Silverback", "Primates"],
-          behavior: "Observed an adult Silverback Mountain Gorilla maintaining a defensive posture while feeding on celery stalks in dense foliage.",
-          aiInsight: "Sighting of key sentinel silverback gorilla signaling group boundaries and territory cohesion in the bamboo zone of the Virungas.",
-          locationArea: "Virunga Mountains, Rwanda",
-          showLocation: true,
-          tags: ["#gorilla", "#silverback", "#virunga", "#primates"],
-          timestamp: new Date(Date.now() - 3600000 * 12), // 12 hours ago
-          likes: [],
-          commentCount: 0,
-          isPublic: true,
-          isJournal: true,
-          reportStatus: "safe",
-          reports: [],
-          isHybrid: false
-        },
-        {
-          id: "seed_darwin_1",
-          userId: "system_seeder_darwin",
-          userName: "Charles Darwin",
-          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG/1280px-Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG",
-          thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG/1280px-Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG",
-          mediaType: "image",
-          labels: ["Galapagos Sea Lion", "Otariidae", "Marine Mammal"],
-          behavior: "Sighted Galapagos sea lion resting on volcanic stones at Punta Pitt. Exibits remarkable thermal dissipation adaptations.",
-          aiInsight: "Sea lion hauling-out behavior on volcanic shoreline illustrates adaptive thermoregulation in micro-climate coastal conditions.",
-          locationArea: "Galápagos Islands, Ecuador",
-          showLocation: true,
-          tags: ["#sealion", "#galapagos", "#evolution", "#marinelife"],
-          timestamp: new Date(Date.now() - 3600000 * 24), // 24 hours ago
-          likes: [],
-          commentCount: 0,
-          isPublic: true,
-          isJournal: true,
-          reportStatus: "safe",
-          reports: [],
-          isHybrid: false
-        },
-        {
-          id: "seed_attenborough_1",
-          userId: "system_seeder_attenborough",
-          userName: "David Attenborough",
-          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Serengeti_National_Park_-_Zebras_01.jpg/1280px-Serengeti_National_Park_-_Zebras_01.jpg",
-          thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Serengeti_National_Park_-_Zebras_01.jpg/1280px-Serengeti_National_Park_-_Zebras_01.jpg",
-          mediaType: "image",
-          labels: ["Plains Zebra", "Equidae", "Ungulate"],
-          behavior: "A small herd of Plains Zebras grazing peacefully of fresh grass shoots during the Great Migration cycle across the grassland plains.",
-          aiInsight: "Zebra striping mechanisms serve both social cohesion and motion-dazzle camouflage against predators under direct sunlight.",
-          locationArea: "Serengeti, Tanzania",
-          showLocation: true,
-          tags: ["#zebra", "#serengeti", "#greatmigration", "#savannah"],
-          timestamp: new Date(Date.now() - 3600000 * 48), // 2 days ago
-          likes: [],
-          commentCount: 0,
-          isPublic: true,
-          isJournal: true,
-          reportStatus: "safe",
-          reports: [],
-          isHybrid: false
-        },
-        {
-          id: "seed_cousteau_1",
-          userId: "system_seeder_cousteau",
-          userName: "Jacques-Yves Cousteau",
-          imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Coral_reef_in_the_Red_Sea.jpg/1280px-Coral_reef_in_the_Red_Sea.jpg",
-          thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Coral_reef_in_the_Red_Sea.jpg/1280px-Coral_reef_in_the_Red_Sea.jpg",
-          mediaType: "image",
-          labels: ["Acropora Coral", "Coral Reef", "Scleractinia"],
-          behavior: "Explored an extremely healthy and vibrant coral reef system. High density of diverse colorful reef fish and massive coral heads.",
-          aiInsight: "Red Sea coral reef systems show anomalous thermal tolerance, serving as a critical genetic refuge against rising global sea temperatures.",
-          locationArea: "The Red Sea",
-          showLocation: true,
-          tags: ["#coral", "#coralreef", "#redsea", "#divers"],
-          timestamp: new Date(Date.now() - 3600000 * 72), // 3 days ago
-          likes: [],
-          commentCount: 0,
-          isPublic: true,
-          isJournal: true,
-          reportStatus: "safe",
-          reports: [],
-          isHybrid: false
-        }
-      ];
-
-      for (const item of seedItems) {
-        const postDocRef = doc(db, "ecosystem_feed", item.id);
-        const thumbDocRef = doc(db, "feed_thumbnails", item.id);
-        
-        let sampleItemsList = [
-          {
-            imageUrl: item.imageUrl,
-            thumbnailUrl: item.thumbnailUrl,
-            originalImageUrl: item.imageUrl,
-            mediaType: item.mediaType as 'image' | 'video' | 'audio',
-            labels: item.labels,
-            behavior: item.behavior,
-            aiInsight: item.aiInsight,
-            locationArea: item.locationArea,
-            showLocation: item.showLocation,
-            rotation: 0
-          }
-        ];
-        
-        const fullPostData = {
-          userId: item.userId,
-          userName: item.userName,
-          imageUrl: item.imageUrl,
-          thumbnailUrl: item.thumbnailUrl,
-          originalImageUrl: item.imageUrl,
-          mediaType: item.mediaType,
-          labels: item.labels,
-          behavior: item.behavior,
-          aiInsight: item.aiInsight,
-          locationArea: item.locationArea,
-          showLocation: item.showLocation,
-          tags: item.tags,
-          timestamp: item.timestamp,
-          likes: item.likes,
-          commentCount: item.commentCount,
-          isPublic: item.isPublic,
-          isJournal: item.isJournal,
-          reportStatus: item.reportStatus,
-          reports: item.reports,
-          isHybrid: item.isHybrid,
-          items: sampleItemsList
-        };
-
-        const thumbData = {
-          id: item.id,
-          mediaType: item.mediaType as 'image' | 'video' | 'audio',
-          thumbnailUrl: item.thumbnailUrl,
-          timestamp: item.timestamp,
-          userId: item.userId,
-          userName: item.userName,
-          likes: item.likes,
-          commentCount: item.commentCount,
-          isPublic: item.isPublic,
-          tags: item.tags,
-          labels: item.labels,
-          behavior: item.behavior,
-          aiInsight: item.aiInsight,
-          locationArea: item.locationArea,
-          isHybrid: item.isHybrid
-        };
-
-        await setDoc(postDocRef, fullPostData);
-        await setDoc(thumbDocRef, thumbData);
-      }
-      console.log("Seeded 5 default observations successfully into Firestore!");
-    } catch (e) {
-      console.warn("Skipped seeding observations:", e);
+  /** Admin: remove legacy demo posts that impersonated real naturalists. */
+  purgeSeedObservations: async (): Promise<number> => {
+    let n = 0;
+    for (const id of ["seed_goodall_1", "seed_fossey_1", "seed_darwin_1", "seed_attenborough_1", "seed_cousteau_1"]) {
+      try { await deleteDoc(doc(db, "feed_thumbnails", id)); } catch { /* may not exist */ }
+      try { await deleteDoc(doc(db, "ecosystem_feed", id)); n++; } catch { /* may not exist */ }
     }
+    return n;
   },
 
   getFullPost: async (postId: string): Promise<CommunityPost | null> => {

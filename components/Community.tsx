@@ -6,7 +6,8 @@ import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtra
 import AiBadge, { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
-import { UserProfileData } from '../types';
+import { UserProfileData, NaturalistPersona } from '../types';
+import { GenAiService } from '../services/genAiService';
 import { track } from '../services/analytics';
 import { CommunityPost, UserMode, Comment } from '../types';
 import ShareStudio from './ShareStudio';
@@ -146,7 +147,7 @@ interface CommunityProps {
   currentUserMode: UserMode;
   selectedPostId?: string | null;
   onPostClose?: () => void;
-  onPostOpen?: () => void;
+  onPostOpen?: (postId?: string) => void;
   backLabel?: string;
   onViewProfile?: (userId: string) => void;
   isJournalOnly?: boolean;
@@ -204,6 +205,14 @@ const Community: React.FC<CommunityProps> = ({
   useEffect(() => {
     if (isMember) FirebaseService.getBlockedIds().then(setBlockedIds);
   }, [isMember]);
+
+  // Persona-based AI curation (from main): reorder the first page once per load, never per keystroke
+  const [userPersona, setUserPersona] = useState<NaturalistPersona | null>(null);
+  const curatedForRef = useRef<string>('');
+  useEffect(() => {
+    if (!isMember || !currentUserMode.userId) { setUserPersona(null); return; }
+    FirebaseService.getUserProfile(currentUserMode.userId).then(p => setUserPersona(p?.naturalistPersona || null)).catch(() => {});
+  }, [isMember, currentUserMode.userId]);
 
   // "Fresh sightings" rail: explorers you follow who posted in the last 72 hours
   const [freshRail, setFreshRail] = useState<{ userId: string; userName: string; avatar?: string | null; post: CommunityPost; count: number }[]>([]);
@@ -617,6 +626,20 @@ const Community: React.FC<CommunityProps> = ({
     return () => { active = false; };
   }, [feedMode, isJournalOnly, currentUserMode.userId]);
 
+  useEffect(() => {
+    if (!userPersona || isJournalOnly || feedMode !== 'foryou' || searchTag || posts.length === 0) return;
+    const key = `${posts[0]?.id}|${userPersona.archetype}|${(userPersona.taxaInterests || []).join(',')}`;
+    if (curatedForRef.current === key) return;
+    curatedForRef.current = key;
+    const firstPage = posts.slice(0, 15);
+    GenAiService.curateAgenticFeed(userPersona, firstPage).then(curated => {
+      setPosts(prev => {
+        const ids = new Set(curated.map(p => p.id));
+        return [...curated, ...prev.filter(p => !ids.has(p.id))];
+      });
+    }).catch(() => {});
+  }, [userPersona, posts, isJournalOnly, feedMode, searchTag]);
+
   // Logo / Feed tab re-tap: back to the top of the main feed
   useEffect(() => {
     const onTop = () => {
@@ -662,14 +685,14 @@ const Community: React.FC<CommunityProps> = ({
         if (post) {
             setActivePost(post);
             setActiveItemIndex(0);
-            onPostOpen?.();
+            onPostOpen?.(post.id);
         } else if (!isLoading && fetchedPostId !== selectedPostId) {
             setFetchedPostId(selectedPostId);
             FirebaseService.getPost(selectedPostId).then(fetchedPost => {
                 if (fetchedPost) {
                     setActivePost(fetchedPost);
                     setActiveItemIndex(0);
-                    onPostOpen?.();
+                    onPostOpen?.(fetchedPost.id);
                 }
             });
         }
@@ -707,23 +730,25 @@ const Community: React.FC<CommunityProps> = ({
       else setIsSaved(false);
   }, [activePost?.id, isMember]);
 
-  // Real back-button support: opening a post adds a history entry; Back closes it
+  // Real back-button support: an open post gets its own URL (/post/:id); Back closes it
   const historyPushedRef = useRef(false);
+  const returnPathRef = useRef<string>('/feed');
   useEffect(() => {
-      if (activePost && !historyPushedRef.current) {
-          const url = new URL(window.location.href);
-          url.searchParams.set('p', activePost.id);
-          window.history.pushState({ post: activePost.id }, '', url.toString());
+      if (!activePost) return;
+      const postPath = `/post/${encodeURIComponent(activePost.id)}`;
+      if (!historyPushedRef.current) {
+          if (!window.location.pathname.startsWith('/post/')) {
+              returnPathRef.current = window.location.pathname + window.location.search;
+              window.history.pushState({ post: activePost.id }, '', postPath);
+          }
           historyPushedRef.current = true;
-      } else if (activePost && historyPushedRef.current) {
-          const url = new URL(window.location.href);
-          url.searchParams.set('p', activePost.id);
-          window.history.replaceState({ post: activePost.id }, '', url.toString());
+      } else if (window.location.pathname !== postPath) {
+          window.history.replaceState({ post: activePost.id }, '', postPath);
       }
   }, [activePost?.id]);
   useEffect(() => {
       const onPop = () => {
-          if (historyPushedRef.current && !new URLSearchParams(window.location.search).get('p')) {
+          if (historyPushedRef.current && !window.location.pathname.startsWith('/post/')) {
               historyPushedRef.current = false;
               setIsCommentsOpen(false);
               setActivePost(null);
@@ -749,7 +774,7 @@ const Community: React.FC<CommunityProps> = ({
     track('post_open', { media: post.mediaType, feed: feedMode });
     setActivePost(post);
     setActiveItemIndex(0);
-    onPostOpen?.();
+    onPostOpen?.(post.id);
     try {
       const fullPost = await FirebaseService.getFullPost(post.id);
       if (fullPost) setActivePost(fullPost);
@@ -896,11 +921,10 @@ const Community: React.FC<CommunityProps> = ({
   };
 
   const closeDetail = () => {
-    if (historyPushedRef.current) {
+    if (historyPushedRef.current || window.location.pathname.startsWith('/post/')) {
         historyPushedRef.current = false;
-        const url = new URL(window.location.href);
-        url.searchParams.delete('p');
-        window.history.replaceState({}, '', url.toString());
+        const back = returnPathRef.current && !returnPathRef.current.startsWith('/post/') ? returnPathRef.current : (isJournalOnly ? '/journal' : '/feed');
+        window.history.replaceState({}, '', back);
     }
     setIsCommentsOpen(false);
     setActivePost(null);
@@ -1639,6 +1663,7 @@ const Community: React.FC<CommunityProps> = ({
                                 <div
                                     className="flex-1 min-h-0 bg-theme-primary/5 flex flex-col justify-center relative group/media overflow-hidden"
                                     onClick={(e) => { if ((e.target as HTMLElement).closest('button,video,audio')) return; handleDoubleTap(e, activePost); }}
+                                    onContextMenu={(e) => { if (activePost.userId !== currentUserMode.userId) e.preventDefault(); }}
                                 >
                                     {showHeartAnimation && (
                                         <span className="pointer-events-none absolute inset-0 z-[190] flex items-center justify-center" aria-hidden="true">
@@ -1655,7 +1680,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <video 
+                                                            <video controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
                                                                 src={item.videoUrl} 
                                                                 poster={item.thumbnailUrl} 
                                                                 controls 
@@ -1675,7 +1700,7 @@ const Community: React.FC<CommunityProps> = ({
                                                                         <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                                     </div>
                                                                 )}
-                                                                <audio src={item.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                                <audio src={item.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                             </div>
                                                         ) : (
                                                             <img 
@@ -1724,7 +1749,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <video 
+                                                <video controlsList={activePost && activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} 
                                                     src={currentItem.videoUrl} 
                                                     poster={currentItem.thumbnailUrl} 
                                                     controls 
@@ -1744,7 +1769,7 @@ const Community: React.FC<CommunityProps> = ({
                                                             <span className="material-symbols-outlined text-white text-6xl opacity-50">music_note</span>
                                                         </div>
                                                     )}
-                                                    <audio src={currentItem.audioUrl} controls className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
+                                                    <audio src={currentItem.audioUrl} controls controlsList={activePost.userId !== currentUserMode.userId ? 'nodownload' : undefined} className="w-full max-w-md shrink-0 shadow-lg rounded-full" />
                                                 </div>
                                             ) : (
                                                 <img 
@@ -1787,6 +1812,9 @@ const Community: React.FC<CommunityProps> = ({
                                     </div>
                                     <p className="px-4 md:px-6 pt-2 text-sm font-bold text-stone-900 tabular">{(activePost.likes?.length || 0).toLocaleString()} {(activePost.likes?.length || 0) === 1 ? 'like' : 'likes'}</p>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
+                                        {activePost.curatorNote && (
+                                            <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
+                                        )}
                                         {activePost.caption && (
                                             <p className="text-[15px] text-stone-900 leading-relaxed whitespace-pre-line"><button onClick={() => handleProfileClick(activePost.userId)} className="font-bold mr-1.5">{activePost.userName}</button><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></p>
                                         )}
