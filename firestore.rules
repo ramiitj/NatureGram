@@ -79,7 +79,7 @@ service cloud.firestore {
     }
     // Changing the picture takes the sighting out of the feed until the server checks it again
     function authorMediaEdit() {
-      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'isPublic', 'moderation']))
+      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation']))
         && incoming().isPublic == false
         && incoming().moderation.keys().hasOnly(['status'])
         && incoming().moderation.status == 'edited';

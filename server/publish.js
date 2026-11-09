@@ -335,6 +335,15 @@ export function mountPublish(app, deps) {
     if (!post || post.userId !== user.uid) return res.status(404).json({ ok: false, message: 'Not found' });
     const makePublic = req.body?.isPublic === true;
     let recheck = null;
+    if (makePublic) {
+      // Every picture, clip and sound must still be the explorer's own upload
+      const urls = [post, ...(Array.isArray(post.items) ? post.items : [])].flatMap(i => [
+        [i?.imageUrl, ['snapshots']], [i?.thumbnailUrl, ['snapshots']], [i?.thumbSmallUrl, ['snapshots']],
+        [i?.videoUrl, ['videos']], [i?.audioUrl, ['audio', 'videos']]]);
+      if (!urls.every(([u, kinds]) => ownMedia(u, user.uid, kinds))) {
+        return res.status(400).json({ ok: false, message: 'This sighting has media from outside NatureGram, so it can only stay in your journal.' });
+      }
+    }
     if (makePublic && (post.moderation?.status === 'edited' || !post.moderation)) {
       // The picture changed after publishing: check it again before it rejoins the feed
       const settings = await getSettings();
