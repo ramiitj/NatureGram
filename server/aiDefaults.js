@@ -85,6 +85,7 @@ Rules:
 - plates: a readable vehicle number plate.
 - screen: a screen, screenshot, document or printed page is the main subject.
 - naturalSubject: a wild or garden plant, animal, fungus, or natural scene is the main subject (pets and houseplants count).
+- unsafe: graphic injury or gore, nudity or sexual content, hate symbols, or cruelty to animals.
 Never describe the people.`,
 });
 
@@ -127,7 +128,7 @@ export const SCHEMAS = Object.freeze({
   }),
   synthesize: S('OBJECT', { properties: { title: S('STRING'), description: S('STRING') }, required: ['title', 'description'] }),
   moderate: S('OBJECT', {
-    properties: { people: S('BOOLEAN'), faces: S('BOOLEAN'), plates: S('BOOLEAN'), screen: S('BOOLEAN'), naturalSubject: S('BOOLEAN') },
+    properties: { people: S('BOOLEAN'), faces: S('BOOLEAN'), plates: S('BOOLEAN'), screen: S('BOOLEAN'), naturalSubject: S('BOOLEAN'), unsafe: S('BOOLEAN') },
     required: ['people', 'faces', 'plates', 'screen', 'naturalSubject'],
   }),
 });

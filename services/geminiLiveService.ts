@@ -5,6 +5,7 @@ import { tools } from "../constants";
 import { floatTo16BitPCM, arrayBufferToBase64, decodeAudioData, base64ToArrayBuffer } from "./audioUtils";
 import { GroundingLink } from "../types";
 import { auth } from "../firebaseConfig";
+import { appCheckHeaders, appCheckToken } from "./appCheck";
 
 interface GeminiLiveDelegate {
   onAudioData: (audioBuffer: AudioBuffer) => void;
@@ -63,6 +64,90 @@ export class GeminiLiveService {
     await this.internalConnect();
   }
 
+  // ------------------------------------------------------------------ direct sessions (ephemeral tokens)
+  // When the server allows it (LIVE_DIRECT_TOKENS), the app asks for a one-use token locked to the
+  // governed model, prompt, policy and tools, and talks to Gemini directly. Any failure falls back to
+  // the server proxy for the rest of this guide's life. Live minutes are still counted: the lease is
+  // heartbeated and the session length is reported when it ends.
+  private directDisabled = false;
+  private direct: { leaseId: string; openedAt: number; beat: any; onHide: () => void } | null = null;
+  private static liveConfig: Promise<{ direct: boolean; heartbeatMs: number }> | null = null;
+
+  private static getLiveConfig() {
+    if (!GeminiLiveService.liveConfig) {
+      GeminiLiveService.liveConfig = fetch(apiUrl('/api/live/config'))
+        .then(r => (r.ok ? r.json() : { direct: false, heartbeatMs: 30000 }))
+        .catch(() => ({ direct: false, heartbeatMs: 30000 }));
+    }
+    return GeminiLiveService.liveConfig;
+  }
+
+  private sessionConfig() {
+    return {
+      systemInstruction: { parts: [{ text: this.systemInstruction }] },
+      tools: [{ functionDeclarations: tools }],
+      responseModalities: [Modality.AUDIO],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
+    };
+  }
+
+  /** Ask for an ephemeral token; null means "use the proxy". */
+  private async mintDirect(idToken: string): Promise<{ token: string; model: string; leaseId: string; heartbeatMs: number } | null> {
+    if (this.directDisabled || !auth.currentUser) return null;
+    const cfg = await GeminiLiveService.getLiveConfig();
+    if (!cfg.direct) return null;
+    try {
+      const c = this.sessionConfig();
+      const res = await fetch(apiUrl('/api/live/token'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}`, ...(await appCheckHeaders()) },
+        body: JSON.stringify({ setup: { systemInstruction: c.systemInstruction, tools: c.tools, generationConfig: { responseModalities: c.responseModalities, speechConfig: c.speechConfig } } }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok && out.token) return out;
+      // Allowance, rate and concurrency refusals are real answers: the proxy would refuse too, so say so
+      if (res.status === 429 || res.status === 403) {
+        throw Object.assign(new Error(out.message || 'The live guide is unavailable right now.'), { code: res.status === 429 ? 4429 : 4403, governed: true });
+      }
+      return null;
+    } catch (e: any) {
+      if (e?.governed) throw e;
+      return null;
+    }
+  }
+
+  private startDirect(leaseId: string, heartbeatMs: number) {
+    const send = (path: string, body: any, keepalive = false) => auth.currentUser?.getIdToken().then(t => fetch(apiUrl(path), {
+      method: 'POST', keepalive, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }, body: JSON.stringify(body),
+    })).catch(() => {});
+    const beat = setInterval(() => { send('/api/live/heartbeat', { leaseId }); }, Math.max(10_000, heartbeatMs || 30_000));
+    const onHide = () => { this.endDirect(true); };
+    window.addEventListener('pagehide', onHide);
+    this.direct = { leaseId, openedAt: 0, beat, onHide };
+  }
+
+  /** Report the end of a direct session once (opened = 0 means it never started: nothing is charged). */
+  private endDirect(keepalive = false) {
+    const d = this.direct;
+    if (!d) return;
+    this.direct = null;
+    clearInterval(d.beat);
+    window.removeEventListener('pagehide', d.onHide);
+    const ms = d.openedAt ? Date.now() - d.openedAt : 0;
+    auth.currentUser?.getIdToken().then(t => fetch(apiUrl('/api/live/end'), {
+      method: 'POST', keepalive, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+      body: JSON.stringify({ leaseId: d.leaseId, ms }),
+    })).catch(() => {});
+  }
+
+  /** A direct session failed before it opened: stop trying direct and reconnect through the proxy. */
+  private fallBackToProxy(reason: unknown) {
+    console.warn('[GeminiLiveService] Direct live session failed; using the server connection.', reason);
+    this.endDirect();
+    this.directDisabled = true;
+    if (!this.isManuallyClosed) this.internalConnect();
+  }
+
   private async internalConnect() {
     try {
       // Use Firebase Auth token as the key for the proxy to verify
@@ -71,19 +156,49 @@ export class GeminiLiveService {
           apiKey = await auth.currentUser.getIdToken();
       }
 
-      console.debug("Connecting to Live API via proxy");
-
-      // Initialize GoogleGenAI with the placeholder key and point to our server's proxy
-      const ai = new (GoogleGenAI as any)({ 
-          apiKey: apiKey,
-          httpOptions: {
-            baseUrl: apiUrl('/api-proxy')
-          }
-      });
+      let ai: any;
+      let model = this.model;
+      let minted: Awaited<ReturnType<GeminiLiveService['mintDirect']>> = null;
+      try {
+        minted = await this.mintDirect(apiKey);
+      } catch (e: any) {
+        // Governed refusal (allowance, concurrency): surface it, don't retry
+        this.isManuallyClosed = true;
+        this.delegate.onError?.(e);
+        this.delegate.onConnectionStateChange?.('DISCONNECTED');
+        return;
+      }
+      const isDirect = !!minted;
+      if (minted) {
+        console.debug("Connecting to Live API directly with a one-use token");
+        this.startDirect(minted.leaseId, minted.heartbeatMs);
+        ai = new (GoogleGenAI as any)({ apiKey: minted.token, httpOptions: { apiVersion: 'v1alpha' } });
+        model = minted.model || this.model;
+      } else {
+        console.debug("Connecting to Live API via proxy");
+        // App Check token rides in the path (browsers can't set headers on a websocket); the server strips it
+        const ac = await appCheckToken();
+        ai = new (GoogleGenAI as any)({
+            apiKey: apiKey,
+            httpOptions: {
+              baseUrl: apiUrl(ac ? `/api-proxy/ac/${ac}` : '/api-proxy')
+            }
+        });
+      }
+      let opened = false;
+      let fellBack = false;
+      // A direct session that never opened goes back to the proxy, once
+      const tryFallback = (reason: unknown) => {
+        if (!isDirect || opened || fellBack || this.isManuallyClosed) return false;
+        fellBack = true;
+        this.connected = false;
+        this.fallBackToProxy(reason);
+        return true;
+      };
 
       console.debug("[GeminiLiveService] Initiating ai.live.connect...");
       this.sessionPromise = ai.live.connect({
-        model: this.model,
+        model,
         config: {
           systemInstruction: { parts: [{ text: this.systemInstruction }] },
           tools: [
@@ -97,6 +212,8 @@ export class GeminiLiveService {
         callbacks: {
             onopen: () => {
                 console.debug("[GeminiLiveService] onopen called");
+                opened = true;
+                if (isDirect && this.direct) this.direct.openedAt = Date.now();
                 this.connected = true;
                 this.reconnectAttempts = 0;
                 this.delegate.onConnectionStateChange?.('CONNECTED');
@@ -110,6 +227,8 @@ export class GeminiLiveService {
             },
             onclose: (e) => {
                 console.debug(`[GeminiLiveService] onclose called. Code: ${e.code}, Reason: ${e.reason}, Clean: ${e.wasClean}`);
+                if (tryFallback(e.reason) || fellBack) return;
+                if (isDirect) this.endDirect();
                 this.connected = false;
                 // 4xxx = governed by the server (quota, time limit, policy) and 1008 = policy violation:
                 // these must not auto-reconnect; surface the reason to the explorer instead.
@@ -128,6 +247,7 @@ export class GeminiLiveService {
             },
             onerror: (err) => {
                 console.error("[GeminiLiveService] Live Error (callback):", err);
+                if (tryFallback(err) || fellBack) return;
                 this.delegate.onError?.(err);
                 const errMsg = err?.message || String(err);
                 const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
@@ -142,6 +262,7 @@ export class GeminiLiveService {
       
       this.sessionPromise.catch(err => {
           console.error("[GeminiLiveService] ai.live.connect promise rejected:", err);
+          if (tryFallback(err) || fellBack) return;
           this.delegate.onError?.(err);
           const errMsg = err?.message || String(err);
           const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
@@ -154,6 +275,7 @@ export class GeminiLiveService {
 
     } catch (error) {
       console.error("[GeminiLiveService] Connection failed:", error);
+      if (this.direct && !this.direct.openedAt && !this.directDisabled) { this.fallBackToProxy(error); return; }
       this.delegate.onError?.(error);
       const errMsg = error instanceof Error ? error.message : String(error);
       const isFatal = errMsg.includes("referer") || errMsg.includes("API_KEY_HTTP_REFERRER_BLOCKED") || errMsg.includes("403");
@@ -186,6 +308,7 @@ export class GeminiLiveService {
 
   public async disconnect() {
     this.isManuallyClosed = true;
+    this.endDirect();
     this.connected = false;
     if (this.reconnectTimeoutId) {
         clearTimeout(this.reconnectTimeoutId);

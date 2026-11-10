@@ -29,3 +29,4 @@ dist-ssr
 !.env.example
 server_env.log
 proxy.log
+.claude/worktrees/

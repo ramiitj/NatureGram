@@ -80,10 +80,61 @@ export const track = (name: string, props: Props = {}) => {
   schedule();
 };
 
+/** This tab's analytics session id (random, not linked to the account). */
+export const getSessionId = () => sessionId;
+
+// ---------------------------------------------------------------- optional Sentry forwarding
+// Set VITE_SENTRY_DSN at build time to also send errors to Sentry. No SDK: one small POST to the
+// envelope endpoint. Only the scrubbed message, the page path (no query) and the release go out;
+// never user ids, captions, comments, emails, tokens or URLs with parameters.
+const SENTRY_DSN: string = ((import.meta as any).env?.VITE_SENTRY_DSN || '').trim();
+const RELEASE: string = ((import.meta as any).env?.VITE_RELEASE || '').trim();
+const sentry = (() => {
+  try {
+    if (!SENTRY_DSN) return null;
+    const u = new URL(SENTRY_DSN);
+    const projectId = u.pathname.replace(/^\/+|\/+$/g, '').split('/').pop();
+    if (u.protocol !== 'https:' || !u.username || !projectId) return null;
+    return { key: u.username, url: `https://${u.host}/api/${projectId}/envelope/?sentry_key=${encodeURIComponent(u.username)}&sentry_version=7`, dsn: SENTRY_DSN };
+  } catch { return null; }
+})();
+const sentSentry = new Set<string>();
+
+/** Remove anything that could be personal or user content from an error message. */
+export const scrubMessage = (m: string) => String(m || '')
+  .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[email]')
+  .replace(/https?:\/\/[^\s'")]+/g, (u) => { try { const x = new URL(u); return `${x.origin}${x.pathname}`; } catch { return '[url]'; } })
+  .replace(/(["'“‘])(?:(?!\1).){3,}\1/g, '"…"')
+  .replace(/\b[A-Za-z0-9_-]{24,}\b/g, '[id]')
+  .replace(/\b\d{5,}\b/g, '[n]')
+  .slice(0, 300);
+
+const toSentry = (message: string, props: Props) => {
+  if (!sentry || sentSentry.size >= 20) return;
+  const msg = scrubMessage(message);
+  if (sentSentry.has(msg)) return; // once per message per session
+  sentSentry.add(msg);
+  try {
+    const eventId = (crypto.randomUUID?.() || String(Math.random()).slice(2)).replace(/-/g, '').padEnd(32, '0').slice(0, 32);
+    const tags: Record<string, string> = {};
+    for (const k of ['source', 'line', 'type', 'boundary'] as const) if (props[k] != null) tags[k] = String(props[k]).slice(0, 60);
+    const event = {
+      event_id: eventId, timestamp: Date.now() / 1000, platform: 'javascript', level: 'error',
+      logger: 'naturegram', message: { formatted: msg }, release: RELEASE || undefined,
+      environment: location.hostname === 'localhost' ? 'development' : 'production',
+      request: { url: `${location.origin}${location.pathname}` }, tags,
+    };
+    const body = `${JSON.stringify({ event_id: eventId, sent_at: new Date().toISOString(), dsn: sentry.dsn })}\n${JSON.stringify({ type: 'event' })}\n${JSON.stringify(event)}\n`;
+    // text/plain keeps it a simple request (no CORS preflight)
+    fetch(sentry.url, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'text/plain;charset=UTF-8' } }).catch(() => {});
+  } catch { /* never let error reporting break the app */ }
+};
+
 /** Record an error (no user content: message + location only). */
 export const reportError = (message: string, props: Props = {}) => {
   queue.push({ name: 'client_error', props: clean({ message: String(message).slice(0, 200), ...props }), ts: Date.now(), kind: 'error' });
   schedule();
+  toSentry(message, props);
 };
 
 let initialised = false;

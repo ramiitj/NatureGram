@@ -10,7 +10,7 @@ import AiQualityPanel from './AiQualityPanel';
  * version and writes the audit log. Nothing here talks to the database directly.
  */
 
-type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'data' | 'security';
+type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'experiments' | 'data' | 'security';
 
 const SECTIONS: { id: Section; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'monitoring' },
@@ -20,6 +20,7 @@ const SECTIONS: { id: Section; label: string; icon: string }[] = [
   { id: 'review', label: 'Review', icon: 'fact_check' },
   { id: 'people', label: 'People', icon: 'group' },
   { id: 'letters', label: 'Reported letters', icon: 'mail' },
+  { id: 'experiments', label: 'Experiments', icon: 'science' },
   { id: 'data', label: 'Data explorer', icon: 'database' },
   { id: 'security', label: 'Audit & security', icon: 'shield_lock' },
 ];
@@ -37,6 +38,27 @@ async function api<T = any>(path: string, opts: { method?: string; body?: any } 
   if (!res.ok) throw new ApiError(json.error || `Request failed (${res.status})`, res.status, json.code);
   return json as T;
 }
+
+/** Download a file from the admin API (for exports). */
+async function download(path: string, fallbackName: string): Promise<{ count: string | null; skipped: string | null }> {
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(apiUrl(`/api/admin${path}`), { headers: { Authorization: `Bearer ${token || ''}` } });
+  if (!res.ok) { const j = await res.json().catch(() => ({})); throw new ApiError(j.error || `Export failed (${res.status})`, res.status); }
+  const blob = await res.blob();
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return { count: res.headers.get('X-Export-Count'), skipped: res.headers.get('X-Export-Skipped') };
+}
+
+const KIND_LABEL: Record<string, string> = {
+  safety: 'Held by the safety check', privacy: 'Privacy review', unchecked: 'Published while the image check was down', comment: 'Field note held by the word check',
+};
+const REASON_LABEL: Record<string, string> = {
+  unsafe: 'image may be unsafe', words: 'abusive words', spam: 'looks like spam', people: 'people', faces: 'faces', plates: 'number plates',
+  screen: 'screen or document', notNature: 'no nature subject', unchecked: 'not checked',
+};
 
 const when = (ms?: number | null) => (ms ? new Date(ms).toLocaleString() : '–');
 const n = (v: any) => (typeof v === 'number' ? v.toLocaleString() : '–');
@@ -370,23 +392,37 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
   return (
     <div className="space-y-4">
       {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
-      <Card title="Held by the photo check, or review requested">
+      <Card title="Moderation queue" actions={<Btn onClick={load}>Refresh</Btn>}>
         {!queue ? <p className="text-stone-600">Loading…</p> : queue.length === 0 ? <p className="text-stone-600">Nothing waiting.</p> : (
           <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {queue.map(q => (
               <li key={q.id} className="border border-stone-200 rounded-xl overflow-hidden">
                 {q.thumb && <img src={q.thumb} alt="" className="w-full aspect-square object-cover bg-stone-100" />}
                 <div className="p-3 space-y-2 text-sm">
-                  <p><span className="font-semibold">Why:</span> {(q.reasons || []).join(', ') || 'unchecked'}{q.requestedByExplorer ? ' · explorer asked for review' : ''}</p>
+                  <p className="font-semibold">{KIND_LABEL[q.kind || 'privacy'] || 'Review'}</p>
+                  <p><span className="font-semibold">Why:</span> {(q.reasons || []).map((r: string) => REASON_LABEL[r] || r).join(', ') || 'not checked'}{q.requestedByExplorer ? ' · explorer asked for review' : ''}</p>
+                  {q.kind === 'comment' && q.text && <p className="text-stone-700 bg-stone-50 rounded-lg p-2 break-words">“{q.text}”</p>}
                   {q.note && <p className="text-stone-600">“{q.note}”</p>}
-                  <p className="text-xs text-stone-500">{when(q.createdAt)} · <button onClick={() => openUser(q.userId)} className="underline">explorer</button> · wants {q.requestedFeed ? 'feed' : 'journal'}</p>
-                  <div className="flex gap-2"><Btn tone="primary" onClick={() => decide(q.id, 'approve')}>Approve</Btn><Btn onClick={() => decide(q.id, 'reject')}>Keep private</Btn></div>
+                  <p className="text-xs text-stone-500">{when(q.createdAt)} · {q.userId ? <button onClick={() => openUser(q.userId)} className="underline">explorer</button> : 'explorer'}{q.kind !== 'comment' ? ` · ${q.published ? 'already in the feed' : `wants ${q.requestedFeed ? 'feed' : 'journal'}`}` : ''}</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {q.kind === 'comment' ? (<>
+                      <Btn tone="primary" onClick={() => decide(q.id, 'approve')}>Show note</Btn>
+                      <Btn onClick={() => decide(q.id, 'reject')}>Keep hidden</Btn>
+                    </>) : q.kind === 'unchecked' ? (<>
+                      <Btn tone="primary" onClick={() => decide(q.id, 'approve')}>Looks fine</Btn>
+                      <Btn onClick={() => decide(q.id, 'reject')}>Hide from feed</Btn>
+                    </>) : (<>
+                      <Btn tone="primary" onClick={() => decide(q.id, 'approve')}>Approve</Btn>
+                      <Btn onClick={() => decide(q.id, 'reject')}>Keep private</Btn>
+                    </>)}
+                  </div>
                 </div>
               </li>
             ))}
           </ul>
         )}
       </Card>
+      <ReviewWords />
       <Card title="Reported by explorers">
         {!reported ? <p className="text-stone-600">Loading…</p> : reported.length === 0 ? <p className="text-stone-600">No reports.</p> : (
           <ul className="space-y-3">
@@ -405,6 +441,108 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
         )}
       </Card>
     </div>
+  );
+};
+
+/** Extra words that send a sighting or field note to review (added to the built-in list). */
+const ReviewWords: React.FC = () => {
+  const [words, setWords] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api('/settings').then(s => setWords((s.settings.moderationWords || []).join(', '))).catch(e => setMsg(e.message)); }, []);
+  const save = async () => {
+    const list = (words || '').split(/[,\n]/).map(w => w.trim()).filter(Boolean);
+    try { const s = await api('/settings', { method: 'PUT', body: { moderationWords: list } }); setWords((s.moderationWords || []).join(', ')); setMsg('Saved. New sightings and field notes are checked against these within a few minutes.'); } catch (e: any) { setMsg(e.message); }
+  };
+  return (
+    <Card title="Words that send a sighting to review">
+      <p className="text-sm text-stone-600 mb-2">A built-in list already covers strong abuse, slurs and sexual content, plus spam patterns. Add local words here, separated by commas. Whole words only, any case. Nothing is rejected: matching sightings and field notes wait here for you.</p>
+      {words === null ? <p className="text-stone-600">{msg || 'Loading…'}</p> : (<>
+        <textarea value={words} onChange={e => setWords(e.target.value)} rows={3} aria-label="Review words" className="w-full border border-stone-300 rounded-xl p-3 text-sm" />
+        <div className="flex items-center gap-3 mt-2"><Btn tone="primary" onClick={save}>Save words</Btn>{msg && <span role="status" className="text-sm text-stone-600">{msg}</span>}</div>
+      </>)}
+    </Card>
+  );
+};
+
+/** Feature flags and A/B tests (config/flags). The app buckets explorers by a stable hash. */
+const Experiments: React.FC = () => {
+  const [flags, setFlags] = useState<Record<string, any> | null>(null);
+  const [msg, setMsg] = useState('');
+  const [name, setName] = useState('');
+  const load = useCallback(() => api('/experiments').then(r => setFlags(r.flags || {})).catch(e => setMsg(e.message)), []);
+  useEffect(() => { load(); }, [load]);
+  if (!flags) return <p className="text-stone-600">{msg || 'Loading…'}</p>;
+  const set = (k: string, patch: any) => setFlags(f => ({ ...f!, [k]: { ...f![k], ...patch } }));
+  const remove = (k: string) => setFlags(f => { const n = { ...f! }; delete n[k]; return n; });
+  const save = async () => {
+    try { const r = await api('/experiments', { method: 'PUT', body: { flags } }); setFlags(r.flags); setMsg('Saved. Open apps pick this up within seconds.'); } catch (e: any) { setMsg(e.message); }
+  };
+  const variantsText = (v?: { name: string; weight: number }[]) => (v || []).map(x => `${x.name}:${x.weight}`).join(', ');
+  const parseVariants = (t: string) => {
+    const list = t.split(',').map(x => x.trim()).filter(Boolean).map(x => { const [n, w] = x.split(':'); return { name: n.trim(), weight: Number(w ?? 1) }; });
+    return list.length ? list : undefined;
+  };
+  return (
+    <div className="space-y-4">
+      {msg && <p role="status" className="text-sm rounded-xl bg-stone-100 p-3">{msg}</p>}
+      <Card title="Feature flags and experiments" actions={<Btn tone="primary" onClick={save}>Save all</Btn>}>
+        <p className="text-sm text-stone-600 mb-3">Rollout is the share of explorers who get the flag (0 to 100). With variants (for example <span className="font-mono">control:50, warm:50</span>) those explorers are split by weight. Each explorer always lands in the same group. The first time a flag is seen, the app records an <span className="font-mono">experiment_exposure</span> event (for explorers who allow analytics).</p>
+        {Object.keys(flags).length === 0 && <p className="text-sm text-stone-600 mb-3">No flags yet. Every flag is off until it is added here.</p>}
+        <ul className="space-y-3">
+          {Object.entries(flags).map(([k, f]) => (
+            <li key={k} className="border border-stone-200 rounded-xl p-3 grid gap-2 sm:grid-cols-[1fr_auto] items-start">
+              <div className="space-y-2">
+                <p className="font-mono text-sm font-semibold">{k}</p>
+                <input value={f.description || ''} onChange={e => set(k, { description: e.target.value || undefined })} placeholder="What it changes" aria-label={`Description of ${k}`} className="w-full border border-stone-300 rounded-lg px-2.5 py-1.5 text-sm" />
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={f.enabled === true} onChange={e => set(k, { enabled: e.target.checked })} /> On</label>
+                  <label className="flex items-center gap-2">Rollout <input type="number" min={0} max={100} value={f.rollout ?? 0} onChange={e => set(k, { rollout: Math.max(0, Math.min(100, Number(e.target.value))) })} className="w-20 border border-stone-300 rounded-lg px-2 py-1" />%</label>
+                  <label className="flex items-center gap-2 flex-1 min-w-[220px]">Variants <input defaultValue={variantsText(f.variants)} onBlur={e => set(k, { variants: parseVariants(e.target.value) })} placeholder="none (simple on/off)" className="flex-1 border border-stone-300 rounded-lg px-2 py-1 font-mono text-xs" /></label>
+                </div>
+              </div>
+              <Btn tone="danger" onClick={() => { if (confirm(`Remove ${k}? Everyone falls back to the default.`)) remove(k); }}>Remove</Btn>
+            </li>
+          ))}
+        </ul>
+        <form onSubmit={e => { e.preventDefault(); const k = name.trim(); if (!/^[a-z][a-z0-9_]{1,39}$/.test(k)) { setMsg('Flag names are lowercase letters, digits and underscores.'); return; } setFlags(f => ({ ...f!, [k]: { enabled: false, rollout: 0 } })); setName(''); }} className="flex gap-2 mt-3">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="new_flag_name" aria-label="New flag name" className="border border-stone-300 rounded-xl px-3 py-2 text-sm font-mono flex-1" />
+          <Btn type="submit">Add flag</Btn>
+        </form>
+      </Card>
+    </div>
+  );
+};
+
+/** Exports and one-off maintenance jobs. */
+const DataTools: React.FC = () => {
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState('');
+  const exportDwc = async () => {
+    setBusy('dwc'); setMsg('Building the archive. Large collections can take a minute…');
+    try { const r = await download('/export/dwc.zip', 'naturegram-dwca.zip'); setMsg(`Darwin Core Archive downloaded: ${r.count ?? '?'} records (${r.skipped ?? 0} sightings left out: not public, under review, or no scientific name).`); }
+    catch (e: any) { setMsg(e.message); } finally { setBusy(''); }
+  };
+  const backfill = async () => {
+    if (!confirm('Add search keys to every sighting that is missing them? Safe to run more than once.')) return;
+    setBusy('search'); let after: string | null = null; let processed = 0; let updated = 0;
+    try {
+      do {
+        const r: any = await api('/backfill/search-tokens', { method: 'POST', body: { after, limit: 300 } });
+        processed += r.processed; updated += r.updated; after = r.next;
+        setMsg(`Search keys: ${processed} sightings checked, ${updated} updated…`);
+      } while (after);
+      setMsg(`Search keys done: ${processed} sightings checked, ${updated} updated.`);
+    } catch (e: any) { setMsg(`Stopped after ${processed} sightings: ${e.message}. Run it again to carry on.`); } finally { setBusy(''); }
+  };
+  return (
+    <Card title="Exports and maintenance">
+      <div className="flex flex-wrap gap-2">
+        <Btn onClick={exportDwc} disabled={!!busy}>{busy === 'dwc' ? 'Exporting…' : 'Export Darwin Core Archive (GBIF)'}</Btn>
+        <Btn onClick={backfill} disabled={!!busy}>{busy === 'search' ? 'Adding search keys…' : 'Add search keys to older sightings'}</Btn>
+      </div>
+      <p className="text-xs text-stone-500 mt-2">The archive holds public sightings with a scientific name only, licensed CC BY-NC 4.0, with coordinates rounded to 0.1° and withheld for sensitive species and for explorers who didn't share the place.</p>
+      {msg && <p role="status" className="text-sm mt-2">{msg}</p>}
+    </Card>
   );
 };
 
@@ -510,7 +648,7 @@ const Letters: React.FC = () => {
   );
 };
 
-const COLLECTIONS = ['users', 'ecosystem_feed', 'feed_thumbnails', 'ai_log', 'ai_usage', 'usage_global', 'ai_results', 'ai_feedback', 'review_queue', 'letter_reports', 'suspended', 'admin_audit', 'app_config', 'themes', 'daily_themes', 'media_variants', 'naturalist_profiles'];
+const COLLECTIONS = ['users', 'ecosystem_feed', 'feed_thumbnails', 'ai_log', 'ai_usage', 'usage_global', 'ai_results', 'ai_feedback', 'review_queue', 'letter_reports', 'suspended', 'admin_audit', 'app_config', 'config', 'live_leases', 'themes', 'daily_themes', 'media_variants', 'naturalist_profiles'];
 
 const DataExplorer: React.FC = () => {
   const [col, setCol] = useState('ecosystem_feed');
@@ -617,7 +755,10 @@ const Security: React.FC = () => {
           <li>Database from the server: {sec.store.ok ? 'reachable' : `not reachable (${sec.store.error})`}</li>
           <li>Separate service account: {sec.env.serviceAccount ? 'yes' : 'no (uses the runtime account)'}</li>
           <li>Allowances when the database is down: {sec.env.quotaFailOpen ? <b className="text-red-700">allowed (development setting, turn off)</b> : 'refused (safe)'}</li>
-          <li>App Check: {sec.env.appCheck}</li>
+          <li>App Check: {sec.runtime?.appCheck ? `${sec.runtime.appCheck.mode} (since restart: ${sec.runtime.appCheck.ok} verified, ${sec.runtime.appCheck.missing} without a token, ${sec.runtime.appCheck.invalid} invalid)` : sec.env.appCheck}</li>
+          {sec.runtime?.leases && <li>Live sessions counted across servers: {sec.runtime.leases.shared ? 'yes' : <b className="text-amber-800">no, this server counts on its own{sec.runtime.leases.lastError ? ` (${sec.runtime.leases.lastError})` : ''}</b>}</li>}
+          {sec.runtime && <li>Live connection: {sec.runtime.liveDirect ? 'direct to Gemini with one-use tokens' : 'through this server'}</li>}
+          {sec.runtime && <li>When the image check is down: {sec.runtime.moderationFailOpen ? 'publish and queue for a look' : 'hold for review'}</li>}
         </ul>
       </Card>
       <Card title="Audit log (every admin action)">
@@ -683,7 +824,8 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         {section === 'review' && <Review openUser={openUser} />}
         {section === 'people' && <People uid={uid} setUid={setUid} />}
         {section === 'letters' && <Letters />}
-        {section === 'data' && <DataExplorer />}
+        {section === 'experiments' && <Experiments />}
+        {section === 'data' && <div className="space-y-4"><DataTools /><DataExplorer /></div>}
         {section === 'security' && <Security />}
       </main>
     </div>

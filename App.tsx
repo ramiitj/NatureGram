@@ -13,9 +13,15 @@ import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
-import { weekKey, seasonNote } from './components/Wonder.tsx';
+import { weekKey, seasonNote, fieldMoment, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
+import Glyph, { GlyphName } from './components/Glyph.tsx';
+import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
+import ChangingOfTheGuard, { pendingHandover } from './components/ChangingOfTheGuard.tsx';
+import { buildLifeList, toMs } from './services/lifeList.ts';
+import { db } from './firebaseConfig.ts';
+import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 
 // Heavy, rarely-first views are loaded on demand to keep first paint fast
 const LiveLens = lazy(() => import('./components/LiveLens.tsx'));
@@ -25,14 +31,64 @@ const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
 const DraftsTray = lazy(() => import('./components/DraftsTray.tsx'));
 const Messages = lazy(() => import('./components/Messages.tsx'));
 const Reels = lazy(() => import('./components/Reels.tsx'));
+const Explore = lazy(() => import('./components/Explore.tsx'));
 const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
+const NaturalistPage = lazy(() => import('./components/NaturalistPage.tsx'));
+const NaturalistPersonaModal = lazy(() => import('./components/NaturalistPersonaModal.tsx'));
+
+/** One gentle loader for the whole app: a leaf outline being pressed into the page (still under reduced motion). */
+const PressingLeaf: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 44 }) => (
+  <svg viewBox="0 0 48 48" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className={`press-leaf ${className}`} aria-hidden="true">
+    <path d="M24 42C12 36 9 24 14 13c6 1 17 5 20 15 2 7-3 12-10 14z" />
+    <path d="M24 42c-1-9-4-17-9-26M20 30l-6-1M22 24l6-3" />
+  </svg>
+);
 
 const ViewLoader: React.FC<{ dark?: boolean }> = ({ dark }) => (
   <div className={`flex-1 flex items-center justify-center ${dark ? 'bg-black' : ''}`} role="status" aria-live="polite">
-    <span className={`material-symbols-outlined text-4xl animate-spin ${dark ? 'text-white/60' : 'text-theme-primary/40'}`} aria-hidden="true">progress_activity</span>
+    <PressingLeaf className={dark ? 'text-white/60' : 'text-theme-primary/50'} />
     <span className="sr-only">Loading…</span>
   </div>
 );
+
+/** The guide's last words when a Lens session closes without a summary of its own. */
+const CLOSING_LINE = 'We closed the notebook on a good walk. Your captures are waiting for you to write them up.';
+
+// ---- Activity: group repeated events and raise the meaningful ones -------------------------------
+type NoteGroup = { key: string; lead: FieldNotification; members: FieldNotification[]; unread: boolean };
+/** ID confirmations, replies and mentions first; marvels last. */
+const NOTE_RANK: Record<string, number> = { identification: 0, reply: 0, mention: 0, message: 1, comment: 1, follow: 2, sighting: 2, system: 2, like: 3 };
+const NOTE_GLYPH: Partial<Record<FieldNotification['type'], GlyphName>> = { comment: 'feather', reply: 'feather', follow: 'tracks', mention: 'feather', message: 'letter', identification: 'tag', sighting: 'binoculars', system: 'notebook' };
+
+const groupNotifications = (list: FieldNotification[]): NoteGroup[] => {
+  const map = new Map<string, NoteGroup>();
+  for (const n of list) {
+    const key = n.postId && n.type !== 'message' && n.type !== 'mention' ? `${n.type}|${n.postId}` : n.id;
+    const g = map.get(key);
+    if (g) { g.members.push(n); g.unread = g.unread || !n.isRead; if (toMs(n.timestamp) > toMs(g.lead.timestamp)) g.lead = n; }
+    else map.set(key, { key, lead: n, members: [n], unread: !n.isRead });
+  }
+  return [...map.values()].sort((a, b) => {
+    if (a.unread !== b.unread) return a.unread ? -1 : 1;
+    if (a.unread) { const r = (NOTE_RANK[a.lead.type] ?? 2) - (NOTE_RANK[b.lead.type] ?? 2); if (r) return r; }
+    return toMs(b.lead.timestamp) - toMs(a.lead.timestamp);
+  });
+};
+
+/** The sentence for a group: "7 explorers marvelled at your Kingfisher". */
+const groupLine = (g: NoteGroup): { who: string; what: string } => {
+  const lead = g.lead;
+  const rest = (lead.message || '').replace(lead.senderName || '', '').trim();
+  const people = new Set(g.members.map(m => m.senderId || m.senderName || m.id)).size;
+  if (g.members.length === 1 || people <= 1) return { who: lead.senderName || 'NatureGram', what: g.members.length > 1 ? `${rest} (${g.members.length} times)` : rest };
+  const subject = (rest.match(/your (.+?)\.?$/)?.[1] || 'sighting').replace(/[."]+$/, '');
+  if (lead.type === 'like') return { who: `${people} explorers`, what: `marvelled at your ${subject}.` };
+  if (lead.type === 'comment' || lead.type === 'reply') return { who: `${lead.senderName || 'An explorer'} and ${people - 1} other${people === 2 ? '' : 's'}`, what: 'left field notes on your sighting.' };
+  if (lead.type === 'identification') return { who: `${people} explorers`, what: 'weighed in on the identification of your sighting.' };
+  return { who: `${lead.senderName || 'An explorer'} and ${people - 1} other${people === 2 ? '' : 's'}`, what: rest };
+};
+
+const PERSONA_OFFER_KEY = 'naturegram_persona_offer';
 
 const PATHS: Record<AppView, string> = {
   [AppView.LANDING]: '/',
@@ -46,6 +102,7 @@ const PATHS: Record<AppView, string> = {
   [AppView.SHARED_POST]: '/feed',
   [AppView.MESSAGES]: '/messages',
   [AppView.REELS]: '/reels',
+  [AppView.EXPLORE]: '/explore',
 };
 
 const pathId = (p: string, prefix: string) => (p.startsWith(prefix) ? decodeURIComponent(p.slice(prefix.length).split('/')[0] || '') || null : null);
@@ -61,6 +118,7 @@ const viewFromPath = (p: string): AppView => {
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
   if (p.startsWith('/messages')) return AppView.MESSAGES;
   if (p.startsWith('/reels')) return AppView.REELS;
+  if (p.startsWith('/explore')) return AppView.EXPLORE;
   // Lens and review need live state; after a refresh, land on the feed instead of an empty screen
   return AppView.COMMUNITY;
 };
@@ -144,17 +202,91 @@ const App: React.FC = () => {
   // Weekly field letter: shown at the top of Activity, marked new once a week
   const thisWeek = weekKey();
   const [letterSeenWeek, setLetterSeenWeek] = useState<string>(() => { try { return localStorage.getItem('naturegram_letter_week') || ''; } catch { return ''; } });
-  const [myWeek, setMyWeek] = useState<{ sightings: number; species: string[] } | null>(null);
+  const [myWeek, setMyWeek] = useState<{ sightings: number; species: string[]; newPlates: PlateData[]; hours: number[] } | null>(null);
+  const [weekChallenge, setWeekChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
+  const [letterToast, setLetterToast] = useState('');
   useEffect(() => {
     if (!isNotificationsOpen) return;
     setLetterSeenWeek(thisWeek);
     try { localStorage.setItem('naturegram_letter_week', thisWeek); } catch { /* storage blocked */ }
-    if (!userMode?.isAnonymous) FirebaseService.getMyWeek().then(setMyWeek).catch(() => setMyWeek({ sightings: 0, species: [] }));
+    FirebaseService.getChallengeProgress(getNaturalistExtra(dailyTheme?.id).challengeTag).then(setWeekChallenge).catch(() => {});
+    if (userMode?.isAnonymous || !userMode?.userId) return;
+    // The Sunday letter: this week's sightings, and the species new to the explorer's list as plates
+    const since = Date.now() - 7 * 864e5;
+    getDocs(query(collection(db, 'ecosystem_feed'), where('userId', '==', userMode.userId), orderBy('timestamp', 'desc'), limit(200)))
+      .then(snap => {
+        const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+        const recent = posts.filter(p => toMs(p.timestamp) >= since);
+        const list = buildLifeList(posts);
+        const fresh = list.filter(e => e.firstMs >= since);
+        const species = Array.from(new Set(recent.map(p => String(p.labels?.[0] || '').trim()).filter(l => l && !/^(unknown|nature|unidentified|captured|uploaded)/i.test(l))));
+        setMyWeek({
+          sightings: recent.length, species,
+          newPlates: fresh.slice(-6).reverse().map(e => ({ name: e.name, scientific: e.scientific, thumb: e.thumb, no: e.no, firstMs: e.firstMs, place: e.place, season: e.season, group: e.group })),
+          hours: recent.map(p => new Date(toMs(p.timestamp)).getHours()),
+        });
+      })
+      .catch(() => FirebaseService.getMyWeek().then(w => setMyWeek({ ...w, newPlates: [], hours: [] })).catch(() => setMyWeek({ sightings: 0, species: [], newPlates: [], hours: [] })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNotificationsOpen]);
+
+  /** What to look for next week: the season ahead, and an hour of the day the explorer hasn't tried yet. */
+  const nextWeekHint = () => {
+    const hours = myWeek?.hours || [];
+    const tried = (from: number, to: number) => hours.some(h => h >= from && h < to);
+    const at = !tried(4, 7) ? new Date(2000, 0, 1, 5) : !tried(18, 20) ? new Date(2000, 0, 1, 19) : !tried(20, 24) ? new Date(2000, 0, 1, 22) : new Date(2000, 0, 1, 9);
+    const m = fieldMoment(at);
+    const ahead = seasonNote(new Date(Date.now() + 7 * 864e5));
+    return { season: ahead !== seasonNote() ? ahead : '', moment: `Try going out at ${m.name.toLowerCase()} once: ${m.hint}.` };
+  };
+
+  const shareLetter = async () => {
+    const w = myWeek;
+    const text = w && w.sightings
+      ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my NatureGram field notebook.`
+      : 'My field notebook on NatureGram.';
+    const url = `${window.location.origin}/profile/${encodeURIComponent(userMode?.userId || '')}`;
+    track('share', { surface: 'sunday_letter' });
+    if (w?.newPlates.length) {
+      const { sharePlate } = await import('./services/plateImage.ts');
+      const r = await sharePlate({ ...w.newPlates[0], line: 'New to my list this week' }, { text, url });
+      if (r === 'downloaded') { setLetterToast('Plate saved. Share it wherever you like.'); window.setTimeout(() => setLetterToast(''), 2600); }
+      return;
+    }
+    try {
+      if (navigator.share) await navigator.share({ title: 'My week outside', text, url });
+      else { await navigator.clipboard.writeText(`${text} ${url}`); setLetterToast('Link copied'); window.setTimeout(() => setLetterToast(''), 2000); }
+    } catch { /* cancelled */ }
+  };
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const [activeDraftsCount, setActiveDraftsCount] = useState(0);
+
+  // The naturalist of the fortnight: their page, and the one-time handover card after a rotation
+  const [naturalistOpen, setNaturalistOpen] = useState(false);
+  const [handoverFrom, setHandoverFrom] = useState<string | null>(() => pendingHandover(getFallbackTheme().id));
+  const openNaturalist = useCallback(() => { track('naturalist_page_open', {}); setNaturalistOpen(true); }, []);
+
+  // "What makes you stop and look?" is offered once the explorer has three sightings, not at sign-up
+  const [personaOffer, setPersonaOffer] = useState(false);
+  const maybeOfferPersona = useCallback(async (uid?: string | null) => {
+    if (!uid || uid === 'explorer_guest') return;
+    try { if (localStorage.getItem(PERSONA_OFFER_KEY)) return; } catch { return; }
+    try {
+      const profile = await FirebaseService.getUserProfile(uid);
+      const p = profile?.naturalistPersona;
+      if (p && (p.taxaInterests?.length || p.habitatAffinities?.length || p.customFocus)) {
+        try { localStorage.setItem(PERSONA_OFFER_KEY, 'has'); } catch { /* storage blocked */ }
+        return;
+      }
+      const snap = await getDocs(query(collection(db, 'ecosystem_feed'), where('userId', '==', uid), orderBy('timestamp', 'desc'), limit(3)));
+      if (snap.size >= 3) setPersonaOffer(true);
+    } catch { /* not now */ }
+  }, []);
+  const closePersonaOffer = (outcome: 'later' | 'done') => {
+    try { localStorage.setItem(PERSONA_OFFER_KEY, outcome); } catch { /* storage blocked */ }
+    setPersonaOffer(false);
+  };
 
   /** Ask for an account, then continue what the explorer was doing. */
   const requireAccount = useCallback((reason: string, then?: () => void) => {
@@ -211,6 +343,7 @@ const App: React.FC = () => {
           setCurrentView(AppView.COMMUNITY);
         }
         // Continue the action that required an account (like, comment, publish…)
+        if (!user.isAnonymous) maybeOfferPersona(user.uid);
         if (!user.isAnonymous && pendingAuthActionRef.current) {
           const action = pendingAuthActionRef.current;
           pendingAuthActionRef.current = null;
@@ -342,6 +475,7 @@ const App: React.FC = () => {
   };
 
   const handlePublished = async () => {
+    if (!userMode?.isAnonymous) maybeOfferPersona(userMode?.userId);
     if (resumedDraftId && userMode?.userId) {
       await FirebaseService.deleteDraft(userMode.userId, resumedDraftId).catch(() => {});
       setResumedDraftId(null);
@@ -459,6 +593,18 @@ const App: React.FC = () => {
     setCurrentView(AppView.COMMUNITY);
   };
 
+  /** A grouped row marks every event in it as read, then opens what they share. */
+  const handleNotificationGroupClick = (group: NoteGroup) => {
+    if (userMode?.userId) group.members.filter(n => !n.isRead && n.id !== group.lead.id).forEach(n => FirebaseService.markNotificationRead(userMode.userId!, n.id).catch(() => {}));
+    if (group.lead.type === 'message') {
+      if (userMode?.userId && !group.lead.isRead) FirebaseService.markNotificationRead(userMode.userId, group.lead.id).catch(() => {});
+      setIsNotificationsOpen(false);
+      openMessages();
+      return;
+    }
+    handleNotificationClick(group.lead);
+  };
+
   const markAllRead = () => {
     if (!userMode?.userId) return;
     notifications.filter(n => !n.isRead).forEach(n => FirebaseService.markNotificationRead(userMode.userId!, n.id).catch(() => {}));
@@ -508,7 +654,7 @@ const App: React.FC = () => {
   }, [isNotificationsOpen]);
 
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
-  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
+  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS || currentView === AppView.EXPLORE) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
   const openActivity = () => setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
@@ -549,34 +695,70 @@ const App: React.FC = () => {
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
               <article aria-labelledby="field-letter-title" className="p-5 rounded-2xl bg-insight-bg border border-theme-accent/25">
-                <p className="text-xs text-stone-500">Week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
-                <h3 id="field-letter-title" className="font-display text-xl font-semibold text-theme-primary mt-0.5">Your field letter</h3>
+                <p className="text-xs text-stone-500">Sunday letter · week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
+                <h3 id="field-letter-title" className="font-display text-xl font-semibold text-theme-primary mt-0.5">Your week outside</h3>
                 <p className="text-[15px] font-display text-stone-800 mt-3 leading-relaxed">{seasonNote()}</p>
-                <p className="text-sm text-stone-700 mt-3 leading-relaxed">
-                  {userMode?.isAnonymous
-                    ? null
-                    : !myWeek ? 'Counting your week…'
-                    : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
-                    : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
-                </p>
+                {!userMode?.isAnonymous && (
+                  <p className="text-sm text-stone-700 mt-3 leading-relaxed">
+                    {!myWeek ? 'Counting your week…'
+                      : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
+                      : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
+                  </p>
+                )}
+                {!!myWeek?.newPlates.length && (
+                  <div className="mt-4">
+                    <p className="text-sm text-stone-700">New to your list</p>
+                    <ul className="mt-2 flex gap-3 overflow-x-auto no-scrollbar pb-2 pt-2 -mx-1 px-1" role="list">
+                      {myWeek.newPlates.map(pl => (
+                        <li key={pl.name} className="w-[104px] shrink-0">
+                          <SpecimenPlate size="sm" data={pl} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="mt-4 pt-4 border-t border-theme-accent/15 flex items-start gap-2.5">
+                  <Glyph name="stamp" size={20} className="text-theme-accent mt-0.5" />
+                  <button onClick={() => { setIsNotificationsOpen(false); openNaturalist(); }} className="text-left text-sm text-stone-700 leading-relaxed hover:text-stone-900">
+                    {weekChallenge?.mine
+                      ? <>You answered {dailyTheme.naturalist}'s challenge. {period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'} left for one more.</>
+                      : <>{dailyTheme.naturalist}'s challenge: {extra.challenge} {weekChallenge?.explorers ? `${weekChallenge.capped ? '60+' : weekChallenge.explorers} explorers have answered; ` : ''}{period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'} left.</>}
+                  </button>
+                </div>
+                <div className="mt-3 flex items-start gap-2.5">
+                  <Glyph name="compass" size={20} className="text-theme-accent mt-0.5" />
+                  <p className="text-sm text-stone-700 leading-relaxed">Next week: {[nextWeekHint().season, nextWeekHint().moment].filter(Boolean).join(' ')}</p>
+                </div>
+                {!userMode?.isAnonymous && (
+                  <button onClick={shareLetter} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
+                    {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
+                  </button>
+                )}
+                {letterToast && <p role="status" className="text-xs text-stone-600 mt-1">{letterToast}</p>}
               </article>
               {notifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 text-center px-8 text-stone-500">
                   <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
                   <p className="font-display text-lg text-stone-800">Quiet in the woods</p>
                 </div>
-              ) : notifications.map(alert => (
-                <button key={alert.id} onClick={() => handleNotificationClick(alert)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${alert.isRead ? 'bg-white hover:bg-stone-50' : 'bg-theme-accent/5 hover:bg-theme-accent/10'}`}>
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
-                    <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>{alert.type === 'comment' || alert.type === 'reply' ? 'history_edu' : alert.type === 'follow' ? 'nature_people' : alert.type === 'mention' ? 'alternate_email' : alert.type === 'message' ? 'mail' : alert.type === 'identification' ? 'how_to_reg' : alert.type === 'sighting' ? 'park' : 'flare'}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-main leading-snug"><span className="font-bold">{alert.senderName || 'NatureGram'}</span> {alert.message?.replace(alert.senderName || '', '').trim()}</p>
-                    <p className="text-xs text-stone-500 mt-1">{timeAgo(alert.timestamp)}</p>
-                  </div>
-                  {!alert.isRead && <span className="w-2.5 h-2.5 rounded-full bg-theme-accent mt-2 shrink-0" aria-label="Unread"></span>}
-                </button>
-              ))}
+              ) : groupNotifications(notifications).map(group => {
+                const alert = group.lead;
+                const { who, what } = groupLine(group);
+                const glyph = NOTE_GLYPH[alert.type];
+                return (
+                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-theme-accent/5 hover:bg-theme-accent/10' : 'bg-white hover:bg-stone-50'}`}>
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
+                      {glyph ? <Glyph name={glyph} size={22} /> : <WonderIcon active className="text-xl" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-main leading-snug"><span className="font-bold">{who}</span> {what}</p>
+                      <p className="text-xs text-stone-500 mt-1">{timeAgo(alert.timestamp)}</p>
+                    </div>
+                    {group.unread && <span className="w-2.5 h-2.5 rounded-full bg-theme-accent mt-2 shrink-0" aria-label="Unread"></span>}
+                  </button>
+                );
+              })}
             </div>
           </section>
         </div>
@@ -610,7 +792,14 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              <figure className="text-center px-6 max-w-md mx-auto">
+              <figure
+                className="text-center px-6 max-w-md mx-auto cursor-pointer rounded-2xl"
+                role="button"
+                tabIndex={0}
+                aria-label={`"${dailyTheme.quote}" ${dailyTheme.naturalist}. Read about ${dailyTheme.naturalist}, the naturalist of the fortnight.`}
+                onClick={openNaturalist}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNaturalist(); } }}
+              >
                 <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</blockquote>
                 <figcaption className="mt-6 flex flex-col items-center gap-1">
                   <span className="text-white font-bold tracking-widest uppercase text-[11px]">{dailyTheme.naturalist}</span>
@@ -634,7 +823,7 @@ const App: React.FC = () => {
                   onEndSession={handleEndSession}
                   onExit={() => {
                     if (currentSessionRef.current.length > 0) {
-                      handleEndSession(sessionSummary || 'Exploration concluded.');
+                      handleEndSession(sessionSummary || CLOSING_LINE);
                     } else {
                       handleNavigationRequest(AppView.COMMUNITY);
                     }
@@ -660,19 +849,19 @@ const App: React.FC = () => {
             <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)} aria-hidden="true"></div>
             <section role="dialog" aria-modal="true" aria-labelledby="mode-title" className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
               <div className="p-7 text-center">
-                <h2 id="mode-title" className="text-2xl font-display font-semibold text-stone-900 mb-1">How should your guide behave?</h2>
-                <p className="text-sm text-stone-500 mb-6">You can change this any time from the lens.</p>
+                <h2 id="mode-title" className="text-2xl font-display font-semibold text-stone-900 mb-1">Who would you like to walk with?</h2>
+                <p className="text-sm text-stone-500 mb-6">You can change your mind any time from the Lens.</p>
                 <div className="space-y-3">
                   {([
-                    { mode: 'conversation', icon: 'forum', title: 'Talk with me', desc: 'Your guide chats with you in real time about what you see and answers your questions.' },
-                    { mode: 'observation', icon: 'visibility', title: 'Quiet observer', desc: 'Your guide stays silent and only speaks up for notable moments or when you ask.' },
+                    { mode: 'conversation', glyph: 'guide', title: 'Walk with a talkative guide', desc: 'Your guide talks with you about what you see as you go, and answers whatever you wonder aloud.' },
+                    { mode: 'observation', glyph: 'binoculars', title: 'A quiet companion', desc: 'Your companion keeps quiet and speaks up only when it matters, or when you ask.' },
                   ] as const).map(opt => (
                     <button key={opt.mode} onClick={() => chooseMode(opt.mode)} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
                       <span className="flex items-center gap-4 mb-1">
                         <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                          <span className="material-symbols-outlined">{opt.icon}</span>
+                          <Glyph name={opt.glyph} size={24} />
                         </span>
-                        <span className="font-bold text-lg text-stone-900">{opt.title}</span>
+                        <span className="font-display font-semibold text-lg text-stone-900">{opt.title}</span>
                       </span>
                       <span className="block text-sm text-stone-600 leading-relaxed">{opt.desc}</span>
                     </button>
@@ -680,9 +869,9 @@ const App: React.FC = () => {
                   <button onClick={() => { setShowModeSelection(false); setShowUploadModal(true); }} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
                     <span className="flex items-center gap-4 mb-1">
                       <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                        <span className="material-symbols-outlined">upload_file</span>
+                        <Glyph name="plate" size={24} />
                       </span>
-                      <span className="font-bold text-lg text-stone-900">Upload from gallery</span>
+                      <span className="font-display font-semibold text-lg text-stone-900">Bring in from your camera roll</span>
                     </span>
                     <span className="block text-sm text-stone-600 leading-relaxed">Photos, or sound and video clips up to 30 seconds. No live camera needed.</span>
                   </button>
@@ -724,6 +913,10 @@ const App: React.FC = () => {
               setSelectedPostId(null);
               window.history.replaceState({}, document.title, '/feed');
               enterApp();
+            }} onOpenLens={() => {
+              setSelectedPostId(null);
+              window.history.replaceState({}, document.title, '/feed');
+              handleNavigationRequest(AppView.LENS);
             }} />
           </Suspense>
         )}
@@ -737,15 +930,17 @@ const App: React.FC = () => {
                   selectedPostId={selectedPostId}
                   onPostClose={handlePostClose}
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
-                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : "Wild"}
+                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : returnView === AppView.EXPLORE ? "Explore" : "Wild"}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
                   onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
                   onRequireAccount={requireAccount}
                   dailyTheme={dailyTheme}
+                  onOpenNaturalist={openNaturalist}
                   onOpenActivity={openActivity}
                   onOpenMessages={() => openMessages()}
+                  onOpenExplore={() => handleNavigationRequest(AppView.EXPLORE)}
                   unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                   unreadMessages={unreadMessages}
                 />
@@ -787,7 +982,9 @@ const App: React.FC = () => {
                   onRequireAccount={requireAccount}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
-                    try { const cid = await FirebaseService.openConversation(uid); openMessages(cid); } catch { /* shown in profile */ }
+                    // Errors go back to the profile, which says what went wrong.
+                    const cid = await FirebaseService.openConversation(uid);
+                    openMessages(cid);
                   }}
                 />
               </Suspense>
@@ -820,6 +1017,20 @@ const App: React.FC = () => {
                 onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                 onRequireAccount={requireAccount}
               />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {currentView === AppView.EXPLORE && userMode && (
+          <ErrorBoundary label="explore">
+            <Suspense fallback={<ViewLoader />}>
+              <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar pb-28 lg:pb-8">
+                <Explore
+                  onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onOpenPost={(postId: string) => { setReturnView(AppView.EXPLORE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
+                  onOpenProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                />
+              </div>
             </Suspense>
           </ErrorBoundary>
         )}
@@ -859,6 +1070,46 @@ const App: React.FC = () => {
             onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
             onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.COMMUNITY); }}
           />
+        )}
+
+        {naturalistOpen && (
+          <Suspense fallback={<div className="fixed inset-0 z-[120] bg-day-bg flex"><ViewLoader /></div>}>
+            <NaturalistPage
+              theme={dailyTheme}
+              extra={extra}
+              period={period}
+              onClose={() => setNaturalistOpen(false)}
+              onOpenPost={async (postId) => {
+                setNaturalistOpen(false);
+                if (currentView === AppView.LANDING) {
+                  // From the landing, step in as a guest (as Explore Wild would) and open the answer in the feed
+                  if (!FirebaseService.getCurrentUserId()) await FirebaseService.loginAnonymous().catch(() => setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true }));
+                } else if (currentView !== AppView.COMMUNITY) setReturnView(currentView);
+                setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY);
+              }}
+              onOpenLens={currentView === AppView.LANDING ? undefined : () => { setNaturalistOpen(false); handleNavigationRequest(AppView.LENS); }}
+            />
+          </Suspense>
+        )}
+
+        {handoverFrom && !naturalistOpen && currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && currentView !== AppView.SHARED_POST && (
+          <ChangingOfTheGuard
+            previousId={handoverFrom}
+            current={dailyTheme}
+            onOpenNaturalist={openNaturalist}
+            onDone={() => setHandoverFrom(null)}
+          />
+        )}
+
+        {personaOffer && currentView === AppView.COMMUNITY && !isDetailActive && !handoverFrom && userMode?.userId && (
+          <Suspense fallback={null}>
+            <NaturalistPersonaModal
+              userId={userMode.userId}
+              isOpen={true}
+              onClose={() => closePersonaOffer('later')}
+              onSave={() => closePersonaOffer('done')}
+            />
+          </Suspense>
         )}
       </main>
 

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import Glyph from './Glyph';
 
 interface OnboardingTourProps {
   onComplete: () => void;
@@ -112,8 +113,8 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
              {/* Decorative 'Paper' Header */}
              <div className="flex justify-between items-center mb-4 border-b border-theme-primary/10 pb-3">
                  <div className="flex items-center gap-2">
-                     <span className="material-symbols-outlined text-[16px] text-theme-vivid select-none">explore</span>
-                     <span className="text-xs uppercase tracking-widest font-bold text-theme-primary/60">Field Guide</span>
+                     <Glyph name="guide" size={18} className="text-theme-accent" />
+                     <span className="text-sm font-display text-theme-primary/70">A word from your guide</span>
                  </div>
                  <button onClick={finishTour} className="text-stone-600 hover:text-stone-900 transition-colors text-sm font-bold px-2 py-1">
                      Skip tour

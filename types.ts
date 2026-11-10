@@ -160,7 +160,8 @@ export enum AppView {
   DRAFTS = 'DRAFTS',
   SHARED_POST = 'SHARED_POST',
   MESSAGES = 'MESSAGES',
-  REELS = 'REELS'
+  REELS = 'REELS',
+  EXPLORE = 'EXPLORE'
 }
 
 export interface GeminiConfig {

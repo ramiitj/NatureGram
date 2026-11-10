@@ -27,6 +27,8 @@ GROUP BY event;
 | `landing_enter` | Taps Explore Wild | `naturalist` |
 | `account_prompt` | An action needed an account | `reason` |
 | `sign_up` / `login` | Auth success | `with_username` |
+| `sign_up_age_blocked` | Sign-up stopped by the 13+ check (no account, no birth date kept) | |
+| `experiment_exposure` | First time a feature flag is evaluated in a session (services/flags.ts) | `flag`, `variant`, `on` |
 | `lens_open` | Live lens started | `mode`, `remembered` |
 | `lens_error` | Camera/mic failed | `name` (e.g. NotAllowedError) |
 | `live_session_limited` | Server ended a live session (quota/time) | `code` |

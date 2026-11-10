@@ -10,7 +10,14 @@ import { rotateImageBlob } from '../services/imageUtils.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import { GeminiLiveService } from '../services/geminiLiveService.ts';
 import AuthModal from './AuthModal.tsx';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
+import Glyph from './Glyph';
+import SpecimenPlate, { PlateData, PlateStamp } from './SpecimenPlate';
+import { sharePlate } from '../services/plateImage';
+import { groupOf, seasonOf } from '../services/lifeList';
+import { answersChallenge, carriesChallengeTag } from '../services/challenge';
+import { getDailyTheme } from '../constants/naturalists';
+import { getNaturalistExtra } from '../constants/naturalistExtras';
 
 interface PostSessionViewProps {
   snapshots: Snapshot[];
@@ -26,7 +33,17 @@ interface PostSessionViewProps {
   geminiServiceRef: React.MutableRefObject<GeminiLiveService | null>;
   updateSnapshot: (id: string, updates: Partial<Snapshot>) => void;
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
+  /** Species already on the explorer's life list (common names); merged with a fresh read at publish. */
+  knownSpecies?: string[];
 }
+
+/** Lines the app writes when a session ends on its own; they are not the guide's notes. */
+const SYSTEM_SUMMARY = /^(exploration concluded|we closed the notebook on a good walk|session ended|unfinished expedition|that's today's live time)/i;
+const guideNotesOf = (summary?: string) => {
+  const t = (summary || '').trim();
+  return t && !SYSTEM_SUMMARY.test(t) ? t : '';
+};
+const shortDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 const ordinal = (n: number) => { const v = n % 100; const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'; return `${n}${suf}`; };
 /** A line that marks how far the explorer has come, with the round numbers called out. */
@@ -37,7 +54,11 @@ const lifeListMilestone = (total: number, added: number) => {
   return `That makes ${total} species on your life list.`;
 };
 
-const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onCaptureMore, onPublished, onRequireAccount, onUpdateSnapshots, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef }) => {
+const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSnapshots, summary, userMode, onClose, onViewFeed, onSaveDraft, onCaptureMore, onPublished, onRequireAccount, onUpdateSnapshots, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef, knownSpecies }) => {
+  const reduceMotion = useReducedMotion();
+  const theme = getDailyTheme();
+  const themeExtra = getNaturalistExtra(theme.id);
+  const guideNotes = guideNotesOf(summary);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(initialSnapshots);
   // Every capture is selected by default; explorers deselect what they don't want to share
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set(initialSnapshots.map((_, i) => i)));
@@ -52,23 +73,26 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [newSpecies, setNewSpecies] = useState<string[]>([]);
   const [lifeListTotal, setLifeListTotal] = useState(0);
   const [publishedThumb, setPublishedThumb] = useState<string | null>(null);
+  const [plate, setPlate] = useState<PlateData | null>(null);
+  const [answeredChallenge, setAnsweredChallenge] = useState(false);
+  const [shareNote, setShareNote] = useState('');
   const tagsTouchedRef = useRef(false);
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [currentSnapIndex, setCurrentSnapIndex] = useState(0);
-  
+
   const [behavior, setBehavior] = useState("");
   const [aiInsight, setAiInsight] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
-  
+
   const [saveToJournal, setSaveToJournal] = useState(true);
   const [postToFeed, setPostToFeed] = useState(true);
   const [showLocation, setShowLocation] = useState(true);
   const [showPostOptionsModal, setShowPostOptionsModal] = useState(false);
-  
+
   const isGeneratingCard = false;
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [resolvedArea, setResolvedArea] = useState<string>("");
@@ -117,11 +141,11 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     const analyzeCurrent = async () => {
         if (snapshots.length === 0 || !snapshots[currentSnapIndex]) return;
         const current = snapshots[currentSnapIndex];
-        
+
         setBehavior(current.behavior || "");
         setAiInsight(current.aiInsight || "");
         setLabels(current.labels || []);
-        
+
         if (current.isAnalyzing) {
             setIsAnalyzing(true);
             return;
@@ -137,7 +161,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             try {
                 const associatedImages = current.associatedImages?.map(i => i.blob).filter(Boolean) as Blob[] || [];
                 const mainBlob = current.videoBlob || current.audioBlob || current.blob;
-                
+
                 let result;
                 if ((current.type === 'audio' || current.type === 'video') && (current.blob || associatedImages.length > 0)) {
                     // Use multimodal analysis for audio/video + images
@@ -150,7 +174,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                     const typeToAnalyze = current.videoBlob ? 'video' : (current.audioBlob ? 'audio' : 'image');
                     result = await GenAiService.analyzeMedia(mainBlob!, typeToAnalyze, resolvedArea || current.location);
                 }
-                
+
                 if (result) {
                     setAiInsight(result.ecologic);
                     setLabels(result.taxonomy);
@@ -227,8 +251,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                     setResolvedArea("Nearby Wilderness");
                 }
                 locationResolvedRef.current = true;
-            } catch (e) { 
-                setResolvedArea("Wilderness Area"); 
+            } catch (e) {
+                setResolvedArea("Wilderness Area");
                 locationResolvedRef.current = true;
             }
         }
@@ -246,6 +270,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             if (t && !/^(unknown|nature|unidentified)/.test(t)) newTags.add(`#${t}`);
         });
         if (snap.isHybrid) newTags.add('#urbanwild');
+        if (answersChallenge(theme.id, snap)) newTags.add(themeExtra.challengeTag);
     });
     newTags.add('#naturegram');
     setTags(Array.from(newTags).slice(0, 12));
@@ -309,13 +334,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     try {
         const activeUserId = FirebaseService.getCurrentUserId()!;
         const before = await FirebaseService.getMySpeciesSet();
+        (knownSpecies || []).forEach(n => { if (n) before.add(n.trim().toLowerCase()); });
         const selectedSnapshots = Array.from(selectedIndices).sort((a, b) => a - b).map(idx => {
             const current = snapshots[idx];
             const proposed = current.aiProposedLabels || [];
-            return { 
-                ...current, 
-                locationArea: resolvedArea, 
-                showLocation, 
+            return {
+                ...current,
+                locationArea: resolvedArea,
+                showLocation,
                 // Human-in-the-loop signal: did the explorer change what the AI proposed?
                 humanDelta: proposed.length > 0 && JSON.stringify((current.labels || []).map(l => l.toLowerCase())) !== JSON.stringify(proposed.map(l => l.toLowerCase())),
             };
@@ -343,14 +369,32 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         setNewSpecies(fresh);
         setLifeListTotal(before.size + fresh.length);
         const first = selectedSnapshots[0];
-        setPublishedThumb(first ? (objectUrls[first.id]?.image || first.url || null) : null);
+        const thumb = first ? (objectUrls[first.id]?.image || first.url || first.associatedImages?.[0]?.url || null) : null;
+        setPublishedThumb(thumb);
+        // The plate: the first new species if there is one, otherwise the first sighting shared
+        const plateSnap = (fresh[0] && selectedSnapshots.find(s => (s.labels?.[0] || '').trim() === fresh[0])) || first;
+        const plateName = (plateSnap?.labels?.[0] || '').trim();
+        if (plateSnap && plateName && !/^(unknown|nature|unidentified)/i.test(plateName)) {
+            const sci = [plateSnap.labels?.[1], plateSnap.aiIdentifications?.[0]?.scientificName].find(x => !!x && /^[A-Z][a-z]+ [a-z]+/.test(x));
+            const now = Date.now();
+            setPlate({
+                name: plateName, scientific: sci || undefined,
+                thumb: (objectUrls[plateSnap.id]?.image || plateSnap.url || plateSnap.associatedImages?.[0]?.url) || undefined,
+                no: fresh.length ? before.size + 1 : undefined,
+                firstMs: (plateSnap as any).takenAtMs || now,
+                place: showLocation && !plateSnap.aiFlags?.sensitiveSpecies ? (resolvedArea || undefined) : undefined,
+                season: seasonOf((plateSnap as any).takenAtMs || now, plateSnap.rawLocation?.lat),
+                group: groupOf(plateSnap),
+            });
+        } else setPlate(null);
+        setAnsweredChallenge(carriesChallengeTag(theme.id, cleanTags));
         setIsDone(true);
         onPublished?.();
         track('post_published', {
             count: selectedSnapshots.length, mode, audience: postToFeed ? 'public' : 'journal',
             corrected: selectedSnapshots.filter(s => s.humanDelta).length, caption: caption.length > 0, new_species: fresh.length,
         });
-        
+
         if (geminiServiceRef.current) {
             geminiServiceRef.current.disconnect();
             geminiServiceRef.current = null;
@@ -372,7 +416,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   };
 
   if (isDone) {
-      const share = async () => {
+      const shareLink = async () => {
           if (!createdPostId) return;
           const url = getShareUrl(createdPostId);
           try {
@@ -380,32 +424,56 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
               else handleCopyLink();
           } catch { /* cancelled */ }
       };
+      // Share the plate itself; a bare link only when the plate can't be drawn
+      const share = async () => {
+          if (!createdPostId) return;
+          if (!plate) return shareLink();
+          setShareNote('');
+          const url = getShareUrl(createdPostId);
+          const res = await sharePlate({ ...plate, line: answeredChallenge ? `Answers ${theme.naturalist}'s challenge` : undefined }, { text: `${plate.name}, in my field notebook on NatureGram`, url });
+          if (res === 'failed') return shareLink();
+          if (res === 'downloaded') setShareNote('Plate saved to your device.');
+      };
+      const isNew = newSpecies.length > 0;
       return (
-          <div className="fixed inset-0 bg-day-bg flex flex-col items-center justify-center p-8 text-center animate-fade-in z-[70] overflow-y-auto">
-               {publishedThumb && (
+          <div className="fixed inset-0 bg-day-bg flex flex-col items-center p-8 pt-[calc(env(safe-area-inset-top)+2.5rem)] text-center animate-fade-in z-[70] overflow-y-auto">
+               {plate ? (
+                   <motion.div
+                       className="relative w-56 mb-7 shrink-0"
+                       initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 80, rotate: -6 }}
+                       animate={{ opacity: 1, y: 0, rotate: -1.5 }}
+                       transition={{ type: 'spring', damping: 20, stiffness: 160, delay: reduceMotion ? 0 : 0.1 }}
+                   >
+                       {isNew && <span className="absolute -inset-16 pointer-events-none"><WonderBurst count={24} /></span>}
+                       <SpecimenPlate data={plate} size="lg" stamp={isNew ? <PlateStamp>First for your list</PlateStamp> : undefined} />
+                   </motion.div>
+               ) : publishedThumb && (
                    <div className="relative mb-6">
-                       <img src={publishedThumb} alt="" className="w-40 h-40 rounded-[2rem] object-cover shadow-2xl rotate-[-3deg]" />
-                       <span className="absolute -bottom-3 -right-3 w-12 h-12 rounded-full bg-theme-accent text-white flex items-center justify-center shadow-lg" aria-hidden="true"><span className="material-symbols-outlined">check</span></span>
-                       {newSpecies.length > 0 && <span className="absolute -inset-16"><WonderBurst count={24} /></span>}
+                       <img src={publishedThumb} alt="" className="w-40 h-40 rounded-[3px] object-cover shadow-2xl rotate-[-3deg]" />
                    </div>
                )}
-               <h2 className="text-3xl font-display text-theme-primary mb-2 font-semibold">{postToFeed && !heldMessage ? 'Shared with the field' : 'Saved to your journal'}</h2>
-               <p className="text-stone-600 mb-6 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.')}</p>
-               {newSpecies.length > 0 && (
-                   <div className="mb-8 w-full max-w-xs rounded-2xl p-4 bg-theme-accent/10 border border-theme-accent/20">
-                       <p className="text-sm font-display text-theme-accent mb-1">First time you've recorded</p>
-                       <p className="text-lg font-display italic font-semibold text-stone-900">{newSpecies.join(', ')}</p>
-                       {lifeListTotal > 0 && <p className="text-sm text-stone-700 mt-2">{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
-                   </div>
+               {plate?.no && <p className="font-display italic text-lg text-theme-accent mb-1">No. {plate.no} in your collection</p>}
+               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with the field' : 'Saved to your journal'}</h2>
+               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.')}</p>
+               {isNew && lifeListTotal > 0 && <p className="text-sm text-stone-700 mb-4 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
+               {answeredChallenge && (
+                   <p className="mb-4 flex items-center justify-center gap-2 text-sm text-theme-accent"><Glyph name="stamp" size={18} />You answered {theme.naturalist}'s challenge</p>
                )}
-               <div className="w-full max-w-xs flex flex-col gap-3">
+               {guideNotes && (
+                   <figure className="mb-7 w-full max-w-xs text-left border-l-2 border-theme-accent/40 pl-4">
+                       <figcaption className="text-xs text-stone-500 mb-1 flex items-center gap-1.5"><Glyph name="guide" size={13} />Your guide's notes</figcaption>
+                       <p className="font-display italic text-[15px] leading-relaxed text-stone-700 line-clamp-5">{guideNotes}</p>
+                   </figure>
+               )}
+               <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
                        <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
-                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : 'Share'}
+                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
+                   {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
                    <button onClick={onViewFeed} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
-                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><span className="material-symbols-outlined" aria-hidden="true">camera</span>Keep looking</button>}
+                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="lens" size={20} />Keep looking</button>}
                </div>
           </div>
       );
@@ -418,7 +486,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const currentAudioUrl = currentSnapshot ? (currentUrls?.audio || currentSnapshot.audioUrl) : null;
 
   return (
-    <motion.div 
+    <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
@@ -428,7 +496,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-theme-primary/10 shrink-0 z-20 safe-pt box-content">
           <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="w-11 h-11 -ml-2 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
           <div className="text-center">
-              <h2 className="text-base font-bold text-stone-900">New post</h2>
+              <h2 className="text-base font-display text-stone-900">Write up your field entry</h2>
               <p className="text-xs text-stone-500">{selectedIndices.size} of {snapshots.length} capture{snapshots.length === 1 ? '' : 's'} selected</p>
           </div>
           <button onClick={onSaveDraft} disabled={!snapshots.length} className="text-theme-accent text-sm font-bold px-3 py-2 rounded-full hover:bg-theme-accent/10 transition-colors disabled:opacity-40">Save draft</button>
@@ -441,9 +509,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   <div className="w-full h-full flex items-center justify-center">
                       {currentSnapshot.type === 'video' ? (
                           <div className="w-full h-full relative flex items-center justify-center">
-                              <video 
-                                  src={currentVideoUrl!} 
-                                  controls 
+                              <video
+                                  src={currentVideoUrl!}
+                                  controls
                                   className="w-full h-full object-contain z-10 transition-transform duration-300"
                                   style={{ transform: `rotate(${currentSnapshot.rotation || 0}deg)` }}
                                   playsInline
@@ -456,37 +524,37 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           <div className="w-full h-full relative flex items-center justify-center">
                               <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-0.5 opacity-40">
                                   {[currentSnapshot.url, ...(currentSnapshot.associatedImages?.map(i => i.url) || [])].filter(Boolean).slice(0, 4).map((url, i, arr) => (
-                                      <img 
-                                          key={i} 
-                                          src={url} 
-                                          className={`w-full h-full object-cover ${arr.length === 1 ? 'col-span-2 row-span-2' : arr.length === 2 ? 'row-span-2' : ''}`} 
-                                          alt="" 
+                                      <img
+                                          key={i}
+                                          src={url}
+                                          className={`w-full h-full object-cover ${arr.length === 1 ? 'col-span-2 row-span-2' : arr.length === 2 ? 'row-span-2' : ''}`}
+                                          alt=""
                                       />
                                   ))}
                                   {[currentSnapshot.url, ...(currentSnapshot.associatedImages?.map(i => i.url) || [])].filter(Boolean).length === 0 && (
                                       <div className="col-span-2 row-span-2 bg-theme-primary flex items-center justify-center">
-                                          <span className="material-symbols-outlined text-theme-primary/80 text-6xl">waves</span>
+                                          <Glyph name="sound" size={56} className="text-white/60" />
                                       </div>
                                   )}
                               </div>
                               <div className="relative z-10 flex flex-col items-center gap-6 p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl">
                                   <div className="w-16 h-16 rounded-full bg-theme-accent flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
-                                      <span className="material-symbols-outlined text-3xl">mic</span>
+                                      <Glyph name="sound" size={30} />
                                   </div>
                                   <audio 
-                                      src={currentAudioUrl} 
-                                      controls 
-                                      className="w-64 h-10" 
+                                      src={currentAudioUrl}
+                                      controls
+                                      className="w-64 h-10"
                                   />
-                                  <p className="text-xs font-black text-white/60 uppercase tracking-[0.3em]">Acoustic Signature</p>
+                                  <p className="text-sm font-semibold text-white/75">Sound</p>
                               </div>
                           </div>
                       ) : (
                           <div className="w-full h-full relative flex items-center justify-center">
-                              <img 
-                                  src={currentPreviewUrl!} 
-                                  className="w-full h-full object-contain z-10 transition-transform duration-300" 
-                                  alt="Observation" 
+                              <img
+                                  src={currentPreviewUrl!}
+                                  className="w-full h-full object-contain z-10 transition-transform duration-300"
+                                  alt="Observation"
                               />
                               <div className="absolute inset-0 opacity-30 blur-3xl scale-110 pointer-events-none">
                                   <img src={currentPreviewUrl!} className="w-full h-full object-cover transition-transform duration-300" alt="" />
@@ -498,8 +566,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               )}
                           </div>
                       )}
-                      <button 
-                          onClick={() => toggleSelection(currentSnapIndex)} 
+                      <button
+                          onClick={() => toggleSelection(currentSnapIndex)}
                           aria-pressed={selectedIndices.has(currentSnapIndex)}
                           aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected for posting. Tap to exclude' : 'Not selected. Tap to include'}
                           className={`absolute top-6 right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${selectedIndices.has(currentSnapIndex) ? 'bg-theme-accent text-white' : 'bg-white/20 backdrop-blur-md text-white border border-white/20'}`}
@@ -507,7 +575,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           <span className="material-symbols-outlined text-2xl">{selectedIndices.has(currentSnapIndex) ? 'check_circle' : 'add_circle'}</span>
                       </button>
                       {(currentSnapshot.type === 'image' || currentSnapshot.type === 'video') && (
-                          <button 
+                          <button
                               onClick={async () => {
                                   if (currentSnapshot.type === 'image') {
                                       setIsProcessing(true);
@@ -517,7 +585,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                               const newBlob = await rotateImageBlob(source, 90);
                                               updateSnapshot(currentSnapshot.id, { blob: newBlob, url: undefined });
                                               setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, blob: newBlob, url: undefined } : s));
-                                              
+
                                               // Update object URLs
                                               setObjectUrls(prev => ({
                                                   ...prev,
@@ -538,7 +606,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       updateSnapshot(currentSnapshot.id, { rotation: newRotation });
                                       setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, rotation: newRotation } : s));
                                   }
-                              }} 
+                              }}
                               disabled={isProcessing}
                               aria-label="Rotate 90 degrees"
                               className="absolute top-6 left-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 bg-white/20 backdrop-blur-md text-white border border-white/20 disabled:opacity-50"
@@ -558,22 +626,28 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           {/* Scrollable Content Section */}
           <div className="flex-1 overflow-y-auto overscroll-contain no-scrollbar bg-white">
               <div className="p-6 md:p-10 max-w-2xl mx-auto pb-10">
+                  {guideNotes && (
+                      <section className="mb-8 rounded-2xl bg-stone-50 border border-stone-200 p-4" aria-labelledby="guide-notes-title">
+                          <h3 id="guide-notes-title" className="text-sm font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5"><Glyph name="guide" size={15} className="text-theme-accent" />Your guide's notes from this outing</h3>
+                          <p className="font-display italic text-[15px] leading-relaxed text-stone-700">{guideNotes}</p>
+                      </section>
+                  )}
                   {snapshots.length > 1 && (
                       <div className="mb-10">
                           <div className="flex items-center justify-between mb-4">
                               <span className="text-sm font-bold text-stone-700">Your captures</span>
-                              <button 
+                              <button
                                   onClick={() => setSelectedIndices(selectedIndices.size === snapshots.length ? new Set() : new Set(snapshots.map((_, i) => i)))}
-                                  className="text-xs font-black uppercase tracking-widest text-theme-accent hover:text-theme-accent/80"
+                                  className="text-sm font-semibold text-theme-accent hover:text-theme-accent/80"
                               >
-                                  {selectedIndices.size === snapshots.length ? 'Deselect All' : 'Select All'}
+                                  {selectedIndices.size === snapshots.length ? 'Deselect all' : 'Select all'}
                               </button>
                           </div>
                           <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                               {snapshots.map((snap, i) => (
-                                  <button 
-                                      key={snap.id} 
-                                      onClick={() => setCurrentSnapIndex(i)} 
+                                  <button
+                                      key={snap.id}
+                                      onClick={() => setCurrentSnapIndex(i)}
                                       className={`relative shrink-0 w-20 aspect-square rounded-xl overflow-hidden border-2 transition-all ${currentSnapIndex === i ? 'border-theme-accent scale-105 shadow-lg' : 'border-theme-primary/10 opacity-60 hover:opacity-100'}`}
                                   >
                                       {snap.type === 'audio' ? (
@@ -581,15 +655,15 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                               <img src={snap.associatedImages[0].url} className="w-full h-full object-cover" alt="" />
                                           ) : (
                                               <div className="w-full h-full bg-theme-primary flex items-center justify-center">
-                                                  <span className="material-symbols-outlined text-theme-accent text-2xl">mic</span>
+                                                  <Glyph name="sound" size={24} className="text-white/80" />
                                               </div>
                                           )
                                       ) : (
-                                          <img 
-                                            src={objectUrls[snap.id]?.image || snap.url} 
-                                            className="w-full h-full object-cover" 
+                                          <img
+                                            src={objectUrls[snap.id]?.image || snap.url}
+                                            className="w-full h-full object-cover"
                                             style={snap.type === 'video' ? { transform: `rotate(${snap.rotation || 0}deg)` } : undefined}
-                                            alt="" 
+                                            alt=""
                                           />
                                       )}
                                       {!selectedIndices.has(i) && (
@@ -620,16 +694,28 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
                           <section>
                               <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800 mb-2">What did you see?</label>
-                              <input 
-                                  id="post-labels"
-                                  type="text" 
-                                  placeholder="e.g. Indian Peafowl, Pavo cristatus"
-                                  value={labels.join(', ')} 
-                                  onChange={(e) => editLabels(e.target.value.split(',').map(l => l.trimStart()).filter((l, i, arr) => l || i === arr.length - 1))} 
-                                  onBlur={() => editLabels(labels.map(l => l.trim()).filter(Boolean))}
-                                  className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base font-semibold text-stone-900 focus:border-theme-accent"
-                              />
-                              <p className="text-xs text-stone-500 mt-1.5">Common name first, then scientific name, separated by commas. Correct it if it's wrong; your fixes make NatureGram smarter for everyone.</p>
+                              <div className="bg-stone-50 border border-stone-200 rounded-2xl focus-within:border-theme-accent overflow-hidden">
+                                  <input
+                                      id="post-labels"
+                                      type="text"
+                                      placeholder="e.g. Indian peafowl"
+                                      value={labels[0] || ''}
+                                      onChange={(e) => editLabels([e.target.value, ...labels.slice(1)])}
+                                      onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
+                                      className="w-full px-4 pt-4 pb-1.5 bg-transparent text-lg font-display italic text-stone-900 outline-none"
+                                  />
+                                  <label htmlFor="post-scientific" className="sr-only">Scientific name (optional)</label>
+                                  <input
+                                      id="post-scientific"
+                                      type="text"
+                                      placeholder="Scientific name, if you know it"
+                                      value={labels[1] || ''}
+                                      onChange={(e) => editLabels([labels[0] || '', e.target.value, ...labels.slice(2)])}
+                                      onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
+                                      className="w-full px-4 pt-0 pb-3.5 bg-transparent text-sm font-display italic text-stone-500 outline-none placeholder:not-italic"
+                                  />
+                              </div>
+                              <p className="text-xs text-stone-500 mt-1.5">Correct it if it's wrong; your fixes make NatureGram smarter for everyone.</p>
                               {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <div className="mt-3"><FungiWarning /></div>}
                               {currentSnapshot?.aiError && (
                                   <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own identification above. You know what you saw.</p>
@@ -654,16 +740,16 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   </details>
                               )}
                           </section>
-                          
+
                           <section>
                               <label htmlFor="post-insight" className="block text-sm font-bold text-stone-800 mb-2">Behaviour & ecology <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
                               <div className="relative">
-                                  <textarea 
+                                  <textarea
                                       id="post-insight"
-                                      value={aiInsight} 
-                                      onChange={(e) => editInsight(e.target.value)} 
+                                      value={aiInsight}
+                                      onChange={(e) => editInsight(e.target.value)}
                                       placeholder="Describe the behaviour and why it matters…"
-                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`} 
+                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`}
                                   />
                                   {isAnalyzing && aiInsight === "Processing..." && (
                                       <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-3xl pointer-events-none" role="status">
@@ -692,37 +778,38 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   </div>
                                   <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
                                       <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">location_on</span>
-                                      <input 
+                                      <input
                                           id="post-location"
-                                          type="text" 
-                                          value={resolvedArea} 
+                                          type="text"
+                                          value={resolvedArea}
                                           disabled={!showLocation}
-                                          onChange={(e) => setResolvedArea(e.target.value)} 
+                                          onChange={(e) => setResolvedArea(e.target.value)}
                                           className="w-full pl-11 pr-4 py-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
                                       />
                                   </div>
                                   <p className="text-xs text-theme-primary/50 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your private records.</p>
-                                  {anySensitive && <p className="text-xs text-emerald-900 bg-emerald-50 rounded-lg p-2 mt-2">🛡 Location hidden by default: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</p>}
+                                  {(currentSnapshot as any)?.takenAtMs && <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-theme-accent" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
+                                  {anySensitive && <p className="text-xs text-stone-700 bg-stone-100 rounded-lg p-2.5 mt-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent shrink-0" aria-hidden="true">shield</span><span>Location hidden by default: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</span></p>}
                               </section>
 
                               <section>
                                   <label htmlFor="post-tags" className="block text-xs font-bold text-theme-primary/70 mb-3">Hashtags</label>
                                   <div className="relative">
                                       <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">tag</span>
-                                      <input 
+                                      <input
                                           id="post-tags"
-                                          type="text" 
-                                          value={tags.join(' ')} 
-                                          onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }} 
+                                          type="text"
+                                          value={tags.join(' ')}
+                                          onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }}
                                           placeholder="#birding #monsoon"
-                                          className="w-full pl-11 p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-sky-900 focus:border-theme-accent/30 transition-colors"
+                                          className="w-full pl-11 p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
                                       />
                                   </div>
                               </section>
                           </div>
 
                           {anyPeople && (
-                              <p className="text-sm text-sky-900 bg-sky-50 rounded-xl p-3">👤 People may be visible in a capture. Only share it publicly if they're happy to appear.</p>
+                              <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">person</span><span>People may be visible in a capture. Only share it publicly if they're happy to appear.</span></p>
                           )}
                           <fieldset className="pt-2">
                               <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see this?</legend>
@@ -761,9 +848,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       )}
                   </div>
               )}
-              <button 
-                  onClick={handleFinalizeClick} 
-                  disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))} 
+              <button
+                  onClick={handleFinalizeClick}
+                  disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
                   aria-busy={isProcessing}
                   className="w-full py-4 bg-theme-accent text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-accent/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
               >
@@ -774,7 +861,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       </>
                   ) : (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing...") ? (
                       <>
-                          <span className="material-symbols-outlined animate-pulse" aria-hidden="true">psychology</span>
+                          <span className="motion-safe:animate-pulse inline-flex" aria-hidden="true"><Glyph name="guide" size={20} /></span>
                           <span>Waiting for your guide…</span>
                       </>
                   ) : (
@@ -786,50 +873,50 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
               </button>
           </div>
       </main>
-      
+
       {showPostOptionsModal && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in">
               <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl">
-                  <h3 className="text-2xl font-display font-semibold text-stone-900 mb-2">Share {selectedIndices.size} captures as…</h3>
-                  <p className="text-sm text-stone-600 mb-6">Your caption and hashtags apply to each post.</p>
-                  
+                  <h3 className="text-2xl font-display text-stone-900 mb-2">How should these {selectedIndices.size} go in?</h3>
+                  <p className="text-sm text-stone-600 mb-6">Your notes and hashtags go with each entry.</p>
+
                   <div className="space-y-4">
-                      <button 
+                      <button
                           onClick={() => executeDispatch('separate')}
                           className="w-full p-4 border border-theme-primary/20 rounded-2xl text-left hover:border-theme-accent hover:bg-theme-accent/5 transition-all group"
                       >
                           <div className="flex items-center gap-4">
                               <div className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center group-hover:bg-theme-accent/10 group-hover:text-theme-accent transition-colors">
-                                  <span className="material-symbols-outlined">grid_view</span>
+                                  <Glyph name="plate" size={22} />
                               </div>
                               <div>
-                                  <div className="font-bold text-theme-primary text-sm">Separate posts</div>
-                                  <div className="text-xs text-theme-primary/60">Create {selectedIndices.size} individual posts</div>
+                                  <div className="font-bold text-theme-primary text-sm">One entry per specimen</div>
+                                  <div className="text-xs text-theme-primary/60">{selectedIndices.size} entries, each with its own name and notes</div>
                               </div>
                           </div>
                       </button>
-                      
-                      <button 
+
+                      <button
                           onClick={() => executeDispatch('stitch')}
                           className="w-full p-4 border border-theme-primary/20 rounded-2xl text-left hover:border-theme-accent hover:bg-theme-accent/5 transition-all group"
                       >
                           <div className="flex items-center gap-4">
                               <div className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center group-hover:bg-theme-accent/10 group-hover:text-theme-accent transition-colors">
-                                  <span className="material-symbols-outlined">view_carousel</span>
+                                  <Glyph name="notebook" size={22} />
                               </div>
                               <div>
-                                  <div className="font-bold text-theme-primary text-sm">One carousel post</div>
-                                  <div className="text-xs text-theme-primary/60">Swipeable, with a summary of the whole expedition</div>
+                                  <div className="font-bold text-theme-primary text-sm">One expedition page</div>
+                                  <div className="text-xs text-theme-primary/60">Everything together, with a few lines on the whole outing</div>
                               </div>
                           </div>
                       </button>
                   </div>
-                  
-                  <button 
+
+                  <button
                       onClick={() => setShowPostOptionsModal(false)}
-                      className="w-full mt-6 py-4 text-xs font-bold text-theme-primary/60 hover:text-theme-primary/70 uppercase tracking-widest transition-colors"
+                      className="w-full mt-6 py-4 text-sm font-semibold text-theme-primary/70 hover:text-theme-primary transition-colors"
                   >
-                      Cancel
+                      Not yet
                   </button>
               </div>
           </div>

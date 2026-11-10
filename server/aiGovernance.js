@@ -31,7 +31,7 @@ const LIVE_GEN_KEYS = new Set(['responseModalities', 'speechConfig', 'temperatur
 const LIVE_CLIENT_KEYS = new Set(['realtimeInput', 'clientContent', 'toolResponse', 'realtime_input', 'client_content', 'tool_response']);
 const LIVE_ALLOWED_MODELS = /^models\/gemini-[a-z0-9.-]{1,80}$/;
 
-const SAFETY_SETTINGS = [
+export const SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
   { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
   { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -115,10 +115,14 @@ export function governGenerateBody(taskName, body, settings) {
   };
 }
 
+// The safety question travels with the image so it applies even when the admin's saved moderation
+// prompt predates it. The answer is a fixed boolean in the schema, never free text.
+const MODERATION_ASK = 'Check this image. Also set unsafe=true if it shows graphic injury or gore, nudity or sexual content, hate symbols, or cruelty to animals; otherwise unsafe=false.';
+
 /** Request body for the server's own pre-publish image check. */
 export function moderationBody(settings, base64, mimeType) {
   return {
-    contents: [{ role: 'user', parts: [{ inlineData: { data: base64, mimeType } }, { text: 'Check this image.' }] }],
+    contents: [{ role: 'user', parts: [{ inlineData: { data: base64, mimeType } }, { text: MODERATION_ASK }] }],
     systemInstruction: { parts: [{ text: `${settings.prompts.moderate}\n\n${policyText(settings)}` }] },
     generationConfig: { responseMimeType: 'application/json', responseSchema: SCHEMAS.moderate, temperature: 0, maxOutputTokens: 256 },
     safetySettings: SAFETY_SETTINGS,

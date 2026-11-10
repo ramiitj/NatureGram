@@ -30,6 +30,9 @@ import { initSettings, getFlags, getSettings, ipBlocked } from './settings.js';
 import { initLedger, charge, record, usageFor, globalTokensToday, addGlobalTokens, logAi, isSuspended, storeHealth } from './ledger.js';
 import { mountPublish } from './publish.js';
 import { mountAdmin } from './admin.js';
+import { initLeases, acquire as acquireLease, hold as holdLease, leaseHealth } from './liveLeases.js';
+import { appCheckVerdict, appCheckStats, splitWsAppCheck } from './appCheck.js';
+import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +61,8 @@ const QUOTAS = {
   // Daily allowances and caps are admin settings (server/settings.js). These are technical limits.
   httpPerMinute: num(process.env.QUOTA_HTTP_PER_MIN, 20),
   maxConcurrentLive: num(process.env.QUOTA_MAX_CONCURRENT_LIVE, 1),
+  // All explorers together, across every server instance (shared leases); 0 = no global cap
+  maxConcurrentLiveGlobal: num(process.env.LIVE_GLOBAL_MAX_CONCURRENT, 0),
   liveSessionMaxMs: num(process.env.LIVE_SESSION_MAX_MIN, 15) * 60_000,
   maxBodyBytes: num(process.env.MAX_PROXY_BODY_MB, 25) * 1024 * 1024,
 };
@@ -124,6 +129,7 @@ try {
 } catch (e) { log('warn', 'shared store not initialised', { error: e.message }); }
 initSettings(firestoreDb);
 initLedger(firestoreDb);
+initLeases(firestoreDb);
 
 // One stray error must never take the whole server down
 process.on('unhandledRejection', (e) => log('error', 'unhandled rejection', { error: String(e?.message || e).slice(0, 300) }));
@@ -275,13 +281,13 @@ async function startServer() {
     if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net`,
+      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://www.google.com https://www.recaptcha.net`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob: https:",
-      "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
-      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com",
+      "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org https://*.sentry.io",
+      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com https://www.google.com https://recaptcha.google.com https://www.recaptcha.net",
       "worker-src 'self' blob:",
       "frame-ancestors 'self' https://aistudio.google.com",
       "base-uri 'self'",
@@ -297,7 +303,7 @@ async function startServer() {
     if (origin && isAllowedOrigin(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client, X-Firebase-AppCheck');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && isAllowedOrigin(origin) ? 204 : 403);
@@ -399,6 +405,25 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Share previews for social crawlers
   // -------------------------------------------------------------------------
+  // The fortnight's naturalist and palette, mirrored from constants/naturalists.ts (same order and
+  // the same ~15.21-day rotation as getThemePeriod) so the link card wears the current theme.
+  const SHARE_THEMES = [
+    ['Jane Goodall', '#2d4a22', '#aed581'], ['Dian Fossey', '#1f2937', '#10b981'], ['Charles Darwin', '#44403c', '#a8a29e'],
+    ['Alfred Russel Wallace', '#065f46', '#34d399'], ['John Muir', '#334155', '#3b82f6'], ['Rachel Carson', '#0f766e', '#06b6d4'],
+    ['Henry David Thoreau', '#047857', '#10b981'], ['Aldo Leopold', '#b45309', '#f59e0b'], ['Ralph Waldo Emerson', '#c2410c', '#f97316'],
+    ['Wangari Maathai', '#3f6212', '#84cc16'], ['David Attenborough', '#a16207', '#fbbf24'], ['Jacques-Yves Cousteau', '#0369a1', '#38bdf8'],
+    ['Alexander von Humboldt', '#374151', '#9ca3af'], ['Carl Linnaeus', '#166534', '#4ade80'], ['E.O. Wilson', '#78350f', '#fb923c'],
+    ['Sylvia Earle', '#1e3a8a', '#60a5fa'], ['George Washington Carver', '#5c2a16', '#f97316'], ['Mary Anning', '#4b5563', '#9ca3af'],
+    ['Steve Irwin', '#854d0e', '#fde047'], ['Robin Wall Kimmerer', '#14532d', '#86efac'], ['Maria Sibylla Merian', '#831843', '#f472b6'],
+    ['Salim Ali', '#581c87', '#c084fc'], ['Beatrix Potter', '#1e40af', '#93c5fd'], ['John James Audubon', '#86198f', '#e879f9'],
+  ];
+  const shareTheme = (now = new Date()) => {
+    const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
+    const [naturalist, primary, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+    return { naturalist, primary, accent };
+  };
+  const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
+
   app.get('/s/:postId', async (req, res) => {
     const postId = String(req.params.postId || '');
     const host = IS_PROD ? PUBLIC_HOST : (req.get('host') || PUBLIC_HOST);
@@ -413,8 +438,12 @@ async function startServer() {
 
     const apiKey = firebaseWebConfig?.apiKey;
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
-    let title = 'NatureGram: a living field guide';
-    let description = 'Nature discoveries shared by explorers on NatureGram.';
+    const theme = shareTheme();
+    let title = 'NatureGram: a living field notebook';
+    let heading = 'A page from a field notebook';
+    let scientific = '';
+    let byline = '';
+    let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
     let imageUrl = `https://${PUBLIC_HOST}/og-default.jpg`;
     let tags = [];
     try {
@@ -427,9 +456,22 @@ async function startServer() {
         const items = f.items?.arrayValue?.values || [];
         const main = items.length ? (items[0].mapValue?.fields || {}) : f;
         const labels = (main.labels?.arrayValue?.values || f.labels?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean);
-        const common = labels[0] || 'Nature';
-        title = f.caption?.stringValue || f.title?.stringValue || `NatureGram discovery: ${common}${labels[1] ? ` (${labels[1]})` : ''}`;
-        description = f.description?.stringValue || main.aiInsight?.stringValue || f.aiInsight?.stringValue || description;
+        const first = String(labels[0] || '').trim();
+        const species = first && !PLACEHOLDER_LABEL.test(first) ? first : '';
+        const flags = (main.aiFlags || f.aiFlags)?.mapValue?.fields || {};
+        const showLocation = (main.showLocation || f.showLocation)?.booleanValue;
+        const hidden = showLocation === false || flags.sensitiveSpecies?.booleanValue === true;
+        const area = hidden ? '' : String(main.locationArea?.stringValue || f.locationArea?.stringValue || '').trim().slice(0, 80);
+        const name = species || String(f.title?.stringValue || '').trim() || 'A wild sighting';
+        heading = name;
+        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : '';
+        title = `${name}, seen${area ? ` near ${area}` : ''} · NatureGram`;
+        const explorer = String(f.userName?.stringValue || '').trim();
+        byline = [explorer, area ? `near ${area}` : ''].filter(Boolean).join(' · ');
+        const behaviour = String(main.behavior?.stringValue || f.behavior?.stringValue || '').trim();
+        const observed = behaviour && !/^(captured|uploaded|recorded)\s+(photo|media|video|audio|sound)\.?$/i.test(behaviour) ? behaviour : '';
+        description = f.caption?.stringValue || observed || f.description?.stringValue || main.aiInsight?.stringValue || f.aiInsight?.stringValue
+          || `${explorer || 'An explorer'} found this ${species || 'sighting'}${area ? ` near ${area}` : ''}. What's alive near you?`;
         imageUrl = safeHttpsUrl(f.thumbnailUrl?.stringValue || f.imageUrl?.stringValue || main.thumbnailUrl?.stringValue || main.imageUrl?.stringValue, imageUrl);
         tags = (f.tags?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean).slice(0, 8);
       }
@@ -440,10 +482,13 @@ async function startServer() {
     description = description.slice(0, 300);
 
     const e = escapeHtml;
-    const tagHtml = (tags.length ? tags : ['#nature']).map(t => {
-      const clean = String(t).replace(/^#+/, '');
-      return `<span class="tag">#${e(clean)}</span>`;
-    }).join('');
+    const tagHtml = tags.length
+      ? tags.map(t => `<span class="tag">#${e(String(t).replace(/^#+/, ''))}</span>`).join('')
+      : `<span class="note">Shared during ${e(theme.naturalist)}'s fortnight on NatureGram</span>`;
+    // Theme colours come from the fixed table above, never from user input; still validated as hex.
+    const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c) ? c : d);
+    const ink = hex(theme.primary, '#44403c');
+    const wash = hex(theme.accent, '#a8a29e');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.type('html').send(`<!DOCTYPE html>
 <html lang="en"><head>
@@ -456,20 +501,30 @@ async function startServer() {
 <meta property="og:description" content="${e(description)}"><meta property="og:image" content="${e(imageUrl)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${e(title)}">
 <meta name="twitter:description" content="${e(description)}"><meta name="twitter:image" content="${e(imageUrl)}">
+<meta property="og:image:alt" content="${e(heading)}"><meta name="theme-color" content="${ink}">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&display=swap" rel="stylesheet">
 <style>
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#faf9f6;color:#1c1917;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}
-.card{max-width:420px;width:100%;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.08);padding:20px}
-h1{font-size:18px;color:#065f46;margin:0 0 12px}img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:16px;background:#eee}
-h2{font-size:20px;margin:14px 0 6px}p{font-size:14px;line-height:1.5;color:#57534e}.tag{display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700}
-a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius:14px;background:#047857;color:#fff;text-decoration:none;font-weight:700}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f1e8;color:#292524;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+.card{max-width:420px;width:100%;background:#fbf7ef;border-radius:4px;overflow:hidden;box-shadow:0 1px 2px rgba(60,40,20,.12),0 18px 40px -16px rgba(60,40,20,.35);padding:22px;border:1px solid #d8ccb6;outline:1px solid #e8dfcd;outline-offset:-8px}
+.brand{font-family:Newsreader,Georgia,serif;font-size:18px;color:${ink};margin:0 0 14px}
+img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#efe7d6;display:block}
+h1{font-family:Newsreader,Georgia,serif;font-style:italic;font-weight:500;font-size:28px;line-height:1.15;color:${ink};margin:16px 0 2px}
+.sci{font-family:Newsreader,Georgia,serif;font-style:italic;color:#8a7a60;margin:0 0 4px;font-size:15px}
+.by{font-size:13px;color:#8a7a60;margin:6px 0 10px}
+p.desc{font-family:Newsreader,Georgia,serif;font-size:17px;line-height:1.55;color:#44403c;margin:10px 0}
+.tag{display:inline-block;margin:0 10px 4px 0;color:${ink};font-size:13px}
+.tag,.note{opacity:.9}.note{font-size:13px;color:#8a7a60}
+a.btn{display:block;text-align:center;margin-top:18px;padding:14px;border-radius:12px;background:${ink};color:#fff;text-decoration:none;font-weight:600;box-shadow:0 0 0 3px ${wash}33}
 </style></head>
 <body><main class="card">
-<h1>NatureGram</h1>
-<a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(title)}" referrerpolicy="no-referrer"></a>
+<p class="brand">NatureGram</p>
+<a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(heading)}" referrerpolicy="no-referrer"></a>
+<h1>${e(heading)}</h1>
+${scientific ? `<p class="sci">${e(scientific)}</p>` : ''}
+${byline ? `<p class="by">${e(byline)}</p>` : ''}
+<p class="desc">${e(description)}</p>
 <div>${tagHtml}</div>
-<h2>${e(title)}</h2>
-<p>${e(description)}</p>
-<a class="btn" href="${e(appUrl)}">View on NatureGram</a>
+<a class="btn" href="${e(appUrl)}">Open this field page</a>
 </main></body></html>`);
   });
 
@@ -489,6 +544,8 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
 
     let user;
     try { user = await verifyIdToken(String(bearer(req))); } catch { return fail(401, 'Please sign in again.'); }
+    const unverified = await appCheckVerdict(req.headers['x-firebase-appcheck'], { log, route: '/api-proxy', uid: user.uid });
+    if (unverified) return fail(unverified.status, unverified.message);
 
     const verdict = governGenerateRequest(url.pathname);
     if (!verdict.ok) {
@@ -623,7 +680,10 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       firstPage = { at: Date.now(), body: JSON.stringify({ posts, more: snap.size === 12 }) };
       res.type('json').send(firstPage.body);
     } catch (e) {
-      log('warn', 'first page failed', { error: String(e.message).slice(0, 120) });
+      const msg = String(e.message).slice(0, 120);
+      // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
+      // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
+      log('warn', 'first page failed', { error: msg, ...(/PERMISSION_DENIED/.test(msg) ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role.` } : {}) });
       res.status(503).json({ posts: [] });
     }
   });
@@ -645,7 +705,20 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
   });
 
   mountPublish(app, { verifyIdToken, bearer, gate, clientIp, log, db: () => firestoreDb, apiKey: API_KEY, targetHost: TARGET_HOST, publicHost: PUBLIC_HOST });
-  mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth() });
+  mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth(),
+    status: () => ({ appCheck: appCheckStats(), leases: leaseHealth(), liveDirect: LIVE_DIRECT_TOKENS, moderationFailOpen: process.env.MODERATION_FAIL_OPEN !== 'false' }) });
+
+  // Per-network hourly cap on new live sessions (shared by the proxy and direct tokens)
+  const networkOpen = (ip, settings) => {
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const net = networkLive.get(ip);
+    const n = net && net.hour === hour ? net : { hour, opened: 0, concurrent: net?.concurrent || 0 };
+    if (n.opened >= Number(settings.caps.liveSessionsPerNetworkPerHour || 20)) return 'Too many live sessions from this network. Please try later.';
+    n.opened++;
+    networkLive.set(ip, n);
+    return null;
+  };
+  mountLive(app, { verifyIdToken, bearer, gate, burstOk, clientIp, log, quotas: QUOTAS, networkOpen, apiKey: API_KEY });
 
   // -------------------------------------------------------------------------
   // Frontend
@@ -685,7 +758,8 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     if (req.headers.origin && !isAllowedOrigin(req.headers.origin)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return;
     }
-    const relPath = reqUrl.pathname.replace(/^\/api-proxy\/*/, '/');
+    const split = splitWsAppCheck(reqUrl.pathname.replace(/^\/api-proxy\/*/, '/'));
+    const relPath = split.path;
     if (!/bidigeneratecontent/i.test(relPath) || relPath.includes('..')) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return;
     }
@@ -698,6 +772,8 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
 
     const ip = clientIp(req);
     const refuse = (code, message) => wss.handleUpgrade(req, socket, head, (ws) => { try { ws.close(code, message.slice(0, 120)); } catch { /* noop */ } });
+    const unverified = await appCheckVerdict(split.token, { log, route: 'live', uid: user.uid });
+    if (unverified) return refuse(4401, unverified.message);
     const blocked = await gate(user, ip, { live: true });
     if (blocked) return refuse(blocked.status === 503 ? 1013 : 4403, blocked.message);
     const [flags, settings, used] = await Promise.all([getFlags(), getSettings(), usageFor(user.uid)]);
@@ -712,11 +788,17 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
     if (n.opened >= Number(settings.caps.liveSessionsPerNetworkPerHour || 20)) return refuse(4429, 'Too many live sessions from this network. Please try later.');
     if (n.concurrent >= Number(settings.caps.liveConcurrentPerNetwork || 4)) return refuse(4429, 'Too many live sessions open on this network.');
     if (!API_KEY) return refuse(1011, 'AI is not configured on the server.');
+    // This instance's own count first (cheap), then the shared count across instances
+    if ((activeLive.get(user.uid)?.size || 0) >= QUOTAS.maxConcurrentLive) return refuse(4429, 'A live session is already open. Close other tabs and retry.');
+    const lease = await acquireLease(user.uid, { perUser: QUOTAS.maxConcurrentLive, global: QUOTAS.maxConcurrentLiveGlobal, kind: 'proxy' });
+    if (!lease.ok) return refuse(4429, lease.reason === 'global' ? 'The guide is very busy right now. Please try again in a minute.' : 'A live session is already open. Close other tabs and retry.');
+    const releaseLease = holdLease(lease);
+    socket.once('close', releaseLease); // idempotent; also covers an upgrade that never completes
 
     wss.handleUpgrade(req, socket, head, (clientWs) => {
       const closeWith = (code, reason) => { try { clientWs.close(code, reason); } catch { /* noop */ } };
       const conns = activeLive.get(user.uid) || new Set();
-      if (conns.size >= QUOTAS.maxConcurrentLive) return closeWith(4429, 'A live session is already open. Close other tabs and retry.');
+      if (conns.size >= QUOTAS.maxConcurrentLive) { releaseLease(); return closeWith(4429, 'A live session is already open. Close other tabs and retry.'); }
 
       const session = { startedAt: Date.now() };
       conns.add(session);
@@ -740,6 +822,7 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       const finish = () => {
         if (finished) return;
         finished = true;
+        releaseLease();
         clearTimeout(timeout);
         clearTimeout(idleTimer);
         const ms = Date.now() - session.startedAt;

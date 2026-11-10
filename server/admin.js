@@ -10,11 +10,13 @@
  */
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
 import { getFlags, getSettings, saveSection, listHistory, DEFAULT_FLAGS, DEFAULT_SETTINGS } from './settings.js';
 import { audit, refreshSuspended, storeHealth, today } from './ledger.js';
 import { AI_POLICY_VERSION } from './aiGovernance.js';
 import { thumbnailOf } from './publish.js';
+import { searchTokensFor, sameTokens } from './searchTokens.js';
+import { exportable, namesOf, occurrenceRow, csvHeader, csvLine, metaXml, emlXml, zip } from './dwc.js';
 
 const ADMIN_UIDS = (process.env.ADMIN_UIDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'ram@iitj.ac.in').toLowerCase();
@@ -26,7 +28,7 @@ const EXPLORABLE = {
   users: 'joinedAt', ecosystem_feed: 'timestamp', feed_thumbnails: 'timestamp', ai_feedback: 'createdAt',
   ai_log: 'at', ai_usage: 'updatedAt', usage_global: 'updatedAt', ai_results: 'createdAt', suspended: 'at',
   review_queue: 'createdAt', letter_reports: 'createdAt', admin_audit: 'at', app_config: null, themes: null,
-  daily_themes: null, media_variants: null, naturalist_profiles: null,
+  daily_themes: null, media_variants: null, naturalist_profiles: null, config: null, live_leases: 'startedAt',
 };
 
 /** Firestore values -> plain JSON (timestamps as milliseconds). */
@@ -105,12 +107,53 @@ export function validateSettings(patch) {
     if (!Array.isArray(list) || list.length > 500 || !list.every(p => typeof p === 'string' && /^[0-9a-f:.]{3,45}$/i.test(p))) throw new Error('Blocked networks must be IP addresses or prefixes');
     out.blockedNetworks = list;
   }
+  if ('moderationWords' in patch) {
+    const list = patch.moderationWords;
+    if (!Array.isArray(list) || list.length > 500 || !list.every(w => typeof w === 'string' && w.trim().length >= 2 && w.length <= 40)) throw new Error('Review words must be a list of up to 500 words, 2 to 40 characters each');
+    out.moderationWords = Array.from(new Set(list.map(w => w.trim().toLowerCase())));
+  }
   if ('requireAdminMfa' in patch) {
     if (!bool(patch.requireAdminMfa)) throw new Error('requireAdminMfa must be on or off');
     out.requireAdminMfa = patch.requireAdminMfa;
   }
   const extra = Object.keys(patch).filter(k => !(k in DEFAULT_SETTINGS));
   if (extra.length) throw new Error(`Unknown setting: ${extra[0]}`);
+  return out;
+}
+
+/**
+ * Feature flags and experiments (config/flags, publicly readable):
+ * { [name]: { enabled, rollout 0..100, variants?: [{ name, weight }], description? } }
+ */
+export function validateExperiments(flags) {
+  if (!flags || typeof flags !== 'object' || Array.isArray(flags)) throw new Error('Flags must be an object');
+  const names = Object.keys(flags);
+  if (names.length > 50) throw new Error('At most 50 flags');
+  const out = {};
+  for (const name of names) {
+    if (!/^[a-z][a-z0-9_]{1,39}$/.test(name)) throw new Error(`Flag names are lowercase letters, digits and underscores: ${name}`);
+    const f = flags[name] || {};
+    const allowed = ['enabled', 'rollout', 'variants', 'description'];
+    const extra = Object.keys(f).filter(k => !allowed.includes(k));
+    if (extra.length) throw new Error(`Unknown field on ${name}: ${extra[0]}`);
+    if (!bool(f.enabled ?? false)) throw new Error(`${name}: enabled must be on or off`);
+    const rollout = f.rollout ?? 0;
+    if (typeof rollout !== 'number' || rollout < 0 || rollout > 100) throw new Error(`${name}: rollout must be 0 to 100`);
+    const v = { enabled: f.enabled === true, rollout };
+    if (f.description !== undefined) { if (!text(f.description, 200)) throw new Error(`${name}: description up to 200 characters`); v.description = f.description; }
+    if (f.variants !== undefined) {
+      if (!Array.isArray(f.variants) || f.variants.length < 2 || f.variants.length > 6) throw new Error(`${name}: 2 to 6 variants`);
+      const seen = new Set();
+      v.variants = f.variants.map(x => {
+        if (!x || !/^[a-z][a-z0-9_]{0,23}$/.test(String(x.name)) || seen.has(x.name)) throw new Error(`${name}: variant names must be unique lowercase words`);
+        if (!int(x.weight, 0, 100)) throw new Error(`${name}: variant weights are whole numbers 0 to 100`);
+        seen.add(x.name);
+        return { name: x.name, weight: x.weight };
+      });
+      if (!v.variants.some(x => x.weight > 0)) throw new Error(`${name}: at least one variant needs weight`);
+    }
+    out[name] = v;
+  }
   return out;
 }
 
@@ -266,11 +309,39 @@ export function mountAdmin(app, deps) {
   router.post('/review/:postId', wrap(async (req, res) => {
     const id = req.params.postId; if (!ID_RE.test(id)) throw new Error('Bad post');
     const action = req.body?.action; if (!['approve', 'reject'].includes(action)) throw new Error('Choose approve or reject');
-    const d = db(); const ref = d.doc(`ecosystem_feed/${id}`);
-    const [snap, qsnap] = await Promise.all([ref.get(), d.doc(`review_queue/${id}`).get()]);
+    const d = db();
+    const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : null;
+    const qsnap = await d.doc(`review_queue/${id}`).get();
+
+    // A field note (comment) held by the word check: approve shows it, reject keeps it hidden
+    if (qsnap.exists && qsnap.get('kind') === 'comment') {
+      const { postId, commentId } = qsnap.data();
+      if (!ID_RE.test(String(postId)) || !ID_RE.test(String(commentId))) throw new Error('Bad comment');
+      const cref = d.doc(`ecosystem_feed/${postId}/comments/${commentId}`);
+      const batch = d.batch();
+      const csnap = await cref.get();
+      if (csnap.exists) batch.update(cref, action === 'approve'
+        ? { hidden: false, moderation: { status: 'clear', reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } }
+        : { hidden: true, moderation: { status: 'rejected', reasons: csnap.get('moderation.reasons') || [], reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } });
+      batch.set(qsnap.ref, { status: action === 'approve' ? 'approved' : 'rejected', decidedAt: FieldValue.serverTimestamp(), decidedBy: req.admin.uid, note }, { merge: true });
+      await batch.commit();
+      await audit(req.admin, `review.comment.${action}`, { postId, commentId });
+      return res.json({ ok: true });
+    }
+
+    const ref = d.doc(`ecosystem_feed/${id}`);
+    const snap = await ref.get();
     if (!snap.exists) throw Object.assign(new Error('Post not found'), { status: 404 });
     const post = snap.data(); const batch = d.batch();
-    const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 300) : null;
+    const alreadyPublic = qsnap.exists && qsnap.get('kind') === 'unchecked' && post.isPublic === true;
+    if (action === 'approve' && alreadyPublic) {
+      // Published while the image check was down; the admin has now looked at it
+      batch.update(ref, { moderation: { status: 'clear', imageChecked: false, reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } });
+      batch.set(d.doc(`review_queue/${id}`), { status: 'approved', decidedAt: FieldValue.serverTimestamp(), decidedBy: req.admin.uid, note }, { merge: true });
+      await batch.commit();
+      await audit(req.admin, 'review.approve', { postId: id, userId: post.userId, kind: 'unchecked' });
+      return res.json({ ok: true });
+    }
     if (action === 'approve') {
       const toFeed = qsnap.exists ? qsnap.get('requestedFeed') === true : false;
       batch.update(ref, { moderation: { status: 'clear', reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() }, isPublic: toFeed });
@@ -465,9 +536,100 @@ export function mountAdmin(app, deps) {
       blockedNetworks: settings.blockedNetworks, store: storeHealth(),
       env: {
         serviceAccount: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT), quotaFailOpen: process.env.QUOTA_FAIL_OPEN === 'true',
-        appCheck: process.env.APP_CHECK_MODE || 'off',
+        appCheck: deps.status?.().appCheck?.mode || 'monitoring',
       },
+      runtime: deps.status?.() || null,
     });
+  }));
+
+  // ---------------------------------------------------------------- experiments and feature flags (config/flags)
+  router.get('/experiments', wrap(async (req, res) => {
+    const snap = await db().doc('config/flags').get();
+    res.json({ flags: snap.exists ? (snap.get('flags') || {}) : {}, updatedAt: snap.exists ? plain(snap.get('updatedAt')) : null });
+  }));
+  router.put('/experiments', wrap(async (req, res) => {
+    const flags = validateExperiments(req.body?.flags);
+    const ref = db().doc('config/flags');
+    const before = (await ref.get()).data() || {};
+    await db().collection('admin_private/history/experiments').add({ before, patch: { flags }, by: req.admin.uid, email: req.admin.email, at: FieldValue.serverTimestamp() });
+    // Whole map replaced, so a removed flag really goes away (set, not merge)
+    await ref.set({ flags, updatedAt: FieldValue.serverTimestamp(), updatedBy: req.admin.uid });
+    await audit(req.admin, 'experiments.update', { names: Object.keys(flags) });
+    res.json({ flags });
+  }));
+
+  // ---------------------------------------------------------------- search keys backfill (idempotent, batched)
+  router.post('/backfill/search-tokens', wrap(async (req, res) => {
+    const d = db();
+    const size = Math.min(400, Math.max(10, Number(req.body?.limit) || 200));
+    let q = d.collection('ecosystem_feed').orderBy(FieldPath.documentId()).limit(size);
+    const after = String(req.body?.after || '');
+    if (after) { if (!ID_RE.test(after)) throw new Error('Bad cursor'); q = q.startAfter(after); }
+    const snap = await q.get();
+    const thumbRefs = snap.docs.map(doc => d.doc(`feed_thumbnails/${doc.id}`));
+    const thumbs = thumbRefs.length ? await d.getAll(...thumbRefs) : [];
+    const batch = d.batch(); let updated = 0;
+    snap.docs.forEach((doc, i) => {
+      const p = doc.data();
+      const tokens = searchTokensFor(p);
+      if (!sameTokens(tokens, p.searchTokens)) { batch.update(doc.ref, { searchTokens: tokens }); updated++; }
+      const t = thumbs[i];
+      if (t?.exists && !sameTokens(tokens, t.get('searchTokens'))) batch.update(t.ref, { searchTokens: tokens });
+    });
+    if (updated || thumbs.some(t => t.exists)) await batch.commit();
+    const next = snap.size === size ? snap.docs[snap.size - 1].id : null;
+    if (!next) await audit(req.admin, 'backfill.searchTokens.done', {});
+    res.json({ processed: snap.size, updated, next });
+  }));
+
+  // ---------------------------------------------------------------- Darwin Core Archive (GBIF) export
+  router.get('/export/dwc.zip', wrap(async (req, res) => {
+    const d = db();
+    const publicHost = process.env.PUBLIC_HOST || 'thenaturegram.com';
+    const MAX = Math.min(50_000, Number(req.query.max) || 20_000);
+    const lines = [csvHeader()];
+    const profiles = new Map();
+    let cursor = null; let scanned = 0; let skipped = 0;
+    while (lines.length - 1 < MAX) {
+      let q = d.collection('ecosystem_feed').where('isPublic', '==', true).orderBy(FieldPath.documentId()).limit(300);
+      if (cursor) q = q.startAfter(cursor);
+      const snap = await q.get();
+      if (snap.empty) break;
+      cursor = snap.docs[snap.size - 1].id;
+      scanned += snap.size;
+      const rows = snap.docs.filter(doc => exportable(doc.id, doc.data()) && namesOf(doc.data()).scientific);
+      skipped += snap.size - rows.length;
+      const needProfiles = [...new Set(rows.map(r => r.get('userId')).filter(u => u && ID_RE.test(u) && !profiles.has(u)))];
+      if (needProfiles.length) (await d.getAll(...needProfiles.map(u => d.doc(`users/${u}`)))).forEach((s, i) => profiles.set(needProfiles[i], s.exists ? s.data() : null));
+      const wantCoords = rows.filter(r => r.get('showLocation') === true && r.get('aiFlags.sensitiveSpecies') !== true && ID_RE.test(String(r.get('userId') || '')));
+      const coordSnaps = wantCoords.length ? await d.getAll(...wantCoords.map(r => d.doc(`users/${r.get('userId')}/private/obs_${r.id}`))) : [];
+      const coords = new Map(coordSnaps.map((s, i) => [wantCoords[i].id, s.exists ? (s.get('rawLocations') || []).find(Boolean) || null : null]));
+      for (const doc of rows) {
+        const p = doc.data();
+        let verified = typeof p.communityVerified === 'boolean' ? p.communityVerified : null;
+        if (verified === null) {
+          const ids = await doc.ref.collection('identifications').limit(50).get();
+          const primary = String(p.labels?.[0] || '').trim().toLowerCase();
+          verified = ids.docs.filter(x => String(x.get('name') || '').trim().toLowerCase() === primary).length >= 2;
+        }
+        const row = occurrenceRow(doc.id, p, { publicHost, coords: coords.get(doc.id) || null, profile: profiles.get(p.userId) || null, verified });
+        if (row) lines.push(csvLine(row)); else skipped++;
+        if (lines.length - 1 >= MAX) break;
+      }
+      if (snap.size < 300) break;
+    }
+    const count = lines.length - 1;
+    const archive = zip([
+      { name: 'occurrence.csv', data: lines.join('\n') + '\n' },
+      { name: 'meta.xml', data: metaXml() },
+      { name: 'eml.xml', data: emlXml({ publicHost, count, contactEmail: process.env.DWC_CONTACT_EMAIL || '' }) },
+    ]);
+    await audit(req.admin, 'export.dwc', { count, scanned, skipped });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="naturegram-dwca-${today()}.zip"`);
+    res.setHeader('X-Export-Count', String(count));
+    res.setHeader('X-Export-Skipped', String(skipped));
+    res.end(archive);
   }));
 
   app.use('/api/admin', router);
