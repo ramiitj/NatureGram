@@ -623,7 +623,10 @@ a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius
       firstPage = { at: Date.now(), body: JSON.stringify({ posts, more: snap.size === 12 }) };
       res.type('json').send(firstPage.body);
     } catch (e) {
-      log('warn', 'first page failed', { error: String(e.message).slice(0, 120) });
+      const msg = String(e.message).slice(0, 120);
+      // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
+      // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
+      log('warn', 'first page failed', { error: msg, ...(/PERMISSION_DENIED/.test(msg) ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role.` } : {}) });
       res.status(503).json({ posts: [] });
     }
   });

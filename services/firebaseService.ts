@@ -1309,11 +1309,17 @@ export const FirebaseService = {
     if (!me || me.isAnonymous) throw new Error("Please sign in to follow explorers.");
     if (me.uid === targetUid) return;
     if (await FirebaseService.isFollowing(targetUid)) return;
+    // A counter is only moved on a profile document that exists: an update on a missing document fails the whole
+    // batch, so following someone whose profile was never written used to fail every time.
+    const [mine, theirs] = await Promise.all([
+      getDoc(doc(db, "users", me.uid)).then(s => s.exists()).catch(() => false),
+      getDoc(doc(db, "users", targetUid)).then(s => s.exists()).catch(() => false),
+    ]);
     const batch = writeBatch(db);
     batch.set(doc(db, "users", me.uid, "following", targetUid), { createdAt: serverTimestamp() });
     batch.set(doc(db, "users", targetUid, "followers", me.uid), { createdAt: serverTimestamp() });
-    batch.update(doc(db, "users", targetUid), { followersCount: increment(1) });
-    batch.update(doc(db, "users", me.uid), { followingCount: increment(1) });
+    if (theirs) batch.update(doc(db, "users", targetUid), { followersCount: increment(1) });
+    if (mine) batch.update(doc(db, "users", me.uid), { followingCount: increment(1) });
     await batch.commit();
     try {
       const myProfile = await FirebaseService.getUserProfile(me.uid);
@@ -1326,11 +1332,15 @@ export const FirebaseService = {
     const me = auth.currentUser;
     if (!me || me.uid === targetUid) return;
     if (!(await FirebaseService.isFollowing(targetUid))) return;
+    const [mine, theirs] = await Promise.all([
+      getDoc(doc(db, "users", me.uid)).then(s => s.exists()).catch(() => false),
+      getDoc(doc(db, "users", targetUid)).then(s => s.exists()).catch(() => false),
+    ]);
     const batch = writeBatch(db);
     batch.delete(doc(db, "users", me.uid, "following", targetUid));
     batch.delete(doc(db, "users", targetUid, "followers", me.uid));
-    batch.update(doc(db, "users", targetUid), { followersCount: increment(-1) });
-    batch.update(doc(db, "users", me.uid), { followingCount: increment(-1) });
+    if (theirs) batch.update(doc(db, "users", targetUid), { followersCount: increment(-1) });
+    if (mine) batch.update(doc(db, "users", me.uid), { followingCount: increment(-1) });
     await batch.commit();
   },
 

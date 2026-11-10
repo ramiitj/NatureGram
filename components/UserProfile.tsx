@@ -25,7 +25,7 @@ interface UserProfileProps {
   onOpenPost?: (postId: string) => void;
   onViewProfile?: (uid: string) => void;
   onRequireAccount?: (reason: string, then?: () => void) => void;
-  onMessage?: (uid: string) => void;
+  onMessage?: (uid: string) => void | Promise<void>;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -64,6 +64,15 @@ const lifeListSummary = (count: number, first: any, own: boolean): string => {
   const since = Number.isFinite(ms) ? ` since ${new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
   return `${count} species${since}`;
 };
+
+/** One plain line for a failed follow or letter, so a click never seems to do nothing. */
+function socialError(e: any, fallback: string): string {
+  const code = String(e?.code || '');
+  if (/permission-denied/.test(code)) return 'That was refused. Reload the app and try again; if it keeps happening, the app needs its latest security rules deployed.';
+  if (/unavailable|deadline-exceeded/.test(code)) return "Can't reach the server right now. Check your connection and try again.";
+  if (e instanceof Error && !code && e.message && e.message.length < 120) return e.message;
+  return fallback;
+}
 
 const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
@@ -144,9 +153,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       if (was) await FirebaseService.unfollowUser(userId);
       else await FirebaseService.followUser(userId);
       track(was ? 'unfollow' : 'follow');
-    } catch (e) {
+    } catch (e: any) {
       setFollowing(was);
-      showToast('Could not update follow. Please try again.');
+      console.error('follow failed', e);
+      showToast(socialError(e, 'Could not update follow. Please try again.'));
     } finally {
       setFollowBusy(false);
     }
@@ -263,7 +273,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${following ? 'border border-theme-primary/15 text-theme-primary hover:bg-theme-primary/5' : 'bg-theme-primary text-white hover:opacity-90'}`}>
                   {following ? 'Following' : 'Follow'}
                 </button>
-                <button onClick={() => onMessage?.(userId)} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Write a letter</button>
+                <button onClick={async () => {
+                  // A letter that can't be opened says why, instead of doing nothing.
+                  try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
+                }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Write a letter</button>
                 <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             )}

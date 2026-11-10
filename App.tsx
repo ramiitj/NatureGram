@@ -787,7 +787,9 @@ const App: React.FC = () => {
                   onRequireAccount={requireAccount}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
-                    try { const cid = await FirebaseService.openConversation(uid); openMessages(cid); } catch { /* shown in profile */ }
+                    // Errors go back to the profile, which says what went wrong.
+                    const cid = await FirebaseService.openConversation(uid);
+                    openMessages(cid);
                   }}
                 />
               </Suspense>
