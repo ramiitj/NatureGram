@@ -323,7 +323,8 @@ async function startServer() {
     });
   });
 
-  app.get('/healthz', async (req, res) => {
+  // Cloud Run's front end reserves /healthz for itself, so the same check also answers at /api/health
+  app.get(['/healthz', '/api/health'], async (req, res) => {
     if (Date.now() - probe.at > 30_000 && firestoreDb) {
       try {
         await Promise.race([firestoreDb.doc('app_config/flags').get(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]);
