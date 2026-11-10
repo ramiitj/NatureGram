@@ -160,7 +160,9 @@ const App: React.FC = () => {
     if (currentView === AppView.USER_PROFILE && targetProfileId) newPath = `/profile/${encodeURIComponent(targetProfileId)}`;
     const here = window.location.pathname + window.location.search;
     const onPostUrl = currentView === AppView.COMMUNITY && (window.location.search.includes('p=') || window.location.pathname.startsWith('/post/'));
-    if (here !== newPath && !onPostUrl) {
+    // /explore?q=owl (the search box search engines offer) keeps its question for Explore to read
+    const onSearchUrl = currentView === AppView.EXPLORE && window.location.pathname === '/explore';
+    if (here !== newPath && !onPostUrl && !onSearchUrl) {
       window.history.pushState({ view: currentView }, '', newPath);
     }
   }, [currentView, targetProfileId]);

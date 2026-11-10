@@ -4,6 +4,7 @@
  *  - Authenticated, quota-governed proxy to the Gemini API (HTTP + Live WebSocket)
  *  - Allow-listed media proxy (CORS helper for Firebase Storage / theme imagery)
  *  - Server-rendered share previews for social crawlers (/s/:postId)
+ *  - Crawlable public pages, structured data, robots.txt, sitemaps and llms.txt (seoRoutes.js)
  *
  * Security notes:
  *  - Never log secrets, tokens or request/response payloads.
@@ -35,6 +36,7 @@ import { appCheckVerdict, appCheckStats, splitWsAppCheck } from './appCheck.js';
 import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
+import { mountSeo, canonicalHost } from './seoRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -273,6 +275,10 @@ async function startServer() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
   app.use(compression());
+  // One address for search engines: www.thenaturegram.com -> thenaturegram.com
+  app.use(canonicalHost(PUBLIC_HOST));
+  // Public pages and discovery files (mounted with the frontend below); /s/ uses it for share cards
+  let seo = null;
 
   // Security headers
   app.use((req, res, next) => {
@@ -458,7 +464,25 @@ async function startServer() {
     let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
     let imageUrl = `https://${PUBLIC_HOST}/og-default.jpg`;
     let tags = [];
-    try {
+    let ld = null;
+    let shown = true;
+    // The store (Admin SDK) decides first, with the full privacy rules (teens, hidden, moderation);
+    // only when it can't answer does the card fall back to the public REST read.
+    const preview = seo ? await seo.sharePreview(postId).catch(() => null) : null;
+    if (preview && preview.public) {
+      const p = preview.post;
+      const name = p.name || p.title || 'A wild sighting';
+      heading = name;
+      scientific = p.scientific && p.scientific !== name ? p.scientific : '';
+      title = `${name}, seen${p.area ? ` near ${p.area}` : ''} · NatureGram`;
+      byline = [p.author, p.area ? `near ${p.area}` : ''].filter(Boolean).join(' · ');
+      description = p.caption || p.observed || p.insight || `${p.author || 'An explorer'} found this ${p.name || 'sighting'}${p.area ? ` near ${p.area}` : ''}. What's alive near you?`;
+      imageUrl = p.image || p.thumb || imageUrl;
+      tags = p.tags.slice(0, 8);
+      ld = preview.ld;
+    } else if (preview) {
+      shown = false;
+    } else try {
       if (!apiKey) throw new Error('No Firebase config');
       const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseProjectId)}/databases/${encodeURIComponent(databaseId)}/documents/ecosystem_feed/${postId}?key=${encodeURIComponent(apiKey)}`;
       const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -507,7 +531,7 @@ async function startServer() {
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${e(title)}</title>
 <meta name="description" content="${e(description)}">
-<link rel="canonical" href="${e(siteUrl)}">
+<link rel="canonical" href="${e(appUrl)}">${shown ? '' : '\n<meta name="robots" content="noindex">'}
 <meta property="og:type" content="article"><meta property="og:site_name" content="NatureGram">
 <meta property="og:url" content="${e(siteUrl)}"><meta property="og:title" content="${e(title)}">
 <meta property="og:description" content="${e(description)}"><meta property="og:image" content="${e(imageUrl)}">
@@ -527,7 +551,7 @@ p.desc{font-family:Newsreader,Georgia,serif;font-size:17px;line-height:1.55;colo
 .tag{display:inline-block;margin:0 10px 4px 0;color:${ink};font-size:13px}
 .tag,.note{opacity:.9}.note{font-size:13px;color:#8a7a60}
 a.btn{display:block;text-align:center;margin-top:18px;padding:14px;border-radius:12px;background:${ink};color:#fff;text-decoration:none;font-weight:600;box-shadow:0 0 0 3px ${wash}33}
-</style></head>
+</style>${ld ? `\n<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}</head>
 <body><main class="card">
 <p class="brand">NatureGram</p>
 <a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(heading)}" referrerpolicy="no-referrer"></a>
@@ -743,12 +767,36 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   // Frontend
   // -------------------------------------------------------------------------
   const server = http.createServer(app);
+  // Only real app routes get the app; anything else is a proper 404
+  const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|explore\/?$|guardian\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
+  const seoDeps = { db: () => firestoreDb, log, publicHost: PUBLIC_HOST, iosUrl: process.env.IOS_APP_URL || '', androidUrl: process.env.ANDROID_APP_URL || '' };
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa', root: ROOT_DIR });
+    seo = mountSeo(app, {
+      ...seoDeps,
+      shell: async (url) => vite.transformIndexHtml(url, fs.readFileSync(path.join(ROOT_DIR, 'index.html'), 'utf8')),
+      naturalists: async () => {
+        const [a, b] = await Promise.all([vite.ssrLoadModule('/constants/naturalists.ts'), vite.ssrLoadModule('/constants/naturalistExtras.ts')]);
+        return { themes: a.NATURALIST_THEMES, extras: b.NATURALIST_EXTRAS };
+      },
+      notFoundFile: path.join(ROOT_DIR, 'public', '404.html'),
+    });
+    app.use((req, res, next) => {
+      if (req.method !== 'GET' || !APP_ROUTE.test(req.path) || !(req.headers.accept || '').includes('text/html')) return next();
+      seo.appShell(req, res).catch(next);
+    });
     app.use(vite.middlewares);
   } else {
     const staticPath = path.join(ROOT_DIR, 'dist');
+    let shellHtml = null;
+    seo = mountSeo(app, {
+      ...seoDeps,
+      shell: async () => (shellHtml ??= fs.readFileSync(path.join(staticPath, 'index.html'), 'utf8')),
+      // Written at build time from constants/naturalists.ts (see vite.config.ts)
+      naturalists: async () => JSON.parse(fs.readFileSync(path.join(staticPath, 'seo', 'naturalists.json'), 'utf8')),
+      notFoundFile: path.join(staticPath, '404.html'),
+    });
     app.use('/assets', express.static(path.join(staticPath, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(staticPath, {
       index: false,
@@ -756,13 +804,15 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     }));
     // Friendly addresses for the legal pages
     app.get(['/privacy', '/terms'], (req, res) => res.redirect(301, `${req.path}.html`));
-    // Only real app routes get the app; anything else is a proper 404
-    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|explore\/?$|guardian\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
     app.use((req, res, next) => {
-      if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api')) return next();
       res.setHeader('Cache-Control', 'no-cache');
-      if (!APP_ROUTE.test(req.path)) return res.status(404).sendFile(path.join(staticPath, '404.html'));
-      res.sendFile(path.join(staticPath, 'index.html'));
+      if (!APP_ROUTE.test(req.path)) {
+        res.setHeader('X-Robots-Tag', 'noindex');
+        return res.status(404).sendFile(path.join(staticPath, '404.html'));
+      }
+      // The app, with this route's title, description, social cards and structured data
+      seo.appShell(req, res).catch(next);
     });
   }
 
