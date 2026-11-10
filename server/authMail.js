@@ -203,6 +203,16 @@ export function mountAuthMail(app, deps) {
     if (!mailConfigured() || Date.now() < mailDownUntil) return answer(FALLBACK);
     const who = hashOf(email);
     if (!resetByEmail.allow(who)) { log('info', 'auth mail: reset rate-limited', { who }); return answer({ sent: true }); }
+    // Look the address up first. With Firebase's email enumeration protection on, asking for a link
+    // for an unknown address fails with a bare internal-error; answering that differently from a real
+    // account would reveal who has one. Unknown addresses get the same answer as real ones.
+    try {
+      if (typeof deps.auth().getUserByEmail === 'function') await deps.auth().getUserByEmail(email);
+    } catch (e) {
+      const code = String(e?.code || e?.errorInfo?.code || e?.message || 'error');
+      if (/user-not-found|email-not-found|invalid-email/i.test(code)) { log('info', 'auth mail: reset for no account', { who }); return answer({ sent: true }); }
+      if (SETUP_ERROR.test(code)) { log('warn', 'auth mail: reset lookup failed, falling back', { code: code.slice(0, 80), reason: reasonOf(e) }); return answer(FALLBACK); }
+    }
     let link;
     try {
       link = rewriteActionLink(await deps.auth().generatePasswordResetLink(email, { url: origin() + '/feed' }), origin());
