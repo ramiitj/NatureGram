@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FirebaseService } from '../services/firebaseService';
 import { CommunityPost, UserMode } from '../types';
-import { likeTotal, isDataSaver } from '../utils';
+import { likeTotal, isDataSaver, timeAgo } from '../utils';
 import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
-import { WonderBurst, WonderIcon, wonderLabel } from './Wonder';
+import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour } from './Wonder';
+import { groupOf } from '../services/lifeList';
 
 interface Props {
   currentUserMode: UserMode;
@@ -14,11 +15,27 @@ interface Props {
   onBack: () => void;
 }
 
+const PROGRAMME_MAX = 7;
+const TITLE_MS = 2600;
+
+/** What tends to be happening at this hour, as words to look for in a clip's labels. */
+const HOUR_MATCH: Record<string, RegExp> = {
+  'Dawn chorus': /(bird|song|call|chorus|robin|thrush|warbler|wren|bulbul|magpie|blackbird)/i,
+  'Morning': /(butterfl|moth|bee\b|insect|dragonfl|flower|pollinat)/i,
+  'Midday': /(raptor|hawk|eagle|kite|vulture|buzzard|falcon|kestrel|lizard|thermal)/i,
+  'Afternoon': /(bird|feed|forag|squirrel|deer|monkey)/i,
+  'Dusk': /(bat\b|bats\b|dusk|swift|nightjar|deer|fox)/i,
+  'Night': /(owl|frog|toad|moth|cricket|night|bat\b|bats\b|firefl)/i,
+};
+
+const ordinalWord = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh'];
+
 /**
- * Moments: video sightings, one at a time, full screen, with nothing written over the video.
- * The name, notes and explorer are one tap away in the sighting's field notes.
+ * Moments, as an evening screening: a short programme of video sightings, each introduced by a quiet
+ * title card (the species, the place, one line), and a natural end. Clips that suit the hour come first.
+ * "Keep watching" opens the full reel, so nothing that was possible before is lost.
  */
-const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, onRequireAccount, onBack }) => {
+const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount, onBack }) => {
   const [items, setItems] = useState<CommunityPost[]>([]);
   const [cursor, setCursor] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -30,13 +47,17 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
   const [toast, setToast] = useState('');
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [burst, setBurst] = useState<{ id: string; x: number; y: number; key: number } | null>(null);
+  const [extended, setExtended] = useState(false);
+  const [titleShown, setTitleShown] = useState<Record<string, boolean>>({});
+  const [titleFor, setTitleFor] = useState<string | null>(null);
   const lastTapRef = useRef(0);
   const isMember = !!currentUserMode.userId && currentUserMode.userId !== 'explorer_guest' && !currentUserMode.isAnonymous;
+  const moment = useMemo(() => fieldMoment(), []);
 
-  const loadMore = useCallback(async () => {
+  const loadMore = useCallback(async (pageSize?: number) => {
     if (!hasMore) return;
     try {
-      const { posts, lastVisible } = await FirebaseService.getVideoPosts(cursor);
+      const { posts, lastVisible } = await FirebaseService.getVideoPosts(cursor, pageSize);
       setItems(prev => { const ids = new Set(prev.map(p => p.id)); return [...prev, ...posts.filter(p => !ids.has(p.id))]; });
       setCursor(lastVisible);
       setHasMore(!!lastVisible);
@@ -44,13 +65,30 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
     finally { setLoading(false); }
   }, [cursor, hasMore]);
 
-  useEffect(() => { loadMore(); track('reels_open'); /* eslint-disable-next-line */ }, []);
+  // The first load is a little larger so tonight's programme has a choice of clips
+  useEffect(() => { loadMore(16); track('reels_open'); /* eslint-disable-next-line */ }, []);
+
+  // Tonight's programme: up to seven clips, the ones that suit this hour first, then the most recent
+  // (chosen once from the first load, then held still so later pages never reshuffle it)
+  const [programmeIdList, setProgrammeIdList] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (programmeIdList || loading || items.length === 0) return;
+    const rx = HOUR_MATCH[moment.name];
+    const hay = (p: CommunityPost) => [...(p.labels || []), ...(p.tags || []), p.caption || '', groupOf(p)].join(' ');
+    const fits = rx ? items.filter(p => rx.test(hay(p))) : [];
+    const rest = items.filter(p => !fits.includes(p));
+    setProgrammeIdList([...fits, ...rest].slice(0, PROGRAMME_MAX).map(p => p.id));
+  }, [programmeIdList, loading, items, moment.name]);
+  const programme = useMemo(() => (programmeIdList || []).map(id => items.find(p => p.id === id)).filter(Boolean) as CommunityPost[], [programmeIdList, items]);
+  const programmeIds = useMemo(() => new Set(programme.map(p => p.id)), [programme]);
+  // While the programme plays, its order is fixed; after "Keep watching" the rest follows in date order
+  const visible = useMemo(() => extended ? [...programme, ...items.filter(p => !programmeIds.has(p.id))] : programme, [extended, programme, items, programmeIds]);
+  const showEndCard = !extended && !loading && programme.length > 0;
 
   // Resolve the playable URL for the active moment and its neighbours
   useEffect(() => {
-    // On slow connections, fetch only the moment on screen
     (isDataSaver() ? [activeIdx] : [activeIdx, activeIdx + 1, activeIdx + 2]).forEach(i => {
-      const p = items[i];
+      const p = visible[i];
       if (!p || videoUrls[p.id]) return;
       const direct = (p as any).videoUrl as string | undefined;
       (direct ? Promise.resolve({ videoUrl: direct } as any) : FirebaseService.getFullPost(p.id)).then((full: any) => {
@@ -59,8 +97,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
         });
       });
     });
-    if (activeIdx >= items.length - 3 && hasMore) loadMore();
-  }, [activeIdx, items, hasMore, loadMore, videoUrls]);
+    if (extended && activeIdx >= visible.length - 3 && hasMore) loadMore();
+  }, [activeIdx, visible, hasMore, loadMore, videoUrls, extended]);
 
   // Track which moment is in view
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,15 +110,26 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
     }, { root, threshold: [0.6] });
     root.querySelectorAll('article[data-idx]').forEach(el => io.observe(el));
     return () => io.disconnect();
-  }, [items.length]);
+  }, [visible.length, showEndCard]);
 
-  // Play only the active video
+  // A quiet title card before each clip of the programme, once
+  const active = visible[activeIdx];
+  useEffect(() => {
+    if (!active || titleShown[active.id] || !programmeIds.has(active.id)) { setTitleFor(null); return; }
+    setTitleFor(active.id);
+    setTitleShown(prev => ({ ...prev, [active.id]: true }));
+    const t = window.setTimeout(() => setTitleFor(id => id === active.id ? null : id), TITLE_MS);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
+
+  // Play only the active video, after its title card
   useEffect(() => {
     containerRef.current?.querySelectorAll('video').forEach(v => {
       const idx = Number(v.dataset.idx);
-      if (idx === activeIdx) v.play().catch(() => {}); else { v.pause(); }
+      if (idx === activeIdx && !titleFor) v.play().catch(() => {}); else { v.pause(); }
     });
-  }, [activeIdx, videoUrls]);
+  }, [activeIdx, videoUrls, titleFor]);
 
   const marvel = async (p: CommunityPost) => {
     if (!isMember) { onRequireAccount('Create a free account to marvel at sightings.'); return; }
@@ -94,6 +143,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
   };
 
   const onTap = (e: React.MouseEvent<HTMLDivElement>, p: CommunityPost) => {
+    if (titleFor === p.id) { setTitleFor(null); return; } // a tap skips the title card
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       const box = e.currentTarget.getBoundingClientRect();
@@ -107,6 +157,20 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
     lastTapRef.current = now;
     window.setTimeout(() => { if (lastTapRef.current === now) setMuted(m => !m); }, 310);
   };
+
+  const keepWatching = () => {
+    track('reels_keep_watching', { programme: programme.length });
+    setExtended(true);
+    if (hasMore && items.length <= programme.length) loadMore();
+  };
+
+  const watchAgain = () => {
+    setTitleShown({});
+    containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const programmeCount = programme.length;
+  const countWord = programmeCount <= 7 ? ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'][programmeCount] : String(programmeCount);
 
   return (
     <div className="fixed inset-0 z-[45] bg-black text-white">
@@ -122,8 +186,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
           <span className="material-symbols-outlined text-4xl text-white/70 animate-pulse" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">wb_twilight</span>
           <span className="font-display text-white/80">Waiting quietly…</span>
         </div>
-      ) : error ? (
-        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="font-display text-lg">Moments didn't load.</p><p className="text-sm text-white/70 -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(); }} className="px-6 py-3 rounded-full bg-white text-black font-bold">Try again</button></div>
+      ) : error && items.length === 0 ? (
+        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="font-display text-lg">Moments didn't load.</p><p className="text-sm text-white/70 -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(16); }} className="px-6 py-3 rounded-full bg-white text-black font-bold">Try again</button></div>
       ) : items.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center">
           <span className="material-symbols-outlined text-4xl text-white/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">videocam</span>
@@ -131,13 +195,15 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
           <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to record one.</p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading}>
-          {items.map((p, idx) => {
+        <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading} aria-label={extended ? 'Moments' : `Tonight's moments: ${countWord} clips`}>
+          {visible.map((p, idx) => {
             const isLiked = !!liked[p.id] || !!p.likes?.includes(currentUserMode.userId || '');
             const src = videoUrls[p.id];
             const near = Math.abs(idx - activeIdx) <= 2;
             const species = p.labels?.[0] || p.title || 'Unnamed sighting';
             const n = likeTotal(p);
+            const inProgramme = idx < programmeCount;
+            const line = observedBehaviour(p.behavior) || (p.caption || '').split(/(?<=[.!?])\s/)[0] || (p.timestamp ? `Recorded ${timeAgo(p.timestamp)}.` : '');
             return (
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
                 <div className="absolute inset-0 flex items-center justify-center" onClick={(e) => onTap(e, p)}>
@@ -147,9 +213,20 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
+                  {inProgramme && (
+                    <div
+                      className={`absolute inset-0 z-[5] bg-black flex flex-col items-center justify-center text-center px-10 transition-opacity duration-1000 ${titleFor === p.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                      aria-hidden={titleFor !== p.id}
+                    >
+                      <p className="text-xs text-white/50 font-display">{ordinalWord[idx] || `No. ${idx + 1}`} of {countWord}</p>
+                      <p className="font-display italic text-3xl sm:text-4xl leading-tight mt-4">{species}</p>
+                      {p.locationArea && p.showLocation !== false && <p className="text-sm text-white/70 mt-3">{p.locationArea}</p>}
+                      {line && <p className="font-display text-white/80 text-base mt-5 max-w-sm leading-relaxed">{line}</p>}
+                    </div>
+                  )}
                 </div>
 
-                <div className="absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5">
+                <div className={`absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`} className="flex flex-col items-center gap-0.5">
                     <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-vivid/90 text-white shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
                       <WonderIcon active={isLiked} className="text-[28px] drop-shadow" />
@@ -171,11 +248,24 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onViewProfile, on
                     <span className="material-symbols-outlined text-[24px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
                   </button>
                 </div>
-
               </article>
             );
           })}
-          {hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-sm font-display">More moments coming…</div>}
+          {showEndCard && (
+            <article data-idx={visible.length} className="relative h-[100dvh] w-full snap-start snap-always flex flex-col items-center justify-center text-center px-8 bg-black" aria-label="The end of tonight's moments">
+              <span className="material-symbols-outlined text-4xl text-white/50" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{moment.icon}</span>
+              <p className="font-display text-2xl sm:text-3xl leading-snug mt-5 max-w-sm">That's tonight's moments.<br />Go and listen outside.</p>
+              <p className="text-sm text-white/60 mt-3 max-w-xs">{moment.name}: {moment.hint}.</p>
+              <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
+                <button onClick={onBack} className="px-6 py-3 rounded-full bg-white text-black font-semibold text-sm">Close for tonight</button>
+                <button onClick={watchAgain} className="px-5 py-3 rounded-full text-white/80 hover:text-white text-sm font-semibold">Watch again</button>
+                {(hasMore || items.length > programmeCount) && (
+                  <button onClick={keepWatching} className="px-5 py-3 rounded-full border border-white/30 text-white text-sm font-semibold">Keep watching</button>
+                )}
+              </div>
+            </article>
+          )}
+          {extended && hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-sm font-display">More moments coming…</div>}
         </div>
       )}
     </div>
