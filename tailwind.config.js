@@ -9,20 +9,22 @@ export default {
       screens: { land: { raw: '(orientation: landscape) and (max-height: 520px)' } },
       colors: {
         primary: 'var(--theme-primary, #44403c)',
-        accent: 'rgb(var(--theme-accent-rgb, 194 65 12) / <alpha-value>)',
+        accent: 'rgb(var(--theme-accent-rgb, 87 83 78) / <alpha-value>)',
         'day-bg': '#fcfaf8',
         surface: '#ffffff',
         'text-main': '#1c1917',
         'text-muted': '#57534e',
         'insight-bg': '#fdf8f1',
         'theme-primary': 'rgb(var(--theme-primary-rgb, 68 64 60) / <alpha-value>)',
-        'theme-primary-gradient': 'var(--theme-primary-gradient, #ea580c)',
+        'theme-primary-gradient': 'var(--theme-primary-gradient, #78716c)',
         'theme-shadow': 'rgb(var(--theme-shadow-rgb, 0 0 0) / <alpha-value>)',
         'theme-text': 'var(--theme-text, #ffffff)',
-        // Accessible accent (auto-darkened per naturalist to >= 4.5:1 on light backgrounds)
-        'theme-accent': 'rgb(var(--theme-accent-rgb, 194 65 12) / <alpha-value>)',
-        // The naturalist's original, vivid accent for glows, gradients and dark surfaces
-        'theme-vivid': 'rgb(var(--theme-accent-vivid-rgb, 234 88 12) / <alpha-value>)',
+        // The four designed tones of the fortnight's palette (constants/palettes.json):
+        // primary for buttons (white text >= 4.5:1), deep for text and headings (>= 7:1),
+        // accent for highlights (>= 4.5:1), vivid for glows and decoration only
+        'theme-deep': 'rgb(var(--theme-deep-rgb, 68 64 60) / <alpha-value>)',
+        'theme-accent': 'rgb(var(--theme-accent-rgb, 87 83 78) / <alpha-value>)',
+        'theme-vivid': 'rgb(var(--theme-vivid-rgb, var(--theme-accent-vivid-rgb, 168 162 158)) / <alpha-value>)',
       },
       fontFamily: {
         display: ['var(--font-display)', 'Newsreader', 'Georgia', 'serif'],

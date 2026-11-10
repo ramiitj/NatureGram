@@ -145,7 +145,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                   value={note}
                   onChange={e => setNote(e.target.value.slice(0, 200))}
                   placeholder="For example, herons on the canal"
-                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-400 focus:border-theme-accent"
+                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-500 focus:border-theme-accent"
                 />
               </label>
             </div>

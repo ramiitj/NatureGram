@@ -423,22 +423,23 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Share previews for social crawlers
   // -------------------------------------------------------------------------
-  // The fortnight's naturalist and palette, mirrored from constants/naturalists.ts (same order and
-  // the same ~15.21-day rotation as getThemePeriod) so the link card wears the current theme.
+  // The fortnight's naturalist and palette (deep tone for ink, accent for the wash), mirrored from
+  // constants/palettes.json in rotation order on the same ~15.21-day rotation as rotationAt, so the
+  // link card wears the current theme. server/test/palettes.test.mjs checks the copy.
   const SHARE_THEMES = [
-    ['Jane Goodall', '#2d4a22', '#aed581'], ['Dian Fossey', '#1f2937', '#10b981'], ['Charles Darwin', '#44403c', '#a8a29e'],
-    ['Alfred Russel Wallace', '#065f46', '#34d399'], ['John Muir', '#334155', '#3b82f6'], ['Rachel Carson', '#0f766e', '#06b6d4'],
-    ['Henry David Thoreau', '#047857', '#10b981'], ['Aldo Leopold', '#b45309', '#f59e0b'], ['Ralph Waldo Emerson', '#c2410c', '#f97316'],
-    ['Wangari Maathai', '#3f6212', '#84cc16'], ['David Attenborough', '#a16207', '#fbbf24'], ['Jacques-Yves Cousteau', '#0369a1', '#38bdf8'],
-    ['Alexander von Humboldt', '#374151', '#9ca3af'], ['Carl Linnaeus', '#166534', '#4ade80'], ['E.O. Wilson', '#78350f', '#fb923c'],
-    ['Sylvia Earle', '#1e3a8a', '#60a5fa'], ['George Washington Carver', '#5c2a16', '#f97316'], ['Mary Anning', '#4b5563', '#9ca3af'],
-    ['Steve Irwin', '#854d0e', '#fde047'], ['Robin Wall Kimmerer', '#14532d', '#86efac'], ['Maria Sibylla Merian', '#831843', '#f472b6'],
-    ['Salim Ali', '#581c87', '#c084fc'], ['Beatrix Potter', '#1e40af', '#93c5fd'], ['John James Audubon', '#86198f', '#e879f9'],
+    ['E.O. Wilson', '#72371e', '#b74e03'], ['Alfred Russel Wallace', '#005d3b', '#067d59'], ['John James Audubon', '#873833', '#d42617'],
+    ['Jane Goodall', '#00451b', '#007e44'], ['Alexander von Humboldt', '#5b3e81', '#9546d4'], ['Wangari Maathai', '#445801', '#637500'],
+    ['John Muir', '#354666', '#536ca9'], ['Ralph Waldo Emerson', '#605000', '#836c02'], ['Charles Darwin', '#00515e', '#00788e'],
+    ['Mary Anning', '#5c4819', '#896900'], ['Rachel Carson', '#035a5d', '#087a81'], ['David Attenborough', '#704903', '#956400'],
+    ['Dian Fossey', '#0e4d4c', '#017a7e'], ['George Washington Carver', '#5c3917', '#9c6003'], ['Sylvia Earle', '#005875', '#0575a2'],
+    ['Steve Irwin', '#4c4b25', '#776f1e'], ['Jacques-Yves Cousteau', '#0d346c', '#2766e3'], ['Beatrix Potter', '#394c23', '#597717'],
+    ['Carl Linnaeus', '#444b8f', '#6258e9'], ['Robin Wall Kimmerer', '#305b26', '#008017'], ['Maria Sibylla Merian', '#753157', '#c62e82'],
+    ['Salim Ali', '#035587', '#006fc8'], ['Aldo Leopold', '#7f4001', '#a55b01'], ['Henry David Thoreau', '#085546', '#047c6b'],
   ];
   const shareTheme = (now = new Date()) => {
     const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
-    const [naturalist, primary, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
-    return { naturalist, primary, accent };
+    const [naturalist, deep, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+    return { naturalist, deep, accent };
   };
   const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
 
@@ -523,7 +524,7 @@ async function startServer() {
       : `<span class="note">Shared during ${e(theme.naturalist)}'s fortnight on NatureGram</span>`;
     // Theme colours come from the fixed table above, never from user input; still validated as hex.
     const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c) ? c : d);
-    const ink = hex(theme.primary, '#44403c');
+    const ink = hex(theme.deep, '#44403c');
     const wash = hex(theme.accent, '#a8a29e');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.type('html').send(`<!DOCTYPE html>

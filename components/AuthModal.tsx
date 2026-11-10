@@ -177,7 +177,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   // The threshold panel: what you're joining (sign-up), or who keeps the notebook this fortnight (log in)
   const wide = !inline && !blocked && mode !== 'reset';
 
-  const inputClass = 'w-full min-h-[48px] bg-white border border-stone-300 rounded-lg px-3.5 py-3 text-base text-text-main placeholder:text-stone-400 focus:border-theme-accent transition-colors';
+  const inputClass = 'w-full min-h-[48px] bg-white border border-stone-300 rounded-lg px-3.5 py-3 text-base text-text-main placeholder:text-stone-500 focus:border-theme-accent transition-colors';
   const labelClass = 'block text-sm font-semibold text-stone-700 mb-1.5';
   const linkBtn = 'inline-flex items-center min-h-[44px] px-1 font-semibold text-theme-accent underline-offset-4 hover:underline';
 

@@ -45,7 +45,7 @@ type Tab = 'posts' | 'lifelist' | 'saved';
 const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = ({ url, name, size = 88 }) => (
   url
     ? <img src={url} alt={`${name || 'Explorer'}'s profile photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
-    : <div className="rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
+    : <div className="rounded-full bg-theme-accent/10 text-theme-deep flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
 );
 
 const Sheet: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
@@ -904,7 +904,7 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
           <span className="block text-xs text-stone-500 mt-1 text-right">{bio.length}/300</span>
         </label>
         {error && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-xl">{error}</p>}
-        <button type="submit" disabled={busy} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold disabled:opacity-60">{busy ? 'Saving…' : 'Save'}</button>
+        <button type="submit" disabled={busy} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold disabled:opacity-60">{busy ? 'Saving…' : 'Save'}</button>
       </form>
     </Sheet>
   );

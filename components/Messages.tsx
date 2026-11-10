@@ -61,7 +61,7 @@ const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 
 
 const Avatar: React.FC<{ name?: string; url?: string | null; size?: number }> = ({ name, url, size = 48 }) => url
   ? <img src={url} alt="" className="rounded-full object-cover bg-stone-100 shrink-0" style={{ width: size, height: size }} />
-  : <span className="rounded-full bg-theme-accent/10 text-theme-accent font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
+  : <span className="rounded-full bg-theme-accent/10 text-theme-deep font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
 
 /** Letters: private correspondence between explorers (inbox + 1:1 threads, realtime), written like notes between naturalists. */
 const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfile, onOpenPost }) => {

@@ -323,7 +323,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Find a species, place or word"
-            className="w-full pl-10 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-400 focus:border-[rgb(var(--theme-accent-rgb))] outline-none"
+            className="w-full pl-10 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-500 focus:border-[rgb(var(--theme-accent-rgb))] outline-none"
           />
         </label>
       </header>

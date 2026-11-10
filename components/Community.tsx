@@ -1402,7 +1402,7 @@ const Community: React.FC<CommunityProps> = ({
                         <span className="material-symbols-outlined text-3xl">delete_forever</span>
                     </div>
                     <h3 className="text-2xl font-display font-semibold text-theme-primary text-center mb-3">Delete this sighting?</h3>
-                    <p className="text-sm text-theme-primary/60 text-center leading-relaxed mb-8">
+                    <p className="text-sm text-stone-600 text-center leading-relaxed mb-8">
                         It will be removed from the feed and your journal. This can't be undone.
                     </p>
                     <div className="flex flex-col gap-3">
@@ -1414,7 +1414,7 @@ const Community: React.FC<CommunityProps> = ({
                         </button>
                         <button 
                             onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/70 font-semibold text-sm rounded-full active:scale-95 transition-all"
+                            className="w-full py-4 bg-theme-primary/5 text-stone-600 font-semibold text-sm rounded-full active:scale-95 transition-all"
                         >
                             Keep it
                         </button>
@@ -1437,7 +1437,7 @@ const Community: React.FC<CommunityProps> = ({
                         {isJournalOnly ? "My Journal" : "NatureGram"}
                     </h2>
                     {!isJournalOnly && (
-                        <p className="text-sm text-theme-primary/70 mt-1 flex items-center gap-1.5">
+                        <p className="text-sm text-stone-600 mt-1 flex items-center gap-1.5">
                             <span className="material-symbols-outlined text-[17px] text-theme-accent" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{moment.icon}</span>
                             <span>{moment.name}: {moment.hint}</span>
                         </p>
@@ -1491,7 +1491,7 @@ const Community: React.FC<CommunityProps> = ({
                                 if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and gather their sightings here.'); return; }
                                 setFeedMode(key);
                             }}
-                            className={`relative py-2 text-[15px] font-medium transition-colors ${feedMode === key ? 'text-theme-primary' : 'text-theme-primary/50 hover:text-theme-primary/80'}`}
+                            className={`relative py-2 text-[15px] font-medium transition-colors ${feedMode === key ? 'text-theme-deep' : 'text-stone-600 hover:text-theme-deep'}`}
                         >
                             {label}
                             <span className={`absolute left-0 -bottom-0.5 h-[2px] rounded-full bg-theme-accent transition-all duration-500 ${feedMode === key ? 'w-full opacity-100' : 'w-0 opacity-0'}`} aria-hidden="true" />
@@ -1502,7 +1502,7 @@ const Community: React.FC<CommunityProps> = ({
 
             {freshRail.length > 0 && feedMode === 'foryou' && (
                 <section aria-label="Fresh sightings from explorers you follow">
-                    <p className="text-sm font-medium text-theme-primary/70 mb-2">Fresh tracks</p>
+                    <p className="text-sm font-medium text-stone-600 mb-2">Fresh tracks</p>
                     <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" role="list">
                         {freshRail.map(r => (
                             <li key={r.userId} className="shrink-0">
@@ -1510,7 +1510,7 @@ const Community: React.FC<CommunityProps> = ({
                                     <span className="relative block w-[84px] h-[100px] rounded-xl overflow-hidden bg-theme-primary/10 border border-theme-primary/10">
                                         {(r.post.thumbnailUrl || r.post.imageUrl)
                                             ? <img src={(r.post.thumbSmallUrl || r.post.thumbnailUrl || r.post.imageUrl)!} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                            : <span className="w-full h-full flex items-center justify-center text-theme-primary/60"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'image'}</span></span>}
+                                            : <span className="w-full h-full flex items-center justify-center text-stone-600"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'image'}</span></span>}
                                         {r.count > 1 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-black/45 backdrop-blur text-white text-[11px] font-semibold flex items-center justify-center tabular">{r.count}</span>}
                                     </span>
                                     <span className="text-xs font-display italic font-semibold text-theme-primary truncate w-full leading-tight">{r.post.labels?.[0] || 'New sighting'}</span>
@@ -1565,7 +1565,7 @@ const Community: React.FC<CommunityProps> = ({
                             onChange={(e) => setSearchQuery(e.target.value)}
                             aria-label={isJournalOnly ? 'Search your journal' : 'Search sightings, species, places and explorers'}
                             placeholder={isJournalOnly ? "Search your journal…" : "Search species, places, explorers…"}
-                            className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-theme-primary/40 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
+                            className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-stone-500 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
                         />
                         {searchQuery && (
                             <button 
@@ -1598,8 +1598,8 @@ const Community: React.FC<CommunityProps> = ({
                         }}
                         className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-medium text-sm cursor-pointer ${
                             showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag
-                                ? 'bg-theme-accent/15 text-theme-accent' 
-                                : 'bg-stone-100 text-theme-primary/60 hover:bg-stone-200/50'
+                                ? 'bg-theme-accent/10 text-theme-deep' 
+                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200/50'
                         }`}
                     >
                         <span className="material-symbols-outlined text-base" aria-hidden="true">tune</span>
@@ -1646,7 +1646,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Species & Hashtags Suggestions */}
                         {dynamicSuggestions.tags.length > 0 && (
                             <div className="space-y-2">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
+                                <span className="text-sm font-medium text-stone-600 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">local_offer</span>
                                     Popular tags
                                 </span>
@@ -1670,7 +1670,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Explorers seen in loaded sightings */}
                         {dynamicSuggestions.creators.length > 0 && !isJournalOnly && (
                             <div className="space-y-2.5">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
+                                <span className="text-sm font-medium text-stone-600 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">alternate_email</span>
                                     Observers
                                 </span>
@@ -1697,7 +1697,7 @@ const Community: React.FC<CommunityProps> = ({
                         {/* Recent Habitats & Places suggestions */}
                         {dynamicSuggestions.locations.length > 0 && (
                             <div className="space-y-2.5">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
+                                <span className="text-sm font-medium text-stone-600 flex items-center gap-1">
                                     <span className="material-symbols-outlined text-xs text-theme-accent">distance</span>
                                     Recent habitats
                                 </span>
@@ -1709,7 +1709,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 setSearchQuery(loc);
                                                 setIsSearchFocused(false);
                                             }}
-                                            className="text-xs text-theme-primary/70 hover:text-theme-accent font-sans font-medium flex items-center gap-1 bg-stone-50 p-1.5 px-3 rounded-lg hover:bg-stone-100"
+                                            className="text-xs text-stone-600 hover:text-theme-accent font-sans font-medium flex items-center gap-1 bg-stone-50 p-1.5 px-3 rounded-lg hover:bg-stone-100"
                                         >
                                             <span className="material-symbols-outlined text-xs select-none">place</span>
                                             {loc}
@@ -1723,7 +1723,7 @@ const Community: React.FC<CommunityProps> = ({
 
                 {/* Filters drawer */}
                 {showFilters && (() => {
-                    const seg = (on: boolean) => `px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'}`;
+                    const seg = (on: boolean) => `px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-stone-700 hover:bg-theme-primary/5'}`;
                     const naturalistShort = (themePeriod.theme?.naturalist || '').split(' ').slice(-1)[0];
                     return (
                     <div className="p-5 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
@@ -1823,7 +1823,7 @@ const Community: React.FC<CommunityProps> = ({
                             className={`px-3.5 py-1.5 text-sm font-medium rounded-full transition-colors shrink-0 border cursor-pointer ${
                                 isActive 
                                     ? 'bg-theme-primary text-white border-theme-primary' 
-                                    : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'
+                                    : 'border-theme-primary/15 text-stone-700 hover:bg-theme-primary/5'
                             }`}
                         >
                             {tab.label}
@@ -1842,7 +1842,7 @@ const Community: React.FC<CommunityProps> = ({
             {/* Reset status bar if any dynamic filter keyword is active */}
             {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-stone-50 border border-theme-primary/5 rounded-2xl">
-                    <div className="text-xs font-semibold text-theme-primary/60 flex items-center gap-1.5">
+                    <div className="text-xs font-semibold text-stone-600 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-theme-accent rounded-full animate-pulse"></span>
                         <span>Filters on{posts.length && !isJournalOnly ? ` · searching ${posts.length} loaded posts` : ''}</span>
                     </div>
@@ -1864,7 +1864,7 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : error ? (
                 <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/60 mb-6" aria-hidden="true">cloud_off</span>
+                    <span className="material-symbols-outlined text-5xl text-stone-600 mb-6" aria-hidden="true">cloud_off</span>
                     <h3 className="text-xl font-display font-semibold text-stone-900 mb-3">The field guide didn't load</h3>
                     <p className="text-stone-600 text-base max-w-sm mb-8 leading-relaxed">
                         {typeof navigator !== 'undefined' && navigator.onLine === false
@@ -1873,7 +1873,7 @@ const Community: React.FC<CommunityProps> = ({
                     </p>
                     <button
                         onClick={() => window.location.reload()}
-                        className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full shadow-lg active:scale-95 transition-all"
+                        className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full shadow-lg active:scale-95 transition-all"
                     >
                         Try again
                     </button>
@@ -1922,7 +1922,7 @@ const Community: React.FC<CommunityProps> = ({
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span className="font-display text-base text-theme-primary/70">That's every sighting for now. The next one is outside.</span>
+                        <span className="font-display text-base text-stone-600">That's every sighting for now. The next one is outside.</span>
                     ) : null}
                 </div>
             )}
@@ -2187,7 +2187,7 @@ const Community: React.FC<CommunityProps> = ({
                                             >
                                                 <span className="material-symbols-outlined text-theme-accent text-xl" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
                                                 <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'Add a field note'}</span>
-                                                <span className="material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">chevron_right</span>
+                                                <span className="material-symbols-outlined text-stone-600 text-sm" aria-hidden="true">chevron_right</span>
                                             </button>
                                             <div className="flex gap-2">
                                                 <button onClick={handleSave} aria-pressed={isSaved} className={`flex-1 h-11 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${isSaved ? 'border-theme-accent/40 bg-theme-accent/10 text-theme-primary' : 'border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5'}`}>

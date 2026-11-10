@@ -467,7 +467,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                )}
                <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
-                       <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+                       <button onClick={share} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
                            <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
@@ -538,7 +538,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   )}
                               </div>
                               <div className="relative z-10 flex flex-col items-center gap-6 p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl">
-                                  <div className="w-16 h-16 rounded-full bg-theme-accent flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
+                                  <div className="w-16 h-16 rounded-full bg-theme-primary flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
                                       <Glyph name="sound" size={30} />
                                   </div>
                                   <audio 
@@ -852,7 +852,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   onClick={handleFinalizeClick}
                   disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
                   aria-busy={isProcessing}
-                  className="w-full py-4 bg-theme-accent text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-accent/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+                  className="w-full py-4 bg-theme-primary text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-primary/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
               >
                   {isProcessing ? (
                       <>
@@ -928,7 +928,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   <h3 id="leave-title" className="text-xl font-bold text-stone-900">Keep your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
                   <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
                   <div className="flex flex-col gap-2">
-                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold">Save draft</button>
+                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold">Save draft</button>
                       <button onClick={() => { setConfirmLeave(false); onClose(); }} className="w-full py-3.5 rounded-xl bg-red-50 text-red-700 font-bold">Discard</button>
                       <button onClick={() => setConfirmLeave(false)} className="w-full py-3.5 rounded-xl bg-stone-100 text-stone-800 font-bold">Keep editing</button>
                   </div>

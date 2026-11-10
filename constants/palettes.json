@@ -1,0 +1,33 @@
+{
+  "about": "The fortnightly naturalist rotation and its palettes. Read by constants/naturalists.ts, the inline first-paint theme (vite.config.ts) and server/test/palettes.test.mjs. deep: text and headings (>= 7:1 on #fcfaf8). primary: buttons (white text >= 4.5:1). accent: highlights (>= 4.5:1 on #fcfaf8). vivid: glows, orb, favicon (decorative). gradient: the landing disc and favicon gradient end. text: a pale tint for text on dark theme surfaces. 'order' runs from 'cutover' (local date) onward; 'legacyOrder' covers every date before it so past fortnights and challenge stamps keep their naturalist. Consecutive fortnights in 'order' are at least 90 degrees apart in OKLCH hue, including the wrap from the last to the first.",
+  "periodDays": 15.21,
+  "cutover": "2026-11-16",
+  "legacyOrder": ["goodall","fossey","darwin","wallace","muir","carson","thoreau","leopold","emerson","maathai","attenborough","cousteau","humboldt","linnaeus","wilson","earle","carver","anning","irwin","kimmerer","merian","ali","potter","audubon"],
+  "order": ["wilson","wallace","audubon","goodall","humboldt","maathai","muir","emerson","darwin","anning","carson","attenborough","fossey","carver","earle","irwin","cousteau","potter","linnaeus","kimmerer","merian","ali","leopold","thoreau"],
+  "palettes": {
+    "wilson": { "story": "ant-hill rust", "deep": "#72371e", "primary": "#aa3d00", "accent": "#b74e03", "vivid": "#fe773d", "gradient": "#cc590d", "text": "#fef4f1" },
+    "wallace": { "story": "Malay rainforest emerald", "deep": "#005d3b", "primary": "#068255", "accent": "#067d59", "vivid": "#06c281", "gradient": "#00976b", "text": "#edfbf3" },
+    "audubon": { "story": "cardinal red", "deep": "#873833", "primary": "#ce3535", "accent": "#d42617", "vivid": "#ff7269", "gradient": "#de3e2d", "text": "#fff4f3" },
+    "goodall": { "story": "Gombe forest green", "deep": "#00451b", "primary": "#005c27", "accent": "#007e44", "vivid": "#20c45f", "gradient": "#019954", "text": "#effaf0" },
+    "humboldt": { "story": "Andean violet", "deep": "#5b3e81", "primary": "#8448c7", "accent": "#9546d4", "vivid": "#ba86ff", "gradient": "#9e56dc", "text": "#f8f5ff" },
+    "maathai": { "story": "Kenyan acacia lime", "deep": "#445801", "primary": "#5f7c02", "accent": "#637500", "vivid": "#8eb604", "gradient": "#768c02", "text": "#f4f9ec" },
+    "muir": { "story": "Sierra granite slate-blue", "deep": "#354666", "primary": "#425e93", "accent": "#536ca9", "vivid": "#81a5e6", "gradient": "#657eba", "text": "#f3f7fe" },
+    "emerson": { "story": "transcendental gold", "deep": "#605000", "primary": "#857105", "accent": "#836c02", "vivid": "#c0a301", "gradient": "#987e04", "text": "#faf7ea" },
+    "darwin": { "story": "Galápagos teal", "deep": "#00515e", "primary": "#006d7d", "accent": "#00788e", "vivid": "#0db8d2", "gradient": "#038fa8", "text": "#eafafe" },
+    "anning": { "story": "fossil ochre", "deep": "#5c4819", "primary": "#806002", "accent": "#896900", "vivid": "#c99e32", "gradient": "#9e7b0e", "text": "#fcf6e9" },
+    "carson": { "story": "sea-glass aqua", "deep": "#035a5d", "primary": "#057f83", "accent": "#087a81", "vivid": "#04bbc0", "gradient": "#07929a", "text": "#eafbfb" },
+    "attenborough": { "story": "savanna amber", "deep": "#704903", "primary": "#9c6701", "accent": "#956400", "vivid": "#dc9403", "gradient": "#ab7400", "text": "#fef5ea" },
+    "fossey": { "story": "misty Virunga green-blue", "deep": "#0e4d4c", "primary": "#006866", "accent": "#017a7e", "vivid": "#37bab6", "gradient": "#079296", "text": "#eafbfa" },
+    "carver": { "story": "peanut shell and red earth", "deep": "#5c3917", "primary": "#824903", "accent": "#9c6003", "vivid": "#de9046", "gradient": "#ae7121", "text": "#fef5ed" },
+    "earle": { "story": "open-ocean blue", "deep": "#005875", "primary": "#057ba3", "accent": "#0575a2", "vivid": "#0bb4ec", "gradient": "#088bbe", "text": "#eef9ff" },
+    "irwin": { "story": "outback khaki", "deep": "#4c4b25", "primary": "#67661f", "accent": "#776f1e", "vivid": "#abaa59", "gradient": "#8a8339", "text": "#f8f8ea" },
+    "cousteau": { "story": "deep-sea navy", "deep": "#0d346c", "primary": "#00459c", "accent": "#2766e3", "vivid": "#68a5ff", "gradient": "#3c79f0", "text": "#f3f7fe" },
+    "potter": { "story": "hedgerow moss", "deep": "#394c23", "primary": "#476818", "accent": "#597717", "vivid": "#89b559", "gradient": "#6e8d36", "text": "#f3f9ed" },
+    "linnaeus": { "story": "Swedish cornflower", "deep": "#444b8f", "primary": "#5c63e3", "accent": "#6258e9", "vivid": "#8d9bff", "gradient": "#6e69f3", "text": "#f5f6fe" },
+    "kimmerer": { "story": "sweetgrass green", "deep": "#305b26", "primary": "#2d8312", "accent": "#008017", "vivid": "#5ac041", "gradient": "#299931", "text": "#f1faef" },
+    "merian": { "story": "Suriname plum", "deep": "#753157", "primary": "#af2d7c", "accent": "#c62e82", "vivid": "#fd61bb", "gradient": "#cf418c", "text": "#fff3f8" },
+    "ali": { "story": "kingfisher azure", "deep": "#035587", "primary": "#0176b8", "accent": "#006fc8", "vivid": "#38adfe", "gradient": "#0081e7", "text": "#f0f8ff" },
+    "leopold": { "story": "prairie orange", "deep": "#7f4001", "primary": "#b15b00", "accent": "#a55b01", "vivid": "#f58101", "gradient": "#bb6802", "text": "#fff5ee" },
+    "thoreau": { "story": "Walden pond green", "deep": "#085546", "primary": "#03735e", "accent": "#047c6b", "vivid": "#08c09e", "gradient": "#039580", "text": "#ebfbf6" }
+  }
+}

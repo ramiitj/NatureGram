@@ -22,10 +22,12 @@ test('action links are rebuilt on our origin with only what the page needs', () 
   assert.throws(() => rewriteActionLink(`${FB}?mode=verifyEmail`));
 });
 
-test('the letter naturalists mirror constants/naturalists.ts', () => {
+test('the letter naturalists mirror constants/naturalists.ts and palettes.json', () => {
   const ts = fs.readFileSync(new URL('../../constants/naturalists.ts', import.meta.url), 'utf8');
-  const re = /naturalist: '([^']+)',\s*quote: "([^"]+)"[\s\S]*?accent: "(#[0-9a-f]+)"/g;
-  const found = [...ts.matchAll(re)].map(m => [m[1], m[2], m[3]]);
+  const rotation = JSON.parse(fs.readFileSync(new URL('../../constants/palettes.json', import.meta.url), 'utf8'));
+  const re = /id: '([a-z]+)',\s*naturalist: '([^']+)',\s*quote: "([^"]+)"/g;
+  const found = [...ts.matchAll(re)].map(m => [m[2], m[3], rotation.palettes[m[1]].primary]);
+  assert.deepEqual([...ts.matchAll(re)].map(m => m[1]), rotation.order);
   assert.deepEqual(found, LETTER_NATURALISTS);
 });
 

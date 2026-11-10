@@ -130,12 +130,12 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onBack }) 
 
   return (
     <div className="min-h-screen shrink-0 w-full bg-[#f7f3ea] text-text-main pb-24">
-      <header className="sticky top-0 z-10 bg-[#f7f3ea]/95 backdrop-blur border-b border-stone-200 safe-pt">
+      <header className="sticky top-0 z-10 bg-[#f7f3ea]/95 backdrop-blur border-b-2 border-theme-accent/25 safe-pt">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-2">
-          <button onClick={onBack} aria-label="Back" className="w-11 h-11 -ml-2 rounded-full hover:bg-stone-200/60 flex items-center justify-center">
+          <button onClick={onBack} aria-label="Back" className="w-11 h-11 -ml-2 rounded-full text-theme-deep hover:bg-theme-accent/10 flex items-center justify-center">
             <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
           </button>
-          <h1 className="font-display text-2xl">Explore</h1>
+          <h1 className="font-display text-2xl text-theme-deep">Explore</h1>
         </div>
       </header>
 
@@ -144,11 +144,11 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onBack }) 
         <section aria-label="Search the collection">
           <label htmlFor="explore-search" className="sr-only">Search sightings</label>
           <div className="relative">
-            <Glyph name="lens" size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
+            <Glyph name="lens" size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-theme-accent" />
             <input
               id="explore-search" type="search" value={q} onChange={e => setQ(e.target.value)}
               placeholder="Search species, places or tags"
-              className="w-full bg-white border border-stone-300 rounded-xl pl-11 pr-4 py-3 text-base placeholder:text-stone-400 focus:border-theme-accent"
+              className="w-full bg-white border border-theme-primary/25 rounded-xl pl-11 pr-4 py-3 text-base placeholder:text-stone-500 outline-none focus:border-theme-accent focus:ring-2 focus:ring-theme-accent/20"
             />
           </div>
           {q.trim().length >= 2 && (

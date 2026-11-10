@@ -3,6 +3,8 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { NATURALIST_THEMES } from './constants/naturalists';
 import { NATURALIST_EXTRAS } from './constants/naturalistExtras';
+import ROTATION from './constants/palettes.json' with { type: 'json' };
+import { themeInitScript } from './scripts/theme-init.mjs';
 
 /**
  * The server renders public naturalist pages (/naturalists/:id) but ships without the app's
@@ -17,12 +19,27 @@ const seoData = (): Plugin => ({
   },
 });
 
+/** /theme-init.js: the fortnight's palette before the first paint (see scripts/theme-init.mjs). */
+const themeInit = (): Plugin => ({
+  name: 'naturegram-theme-init',
+  configureServer(server) {
+    server.middlewares.use('/theme-init.js', (_req, res) => {
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.end(themeInitScript(ROTATION));
+    });
+  },
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'theme-init.js', source: themeInitScript(ROTATION) });
+  },
+});
+
 export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
   },
-  plugins: [react(), seoData()],
+  plugins: [react(), seoData(), themeInit()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

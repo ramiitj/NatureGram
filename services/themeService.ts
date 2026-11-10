@@ -24,10 +24,14 @@ export const ThemeService = {
       
         if (themeDocSnap.exists()) {
           const data = themeDocSnap.data();
+          // Stored theme docs carry a copy of the colours from when they were seeded. The designed
+          // palettes in constants/palettes.json win, unless an admin deliberately overrides them
+          // (colorsOverride: true on the theme doc).
+          const { colors: storedColors, colorsOverride, ...rest } = data as any;
           mergedTheme = {
             ...mergedTheme,
-            ...data,
-            colors: data.colors ? { ...mergedTheme.colors, ...data.colors } : mergedTheme.colors
+            ...rest,
+            colors: colorsOverride === true && storedColors ? { ...mergedTheme.colors, ...storedColors } : mergedTheme.colors
           };
         }
       } catch (fbError) {
@@ -73,9 +77,14 @@ export const ThemeService = {
     }
   },
 
-  applyThemeToDOM: (theme: DailyTheme) => {
+  /**
+   * Paint the fortnight's palette into the CSS variables. The four tones are designed per naturalist
+   * (constants/palettes.json) and already meet their contrast rules; the darkening below is only a
+   * safety net for older or admin-overridden colours.
+   */
+  applyThemeToDOM: (theme: Pick<DailyTheme, 'colors'> & Partial<DailyTheme>) => {
     const root = document.documentElement;
-    const toRgb = (hex: string): [number, number, number] | null => {
+    const toRgb = (hex: string | undefined): [number, number, number] | null => {
       const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
       return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
     };
@@ -84,42 +93,51 @@ export const ThemeService = {
       return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     };
     const contrast = (a: number[], b: number[]) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
-    // Darken a colour until it reaches the target contrast against the light app background
     const BG = [252, 250, 248];
-    const ensureContrast = (rgb: [number, number, number], target = 4.5): [number, number, number] => {
+    const WHITE = [255, 255, 255];
+    // Safety net: darken until the colour reaches the target contrast against a reference
+    const ensureContrast = (rgb: [number, number, number], target: number, against: number[] = BG): [number, number, number] => {
       let c = [...rgb] as [number, number, number];
-      for (let i = 0; i < 40 && contrast(c, BG) < target; i++) c = c.map(v => Math.max(0, Math.round(v * 0.92))) as [number, number, number];
+      for (let i = 0; i < 40 && contrast(c, against) < target; i++) c = c.map(v => Math.max(0, Math.round(v * 0.92))) as [number, number, number];
       return c;
     };
     const str = (c: number[]) => `${c[0]} ${c[1]} ${c[2]}`;
+    const hex = (c: number[]) => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+    const c = theme.colors;
 
-    root.style.setProperty('--theme-primary', theme.colors.primary);
-    root.style.setProperty('--theme-primary-gradient', theme.colors.primaryGradient);
-    root.style.setProperty('--theme-shadow', theme.colors.shadow);
-    root.style.setProperty('--theme-text', theme.colors.text);
+    // primary: buttons (white text >= 4.5:1), also read as text on the cream page (>= 4.5:1)
+    const primaryRaw = toRgb(c.primary) || [87, 83, 78];
+    const primary = ensureContrast(ensureContrast(primaryRaw, 4.5, WHITE), 4.5);
+    // deep: text and headings (>= 7:1); older themes without it start from the primary
+    const deep = ensureContrast(toRgb(c.deep) || primary, 7);
+    // accent: highlights (>= 4.5:1)
+    const accent = ensureContrast(toRgb(c.accent) || primary, 4.5);
+    // vivid: decorative glows only; older themes used the raw accent here
+    const vivid = toRgb(c.vivid) || toRgb(c.accent) || primaryRaw;
+
+    root.style.setProperty('--theme-primary', hex(primary));
+    root.style.setProperty('--theme-primary-rgb', str(primary));
+    root.style.setProperty('--theme-primary-gradient', c.primaryGradient || hex(vivid));
+    root.style.setProperty('--theme-shadow', c.shadow || hex(deep));
+    root.style.setProperty('--theme-shadow-rgb', str(toRgb(c.shadow) || deep));
+    root.style.setProperty('--theme-text', c.text || '#ffffff');
+    root.style.setProperty('--theme-deep-rgb', str(deep));
+    root.style.setProperty('--theme-accent', `rgb(${accent.join(',')})`);
+    root.style.setProperty('--theme-accent-rgb', str(accent));
+    root.style.setProperty('--theme-vivid-rgb', str(vivid));
+    root.style.setProperty('--theme-accent-vivid-rgb', str(vivid));
     // Newsreader is the only display face loaded; older stored themes may name fonts that aren't
     root.style.setProperty('--font-display', '"Newsreader", Georgia, serif');
 
-    const primary = toRgb(theme.colors.primary);
-    if (primary) root.style.setProperty('--theme-primary-rgb', str(ensureContrast(primary, 7)));
-    const shadow = toRgb(theme.colors.shadow);
-    if (shadow) root.style.setProperty('--theme-shadow-rgb', str(shadow));
-    const accent = toRgb(theme.colors.accent || theme.colors.primaryGradient);
-    if (accent) {
-      const safe = ensureContrast(accent, 4.5);
-      root.style.setProperty('--theme-accent', `rgb(${safe.join(',')})`);
-      root.style.setProperty('--theme-accent-rgb', str(safe));
-      root.style.setProperty('--theme-accent-vivid-rgb', str(accent));
-    }
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme.colors.shadow || '#1c1917');
+    if (meta) meta.setAttribute('content', hex(deep));
     // The favicon and home-screen icon wear the fortnight's colours too
-    applyThemeMark(theme.colors);
+    applyThemeMark(c);
     startBranding();
   },
 
   getDailyTheme: async (): Promise<DailyTheme | null> => {
-    const stored = localStorage.getItem('daily_theme_v5');
+    const stored = localStorage.getItem('daily_theme_v6');
     if (!stored) return null;
     try {
       const theme = JSON.parse(stored);
@@ -143,7 +161,7 @@ export const ThemeService = {
   generateAndSaveDailyTheme: async (): Promise<DailyTheme | null> => {
     const theme = await ThemeService.generateDynamicTheme();
     if (theme) {
-      localStorage.setItem('daily_theme_v5', JSON.stringify(theme));
+      localStorage.setItem('daily_theme_v6', JSON.stringify(theme));
     }
     return theme;
   }

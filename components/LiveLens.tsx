@@ -1367,7 +1367,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           <div className="absolute inset-x-4 top-1/3 z-[130] mx-auto max-w-xs bg-white rounded-2xl p-5 text-center shadow-2xl" role="alertdialog" aria-labelledby="idle-title">
               <p id="idle-title" className="font-display text-lg text-stone-900">Still with me?</p>
               <p className="text-sm text-stone-600 mt-1">I'll rest in {idleWarning}s.</p>
-              <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="mt-4 w-full py-3 rounded-xl bg-stone-900 text-white font-bold">Keep going</button>
+              <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="mt-4 w-full py-3 rounded-xl bg-theme-primary text-white font-bold">Keep going</button>
           </div>
       )}
       {pendingAnalyses > 0 && (
@@ -1428,7 +1428,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               if (c) cleanupRef.current = c;
                           });
                       }}
-                      className="px-6 py-3 bg-theme-accent text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
+                      className="px-6 py-3 bg-theme-primary text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
                   >
                       Try again
                   </button>
@@ -1552,8 +1552,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       <div className="relative z-40 p-8 pt-0 safe-pb">
           {showModalityTooltip && (
               <div className="absolute bottom-40 left-1/2 -translate-x-1/2 z-[60] w-full max-w-xs animate-slide-up pointer-events-auto">
-                  <div className="bg-theme-accent text-white p-6 rounded-3xl shadow-2xl relative">
-                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-theme-accent rotate-45" />
+                  <div className="bg-theme-primary text-white p-6 rounded-3xl shadow-2xl relative">
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-theme-primary rotate-45" />
                       <p className="font-display text-lg leading-snug mb-4">
                           Add photos or sounds and your guide will look at them together.
                       </p>
@@ -1629,7 +1629,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               </svg>
                           )}
 
-                          <div className={`w-20 h-20 rounded-full shadow-[0_0_30px_rgba(255,165,0,0.3)] flex items-center justify-center transition-all ${isCameraActive ? 'bg-white' : 'bg-white/10 border border-white/20'} ${isRecordingVideo ? 'bg-red-500' : ''}`}>
+                          <div className={`w-20 h-20 rounded-full shadow-[0_0_30px_rgb(var(--theme-vivid-rgb)/0.4)] flex items-center justify-center transition-all ${isCameraActive ? 'bg-white' : 'bg-white/10 border border-white/20'} ${isRecordingVideo ? 'bg-red-500' : ''}`}>
                               <span className={`material-symbols-outlined text-4xl transition-colors ${isCameraActive ? 'text-theme-vivid' : 'text-theme-vivid/60'} ${isRecordingVideo ? 'text-white' : ''}`}>
                                   {isRecordingVideo ? 'videocam' : (isCameraActive ? 'photo_camera' : 'sensors')}
                               </span>
