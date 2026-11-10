@@ -488,6 +488,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
     }
   };
 
+  const [muted, setMuted] = useState(false);
+  useEffect(() => { if (!isOwnProfile && currentUserId && !isAnonymous) FirebaseService.isMuted(userId).then(setMuted).catch(() => {}); }, [userId, isOwnProfile, currentUserId, isAnonymous]);
+  const toggleMute = async () => {
+    setSheet(null);
+    if (!currentUserId || isAnonymous) { onRequireAccount?.('Create a free account to mute explorers.'); return; }
+    try {
+      if (muted) { await FirebaseService.unmuteUser(userId); setMuted(false); showToast(`${username} unmuted`); }
+      else { await FirebaseService.muteUser(userId); setMuted(true); showToast(`${username} muted. Their sightings won't appear in your feed; they won't be told.`); }
+    } catch (e) { showToast(socialError(e, 'Could not change that. Please try again.')); }
+  };
+
   const toggleBlock = async () => {
     setSheet(null);
     if (!blocked && !window.confirm(`Block ${username}? You won't see their posts or comments, and they'll be removed from your followers list.`)) return;
@@ -755,9 +766,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         <Sheet title={username} onClose={() => setSheet(null)}>
           <div className="flex flex-col gap-1">
             <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share profile</button>
-            {currentUserId && !isAnonymous && (
+            {currentUserId && !isAnonymous && (<>
+              <button onClick={toggleMute} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_up' : 'volume_off'}</span>{muted ? 'Unmute' : 'Mute'} {username}</button>
               <button onClick={toggleBlock} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">block</span>{blocked ? 'Unblock' : 'Block'} {username}</button>
-            )}
+            </>)}
           </div>
         </Sheet>
       )}

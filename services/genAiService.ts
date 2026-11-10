@@ -1,4 +1,5 @@
 import { apiUrl } from './apiOrigin';
+import { appCheckHeaders } from './appCheck';
 import { auth } from "../firebaseConfig";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
 
@@ -86,7 +87,7 @@ const client = async () => {
         const parts = typeof contents === 'string' ? [{ text: contents }] : contents.parts;
         const res = await fetch(apiUrl(`/api-proxy/v1beta/models/${encodeURIComponent(model)}:generateContent`), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(await appCheckHeaders()) },
           body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
         });
         const json: any = await res.json().catch(() => ({}));

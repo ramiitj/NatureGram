@@ -42,7 +42,14 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
   const [thanked, setThanked] = useState<string[]>(() => readThanked(postId));
   const [showAll, setShowAll] = useState(false);
 
-  useEffect(() => { FirebaseService.getIdentifications(postId).then(setIds); }, [postId]);
+  useEffect(() => {
+    FirebaseService.getIdentifications(postId).then(list => {
+      setIds(list as any);
+      // Thanks saved on the identification itself (older thanks live only on this device)
+      const saved = (list as any[]).filter(i => i.thanked).map(i => i.id);
+      if (saved.length) setThanked(prev => Array.from(new Set([...prev, ...saved])));
+    });
+  }, [postId]);
 
   // Each identifier's standing, from their profile: species on their list, else sightings shared
   useEffect(() => {
@@ -102,6 +109,8 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
     const next = [...thanked, d.id];
     setThanked(next); writeThanked(postId, next);
     try {
+      // Saved on the slip so the thanks shows everywhere; rules allow only the post's author to set it
+      await FirebaseService.thankIdentification(postId, d.id).catch(() => { /* rules not yet deployed: keep the notification */ });
       const me = await FirebaseService.getUserProfile(currentUserId).catch(() => null);
       const who = (me?.username || 'The explorer who posted it').slice(0, 60);
       await FirebaseService.addNotification(d.id, {

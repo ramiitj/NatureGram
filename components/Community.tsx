@@ -235,6 +235,8 @@ interface CommunityProps {
   headerActions?: React.ReactNode;
   /** Opens the naturalist-of-the-fortnight page (from the challenge card) */
   onOpenNaturalist?: () => void;
+  /** Opens Explore (places, kinds of life, the fortnight's challenge) */
+  onOpenExplore?: () => void;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -257,7 +259,8 @@ const Community: React.FC<CommunityProps> = ({
     detailOnly = false,
     initialPost = null,
     headerActions,
-    onOpenNaturalist
+    onOpenNaturalist,
+    onOpenExplore
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const sendAsLetter = onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
@@ -366,10 +369,14 @@ const Community: React.FC<CommunityProps> = ({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
   const [serverUsers, setServerUsers] = useState<UserProfileData[]>([]);
+  const [serverMatches, setServerMatches] = useState<CommunityPost[]>([]);
   useEffect(() => {
     const q = searchQuery.trim();
-    if (q.length < 2 || q.startsWith('#') || isJournalOnly) { setServerUsers([]); return; }
+    if (q.length < 2 || isJournalOnly) { setServerUsers([]); setServerMatches([]); return; }
     const t = window.setTimeout(() => {
+      // Sightings beyond the loaded page: search keys written on publish (falls back to tags inside the service)
+      FirebaseService.searchPosts(q).then(setServerMatches).catch(() => setServerMatches([]));
+      if (q.startsWith('#')) { setServerUsers([]); return; }
       FirebaseService.searchUsers(q).then(setServerUsers);
       track('search', { length: q.length });
     }, 300);
@@ -407,7 +414,10 @@ const Community: React.FC<CommunityProps> = ({
 
   // Computes sorted and filtered posts in memory (allowing dynamic full-text and attribute search without Firestore indexing errors)
   const filteredAndSortedPosts = React.useMemo(() => {
-    return posts
+    const pool = searchQuery.trim() && serverMatches.length
+      ? [...posts, ...serverMatches.filter(m => !posts.some(p => p.id === m.id))]
+      : posts;
+    return pool
       .filter(post => {
         if (blockedIds.includes(post.userId)) return false;
         // 1. Full-text search match (Titles, Labels, Descriptions, Locations, Insights)
@@ -506,7 +516,7 @@ const Community: React.FC<CommunityProps> = ({
         }
         return 0;
       });
-  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, selectedGroups, blockedIds]);
+  }, [posts, serverMatches, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, selectedGroups, blockedIds]);
 
   // "For you" is ranked when no search/filter/sort override is active; otherwise explicit ordering wins
   const displayPosts = React.useMemo(() => {
@@ -1066,6 +1076,18 @@ const Community: React.FC<CommunityProps> = ({
       }
   };
 
+  const handleMuteAuthor = async () => {
+      if (!activePost) return;
+      setPostMenuOpen(false);
+      if (!isMember) { askAccount('Create a free account to mute explorers.'); return; }
+      try {
+          await FirebaseService.muteUser(activePost.userId);
+          setBlockedIds(prev => [...prev, activePost.userId]);
+          closeDetail();
+          showToast(`${activePost.userName} muted. They won't know, and you can unmute from their page.`);
+      } catch { showToast('Could not mute. Please try again.'); }
+  };
+
   const handleBlockAuthor = async () => {
       if (!activePost) return;
       setPostMenuOpen(false);
@@ -1421,6 +1443,11 @@ const Community: React.FC<CommunityProps> = ({
                         <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
                             <Glyph name="tracks" size={24} />
                             {unreadActivity > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
+                        </button>
+                    )}
+                    {!isJournalOnly && onOpenExplore && (
+                        <button onClick={onOpenExplore} aria-label="Explore" className="w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
+                            <Glyph name="compass" size={24} />
                         </button>
                     )}
                     {!isJournalOnly && onOpenMessages && (
@@ -1944,6 +1971,7 @@ const Community: React.FC<CommunityProps> = ({
                                     <>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">person</span>View {activePost.userName}</button>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report post</button>
+                                        <button role="menuitem" onClick={handleMuteAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">volume_off</span>Mute {activePost.userName}</button>
                                         <button role="menuitem" onClick={handleBlockAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">block</span>Block {activePost.userName}</button>
                                     </>
                                 )}

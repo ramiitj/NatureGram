@@ -31,6 +31,7 @@ const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
 const DraftsTray = lazy(() => import('./components/DraftsTray.tsx'));
 const Messages = lazy(() => import('./components/Messages.tsx'));
 const Reels = lazy(() => import('./components/Reels.tsx'));
+const Explore = lazy(() => import('./components/Explore.tsx'));
 const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
 const NaturalistPage = lazy(() => import('./components/NaturalistPage.tsx'));
 const NaturalistPersonaModal = lazy(() => import('./components/NaturalistPersonaModal.tsx'));
@@ -101,6 +102,7 @@ const PATHS: Record<AppView, string> = {
   [AppView.SHARED_POST]: '/feed',
   [AppView.MESSAGES]: '/messages',
   [AppView.REELS]: '/reels',
+  [AppView.EXPLORE]: '/explore',
 };
 
 const pathId = (p: string, prefix: string) => (p.startsWith(prefix) ? decodeURIComponent(p.slice(prefix.length).split('/')[0] || '') || null : null);
@@ -116,6 +118,7 @@ const viewFromPath = (p: string): AppView => {
   if (p.startsWith('/drafts')) return AppView.DRAFTS;
   if (p.startsWith('/messages')) return AppView.MESSAGES;
   if (p.startsWith('/reels')) return AppView.REELS;
+  if (p.startsWith('/explore')) return AppView.EXPLORE;
   // Lens and review need live state; after a refresh, land on the feed instead of an empty screen
   return AppView.COMMUNITY;
 };
@@ -651,7 +654,7 @@ const App: React.FC = () => {
   }, [isNotificationsOpen]);
 
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
-  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS) && !isDetailActive;
+  const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS || currentView === AppView.EXPLORE) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
   const openActivity = () => setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
@@ -927,7 +930,7 @@ const App: React.FC = () => {
                   selectedPostId={selectedPostId}
                   onPostClose={handlePostClose}
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
-                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : "Wild"}
+                  backLabel={returnView === AppView.JOURNAL ? "Journal" : returnView === AppView.REELS ? "Moments" : returnView === AppView.MESSAGES ? "Letters" : returnView === AppView.EXPLORE ? "Explore" : "Wild"}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
@@ -937,6 +940,7 @@ const App: React.FC = () => {
                   onOpenNaturalist={openNaturalist}
                   onOpenActivity={openActivity}
                   onOpenMessages={() => openMessages()}
+                  onOpenExplore={() => handleNavigationRequest(AppView.EXPLORE)}
                   unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                   unreadMessages={unreadMessages}
                 />
@@ -1013,6 +1017,20 @@ const App: React.FC = () => {
                 onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                 onRequireAccount={requireAccount}
               />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {currentView === AppView.EXPLORE && userMode && (
+          <ErrorBoundary label="explore">
+            <Suspense fallback={<ViewLoader />}>
+              <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar pb-28 lg:pb-8">
+                <Explore
+                  onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onOpenPost={(postId: string) => { setReturnView(AppView.EXPLORE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
+                  onOpenProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
+                />
+              </div>
             </Suspense>
           </ErrorBoundary>
         )}
