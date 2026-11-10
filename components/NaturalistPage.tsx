@@ -122,7 +122,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
               </p>
               {onOpenLens && (
                 <button onClick={onOpenLens} className="mt-4 px-5 py-2.5 rounded-full bg-theme-primary text-white text-sm font-semibold inline-flex items-center gap-2">
-                  <Glyph name="lens" size={18} /> Go and look
+                  <Glyph name="eyeEar" size={18} /> Go and look
                 </button>
               )}
             </div>

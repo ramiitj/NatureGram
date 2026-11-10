@@ -146,7 +146,7 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
         </div>
 
         <section className={`${card} p-5 sm:p-6`} aria-labelledby="g-mode">
-          <h2 id="g-mode" className="font-display text-xl text-text-main flex items-center gap-2"><Glyph name="compass" size={22} className="text-theme-accent" />What teen mode does</h2>
+          <h2 id="g-mode" className="font-display text-xl text-text-main flex items-center gap-2"><Glyph name="leafCompass" size={22} className="text-theme-accent" />What teen mode does</h2>
           <div className="mt-3"><List items={f.teenMode} glyph="compass" /></div>
           <p className="mt-4 text-sm text-stone-600">It ends on its own when they turn 18.</p>
         </section>

@@ -135,7 +135,7 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
                   <NaturalistLine quote={theme.quote} by={theme.naturalist} />
                   <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
                     <button onClick={() => onDone('lens')} className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-theme-primary text-white text-[15px] font-semibold shadow-sm hover:opacity-95 active:scale-[0.98] transition">
-                      <Glyph name="lens" size={20} strokeWidth={1.7} />Open the Lens
+                      <Glyph name="eyeEar" size={20} strokeWidth={1.7} />Open the Lens
                     </button>
                     <button onClick={() => parsed.cont ? window.location.assign(parsed.cont) : onDone('feed')} className="px-4 py-3 text-[15px] font-semibold text-stone-600 hover:text-stone-900">
                       {parsed.cont ? 'Back to where you were' : 'Look around the feed first'}
@@ -304,7 +304,7 @@ const ProblemView: React.FC<{ problem: Problem; mode: Mode; onSignIn: () => void
 
   return (
     <div className="max-w-[540px]">
-      <Glyph name="letter" size={38} className="text-theme-accent" />
+      <Glyph name="sealed" size={38} className="text-theme-accent" />
       <h1 className="font-display text-[30px] sm:text-[38px] leading-[1.15] font-medium text-stone-900 mt-4">{copy.title}</h1>
       <p className="text-[17px] leading-relaxed text-stone-700 mt-3">{copy.body}</p>
 

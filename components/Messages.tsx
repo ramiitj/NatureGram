@@ -206,7 +206,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
         </div>
       )}
       <button onClick={askWhere} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-theme-accent/40 text-theme-accent text-sm font-semibold hover:bg-theme-accent/5">
-        <Glyph name="compass" size={16} /> Ask where to look
+        <Glyph name="leafCompass" size={16} /> Ask where to look
       </button>
     </section>
   );
@@ -279,7 +279,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           <div className="mt-2 flex items-center justify-between gap-3">
             <p id="dm-hint" className="text-xs text-stone-500 hidden sm:block">Ctrl or ⌘ + Enter also sends</p>
             <button type="submit" disabled={!text.trim() || sending} className="ml-auto px-5 py-2.5 rounded-full bg-theme-primary text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40">
-              <Glyph name="letter" size={17} />{sending ? 'Sending…' : 'Send'}
+              <Glyph name="sealed" size={17} />{sending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>

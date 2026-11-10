@@ -83,7 +83,7 @@ const TeenBanner: React.FC<{ state?: TeenState }> = ({ state: forced }) => {
       )}
       {link && (
         <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.'); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-theme-primary text-white text-sm font-semibold flex items-center justify-center gap-2">
-          <Glyph name="letter" size={18} />Send this to your parent
+          <Glyph name="sealed" size={18} />Send this to your parent
         </button>
       )}
       {note && <p role="status" className="mt-2 text-[13px] text-stone-600 leading-snug">{note}</p>}

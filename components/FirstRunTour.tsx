@@ -26,7 +26,7 @@ type Step = { id: string; target: string; title: string; body: string };
 /** One explorer's story, in the order they will live it. */
 const STEPS: Step[] = [
   { id: 'wild', target: 'feed', title: 'What explorers are noticing', body: 'This is Wild: what people outside have stopped to look at today, from first buds to rare visitors.' },
-  { id: 'explore', target: 'explore', title: 'Wander by place or kind', body: 'The compass opens Explore. Browse by where things were seen, or by the kind of life you love.' },
+  { id: 'explore', target: 'explore', title: 'Wander by place or kind', body: 'The leaf compass opens Explore. Browse by where things were seen, or by the kind of life you love.' },
   { id: 'lens', target: 'capture', title: 'Your guide sees what you see', body: 'Open the Lens and point it at anything alive. I will look and listen with you, and help you put a name to it.' },
   { id: 'moments', target: 'reels', title: 'Small lives, in motion', body: 'Moments are short clips of wingbeats, birdsong and rustling leaves, one after another.' },
   { id: 'journal', target: 'journal', title: 'Every outing becomes a page', body: 'Each walk is written up in your Journal, with its photos, the place, and my notes from the day.' },

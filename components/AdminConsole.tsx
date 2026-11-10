@@ -23,7 +23,7 @@ const SECTIONS: { id: Section; label: string; glyph: GlyphName; blurb: string }[
   { id: 'monitor', label: 'AI monitor', glyph: 'guide', blurb: "Every call the guide makes, today's usage, and how often explorers correct it." },
   { id: 'review', label: 'Review', glyph: 'stamp', blurb: 'Sightings and field notes waiting for a decision, and reports from explorers.' },
   { id: 'people', label: 'People', glyph: 'binoculars', blurb: 'Look up an explorer, see what they have been doing, and step in when needed.' },
-  { id: 'letters', label: 'Reported letters', glyph: 'letter', blurb: 'Conversations an explorer has reported. Only these can be read.' },
+  { id: 'letters', label: 'Reported letters', glyph: 'sealed', blurb: 'Conversations an explorer has reported. Only these can be read.' },
   { id: 'experiments', label: 'Experiments', glyph: 'compass', blurb: 'Feature flags and A/B tests. Each explorer always lands in the same group.' },
   { id: 'branding', label: 'Branding', glyph: 'sun', blurb: "NatureGram's mark in the browser tab and on home screens. By default it is the landing sun in the colours of the naturalist of the fortnight." },
   { id: 'data', label: 'Data explorer', glyph: 'notebook', blurb: 'Exports, maintenance jobs and a read-only look at the records.' },

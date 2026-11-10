@@ -299,7 +299,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
         <div className="flex items-start justify-between gap-3">
           <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
             <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary flex items-center gap-2">
-              <span className="material-symbols-outlined text-[26px] text-theme-accent" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">fingerprint</span>
+              <Glyph name="rings" size={26} className="text-theme-accent" />
               My journal
             </h2>
             {posts.length > 0 && (
@@ -406,7 +406,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
                   </div>
                 ) : (
                   <div className="py-24 flex flex-col items-center text-center">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-5" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">fingerprint</span>
+                    <Glyph name="rings" size={48} strokeWidth={1.1} className="text-theme-primary/25 mb-5" />
                     <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">Your journal starts outside</h3>
                     <p className="text-base text-stone-600 max-w-xs">Each outing becomes a page here, dated, placed and in your own words.</p>
                   </div>

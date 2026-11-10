@@ -675,12 +675,12 @@ const App: React.FC = () => {
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
-  const navItems: { key: string; label: string; icon: string; active: boolean; onClick: () => void; badge?: number }[] = [
-    { key: 'feed', label: 'Wild', icon: 'forest', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
-    { key: 'reels', label: 'Moments', icon: 'wb_twilight', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
-    { key: 'capture', label: 'Lens', icon: 'camera', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
-    { key: 'journal', label: 'Journal', icon: 'fingerprint', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
-    { key: 'profile', label: 'You', icon: 'person', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
+  const navItems: { key: string; label: string; icon: GlyphName; active: boolean; onClick: () => void; badge?: number }[] = [
+    { key: 'feed', label: 'Wild', icon: 'meadow', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
+    { key: 'reels', label: 'Moments', icon: 'firefly', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
+    { key: 'capture', label: 'Lens', icon: 'eyeEar', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
+    { key: 'journal', label: 'Journal', icon: 'rings', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'profile', label: 'You', icon: 'seedling', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
   ];
 
   return (
@@ -738,7 +738,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
                 <div className="mt-3 flex items-start gap-2.5">
-                  <Glyph name="compass" size={20} className="text-theme-accent mt-0.5" />
+                  <Glyph name="leafCompass" size={20} className="text-theme-accent mt-0.5" />
                   <p className="text-sm text-stone-700 leading-relaxed">Next week: {[nextWeekHint().season, nextWeekHint().moment].filter(Boolean).join(' ')}</p>
                 </div>
                 {!userMode?.isAnonymous && (
@@ -800,7 +800,7 @@ const App: React.FC = () => {
                     <span className="orb-ring" />
                     <span className="orb-ring" />
                     <span className="orb-core w-full h-full rounded-full flex items-center justify-center text-white">
-                      <Glyph name="compass" size={44} strokeWidth={1.5} className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" />
+                      <Glyph name="leafCompass" size={44} strokeWidth={1.5} className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" />
                     </span>
                   </span>
                   <span className="block">
@@ -1153,7 +1153,7 @@ const App: React.FC = () => {
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
               <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
-                <Glyph name="lens" size={28} strokeWidth={1.6} />
+                <Glyph name="eyeEar" size={28} strokeWidth={1.6} />
               </button>
             ) : (
               <button
@@ -1164,7 +1164,7 @@ const App: React.FC = () => {
                 aria-current={item.active ? 'page' : undefined}
                 className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
               >
-                <span className={`material-symbols-outlined text-[25px] transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} style={{ fontVariationSettings: item.active ? "'FILL' 1, 'wght' 400" : "'FILL' 0, 'wght' 300" }} aria-hidden="true">{item.icon}</span>
+                <Glyph name={item.icon} size={25} strokeWidth={item.active ? 2 : 1.5} className={`transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} />
                 <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
                 {item.active && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
                 {!!item.badge && (

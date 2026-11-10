@@ -203,7 +203,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           <ul className="flex flex-col gap-2 md:gap-3 text-[13px] md:text-sm text-stone-700 leading-snug" role="list">
             <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A field notebook for every outing</li>
             <li className="flex items-center gap-2.5"><Glyph name="fern" size={20} className="text-theme-accent" />A life list, species by species</li>
-            <li className="flex items-center gap-2.5"><Glyph name="letter" size={20} className="text-theme-accent" />Letters with other explorers</li>
+            <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-theme-accent" />Letters with other explorers</li>
           </ul>
         </div>
       )}
@@ -241,7 +241,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               <>
                 <p className="text-[15px] text-stone-700 leading-relaxed">Send this link to your parent or guardian. It explains NatureGram and what we keep, and takes them about two minutes. It works for 7 days.</p>
                 <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
-                  <Glyph name="letter" size={20} />Send this to your parent
+                  <Glyph name="sealed" size={20} />Send this to your parent
                 </button>
                 {shared && <p className="text-sm text-stone-600">{shared}</p>}
               </>
@@ -252,7 +252,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               <p className="text-sm font-semibold text-stone-800">While you wait, you can</p>
               <ul className="mt-2 flex flex-col gap-2 text-sm text-stone-700" role="list">
                 <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-theme-accent" />Browse the feed, Moments and Explore</li>
-                <li className="flex items-center gap-2.5"><Glyph name="lens" size={18} className="text-theme-accent" />Use the Lens and ask the guide</li>
+                <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-theme-accent" />Use the Lens and ask the guide</li>
                 <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Keep sightings in your own journal</li>
               </ul>
             </div>
@@ -277,8 +277,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                 </div>
                 <ul className="flex flex-col gap-2 text-[13px] text-stone-700 leading-snug rounded-[3px] bg-[#fbf7ef] border border-[#e8dfcd] p-3.5" role="list" aria-label="Teen mode">
                   <li className="flex items-center gap-2.5"><Glyph name="feather" size={18} className="text-theme-accent" />No ads, and nothing that tracks you</li>
-                  <li className="flex items-center gap-2.5"><Glyph name="compass" size={18} className="text-theme-accent" />Where you found something is never shown</li>
-                  <li className="flex items-center gap-2.5"><Glyph name="letter" size={18} className="text-theme-accent" />Letters only with explorers you both follow</li>
+                  <li className="flex items-center gap-2.5"><Glyph name="leafCompass" size={18} className="text-theme-accent" />Where you found something is never shown</li>
+                  <li className="flex items-center gap-2.5"><Glyph name="sealed" size={18} className="text-theme-accent" />Letters only with explorers you both follow</li>
                 </ul>
               </>
             )}
@@ -353,7 +353,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             )}
             {notice && (
               <p role="status" className="flex gap-2.5 items-start text-sm text-stone-800 bg-insight-bg border border-theme-accent/25 rounded-lg px-3.5 py-3 leading-relaxed">
-                <Glyph name="letter" size={20} className="text-theme-accent mt-px" />
+                <Glyph name="sealed" size={20} className="text-theme-accent mt-px" />
                 <span>{notice}</span>
               </p>
             )}

@@ -35,7 +35,17 @@ export type GlyphName =
   | 'signpost'      // off the trail (errors, wrong turns)
   | 'key'          // a field-station key (password reset)
   | 'seal'          // audit & security (a wax seal with a keyhole)
-  | 'scales';       // allowances and limits (a balance)
+  | 'scales'        // allowances and limits (a balance)
+  // The explorer's day: go out, notice, record, grow, share (navigation and header)
+  | 'meadow'        // Wild: grasses leaning in the wind
+  | 'firefly'       // Moments: a streak of light you only see for a second
+  | 'eyeEar'        // Lens: the guide sees and hears with you
+  | 'rings'         // Journal: a ring for every year, the record growing outward
+  | 'seedling'      // You: growing with every sighting
+  | 'ripples'       // Activity: someone touched your work and it spread
+  | 'leafCompass'   // Explore: a compass whose needle is a leaf
+  | 'sealed'        // Letters: a wax-sealed letter, meant for one person
+  | 'spark';        // Marvel: the jolt of "I had never seen that"
 
 const P: Record<GlyphName, React.ReactNode> = {
   notebook: <><path d="M6 3.5h11a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H6z" /><path d="M6 3.5v17M4 7h3M4 12h3M4 17h3" /><path d="M10 8h5M10 11h4" /></>,
@@ -67,6 +77,15 @@ const P: Record<GlyphName, React.ReactNode> = {
   key: <><circle cx="8" cy="16" r="4.5" /><circle cx="8" cy="16" r="1.3" /><path d="M11.2 12.8L20 4M15.5 8.5l2.5 2.5M18 6l2 2" /></>,
   seal: <><circle cx="12" cy="9.5" r="6.5" /><circle cx="12" cy="9.5" r="4.2" strokeDasharray="1.4 1.6" /><circle cx="12" cy="8.7" r="1.1" /><path d="M12 9.8v1.8M9 15.3 7.8 21l2.4-1.4L12 21l1.8-1.4 2.4 1.4L15 15.3" /></>,
   scales: <><path d="M12 4v15.5M8.5 20h7M5 7h14M12 4.5l-1 2.5h2z" /><path d="M7 7.5 4.5 13h5zM17 7.5 14.5 13h5z" /><path d="M4.5 13a2.5 1.8 0 0 0 5 0M14.5 13a2.5 1.8 0 0 0 5 0" /></>,
+  meadow: <><path d="M3 20.5h18" /><path d="M6 20.5c0-4 .8-7 2.6-9.5M9.5 20.5c0-5.5 1-9.5 3.2-13M13.5 20.5c0-4 1.4-7 4-9M17.5 20.5c0-2.5.6-4.3 1.9-5.6" /></>,
+  firefly: <><path d="M3.5 19c3-.6 5-3 6.2-6.4S13.4 6.5 16.6 6.2" strokeDasharray="1.2 2.6" /><circle cx="17.6" cy="6" r="1.7" fill="currentColor" /><circle cx="17.6" cy="6" r="3.6" opacity=".35" /></>,
+  eyeEar: <><path d="M2.5 12s3-5.5 8-5.5 8 5.5 8 5.5-3 5.5-8 5.5-8-5.5-8-5.5z" /><circle cx="10.5" cy="12" r="2.2" /><path d="M20 8.5c1 1 1.5 2.2 1.5 3.5s-.5 2.5-1.5 3.5" /></>,
+  rings: <><path d="M12 3.5c4.8 0 8.5 3.8 8.5 8.6s-3.8 8.4-8.5 8.4-8.5-3.7-8.5-8.5S7.2 3.5 12 3.5z" /><path d="M12 6.8c3 0 5.3 2.3 5.3 5.2s-2.4 5.2-5.3 5.2S6.7 15 6.7 12 9 6.8 12 6.8z" /><circle cx="12" cy="12" r="2" /><path d="M14 12.6 20 14.6" /></>,
+  seedling: <><path d="M4 20.5h16M12 20.5v-7" /><path d="M12 13.5c-4 0-6.2-2.1-6.2-5.4 3.7 0 6.2 1.9 6.2 5.4zM12 11.6c0-3.6 2.3-5.8 6.2-5.8 0 3.7-2.4 5.8-6.2 5.8z" /></>,
+  ripples: <><circle cx="12" cy="12" r="1.6" fill="currentColor" /><path d="M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6M5.4 5.4a9.3 9.3 0 0 0 0 13.2M18.6 5.4a9.3 9.3 0 0 1 0 13.2" /></>,
+  leafCompass: <><circle cx="12" cy="12" r="8.5" /><path d="M8.2 15.8c0-4.4 3.2-7.6 7.6-7.6 0 4.4-3.2 7.6-7.6 7.6zM8.2 15.8l7.6-7.6" /><path d="M12 2.5v1.8M12 19.7v1.8" /></>,
+  sealed: <><rect x="3.5" y="6" width="17" height="12" rx="1.5" /><path d="M4 7l8 6 8-6" /><circle cx="12" cy="15.5" r="2" fill="currentColor" /></>,
+  spark: <><path d="M12 3.5c.6 4.4 2.2 6 6.5 6.5-4.3.5-5.9 2.1-6.5 6.5-.6-4.4-2.2-6-6.5-6.5 4.3-.5 5.9-2.1 6.5-6.5z" /></>,
 };
 
 export const Glyph: React.FC<{ name: GlyphName; className?: string; size?: number; strokeWidth?: number; title?: string }> = ({ name, className = '', size = 22, strokeWidth = 1.5, title }) => (

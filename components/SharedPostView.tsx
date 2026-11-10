@@ -268,7 +268,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                  </p>
                  {extra.philosophy && <p className="mt-2 text-sm text-stone-600 font-display italic">{extra.philosophy}</p>}
                  <button onClick={onOpenLens || onGoToApp} className="mt-4 w-full bg-theme-primary text-white px-6 py-3.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center justify-center gap-2">
-                     <Glyph name="lens" size={20} />
+                     <Glyph name="eyeEar" size={20} />
                      Open the Lens
                  </button>
                  <button onClick={onGoToApp} className="mt-2 w-full text-sm text-theme-accent font-semibold py-2">See what others found</button>

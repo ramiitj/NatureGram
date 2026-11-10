@@ -368,7 +368,7 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
   };
   return (
     <div className="mt-4 p-4 rounded-[3px] bg-[#fbf7ef] border border-[#e3d9c6] flex items-start gap-3">
-      <Glyph name="letter" size={26} className="text-theme-accent shrink-0 mt-0.5" />
+      <Glyph name="sealed" size={26} className="text-theme-accent shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="font-display text-[17px] text-stone-900 leading-snug">Check your inbox</p>
         <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your notebook is yours to keep.</p>
@@ -572,7 +572,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         <section className="px-5 pt-8 pb-4 max-w-lg mx-auto">
           <div className="flex items-center gap-4">
             <span className="shrink-0 w-20 h-20 rounded-full border border-dashed border-theme-accent/50 flex items-center justify-center text-theme-accent/70" aria-hidden="true">
-              <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'wght' 200" }}>fingerprint</span>
+              <Glyph name="rings" size={36} strokeWidth={1.2} />
             </span>
             <div>
               <p className="text-2xl font-display font-semibold text-theme-primary leading-tight">Your field page</p>
@@ -667,7 +667,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {isOwnProfile ? (
               <>
                 <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit profile</button>
-                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" aria-hidden="true">fingerprint</span>Journal</button>
+                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><Glyph name="rings" size={18} />Journal</button>
                 <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             ) : blocked ? (
@@ -808,7 +808,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
             )}
             {onRetakeTour && (
-              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="compass" size={24} />Take the tour again</button>
+              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="leafCompass" size={24} />Take the tour again</button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">shield</span>Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">description</span>Terms & community guidelines</a>
