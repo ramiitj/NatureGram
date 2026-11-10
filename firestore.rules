@@ -68,10 +68,6 @@ service cloud.firestore {
       );
     }
 
-    // Fields an author may never set/alter directly on a post
-    function protectedPostKeys() {
-      return ['userId', 'likes', 'likeCount', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'timestamp', 'moderation'];
-    }
     // What an author may edit on their own sighting after publishing (words, not media or the guide's words)
     function authorTextKeys() {
       return ['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors',
