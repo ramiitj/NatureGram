@@ -1446,12 +1446,12 @@ const Community: React.FC<CommunityProps> = ({
                         </button>
                     )}
                     {!isJournalOnly && onOpenExplore && (
-                        <button onClick={onOpenExplore} aria-label="Explore" className="w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
+                        <button onClick={onOpenExplore} aria-label="Explore" data-tour="explore" className="w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
                             <Glyph name="compass" size={24} />
                         </button>
                     )}
                     {!isJournalOnly && onOpenMessages && (
-                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
+                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} data-tour="letters" className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
                             <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{unreadMessages > 0 ? 'mark_email_unread' : 'mail'}</span>
                             {unreadMessages > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
@@ -1518,6 +1518,7 @@ const Community: React.FC<CommunityProps> = ({
             {!isJournalOnly && dailyTheme?.naturalist && (
                 <button
                     type="button"
+                    data-tour="challenge"
                     onClick={() => { if (onOpenNaturalist) { onOpenNaturalist(); return; } setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
                     aria-label={`${dailyTheme.naturalist}'s challenge: ${themeExtra.challenge} Meet ${dailyTheme.naturalist} and see what explorers found.`}
                     className="w-full text-left rounded-2xl px-4 py-3 border border-theme-primary/15 hover:bg-theme-primary/5 flex items-start gap-3 transition-colors"

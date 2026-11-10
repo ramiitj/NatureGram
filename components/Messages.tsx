@@ -69,6 +69,8 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
   const [convos, setConvos] = useState<Conversation[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(initialConversationId || null);
   const [newChat, setNewChat] = useState(false);
+  // Why a letter couldn't be opened (teen mode: only between explorers who follow each other)
+  const [openIssue, setOpenIssue] = useState('');
 
   useEffect(() => FirebaseService.subscribeToInbox(setConvos), []);
   useEffect(() => { if (initialConversationId) setActiveId(initialConversationId); }, [initialConversationId]);
@@ -124,7 +126,8 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
           </ul>
         )}
       </main>
-      {newChat && <NewChatSheet onClose={() => setNewChat(false)} onPick={async (uid) => { setNewChat(false); const cid = await FirebaseService.openConversation(uid); setActiveId(cid); }} />}
+      {newChat && <NewChatSheet onClose={() => setNewChat(false)} onPick={async (uid) => { setNewChat(false); setOpenIssue(''); try { setActiveId(await FirebaseService.openConversation(uid)); } catch (e: any) { setOpenIssue(e?.message || 'That letter couldn\'t be opened just now.'); } }} />}
+      {openIssue && <div role="alert" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[95] bg-[#fcfaf8] border border-[#e8dfcd] rounded-2xl shadow-lg p-4 text-sm text-stone-800 flex gap-3 items-start"><span className="flex-1 leading-relaxed">{openIssue}</span><button onClick={() => setOpenIssue('')} className="font-semibold text-theme-accent min-h-[44px] -my-3">OK</button></div>}
     </div>
   );
 };

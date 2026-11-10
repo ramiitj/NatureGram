@@ -95,6 +95,55 @@ service cloud.firestore {
     function ageOk() {
       return !('ageConfirmed' in incoming()) || incoming().ageConfirmed == true;
     }
+    // ------------------------------------------------------------- teen mode
+    // ageBand 'teen' (13 to 17) until adultFrom passes; profiles without ageBand are adults.
+    // The guardian fields are written by the server only (server/guardian.js).
+    function profileOf(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)) ? get(/databases/$(database)/documents/users/$(uid)).data : {};
+    }
+    function isTeenProfile(p) {
+      return p.get('ageBand', 'adult') == 'teen'
+        && !(p.get('adultFrom', null) is timestamp && request.time >= p.get('adultFrom', null));
+    }
+    function teenApproved(p) { return p.get('guardian', {}).get('status', '') == 'approved'; }
+    function isTeenUid(uid) { return isTeenProfile(profileOf(uid)); }
+    // Someone the server knows as a teen can't come back as an adult by recreating their profile
+    function knownTeen(uid) {
+      return exists(/databases/$(database)/documents/guardian_consents/$(uid))
+        && get(/databases/$(database)/documents/guardian_consents/$(uid)).data.get('status', '') != 'graduated';
+    }
+    function ageBandValid(d) {
+      return d.ageBand in ['teen', 'adult']
+        && (d.ageBand == 'teen' ? d.get('adultFrom', null) is timestamp : !('adultFrom' in d));
+    }
+    // At creation: an optional band (with adultFrom for a teen); never the guardian fields
+    function ageBandCreateOk(uid) {
+      return !incoming().keys().hasAny(['guardian', 'guardianOf'])
+        && (('ageBand' in incoming()) ? ageBandValid(incoming()) : !('adultFrom' in incoming()))
+        && (incoming().get('ageBand', '') == 'teen' || !knownTeen(uid));
+    }
+    // After creation: the band may be set once (a guest upgrading to a full account); guardian fields never
+    function ageBandUpdateOk(uid) {
+      return !changedKeys().hasAny(['guardian', 'guardianOf'])
+        && (!changedKeys().hasAny(['ageBand', 'adultFrom'])
+            || (!('ageBand' in existing()) && !('adultFrom' in existing()) && ageBandValid(incoming())
+                && (incoming().ageBand == 'teen' || !knownTeen(uid))));
+    }
+    // A teen's sightings never say where
+    function teenPlaceOk() {
+      return !isTeenUid(request.auth.uid)
+        || (incoming().get('showLocation', false) != true && incoming().get('locationArea', '') == '');
+    }
+    // Letters with a teen: only between explorers who follow each other, once a parent has said yes
+    function lettersBetweenOk(a, b) {
+      let pa = profileOf(a);
+      let pb = profileOf(b);
+      return (!isTeenProfile(pa) && !isTeenProfile(pb))
+        || ((!isTeenProfile(pa) || teenApproved(pa)) && (!isTeenProfile(pb) || teenApproved(pb))
+            && exists(/databases/$(database)/documents/users/$(a)/following/$(b))
+            && exists(/databases/$(database)/documents/users/$(b)/following/$(a)));
+    }
+
     // Changing the picture takes the sighting out of the feed until the server checks it again
     function authorMediaEdit() {
       return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation']))
@@ -110,13 +159,13 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && incoming().uid == userId
         && !incoming().keys().hasAny(['admin', 'role', 'verified', 'followersCount', 'followingCount'])
-        && isStr(incoming().username, 40) && ageOk()
+        && isStr(incoming().username, 40) && ageOk() && ageBandCreateOk(userId)
         && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60);
       allow update: if isAdmin()
         || (isOwner(userId)
             && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount'])
             && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
-            && ageOk()
+            && ageOk() && ageBandUpdateOk(userId)
             && optStr('username', 40) && optStr('usernameLower', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
         // Followers counter: only moves with the caller's own follower doc (batched write)
         || (isMember() && !isOwner(userId)
@@ -205,7 +254,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isOwner(existing().userId)
             && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000)
-            && searchTokensOk() && observedAtOk()
+            && searchTokensOk() && observedAtOk() && teenPlaceOk()
             && (
               // words only; visibility may only be switched off here (on goes through the server)
               (changedKeys().hasOnly(authorTextKeys().concat(['isPublic'])) && (!('isPublic' in changedKeys()) || incoming().isPublic == false))
@@ -293,7 +342,7 @@ service cloud.firestore {
       // Written by the server when a checked sighting joins the feed
       allow create: if false;
       allow update: if isAdmin()
-        || (isOwner(existing().userId) && changedKeys().hasOnly(['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar', 'searchTokens']) && searchTokensOk())
+        || (isOwner(existing().userId) && changedKeys().hasOnly(['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar', 'searchTokens']) && searchTokensOk() && teenPlaceOk())
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
         || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'));
@@ -310,7 +359,8 @@ service cloud.firestore {
         && incoming().participants is list && incoming().participants.size() == 2
         && request.auth.uid in incoming().participants
         && incoming().participants[0] < incoming().participants[1]
-        && cid == incoming().participants[0] + '_' + incoming().participants[1];
+        && cid == incoming().participants[0] + '_' + incoming().participants[1]
+        && lettersBetweenOk(incoming().participants[0], incoming().participants[1]);
       allow update: if isMember() && isParticipant(existing())
         && changedKeys().hasOnly(['lastMessage', 'updatedAt', 'lastReadAt', 'participantInfo'])
         && incoming().participants == existing().participants;
@@ -323,6 +373,7 @@ service cloud.firestore {
           && isStr(incoming().text, 2000)
           && optStr('postId', 128)
           && incoming().keys().hasOnly(['senderId', 'text', 'postId', 'createdAt'])
+          && lettersBetweenOk(get(/databases/$(database)/documents/conversations/$(cid)).data.participants[0], get(/databases/$(database)/documents/conversations/$(cid)).data.participants[1])
           // Blocked explorers cannot message the person who blocked them
           && !exists(/databases/$(database)/documents/users/$(get(/databases/$(database)/documents/conversations/$(cid)).data.participants[0] == request.auth.uid
                 ? get(/databases/$(database)/documents/conversations/$(cid)).data.participants[1]
@@ -386,6 +437,10 @@ service cloud.firestore {
     match /review_queue/{id} { allow read, write: if false; }
     match /admin_audit/{id} { allow read, write: if false; }
     match /live_leases/{id} { allow read, write: if false; }
+    // Teen mode: parents' links (token hashes), consent records, and accounts a parent asked to close
+    match /guardian_requests/{id} { allow read, write: if false; }
+    match /guardian_consents/{id} { allow read, write: if false; }
+    match /deletion_requests/{id} { allow read, write: if false; }
     match /naturalist_profiles/{profileId} {
       allow read: if true;
       allow write: if isAdmin();

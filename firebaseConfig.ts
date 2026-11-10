@@ -1,6 +1,6 @@
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { Firestore, initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { Firestore, initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager, setLogLevel } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import firebaseConfig from "./firebase-applet-config.json";
 
@@ -23,6 +23,10 @@ if (!getApps().length) {
   app = getApps()[0];
   db = getFirestore(app);
 }
+
+// Dropped live-update streams ("WebChannelConnection … transport errored") reconnect by themselves;
+// log only real errors so previews and sleeping tabs don't fill the console with warnings.
+try { setLogLevel('error'); } catch { /* ignore */ }
 
 // Clean up the retired debug override so every client uses the default database.
 try { localStorage.removeItem("firestore_db_override"); } catch { /* storage unavailable */ }

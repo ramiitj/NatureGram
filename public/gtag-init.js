@@ -4,6 +4,8 @@ window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 gtag('consent', 'default', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' });
 window.ngLoadAdsTag = function () {
+  // Teen mode: a teenage explorer's device never loads the ads tag (services/guardian.ts sets this)
+  try { if (localStorage.getItem('naturegram_teen') === '1') return; } catch (e) {}
   if (window.__ngAdsLoaded) return;
   window.__ngAdsLoaded = true;
   gtag('consent', 'update', { ad_storage: 'granted', ad_user_data: 'granted', ad_personalization: 'denied', analytics_storage: 'granted' });

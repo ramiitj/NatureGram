@@ -57,6 +57,11 @@ NatureGram's purpose is to help people **notice, understand and care for** the l
 - Frames are streamed at 768 px or less, and unchanged frames are skipped. Only coarse (~1 km) coordinates are sent.
 - The fortnightly naturalist shapes what the guide encourages explorers to notice, keeping the AI aligned with NatureGram's purpose.
 
+### Teen protections (policy `2026.11-3`)
+- Explorers aged 13 to 17 join only with a parent's verifiable consent (see `docs/OPERATIONS.md`, Teen mode). India's DPDP Act 2023 forbids tracking, behavioural monitoring and targeted advertising for them; NatureGram does none of these for anyone under 18.
+- The platform policy now always ends with a fixed rule (`PERSONAL_DETAILS_RULE` in `server/aiGovernance.js`, applied to identify, describe, curate, synthesize, moderation and the live guide, for every explorer): the guide never asks for a name, age, birthday, school, address, phone, email, social media, exact location or photos of people; if offered, it doesn't repeat, store or build on them, and it doesn't try to work out who or how old someone is. The admin's own policy text cannot remove it.
+- A teen's sightings never carry a place in public copies, whatever the guide suggests, and teen accounts send no product analytics, so AI usage for them isn't profiled.
+
 ### Product safeguards
 | Situation | Behaviour |
 |---|---|

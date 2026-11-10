@@ -63,6 +63,7 @@ import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
 import { looksLikeSpam } from '../utils';
+import { isTeenProfile } from './guardian';
 
 /** A sighting the server held back, with words the explorer can act on. */
 export class PublishError extends Error {
@@ -90,6 +91,23 @@ const loadMuted = (force = false): Promise<Set<string>> => {
 const mutedNow = () => (mutedCache.uid && mutedCache.uid === auth.currentUser?.uid ? mutedCache.ids : new Set<string>());
 const withoutMuted = <T extends { userId?: string; senderId?: string }>(list: T[], muted: Set<string> = mutedNow()): T[] =>
   muted.size ? list.filter(x => !muted.has(String(x.userId || x.senderId || ''))) : list;
+
+/**
+ * Teen mode: a teenage explorer isn't suggested in search or explorer lists to people who don't
+ * follow them (or to anyone at all before a parent has said yes). Their own account and their
+ * parent still find them.
+ */
+const withoutUnfollowedTeens = async (list: UserProfileData[]): Promise<UserProfileData[]> => {
+  const me = auth.currentUser?.uid;
+  const teens = list.filter(u => isTeenProfile(u) && u.uid !== me && u.guardian?.parentUid !== me);
+  if (!teens.length) return list;
+  if (!me) return list.filter(u => !teens.includes(u));
+  const followed = new Set((await Promise.all(teens.map(async u => {
+    if (u.guardian?.status !== 'approved') return null;
+    try { return (await getDoc(doc(db, 'users', me, 'following', u.uid))).exists() ? u.uid : null; } catch { return null; }
+  }))).filter(Boolean) as string[]);
+  return list.filter(u => !teens.includes(u) || followed.has(u.uid));
+};
 
 /** What an explorer has left today (same allowance for everyone, set by the admin). */
 export const getMyAllowance = async (): Promise<null | { posts: { limit: number; used: number }; liveMinutes: { limit: number; used: number; usedMs?: number }; identifications: { limit: number; used: number }; resetsAt: string }> => {
@@ -166,6 +184,24 @@ const DEFAULT_CONFIG: GeminiConfig = {
   trainingExamples: []
 };
 
+/**
+ * Ask the server to send NatureGram's own account letter (server/authMail.js). 'fallback' means
+ * use Firebase's built-in email instead: no mail provider, no link permission, or no server at all.
+ */
+const brandedAuthMail = async (path: string, body: object, token?: string): Promise<'sent' | 'limited' | 'fallback'> => {
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) return 'limited';
+    if (!res.ok) return 'fallback';
+    const j = await res.json().catch(() => ({}));
+    return j.sent ? 'sent' : j.verified ? 'sent' : 'fallback';
+  } catch { return 'fallback'; }
+};
+
 export const FirebaseService = {
   getUserProfile: async (userId: string): Promise<UserProfileData | null> => {
     try {
@@ -178,7 +214,7 @@ export const FirebaseService = {
   getAllUsers: async (): Promise<UserProfileData[]> => {
     try {
       const snap = await getDocs(collection(db, "users"));
-      return snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfileData));
+      return await withoutUnfollowedTeens(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfileData)));
     } catch (e) {
       console.error("Error fetching all users:", e);
       return [];
@@ -204,7 +240,8 @@ export const FirebaseService = {
     });
   },
 
-  ensureUserProfile: async (userId: string, email?: string | null, isAnonymous: boolean = false) => {
+  /** @param atCreation fields set only if the profile is being created now (e.g. the age band at sign-up) */
+  ensureUserProfile: async (userId: string, email?: string | null, isAnonymous: boolean = false, atCreation: Record<string, any> = {}) => {
     const docRef = doc(db, "users", userId);
     try {
       const docSnap = await getDoc(docRef);
@@ -217,7 +254,8 @@ export const FirebaseService = {
           isAnonymous,
           joinedAt: serverTimestamp(),
           lastVisit: serverTimestamp(),
-          stats: { observations: 0, species: 0 }
+          stats: { observations: 0, species: 0 },
+          ...atCreation,
         };
         try {
           await setDoc(docRef, profile);
@@ -309,23 +347,27 @@ export const FirebaseService = {
   /**
    * @param opts.ageConfirmed  the explorer passed the 13+ check at sign-up. Only the fact and the
    *   time are stored (never the date of birth).
+   * @param opts.ageBand  'teen' (13 to 17, with adultFrom: the first day of the month they turn 18)
+   *   or 'adult'. Set once; the rules refuse later changes.
    */
-  registerUser: async (email: string, pass: string, username?: string, opts: { ageConfirmed?: boolean } = {}) => {
+  registerUser: async (email: string, pass: string, username?: string, opts: { ageConfirmed?: boolean; ageBand?: 'teen' | 'adult'; adultFrom?: Timestamp } = {}) => {
     // Upgrade a guest session in place so the explorer keeps the same identity
     const current = auth.currentUser;
     const cred = current && current.isAnonymous
       ? await linkWithCredential(current, EmailAuthProvider.credential(email, pass))
       : await createUserWithEmailAndPassword(auth, email, pass);
     try {
-        await FirebaseService.ensureUserProfile(cred.user.uid, email, false);
+        const band: Record<string, any> = opts.ageBand ? { ageBand: opts.ageBand, ...(opts.ageBand === 'teen' && opts.adultFrom ? { adultFrom: opts.adultFrom } : {}) } : {};
+        const existing: any = await FirebaseService.ensureUserProfile(cred.user.uid, email, false, band);
         const desired = (username || '').trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
-        const updates: any = { isAnonymous: false };
+        // A guest upgrading already has a profile: the band is added to it once
+        const updates: any = { isAnonymous: false, ...(existing?.ageBand ? {} : band) };
         if (opts.ageConfirmed) { updates.ageConfirmed = true; updates.ageConfirmedAt = serverTimestamp(); }
         if (desired) { updates.username = desired; updates.usernameLower = desired.toLowerCase(); }
         await updateDoc(doc(db, "users", cred.user.uid), updates);
         if (desired) await updateProfile(cred.user, { displayName: desired });
         else if (!cred.user.displayName) await updateProfile(cred.user, { displayName: email.split('@')[0].slice(0, 30) });
-        sendEmailVerification(cred.user).catch(() => {});
+        FirebaseService.sendVerificationEmail().catch(() => {});
     } catch (err) {
         console.warn("Profile setup after registration failed:", err);
     }
@@ -333,7 +375,12 @@ export const FirebaseService = {
   },
 
   sendPasswordReset: async (email: string) => {
-    await sendPasswordResetEmail(auth, email);
+    // NatureGram's own letter first; Firebase's email when the server can't send one
+    const r = await brandedAuthMail('/api/auth/send-reset', { email });
+    if (r === 'sent') return;
+    if (r === 'limited') throw Object.assign(new Error('Too many requests'), { code: 'auth/too-many-requests' });
+    await sendPasswordResetEmail(auth, email, { url: apiUrl('/feed') })
+      .catch((e) => /continue-uri|domain/.test(e?.code || '') ? sendPasswordResetEmail(auth, email) : Promise.reject(e));
   },
 
   loginUser: async (email: string, pass: string) => {
@@ -1218,7 +1265,7 @@ export const FirebaseService = {
     };
     const [a, b, c] = await Promise.all([run('usernameLower', lower), run('username', q), run('username', lower)]);
     const seen = new Set<string>();
-    return [...a, ...b, ...c].filter(u => !u.isAnonymous && !seen.has(u.uid) && seen.add(u.uid)).slice(0, max);
+    return (await withoutUnfollowedTeens([...a, ...b, ...c].filter(u => !u.isAnonymous && !seen.has(u.uid) && seen.add(u.uid)))).slice(0, max);
   },
 
   /**
@@ -1356,6 +1403,15 @@ export const FirebaseService = {
     const existingSnap = await getDoc(ref).catch(() => null);
     if (!existingSnap || !existingSnap.exists()) {
       const [mine, theirs] = await Promise.all([FirebaseService.getUserProfile(me.uid), FirebaseService.getUserProfile(otherUid)]);
+      // Teen mode: letters only between explorers who follow each other, once a parent has said yes
+      // (the rules enforce this; here it gets a kind explanation instead of a bare failure)
+      const meTeen = isTeenProfile(mine), themTeen = isTeenProfile(theirs);
+      if (meTeen && mine?.guardian?.status !== 'approved') throw new Error('Letters open once a grown-up has said yes to your notebook.');
+      if (themTeen && theirs?.guardian?.status !== 'approved') throw new Error('This explorer can\'t receive letters yet.');
+      if (meTeen || themTeen) {
+        const [a, b] = await Promise.all([getDoc(doc(db, 'users', me.uid, 'following', otherUid)).catch(() => null), getDoc(doc(db, 'users', otherUid, 'following', me.uid)).catch(() => null)]);
+        if (!a?.exists() || !b?.exists()) throw new Error(meTeen ? 'You can write letters to explorers you both follow.' : 'Letters with this explorer open once you both follow each other.');
+      }
       await setDoc(ref, {
         participants,
         participantInfo: {
@@ -1724,7 +1780,13 @@ export const FirebaseService = {
   },
 
   sendVerificationEmail: async () => {
-    if (auth.currentUser) await sendEmailVerification(auth.currentUser);
+    const u = auth.currentUser;
+    if (!u) return;
+    const r = await brandedAuthMail('/api/auth/send-verification', {}, await u.getIdToken(true).catch(() => ''));
+    if (r === 'sent') return;
+    if (r === 'limited') throw Object.assign(new Error('Too many requests'), { code: 'auth/too-many-requests' });
+    await sendEmailVerification(u, { url: apiUrl('/welcome') })
+      .catch((e) => /continue-uri|domain/.test(e?.code || '') ? sendEmailVerification(u) : Promise.reject(e));
   },
 
   /** Report a letters conversation; only then can the admin read it (through the server). */

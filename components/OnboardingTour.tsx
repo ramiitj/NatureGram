@@ -42,7 +42,8 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const hasSeen = localStorage.getItem('naturegram_has_seen_tour');
+    let hasSeen: string | null = 'true';
+    try { hasSeen = localStorage.getItem('naturegram_has_seen_tour'); } catch { /* storage blocked: skip the tour */ }
     if (!hasSeen) {
       setIsVisible(true);
     } else {
@@ -70,7 +71,7 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   });
 
   const finishTour = () => {
-    localStorage.setItem('naturegram_has_seen_tour', 'true');
+    try { localStorage.setItem('naturegram_has_seen_tour', 'true'); } catch { /* storage blocked */ }
     setIsVisible(false);
     setTimeout(onComplete, 300);
   };
@@ -108,15 +109,15 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
 
       {/* THE FIELD NOTE CARD */}
       <div className={`absolute left-0 right-0 mx-auto w-[85%] max-w-sm transition-all duration-700 [transition-timing-function:cubic-bezier(0.25,1,0.5,1)] ${step.cardPosition}`}>
-          <div className="glass-panel bg-white/95 rounded-2xl p-6 shadow-2xl border border-white/50 relative overflow-hidden">
+          <div className="bg-[#fcfaf8] rounded-2xl p-6 shadow-2xl border border-[#e8dfcd] relative overflow-hidden">
              
              {/* Decorative 'Paper' Header */}
-             <div className="flex justify-between items-center mb-4 border-b border-theme-primary/10 pb-3">
+             <div className="flex justify-between items-center mb-4 border-b border-[#e8dfcd] pb-3">
                  <div className="flex items-center gap-2">
                      <Glyph name="guide" size={18} className="text-theme-accent" />
-                     <span className="text-sm font-display text-theme-primary/70">A word from your guide</span>
+                     <span className="text-sm font-display italic text-stone-600">A word from your guide</span>
                  </div>
-                 <button onClick={finishTour} className="text-stone-600 hover:text-stone-900 transition-colors text-sm font-bold px-2 py-1">
+                 <button onClick={finishTour} className="min-h-[44px] -my-2 -mr-2 text-stone-600 hover:text-stone-900 transition-colors text-sm font-semibold px-2">
                      Skip tour
                  </button>
              </div>
@@ -133,7 +134,7 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
              <div className="flex justify-between items-center">
                  <div className="flex items-center gap-3">
                      {stepIndex > 0 && (
-                         <button onClick={() => setStepIndex(i => i - 1)} className="text-sm font-bold text-stone-600 px-2 py-2">Back</button>
+                         <button onClick={() => setStepIndex(i => i - 1)} className="min-h-[44px] text-sm font-semibold text-stone-600 px-2">Back</button>
                      )}
                      <div className="flex gap-1.5" aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}>
                          {STEPS.map((_, i) => (
@@ -144,10 +145,10 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
                  <button 
                     onClick={handleNext} 
                     autoFocus
-                    className="flex items-center gap-2 bg-theme-primary text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-black transition-transform active:scale-95"
+                    className="min-h-[44px] flex items-center gap-2 bg-theme-primary text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg hover:opacity-90 transition-transform active:scale-95"
                  >
                      <span>{stepIndex === STEPS.length - 1 ? "Start" : "Next"}</span>
-                     <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                     <span className="material-symbols-outlined text-sm" aria-hidden="true">arrow_forward</span>
                  </button>
              </div>
 

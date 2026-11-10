@@ -16,6 +16,7 @@ import { getThemePeriod } from '../constants/naturalistExtras';
 import { fieldMoment } from './Wonder';
 import { themeAccent } from './ShareSheet';
 import { challengeStamps } from '../services/stamps';
+import GuardianCare from './GuardianCare';
 
 /** "Exploring since March 2026", tolerant of Firestore Timestamps, {seconds} objects, ISO strings and millis. */
 const exploringSince = (t: any): string => {
@@ -35,6 +36,8 @@ interface UserProfileProps {
   onViewProfile?: (uid: string) => void;
   onRequireAccount?: (reason: string, then?: () => void) => void;
   onMessage?: (uid: string) => void | Promise<void>;
+  /** Clears the first-run tour flag and walks the explorer round the app again, from the feed */
+  onRetakeTour?: () => void;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -352,7 +355,32 @@ function socialError(e: any, fallback: string): string {
   return fallback;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
+/** After sign-up: a gentle "check your inbox" note, with a resend that waits a minute between tries. */
+const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({ email, onToast }) => {
+  const [wait, setWait] = useState(0);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!wait) return; const t = setTimeout(() => setWait(w => w - 1), 1000); return () => clearTimeout(t); }, [wait]);
+  const resend = async () => {
+    setBusy(true);
+    try { await FirebaseService.sendVerificationEmail(); onToast('A new letter is on its way'); setWait(60); }
+    catch (e: any) { onToast(String(e?.code || '').includes('too-many') ? "We've sent a few already. Give it a little while." : "That didn't go through. Try again in a moment."); setWait(30); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="mt-4 p-4 rounded-[3px] bg-[#fbf7ef] border border-[#e3d9c6] flex items-start gap-3">
+      <Glyph name="letter" size={26} className="text-theme-accent shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="font-display text-[17px] text-stone-900 leading-snug">Check your inbox</p>
+        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your notebook is yours to keep.</p>
+        <button onClick={resend} disabled={busy || wait > 0} className="mt-2 text-sm font-semibold text-theme-primary disabled:text-stone-400">
+          {busy ? 'Sending…' : wait > 0 ? `Send another in ${wait}s` : 'Send it again'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -657,13 +685,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </>
             )}
           </div>
-          {isOwnProfile && needsVerification && (
-            <div className="mt-4 p-3 rounded-xl bg-amber-50 text-amber-900 text-sm flex items-center gap-3">
-              <span className="material-symbols-outlined" aria-hidden="true">mark_email_unread</span>
-              <span className="flex-1">Verify your email to secure your account.</span>
-              <button onClick={async () => { await FirebaseService.sendVerificationEmail(); showToast('Verification email sent'); }} className="font-bold">Send link</button>
-            </div>
-          )}
+          {isOwnProfile && needsVerification && <CheckInbox email={auth.currentUser?.email || ''} onToast={showToast} />}
         </section>
 
         {blocked && !isOwnProfile ? (
@@ -781,8 +803,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
+            {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
             {isAdmin && onAdminConsole && (
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
+            )}
+            {onRetakeTour && (
+              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="compass" size={24} />Take the tour again</button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">shield</span>Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">description</span>Terms & community guidelines</a>
