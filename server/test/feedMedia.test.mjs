@@ -136,7 +136,9 @@ test('poster write-back fills only empty fields, never overwrites, and finds the
 
 test('poster backfill knows which posts still need it', () => {
   assert.equal(fn.needsPoster({ mediaType: 'video', videoUrl: url('videos/u/a.webm') }), true);
-  assert.equal(fn.needsPoster({ mediaType: 'video', videoUrl: url('videos/u/a.webm'), thumbnailUrl: 'x', lqip: WEBP, w: 1, h: 1, mediaPaths: ['videos/u/a.webm'] }), false);
+  assert.equal(fn.needsPoster({ mediaType: 'video', videoUrl: url('videos/u/a.webm'), thumbnailUrl: 'x', lqip: WEBP, w: 1, h: 1, streamUrl: 'https://s', mediaPaths: ['videos/u/a.webm'] }), false);
+  // A poster alone is not enough any more: the clip also needs its quick-start streaming copy
+  assert.equal(fn.needsPoster({ mediaType: 'video', videoUrl: url('videos/u/a.webm'), thumbnailUrl: 'x', lqip: WEBP, w: 1, h: 1, mediaPaths: ['videos/u/a.webm'] }), true);
   assert.equal(fn.needsPoster({ mediaType: 'video', soundOnly: true, mediaPaths: [] }), false);
   assert.equal(fn.needsPoster({ mediaType: 'image', thumbnailUrl: 'x' }), true);
   assert.equal(fn.needsPoster({ mediaType: 'image', thumbnailUrl: 'x', lqip: WEBP, w: 1, h: 1 }), false);

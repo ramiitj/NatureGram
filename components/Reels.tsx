@@ -4,9 +4,10 @@ import { CommunityPost, UserMode } from '../types';
 import { likeTotal, isDataSaver, timeAgo } from '../utils';
 import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
-import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour } from './Wonder';
+import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour, firstSentence } from './Wonder';
 import { groupOf, namesOf } from '../services/lifeList';
 import FirstHint from './FirstHint';
+import Glyph from './Glyph';
 
 interface Props {
   currentUserMode: UserMode;
@@ -96,7 +97,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
       if (!p || videoUrls[p.id]) return;
       const direct = (p as any).videoUrl as string | undefined;
       (direct ? Promise.resolve({ videoUrl: direct } as any) : FirebaseService.getFullPost(p.id)).then((full: any) => {
-        resolvePlayableVideo(full?.items?.[0]?.videoUrl || full?.videoUrl).then(url => {
+        const first = full?.items?.[0];
+        resolvePlayableVideo(first?.videoUrl || full?.videoUrl, 'video', first?.streamUrl || full?.streamUrl || (p as any).streamUrl).then(url => {
           if (url) setVideoUrls(prev => ({ ...prev, [p.id]: url }));
         });
       });
@@ -119,6 +121,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
   // A quiet title card before the first clip of the programme, once
   const active = visible[activeIdx];
   useEffect(() => {
+    // No title card: the clip starts at once, with its name and one line at the bottom
+    setTitleFor(null); return;
     if (!active || activeIdx !== 0 || titleShown[active.id] || !programmeIds.has(active.id)) { setTitleFor(null); return; }
     setTitleFor(active.id);
     setTitleShown(prev => ({ ...prev, [active.id]: true }));
@@ -209,7 +213,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
             const place = p.showLocation !== false && p.locationArea ? String(p.locationArea).split(',')[0].trim() : '';
             const n = likeTotal(p);
             const isOpening = idx === 0 && programmeCount > 0;
-            const line = observedBehaviour(p.behavior) || (p.caption || '').split(/(?<=[.!?])\s/)[0] || (p.timestamp ? `Recorded ${timeAgo(p.timestamp)}.` : '');
+            const line = firstSentence(observedBehaviour(p.behavior) || p.caption || '');
             return (
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
                 <div className="absolute inset-0 flex items-center justify-center" onClick={(e) => onTap(e, p)}>
@@ -219,23 +223,18 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
-                  {isOpening && (
-                    <div
-                      className={`absolute inset-0 z-[5] bg-black flex flex-col items-center justify-center text-center px-10 transition-opacity duration-1000 ${titleFor === p.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                      aria-hidden={titleFor !== p.id}
-                    >
-                      <p className="text-xs text-white/60 font-display">{evening ? "Tonight's" : "Today's"} moments · {countWord} {programmeCount === 1 ? 'clip' : 'clips'}</p>
-                      <p className="font-display italic text-3xl sm:text-4xl leading-tight mt-4">{species}</p>
-                      {p.locationArea && p.showLocation !== false && <p className="text-sm text-white/70 mt-3">{p.locationArea}</p>}
-                      {line && <p className="font-display text-white/80 text-base mt-5 max-w-sm leading-relaxed">{line}</p>}
-                    </div>
-                  )}
                 </div>
 
-                {/* A small caption on every clip: the common name and the place */}
-                <p className={`absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-sm text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] truncate pointer-events-none transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
-                  <span className="font-display italic">{species}</span>{place && <span className="text-white/80"> · {place}</span>}
-                </p>
+                {/* The species and one brief line; tapping it opens the sighting, the one place for more */}
+                <button
+                  type="button"
+                  onClick={() => onOpenPost(p.id)}
+                  aria-label={`${species}. ${line} Open the sighting`}
+                  className="absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-left text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]"
+                >
+                  <span className="block font-display italic text-lg leading-tight truncate">{species}</span>
+                  {line && <span className="block text-sm text-white/85 leading-snug mt-0.5 line-clamp-2">{line}</span>}
+                </button>
 
                 {/* The actions sit beside the clip on wide screens, at the edge on phones */}
                 <div className={`absolute right-2 md:right-auto md:left-[calc(50%_+_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
@@ -243,11 +242,13 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                     <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-primary text-white ring-2 ring-theme-vivid/70 shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
                       <WonderIcon active={isLiked} className="text-[28px] drop-shadow" />
                     </span>
+                    <span className="text-[11px] text-white/90 drop-shadow tabular-nums">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
                   </button>
                   <button onClick={() => onOpenPost(p.id)} aria-label={`${species} by ${p.userName}: field notes${p.commentCount ? `, ${p.commentCount}` : ''}`} className="flex flex-col items-center gap-0.5">
                     <span className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
-                      <span className="material-symbols-outlined text-[26px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
+                      <Glyph name="feather" size={24} className="drop-shadow" />
                     </span>
+                    <span className="text-[11px] text-white/90 drop-shadow tabular-nums">{p.commentCount ? p.commentCount : 'Notes'}</span>
                   </button>
                   <button onClick={async () => {
                     const url = `${window.location.origin}/post/${p.id}`;
@@ -256,8 +257,11 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                       else { await navigator.clipboard.writeText(url); setToast('Link copied'); window.setTimeout(() => setToast(''), 1800); }
                       track('share', { surface: 'moments' });
                     } catch { /* cancelled */ }
-                  }} aria-label="Share this moment" className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
-                    <span className="material-symbols-outlined text-[24px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
+                  }} aria-label="Share this moment" className="flex flex-col items-center gap-0.5">
+                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
+                      <span className="material-symbols-outlined text-[24px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
+                    </span>
+                    <span className="text-[11px] text-white/90 drop-shadow">Share</span>
                   </button>
                 </div>
               </article>

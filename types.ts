@@ -220,6 +220,8 @@ export interface CommunityPostItem {
   soundOnly?: boolean;
   /** Still made by the server from the clip (media_variants), written back onto the post */
   posterUrl?: string | null;
+  /** Quick-start streaming copy made by the server (played instead of the original) */
+  streamUrl?: string | null;
 }
 
 export interface FeedThumbnail {
@@ -261,6 +263,8 @@ export interface FeedThumbnail {
   soundOnly?: boolean;
   /** Still made by the server from the clip (media_variants), written back onto the post */
   posterUrl?: string | null;
+  /** Quick-start streaming copy made by the server (played instead of the original) */
+  streamUrl?: string | null;
 }
 
 export interface CommunityPost extends FeedThumbnail {
