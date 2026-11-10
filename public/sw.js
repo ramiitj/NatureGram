@@ -1,5 +1,5 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v5';
+const VERSION = 'ng-v6';
 const SHELL = ['/', '/manifest.json', '/icon.svg', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
@@ -56,7 +56,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Everything else (icons, manifest): stale-while-revalidate
+  // Never cache unhashed scripts, Vite dev modules or source files (serving them stale mixes React hashes)
+  if (
+    req.destination === 'script' ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/components/') ||
+    url.pathname.startsWith('/services/') ||
+    url.pathname.startsWith('/constants/') ||
+    /\.(tsx?|jsx?|mjs)$/.test(url.pathname)
+  ) return;
+
+  // Static shell files (icons, manifest): stale-while-revalidate
   event.respondWith(caches.open(VERSION).then(async (c) => {
     const hit = await c.match(req);
     const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);

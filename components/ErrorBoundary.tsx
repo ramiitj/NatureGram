@@ -4,6 +4,30 @@ import Glyph from './Glyph';
 interface Props { children: React.ReactNode; label?: string; onReset?: () => void; compact?: boolean }
 interface State { error: Error | null }
 
+const isStaleBundleError = (error: Error | null): boolean => {
+  const msg = String(error?.message || '');
+  return (
+    msg.includes("Cannot read properties of null (reading 'use") ||
+    msg.includes('Invalid hook call') ||
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed')
+  );
+};
+
+const purgeAndReload = async () => {
+  try {
+    if ('serviceWorker' in navigator && !import.meta.env.PROD) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch { /* ignore */ }
+  window.location.reload();
+};
+
 /** Catches render errors so one broken view never blanks the whole app. */
 export default class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
@@ -13,6 +37,17 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    if (isStaleBundleError(error)) {
+      try {
+        const key = `ng_stale_reload:${window.location.pathname}`;
+        const last = Number(sessionStorage.getItem(key) || 0);
+        if (Date.now() - last > 15_000) {
+          sessionStorage.setItem(key, String(Date.now()));
+          void purgeAndReload();
+          return;
+        }
+      } catch { /* storage blocked */ }
+    }
     console.error(`[ErrorBoundary${this.props.label ? `:${this.props.label}` : ''}]`, error, info.componentStack);
     try {
       window.dispatchEvent(new CustomEvent('ng:error', { detail: { message: error.message, label: this.props.label } }));
@@ -20,6 +55,10 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   }
 
   reset = () => {
+    if (isStaleBundleError(this.state.error)) {
+      void purgeAndReload();
+      return;
+    }
     this.setState({ error: null });
     this.props.onReset?.();
   };

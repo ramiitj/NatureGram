@@ -48,11 +48,14 @@ export default defineConfig({
     // makes hooks run against a null dispatcher ("Cannot read properties of null (reading 'useState')")
     dedupe: ['react', 'react-dom'],
   },
-  // Pre-bundle everything the app loads lazily, so the dev server (and AI Studio's preview) never
-  // re-optimises dependencies while a session is open, which would load a second React and reload pages
+  // Pre-bundle everything the app loads (including dev JSX runtime and @google/genai), so the dev
+  // server and AI Studio's preview never re-optimise dependencies while a session is open, which
+  // would load a second React with a new ?v= hash and break hooks in lazy views.
   optimizeDeps: {
+    entries: ['index.html', 'App.tsx', 'components/**/*.tsx', 'services/**/*.ts'],
     include: [
-      'react', 'react-dom', 'react-dom/client', 'react/jsx-runtime',
+      'react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime',
+      '@google/genai',
       'firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage',
       'firebase/functions', 'firebase/app-check', 'firebase/messaging',
       'motion/react', 'lucide-react',

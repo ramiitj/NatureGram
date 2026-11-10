@@ -708,29 +708,81 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   // The same page feeds the first tiles inlined into index.html (see server/media.js).
   let firstPage = { at: 0, body: null, tiles: null };
   let firstPageLoading = null;
-  // When this server's credentials can't read Firestore (e.g. a preview environment), say so once and
-  // stop asking for 10 minutes: the app loads the feed directly from Firestore either way.
+  // When this server's credentials can't read Firestore via Admin SDK (e.g. a preview environment),
+  // fall back to the public Firestore REST read on feed_thumbnails for 10 minutes before retrying Admin.
   let firstPageDeniedUntil = 0;
-  async function loadFirstPage() {
-    const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
-    const posts = snap.docs.map(d => feedFirstPost(d.id, d.data()));
+  const fromRestVal = (v) => {
+    if (!v || typeof v !== 'object') return null;
+    if ('stringValue' in v) return v.stringValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('doubleValue' in v) return Number(v.doubleValue);
+    if ('timestampValue' in v) {
+      const ms = Date.parse(v.timestampValue);
+      return Number.isFinite(ms) ? { toMillis: () => ms } : null;
+    }
+    if ('arrayValue' in v) return (v.arrayValue?.values || []).map(fromRestVal);
+    if ('mapValue' in v) return fromRestFields(v.mapValue?.fields);
+    return null;
+  };
+  function fromRestFields(fields) {
+    const out = {};
+    for (const [k, v] of Object.entries(fields || {})) out[k] = fromRestVal(v);
+    return out;
+  }
+  async function loadFirstPageRest() {
+    const apiKey = firebaseWebConfig?.apiKey;
+    const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
+    if (!apiKey) throw new Error('No Firebase config');
+    const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseProjectId)}/databases/${encodeURIComponent(databaseId)}/documents:runQuery?key=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: 'feed_thumbnails' }],
+          where: { fieldFilter: { field: { fieldPath: 'isPublic' }, op: 'EQUAL', value: { booleanValue: true } } },
+          orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+          limit: 12,
+        },
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) throw new Error(`REST ${r.status}`);
+    const rows = await r.json();
+    const docs = (Array.isArray(rows) ? rows : []).map(x => x?.document).filter(Boolean);
+    const posts = docs.map(doc => feedFirstPost(String(doc.name || '').split('/').pop(), fromRestFields(doc.fields)));
     firstPage = {
       at: Date.now(),
-      body: JSON.stringify({ posts, more: snap.size === 12 }),
+      body: JSON.stringify({ posts, more: docs.length === 12 }),
       tiles: firstTilesJson(posts),
     };
     return firstPage;
   }
+  async function loadFirstPage() {
+    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return loadFirstPageRest();
+    try {
+      const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
+      const posts = snap.docs.map(d => feedFirstPost(d.id, d.data()));
+      firstPage = {
+        at: Date.now(),
+        body: JSON.stringify({ posts, more: snap.size === 12 }),
+        tiles: firstTilesJson(posts),
+      };
+      return firstPage;
+    } catch (e) {
+      if (/PERMISSION_DENIED/.test(String(e?.message || ''))) {
+        firstPageDeniedUntil = Date.now() + 10 * 60_000;
+        return loadFirstPageRest();
+      }
+      throw e;
+    }
+  }
   function refreshFirstPage() {
-    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return Promise.reject(new Error('unavailable'));
     if (!firstPageLoading) {
       firstPageLoading = loadFirstPage().catch((e) => {
         const msg = String(e.message).slice(0, 120);
-        // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
-        // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
-        const denied = /PERMISSION_DENIED/.test(msg);
-        if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
-        log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
+        log('warn', 'first page failed', { error: msg });
         throw e;
       }).finally(() => { firstPageLoading = null; });
     }
