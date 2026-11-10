@@ -399,6 +399,25 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Share previews for social crawlers
   // -------------------------------------------------------------------------
+  // The fortnight's naturalist and palette, mirrored from constants/naturalists.ts (same order and
+  // the same ~15.21-day rotation as getThemePeriod) so the link card wears the current theme.
+  const SHARE_THEMES = [
+    ['Jane Goodall', '#2d4a22', '#aed581'], ['Dian Fossey', '#1f2937', '#10b981'], ['Charles Darwin', '#44403c', '#a8a29e'],
+    ['Alfred Russel Wallace', '#065f46', '#34d399'], ['John Muir', '#334155', '#3b82f6'], ['Rachel Carson', '#0f766e', '#06b6d4'],
+    ['Henry David Thoreau', '#047857', '#10b981'], ['Aldo Leopold', '#b45309', '#f59e0b'], ['Ralph Waldo Emerson', '#c2410c', '#f97316'],
+    ['Wangari Maathai', '#3f6212', '#84cc16'], ['David Attenborough', '#a16207', '#fbbf24'], ['Jacques-Yves Cousteau', '#0369a1', '#38bdf8'],
+    ['Alexander von Humboldt', '#374151', '#9ca3af'], ['Carl Linnaeus', '#166534', '#4ade80'], ['E.O. Wilson', '#78350f', '#fb923c'],
+    ['Sylvia Earle', '#1e3a8a', '#60a5fa'], ['George Washington Carver', '#5c2a16', '#f97316'], ['Mary Anning', '#4b5563', '#9ca3af'],
+    ['Steve Irwin', '#854d0e', '#fde047'], ['Robin Wall Kimmerer', '#14532d', '#86efac'], ['Maria Sibylla Merian', '#831843', '#f472b6'],
+    ['Salim Ali', '#581c87', '#c084fc'], ['Beatrix Potter', '#1e40af', '#93c5fd'], ['John James Audubon', '#86198f', '#e879f9'],
+  ];
+  const shareTheme = (now = new Date()) => {
+    const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
+    const [naturalist, primary, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+    return { naturalist, primary, accent };
+  };
+  const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
+
   app.get('/s/:postId', async (req, res) => {
     const postId = String(req.params.postId || '');
     const host = IS_PROD ? PUBLIC_HOST : (req.get('host') || PUBLIC_HOST);
@@ -413,8 +432,12 @@ async function startServer() {
 
     const apiKey = firebaseWebConfig?.apiKey;
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
-    let title = 'NatureGram: a living field guide';
-    let description = 'Nature discoveries shared by explorers on NatureGram.';
+    const theme = shareTheme();
+    let title = 'NatureGram: a living field notebook';
+    let heading = 'A page from a field notebook';
+    let scientific = '';
+    let byline = '';
+    let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
     let imageUrl = `https://${PUBLIC_HOST}/og-default.jpg`;
     let tags = [];
     try {
@@ -427,9 +450,22 @@ async function startServer() {
         const items = f.items?.arrayValue?.values || [];
         const main = items.length ? (items[0].mapValue?.fields || {}) : f;
         const labels = (main.labels?.arrayValue?.values || f.labels?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean);
-        const common = labels[0] || 'Nature';
-        title = f.caption?.stringValue || f.title?.stringValue || `NatureGram discovery: ${common}${labels[1] ? ` (${labels[1]})` : ''}`;
-        description = f.description?.stringValue || main.aiInsight?.stringValue || f.aiInsight?.stringValue || description;
+        const first = String(labels[0] || '').trim();
+        const species = first && !PLACEHOLDER_LABEL.test(first) ? first : '';
+        const flags = (main.aiFlags || f.aiFlags)?.mapValue?.fields || {};
+        const showLocation = (main.showLocation || f.showLocation)?.booleanValue;
+        const hidden = showLocation === false || flags.sensitiveSpecies?.booleanValue === true;
+        const area = hidden ? '' : String(main.locationArea?.stringValue || f.locationArea?.stringValue || '').trim().slice(0, 80);
+        const name = species || String(f.title?.stringValue || '').trim() || 'A wild sighting';
+        heading = name;
+        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : '';
+        title = `${name}, seen${area ? ` near ${area}` : ''} · NatureGram`;
+        const explorer = String(f.userName?.stringValue || '').trim();
+        byline = [explorer, area ? `near ${area}` : ''].filter(Boolean).join(' · ');
+        const behaviour = String(main.behavior?.stringValue || f.behavior?.stringValue || '').trim();
+        const observed = behaviour && !/^(captured|uploaded|recorded)\s+(photo|media|video|audio|sound)\.?$/i.test(behaviour) ? behaviour : '';
+        description = f.caption?.stringValue || observed || f.description?.stringValue || main.aiInsight?.stringValue || f.aiInsight?.stringValue
+          || `${explorer || 'An explorer'} found this ${species || 'sighting'}${area ? ` near ${area}` : ''}. What's alive near you?`;
         imageUrl = safeHttpsUrl(f.thumbnailUrl?.stringValue || f.imageUrl?.stringValue || main.thumbnailUrl?.stringValue || main.imageUrl?.stringValue, imageUrl);
         tags = (f.tags?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean).slice(0, 8);
       }
@@ -440,10 +476,13 @@ async function startServer() {
     description = description.slice(0, 300);
 
     const e = escapeHtml;
-    const tagHtml = (tags.length ? tags : ['#nature']).map(t => {
-      const clean = String(t).replace(/^#+/, '');
-      return `<span class="tag">#${e(clean)}</span>`;
-    }).join('');
+    const tagHtml = tags.length
+      ? tags.map(t => `<span class="tag">#${e(String(t).replace(/^#+/, ''))}</span>`).join('')
+      : `<span class="note">Shared during ${e(theme.naturalist)}'s fortnight on NatureGram</span>`;
+    // Theme colours come from the fixed table above, never from user input; still validated as hex.
+    const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c) ? c : d);
+    const ink = hex(theme.primary, '#44403c');
+    const wash = hex(theme.accent, '#a8a29e');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.type('html').send(`<!DOCTYPE html>
 <html lang="en"><head>
@@ -456,20 +495,30 @@ async function startServer() {
 <meta property="og:description" content="${e(description)}"><meta property="og:image" content="${e(imageUrl)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${e(title)}">
 <meta name="twitter:description" content="${e(description)}"><meta name="twitter:image" content="${e(imageUrl)}">
+<meta property="og:image:alt" content="${e(heading)}"><meta name="theme-color" content="${ink}">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&display=swap" rel="stylesheet">
 <style>
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#faf9f6;color:#1c1917;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}
-.card{max-width:420px;width:100%;background:#fff;border-radius:24px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.08);padding:20px}
-h1{font-size:18px;color:#065f46;margin:0 0 12px}img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:16px;background:#eee}
-h2{font-size:20px;margin:14px 0 6px}p{font-size:14px;line-height:1.5;color:#57534e}.tag{display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:8px;background:#ecfdf5;color:#065f46;font-size:12px;font-weight:700}
-a.btn{display:block;text-align:center;margin-top:16px;padding:14px;border-radius:14px;background:#047857;color:#fff;text-decoration:none;font-weight:700}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f1e8;color:#292524;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+.card{max-width:420px;width:100%;background:#fbf7ef;border-radius:4px;overflow:hidden;box-shadow:0 1px 2px rgba(60,40,20,.12),0 18px 40px -16px rgba(60,40,20,.35);padding:22px;border:1px solid #d8ccb6;outline:1px solid #e8dfcd;outline-offset:-8px}
+.brand{font-family:Newsreader,Georgia,serif;font-size:18px;color:${ink};margin:0 0 14px}
+img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#efe7d6;display:block}
+h1{font-family:Newsreader,Georgia,serif;font-style:italic;font-weight:500;font-size:28px;line-height:1.15;color:${ink};margin:16px 0 2px}
+.sci{font-family:Newsreader,Georgia,serif;font-style:italic;color:#8a7a60;margin:0 0 4px;font-size:15px}
+.by{font-size:13px;color:#8a7a60;margin:6px 0 10px}
+p.desc{font-family:Newsreader,Georgia,serif;font-size:17px;line-height:1.55;color:#44403c;margin:10px 0}
+.tag{display:inline-block;margin:0 10px 4px 0;color:${ink};font-size:13px}
+.tag,.note{opacity:.9}.note{font-size:13px;color:#8a7a60}
+a.btn{display:block;text-align:center;margin-top:18px;padding:14px;border-radius:12px;background:${ink};color:#fff;text-decoration:none;font-weight:600;box-shadow:0 0 0 3px ${wash}33}
 </style></head>
 <body><main class="card">
-<h1>NatureGram</h1>
-<a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(title)}" referrerpolicy="no-referrer"></a>
+<p class="brand">NatureGram</p>
+<a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(heading)}" referrerpolicy="no-referrer"></a>
+<h1>${e(heading)}</h1>
+${scientific ? `<p class="sci">${e(scientific)}</p>` : ''}
+${byline ? `<p class="by">${e(byline)}</p>` : ''}
+<p class="desc">${e(description)}</p>
 <div>${tagHtml}</div>
-<h2>${e(title)}</h2>
-<p>${e(description)}</p>
-<a class="btn" href="${e(appUrl)}">View on NatureGram</a>
+<a class="btn" href="${e(appUrl)}">Open this field page</a>
 </main></body></html>`);
   });
 
