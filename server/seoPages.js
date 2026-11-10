@@ -1,0 +1,306 @@
+/**
+ * Server-rendered public pages: plain HTML a crawler or an AI answer engine can read without
+ * JavaScript. No client script at all; each page carries one link into the app.
+ * Every value from the store is escaped (escapeHtml) or serialised by ldScript.
+ */
+import {
+  escapeHtml as e, ldScript, graph, organizationLd, websiteLd, breadcrumbLd, taxonLd, observationsListLd, personLd, faqLd, postLd,
+  speciesSummary, relatedSpecies, fieldDate, GROUPS, GROUP_NOUN, FAQS, origin, clip, featuredWindow, isoDate,
+} from './seo.js';
+
+const FONTS = 'https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Inter:wght@400;500;600&display=swap';
+const MARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.7" fill="currentColor"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7" stroke-width="2"/></svg>';
+
+const CSS = `:root{--bg:#fcfaf8;--paper:#fbf7ef;--rule:#e8dfcd;--rule-strong:#d8ccb6;--ink:#1c1917;--text:#44403c;--muted:#78716c;--sepia:#8a7a60;--accent:#c2410c;--primary:#44403c}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6;padding:0 16px 40px}
+.wrap{max-width:760px;margin:0 auto}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 0}
+.mark{display:inline-flex;align-items:center;gap:8px;min-height:44px;color:var(--ink);text-decoration:none;font-family:"Newsreader",Georgia,serif;font-size:20px;font-weight:600}
+.mark svg{width:26px;height:26px;color:var(--accent)}
+nav.site a{color:var(--text);text-decoration:none;font-size:14px;margin-left:14px}nav.site a:hover{color:var(--accent)}
+.crumbs{font-size:13px;color:var(--muted);margin:4px 0 14px}.crumbs a{color:var(--muted)}
+.page{background:var(--paper);border-radius:3px;padding:12px;box-shadow:0 1px 2px rgba(60,40,20,.12),0 10px 30px -12px rgba(60,40,20,.3)}
+.frame{border:1px solid var(--rule-strong);outline:1px solid var(--rule);outline-offset:3px;border-radius:2px;padding:28px 22px}
+h1,h2,h3{font-family:"Newsreader",Georgia,serif;color:var(--ink);font-weight:500;line-height:1.2}
+h1{font-size:34px;margin:0 0 4px}h2{font-size:22px;margin:28px 0 10px}h3{font-size:18px;margin:0}
+.sp{font-style:italic}.sci{font-family:"Newsreader",Georgia,serif;font-style:italic;color:var(--sepia);margin:0 0 4px;font-size:17px}
+.kind{font-size:13px;color:var(--muted);margin:0}
+p.lede{font-family:"Newsreader",Georgia,serif;font-size:19px;line-height:1.55;color:var(--text)}
+dl.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:18px 0}
+dl.facts div{background:rgba(255,255,255,.7);border:1px solid var(--rule);border-radius:3px;padding:10px 12px}
+dl.facts dt{font-size:12px;color:var(--muted)}dl.facts dd{margin:0;font-family:"Newsreader",Georgia,serif;font-size:18px;color:var(--ink)}
+.note{border-left:2px solid var(--rule-strong);margin:18px 0;padding:2px 0 2px 14px;color:var(--text);font-family:"Newsreader",Georgia,serif;font-size:16px}
+.note small{display:block;font-family:"Inter",system-ui,sans-serif;font-size:12px;color:var(--muted);margin-top:4px}
+ul.plates{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+ul.plates li{background:#fff;padding:6px;border:1px solid var(--rule);box-shadow:0 1px 2px rgba(60,40,20,.1)}
+ul.plates a{text-decoration:none;color:inherit;display:block}
+ul.plates img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#efe7d6}
+ul.plates .cap{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4}
+ul.plates .cap b{display:block;font-family:"Newsreader",Georgia,serif;font-style:italic;font-weight:500;font-size:15px;color:var(--ink)}
+ul.names{list-style:none;padding:0;margin:0;columns:2 220px;column-gap:24px}
+ul.names li{break-inside:avoid;padding:4px 0}ul.names a{color:var(--ink);font-family:"Newsreader",Georgia,serif;font-style:italic;font-size:17px}
+ul.names .n{color:var(--muted);font-size:13px;font-family:"Inter",system-ui,sans-serif;font-style:normal}
+blockquote{margin:18px 0;font-family:"Newsreader",Georgia,serif;font-style:italic;font-size:21px;line-height:1.45;color:var(--ink)}
+blockquote footer{font-style:normal;font-size:14px;color:var(--muted);margin-top:6px}
+dl.faq dt{font-family:"Newsreader",Georgia,serif;font-size:20px;color:var(--ink);margin-top:22px}dl.faq dd{margin:6px 0 0}
+a{color:var(--accent)}a.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:12px 26px;border-radius:999px;background:var(--primary);color:#fff;text-decoration:none;font-weight:600;font-size:15px;margin-top:24px}
+a.btn:hover{opacity:.9}a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+footer.site{font-size:13px;color:var(--muted);margin-top:28px;text-align:center}footer.site a{color:var(--muted);margin:0 8px}
+@media (max-width:480px){h1{font-size:28px}.frame{padding:22px 14px}nav.site a{margin-left:10px}}`;
+
+/**
+ * opts: { host, path, title, description, image, imageAlt, imageSize:[w,h], type, ld, noindex, body, crumbs:[{name,path}] }
+ */
+export function layout(o) {
+  const url = `${origin(o.host)}${o.path}`;
+  const image = o.image || `${origin(o.host)}/og-default.jpg`;
+  const size = o.image ? o.imageSize : [1200, 630];
+  const crumbs = o.crumbs?.length > 1
+    ? `<nav class="crumbs" aria-label="Breadcrumb">${o.crumbs.map((c, i) => (i < o.crumbs.length - 1 ? `<a href="${e(c.path)}">${e(c.name)}</a> › ` : `<span aria-current="page">${e(c.name)}</span>`)).join('')}</nav>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${e(o.title)}</title>
+<meta name="description" content="${e(o.description)}">
+<link rel="canonical" href="${e(url)}">
+${o.noindex ? '<meta name="robots" content="noindex">' : '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1">'}
+<meta property="og:type" content="${e(o.type || 'website')}"><meta property="og:site_name" content="NatureGram"><meta property="og:locale" content="en_GB">
+<meta property="og:url" content="${e(url)}"><meta property="og:title" content="${e(o.title)}"><meta property="og:description" content="${e(o.description)}">
+<meta property="og:image" content="${e(image)}"><meta property="og:image:alt" content="${e(o.imageAlt || o.title)}">${size ? `<meta property="og:image:width" content="${size[0]}"><meta property="og:image:height" content="${size[1]}">` : ''}
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${e(o.title)}"><meta name="twitter:description" content="${e(o.description)}"><meta name="twitter:image" content="${e(image)}">
+<meta name="theme-color" content="#fcfaf8">
+<link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${FONTS}" rel="stylesheet">
+<style>${CSS}</style>
+${o.ld ? ldScript(o.ld) : ''}
+</head><body><div class="wrap">
+<header class="top"><a class="mark" href="/">${MARK}NatureGram</a><nav class="site" aria-label="Field guide"><a href="/species">Species</a><a href="/naturalists">Naturalists</a><a href="/about">About</a></nav></header>
+${crumbs}
+<main class="page"><div class="frame">
+${o.body}
+</div></main>
+<footer class="site"><a href="/">NatureGram</a><a href="/about">About</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a></footer>
+</div></body></html>`;
+}
+
+const crumbLd = (host, crumbs) => breadcrumbLd(host, crumbs);
+const plate = (p, fallbackName) => {
+  const name = p.name || fallbackName || 'A wild sighting';
+  const meta = [fieldDate(p.observedMs || p.ms), p.area ? `near ${p.area}` : '', p.author ? `by ${p.author}` : ''].filter(Boolean).join(' · ');
+  return `<li><a href="/post/${encodeURIComponent(p.id)}">${p.thumb ? `<img src="${e(p.thumb)}" alt="${e(`${name}${p.area ? `, near ${p.area}` : ''}`)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="300" height="300">` : ''}<div class="cap"><b>${e(name)}</b>${e(meta)}${p.verified ? '<br>Community verified' : ''}</div></a></li>`;
+};
+
+// ------------------------------------------------------------------ species
+export function speciesPage({ host, corpus, s }) {
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'Species', path: '/species' }, { name: s.name, path: `/species/${s.slug}` }];
+  const summary = speciesSummary(s);
+  const related = relatedSpecies(corpus, s);
+  const withPhoto = s.posts.filter(p => p.thumb);
+  const insightPost = s.posts.find(p => p.insight && p.verified) || s.posts.find(p => p.insight);
+  const cover = withPhoto[0];
+  const title = `${s.name}${s.scientific && s.scientific !== s.name ? ` (${s.scientific})` : ''}: sightings and field notes · NatureGram`;
+  const ld = graph(
+    organizationLd(host), websiteLd(host), crumbLd(host, crumbs),
+    {
+      '@type': 'WebPage', '@id': `${origin(host)}/species/${s.slug}`, url: `${origin(host)}/species/${s.slug}`, name: title, description: summary,
+      isPartOf: { '@id': `${origin(host)}/#website` }, about: { '@id': `${origin(host)}/species/${s.slug}#taxon` },
+      ...(s.lastMs ? { dateModified: isoDate(s.lastMs) } : {}),
+      ...(cover ? { primaryImageOfPage: { '@type': 'ImageObject', url: cover.image || cover.thumb } } : {}),
+    },
+    taxonLd(host, s), observationsListLd(host, s),
+  );
+  const body = `
+<p class="kind">${e(s.group)}</p>
+<h1 class="sp">${e(s.name)}</h1>
+${s.scientific && s.scientific !== s.name ? `<p class="sci">${e(s.scientific)}</p>` : ''}
+${s.alternateNames.length ? `<p class="kind">Also recorded as ${e(s.alternateNames.join(', '))}</p>` : ''}
+<p class="lede">${e(summary)}</p>
+<dl class="facts">
+<div><dt>Sightings</dt><dd>${s.count}</dd></div>
+<div><dt>Explorers</dt><dd>${s.explorers}</dd></div>
+<div><dt>Months recorded</dt><dd>${s.monthList.length || '–'}</dd></div>
+${s.firstMs ? `<div><dt>First recorded</dt><dd>${e(fieldDate(s.firstMs))}</dd></div>` : ''}
+</dl>
+<p class="kind">Places are approximate areas, never exact spots, and are hidden for sensitive species.</p>
+${insightPost ? `<div class="note">${e(insightPost.insight)}<small>The guide's note on <a href="/post/${encodeURIComponent(insightPost.id)}">one recent sighting</a>: an AI suggestion that explorers can confirm or correct.</small></div>` : ''}
+${withPhoto.length ? `<h2>Recent sightings</h2><ul class="plates">${withPhoto.slice(0, 12).map(p => plate(p, s.name)).join('')}</ul>` : ''}
+${related.length ? `<h2>Other ${e(s.group.toLowerCase())} on NatureGram</h2><ul class="names">${related.map(r => `<li><a href="/species/${r.slug}">${e(r.name)}</a> <span class="n">${r.count}</span></li>`).join('')}</ul>` : ''}
+<a class="btn" href="/explore?q=${encodeURIComponent(s.name)}">Look for ${e(s.name)} in NatureGram</a>`;
+  return layout({
+    host, path: `/species/${s.slug}`, title, description: clip(summary, 300), crumbs, ld, body, type: 'article',
+    image: cover?.image || cover?.thumb, imageAlt: s.name,
+  });
+}
+
+export function speciesIndexPage({ host, corpus }) {
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'Species', path: '/species' }];
+  const all = corpus ? [...corpus.species.values()] : [];
+  const sections = GROUPS.map(g => {
+    const list = all.filter(s => s.group === g).sort((a, b) => a.name.localeCompare(b.name));
+    return list.length ? `<h2 id="${e(g.toLowerCase().replace(/[^a-z]+/g, '-'))}">${e(g)}</h2><ul class="names">${list.map(s => `<li><a href="/species/${s.slug}">${e(s.name)}</a> <span class="n">${s.count}</span></li>`).join('')}</ul>` : '';
+  }).join('');
+  const description = `A field guide to the ${all.length} wild species explorers have recorded and shared on NatureGram, grouped by kind of life.`;
+  const ld = graph(organizationLd(host), websiteLd(host), crumbLd(host, crumbs), {
+    '@type': 'CollectionPage', '@id': `${origin(host)}/species`, url: `${origin(host)}/species`, name: 'Species on NatureGram', description, isPartOf: { '@id': `${origin(host)}/#website` },
+    mainEntity: { '@type': 'ItemList', numberOfItems: all.length, itemListElement: all.sort((a, b) => b.count - a.count).slice(0, 100).map((s, i) => ({ '@type': 'ListItem', position: i + 1, url: `${origin(host)}/species/${s.slug}`, name: s.name })) },
+  });
+  const body = `<h1>Species on NatureGram</h1>
+<p class="lede">${e(description)} Each page gathers the public sightings of one species: when and roughly where it was seen, and photos from the explorers who found it.</p>
+${sections || '<p>No public sightings yet. Be the first to share one.</p>'}
+<a class="btn" href="/explore">Explore sightings in NatureGram</a>`;
+  return layout({ host, path: '/species', title: 'Species field guide: wild plants, animals and fungi · NatureGram', description, crumbs, ld, body });
+}
+
+// ------------------------------------------------------------------ naturalists
+export function naturalistPage({ host, list, index, answers, current }) {
+  const n = list[index];
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'Naturalists', path: '/naturalists' }, { name: n.naturalist, path: `/naturalists/${n.id}` }];
+  const win = featuredWindow(index, new Date().getUTCFullYear(), list.length);
+  const fmt = (d) => `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })}`;
+  const prev = list[(index - 1 + list.length) % list.length];
+  const next = list[(index + 1) % list.length];
+  const description = clip(`${n.naturalist}${n.lifespan ? ` (${n.lifespan})` : ''}: ${n.bio} Their field challenge on NatureGram: ${n.challenge}`, 300);
+  const ld = graph(organizationLd(host), websiteLd(host), crumbLd(host, crumbs), personLd(host, n), {
+    '@type': 'ProfilePage', '@id': `${origin(host)}/naturalists/${n.id}`, url: `${origin(host)}/naturalists/${n.id}`, name: `${n.naturalist} · NatureGram`,
+    mainEntity: { '@id': `${origin(host)}/naturalists/${n.id}#person` }, isPartOf: { '@id': `${origin(host)}/#website` },
+  });
+  const body = `<p class="kind">Naturalist of the fortnight${current ? ', featured now' : ''}</p>
+<h1>${e(n.naturalist)}</h1>
+${n.lifespan ? `<p class="sci">${e(n.lifespan)}</p>` : ''}
+<blockquote>“${e(n.quote)}”<footer>${e(n.naturalist)}</footer></blockquote>
+${n.bio ? `<p class="lede">${e(n.bio)}</p>` : ''}
+${n.philosophy ? `<h2>Their way of seeing</h2><p>${e(n.philosophy)}</p>` : ''}
+${n.locationName ? `<h2>Where they worked</h2><p><strong>${e(n.locationName)}</strong>. ${e(n.locationCaption || '')}</p>` : ''}
+<h2>The field challenge</h2>
+<p>${e(n.challenge)} Explorers answer it with <strong>${e(n.challengeTag)}</strong>.</p>
+<p class="kind">Featured on NatureGram each year from ${e(fmt(win.start))} to ${e(fmt(win.end))}, when the app's colours, landing story and the guide's focus (${e(n.lensPrompt || 'close attention')}) follow ${e(n.naturalist)}.</p>
+${answers.length ? `<h2>Community answers</h2><ul class="plates">${answers.slice(0, 12).map(p => plate(p)).join('')}</ul>` : ''}
+<p><a href="/naturalists/${e(prev.id)}">← ${e(prev.naturalist)}</a> · <a href="/naturalists/${e(next.id)}">${e(next.naturalist)} →</a></p>
+<a class="btn" href="/explore">Take the challenge in NatureGram</a>`;
+  return layout({ host, path: `/naturalists/${n.id}`, title: `${n.naturalist}${n.lifespan ? ` (${n.lifespan})` : ''}: life, philosophy and field challenge · NatureGram`, description, crumbs, ld, body, type: 'profile' });
+}
+
+export function naturalistsIndexPage({ host, list, currentIndex }) {
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'Naturalists', path: '/naturalists' }];
+  const description = `Every 15 days NatureGram honours one of ${list.length} naturalists, from Charles Darwin to Wangari Maathai: the app's colours, the guide's focus and a community field challenge follow their way of seeing.`;
+  const ld = graph(organizationLd(host), websiteLd(host), crumbLd(host, crumbs), {
+    '@type': 'CollectionPage', '@id': `${origin(host)}/naturalists`, url: `${origin(host)}/naturalists`, name: 'Naturalists of the fortnight', description,
+    mainEntity: { '@type': 'ItemList', numberOfItems: list.length, itemListElement: list.map((n, i) => ({ '@type': 'ListItem', position: i + 1, url: `${origin(host)}/naturalists/${n.id}`, name: n.naturalist })) },
+  });
+  const body = `<h1>Naturalists of the fortnight</h1>
+<p class="lede">${e(description)}</p>
+<ul class="names">${list.map((n, i) => `<li><a href="/naturalists/${e(n.id)}">${e(n.naturalist)}</a> <span class="n">${e(n.lifespan || '')}${i === currentIndex ? ' · featured now' : ''}</span></li>`).join('')}</ul>
+<a class="btn" href="/explore">See this fortnight's challenge in NatureGram</a>`;
+  return layout({ host, path: '/naturalists', title: 'Naturalists of the fortnight · NatureGram', description, crumbs, ld, body });
+}
+
+// ------------------------------------------------------------------ explorers
+export function explorerPage({ host, username, bio, posts, corpus }) {
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: username, path: `/explorer/${encodeURIComponent(username)}` }];
+  const slugs = new Map();
+  for (const p of posts) {
+    const key = p.slug || (p.name || p.scientific || '').toLowerCase();
+    if (key && !slugs.has(key)) slugs.set(key, { slug: p.slug && corpus?.species.has(p.slug) ? p.slug : null, name: p.name || p.scientific });
+  }
+  const speciesList = [...slugs.values()].filter(s => s.name);
+  const description = `${username}'s field page on NatureGram: ${posts.length} public ${posts.length === 1 ? 'sighting' : 'sightings'} of ${speciesList.length} ${speciesList.length === 1 ? 'species' : 'species'}.`;
+  const cover = posts.find(p => p.thumb);
+  const url = `${origin(host)}/explorer/${encodeURIComponent(username)}`;
+  const ld = graph(organizationLd(host), websiteLd(host), crumbLd(host, crumbs), {
+    '@type': 'ProfilePage', '@id': url, url, name: `${username} · NatureGram`, isPartOf: { '@id': `${origin(host)}/#website` },
+    mainEntity: { '@type': 'Person', '@id': `${url}#person`, name: username, alternateName: username, url, ...(bio ? { description: bio } : {}) },
+    ...(posts[0]?.ms ? { dateModified: isoDate(posts[0].ms) } : {}),
+  });
+  const body = `<p class="kind">An explorer's field page</p>
+<h1>${e(username)}</h1>
+${bio ? `<p class="lede">${e(bio)}</p>` : ''}
+<dl class="facts"><div><dt>Public sightings</dt><dd>${posts.length}</dd></div><div><dt>Species</dt><dd>${speciesList.length}</dd></div>${posts[0]?.ms ? `<div><dt>Latest</dt><dd>${e(fieldDate(posts[0].ms))}</dd></div>` : ''}</dl>
+${posts.some(p => p.thumb) ? `<h2>Recent sightings</h2><ul class="plates">${posts.filter(p => p.thumb).slice(0, 18).map(p => plate({ ...p, author: null })).join('')}</ul>` : ''}
+${speciesList.length ? `<h2>Species recorded</h2><ul class="names">${speciesList.slice(0, 60).map(s => `<li>${s.slug ? `<a href="/species/${s.slug}">${e(s.name)}</a>` : `<span class="sp">${e(s.name)}</span>`}</li>`).join('')}</ul>` : ''}
+<a class="btn" href="/explore">Open NatureGram</a>`;
+  return layout({ host, path: `/explorer/${encodeURIComponent(username)}`, title: `${username}: sightings and life list · NatureGram`, description, crumbs, ld, body, type: 'profile', image: cover?.image || cover?.thumb, imageAlt: cover?.name });
+}
+
+// ------------------------------------------------------------------ about
+export function aboutPage({ host, appLdNodes }) {
+  const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'About', path: '/about' }];
+  const description = 'What NatureGram is, whether it is free, how AI identification and community verification work, and how location privacy and teen protections work.';
+  const ld = graph(organizationLd(host), websiteLd(host), appLdNodes, crumbLd(host, crumbs), faqLd(FAQS), {
+    '@type': 'AboutPage', '@id': `${origin(host)}/about`, url: `${origin(host)}/about`, name: 'About NatureGram', description, isPartOf: { '@id': `${origin(host)}/#website` }, about: { '@id': `${origin(host)}/#organization` },
+  });
+  const body = `<h1>About NatureGram</h1>
+<p class="lede">A living field notebook: notice something wild, learn what it is with the guide, and share it with explorers everywhere.</p>
+<dl class="faq">${FAQS.map(f => `<dt>${e(f.q)}</dt><dd>${e(f.a)}</dd>`).join('')}</dl>
+<h2>More to read</h2>
+<ul><li><a href="/species">The species field guide</a></li><li><a href="/naturalists">Naturalists of the fortnight</a></li><li><a href="/privacy.html">Privacy policy</a></li><li><a href="/terms.html">Terms of use</a></li></ul>
+<a class="btn" href="/">Open NatureGram</a>`;
+  return layout({ host, path: '/about', title: 'About NatureGram: free AI field guide and nature community', description, crumbs, ld, body });
+}
+
+// ------------------------------------------------------------------ a page that isn't available right now
+export function unavailablePage({ host, path }) {
+  return layout({
+    host, path, noindex: true, title: 'Back in a moment · NatureGram', description: 'This field page is unavailable for a moment.',
+    body: '<h1>Back in a moment</h1><p class="lede">The field guide is resting. Please try again shortly.</p><a class="btn" href="/">Open NatureGram</a>',
+  });
+}
+
+// ------------------------------------------------------------------ head and fallback content for the app's own pages
+export function postFallbackBody(p, slug) {
+  const name = p.name || p.title || 'A wild sighting';
+  return `<article style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:Newsreader,Georgia,serif;color:#44403c">
+<p style="font-family:Inter,system-ui,sans-serif;font-size:14px;margin:0 0 12px"><a href="/" style="color:#1c1917;text-decoration:none;font-weight:600">NatureGram</a></p>
+${p.image ? `<img src="${e(p.image)}" alt="${e(name)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;background:#efe7d6" referrerpolicy="no-referrer">` : ''}
+<h1 style="font-style:italic;font-weight:500;font-size:28px;color:#1c1917;margin:16px 0 2px">${slug ? `<a href="/species/${slug}" style="color:inherit">${e(name)}</a>` : e(name)}</h1>
+${p.scientific && p.scientific !== name ? `<p style="font-style:italic;color:#8a7a60;margin:0">${e(p.scientific)}</p>` : ''}
+<p style="font-family:Inter,system-ui,sans-serif;font-size:13px;color:#78716c">${e([p.author ? `Seen by ${p.author}` : 'Seen by a NatureGram explorer', p.area ? `near ${p.area}` : '', fieldDate(p.observedMs || p.ms)].filter(Boolean).join(' · '))}${p.verified ? ' · Community verified' : ''}</p>
+${p.caption ? `<p style="font-size:17px;line-height:1.55">${e(p.caption)}</p>` : ''}
+${p.observed && p.observed !== p.caption ? `<p style="font-size:17px;line-height:1.55">${e(p.observed)}</p>` : ''}
+${p.insight ? `<p style="font-size:16px;line-height:1.55;border-left:2px solid #d8ccb6;padding-left:12px">${e(p.insight)}<br><small style="font-family:Inter,system-ui,sans-serif;color:#78716c">The guide's note: an AI suggestion.</small></p>` : ''}
+</article>`;
+}
+
+/** Head tags for the app shell: title, description, canonical, social cards, robots, JSON-LD. */
+export function shellHead({ host, path, title, description, image, imageAlt, imageSize, type = 'website', noindex = false, ld }) {
+  const url = `${origin(host)}${path}`;
+  const img = image || `${origin(host)}/og-default.jpg`;
+  const size = image ? imageSize : [1200, 630];
+  return `<title>${e(title)}</title>
+    <meta name="description" content="${e(description)}" />
+    <link rel="canonical" href="${e(url)}" />
+    ${noindex ? '<meta name="robots" content="noindex, nofollow" />' : '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />'}
+    <meta property="og:type" content="${e(type)}" />
+    <meta property="og:site_name" content="NatureGram" />
+    <meta property="og:url" content="${e(url)}" />
+    <meta property="og:title" content="${e(title)}" />
+    <meta property="og:description" content="${e(description)}" />
+    <meta property="og:image" content="${e(img)}" />
+    <meta property="og:image:alt" content="${e(imageAlt || title)}" />${size ? `
+    <meta property="og:image:width" content="${size[0]}" />
+    <meta property="og:image:height" content="${size[1]}" />` : ''}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${e(title)}" />
+    <meta name="twitter:description" content="${e(description)}" />
+    <meta name="twitter:image" content="${e(img)}" />
+    ${ld ? ldScript(ld) : ''}`;
+}
+
+/**
+ * Replace the default head tags in index.html with page-specific ones, and optionally put readable
+ * content inside #root (React replaces it when the app mounts).
+ */
+export function injectShell(html, head, rootHtml = '') {
+  let out = String(html)
+    .replace(/<title>[\s\S]*?<\/title>\s*/i, '')
+    .replace(/<meta\s+name="(?:description|robots|twitter:[a-z:]+)"[^>]*>\s*/gi, '')
+    .replace(/<meta\s+property="og:[a-z:_]+"[^>]*>\s*/gi, '')
+    .replace(/<link\s+rel="canonical"[^>]*>\s*/gi, '')
+    .replace(/<script\s+type="application\/ld\+json">[\s\S]*?<\/script>\s*/gi, '');
+  out = out.replace(/<meta\s+name="viewport"[^>]*>/i, (m) => `${m}\n    ${head}`);
+  if (rootHtml) out = out.replace('<div id="root"></div>', `<div id="root">${rootHtml}</div>`);
+  return out;
+}
+
+export { postLd, GROUP_NOUN };

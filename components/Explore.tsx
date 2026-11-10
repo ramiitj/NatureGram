@@ -77,7 +77,8 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onBack }) 
   const [confirmed, setConfirmed] = useState<CommunityPost[] | null>(null);
   const [group, setGroup] = useState<LifeGroup | null>(null);
   const [place, setPlace] = useState<string | null>(null);
-  const [q, setQ] = useState('');
+  // A search arriving from a search engine or a field-guide page: /explore?q=barn+owl
+  const [q, setQ] = useState(() => (window.location.pathname.startsWith('/explore') ? (new URLSearchParams(window.location.search).get('q') || '').slice(0, 80) : ''));
   const [results, setResults] = useState<CommunityPost[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [failed, setFailed] = useState(false);

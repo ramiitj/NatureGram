@@ -24,6 +24,7 @@ import { textFlags } from './moderationText.js';
 import { searchTokensFor } from './searchTokens.js';
 import { appCheckMiddleware } from './appCheck.js';
 import { teenPolicy, graduateIfDue } from './guardian.js';
+import { queueIndexNow } from './indexNow.js';
 
 // When the image check cannot run (model error, timeout), publish normally and queue the sighting
 // for an after-the-fact look instead of holding it. MODERATION_FAIL_OPEN=false restores holding.
@@ -358,6 +359,8 @@ export function mountPublish(app, deps) {
     }
 
     log('info', 'published', { uid: user.uid, postId: ref.id, held, pending, unchecked, reasons: post.moderation.reasons || [] });
+    // Search engines hear about a new public sighting at once (never a teen's: they stay out of search)
+    if (post.isPublic && !teen.teen) queueIndexNow([`https://${deps.publicHost}/post/${ref.id}`], { host: deps.publicHost, log });
     res.json({
       ok: true, id: ref.id, held, isPublic: post.isPublic,
       url: primary.imageUrl || undefined, videoUrl: primary.videoUrl || undefined, audioUrl: primary.audioUrl || undefined,

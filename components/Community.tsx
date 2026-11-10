@@ -18,6 +18,7 @@ import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
 import { PlateStamp } from './SpecimenPlate';
 import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs } from '../services/lifeList';
+import { speciesPath } from '../services/speciesSlug';
 import AuthModal from './AuthModal';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
@@ -1360,6 +1361,12 @@ const Community: React.FC<CommunityProps> = ({
                                             : 'Encyclopedia text from Wikipedia when available.'}
                                     </p>
                                 </>
+                            )}
+                            {speciesPage.explorers > 0 && speciesPath(speciesPage.scientific || selectedSpecies.name) && (
+                                <a href={speciesPath(speciesPage.scientific || selectedSpecies.name)!} className="inline-flex items-center gap-2 min-h-[44px] text-sm text-theme-primary hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4">
+                                    <Glyph name="notebook" size={16} className="text-theme-accent" />
+                                    The field guide page for <span className="font-display italic">{selectedSpecies.name}</span>
+                                </a>
                             )}
 
                             {speciesPage.lookAlikes.length > 0 && (
