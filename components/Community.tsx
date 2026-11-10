@@ -224,6 +224,8 @@ interface CommunityProps {
   onOpenMessages?: () => void;
   unreadActivity?: number;
   unreadMessages?: number;
+  /** Opens the naturalist-of-the-fortnight page (from the challenge card) */
+  onOpenNaturalist?: () => void;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -242,7 +244,8 @@ const Community: React.FC<CommunityProps> = ({
     onOpenActivity,
     onOpenMessages,
     unreadActivity = 0,
-    unreadMessages = 0
+    unreadMessages = 0,
+    onOpenNaturalist
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -1322,7 +1325,7 @@ const Community: React.FC<CommunityProps> = ({
             {!isJournalOnly && dailyTheme?.naturalist && (
                 <button
                     type="button"
-                    onClick={() => { setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
+                    onClick={() => { if (onOpenNaturalist) { onOpenNaturalist(); return; } setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
                     aria-label={`${dailyTheme.naturalist}'s challenge: ${themeExtra.challenge} See sightings tagged ${themeExtra.challengeTag}.`}
                     className="w-full text-left rounded-2xl px-4 py-3 border border-theme-primary/15 hover:bg-theme-primary/5 flex items-start gap-3 transition-colors"
                 >

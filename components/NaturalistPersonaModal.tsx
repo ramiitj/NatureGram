@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Sparkles, Check, X, Compass, Feather, Camera, Trees, FileText, Layers } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { NaturalistPersona } from '../types';
 import { FirebaseService } from '../services/firebaseService';
+import Glyph, { GlyphName } from './Glyph';
+import { getDailyTheme } from '../constants/naturalists';
+import { getNaturalistExtra } from '../constants/naturalistExtras';
 
 interface NaturalistPersonaModalProps {
   userId?: string;
@@ -9,324 +11,161 @@ interface NaturalistPersonaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (persona: NaturalistPersona) => void;
+  /** Kept for compatibility; the modal is always skippable ("Not now"). */
   showSkipOption?: boolean;
 }
 
-const TAXA_OPTIONS = [
-  "Birds & Avian Vocalizations",
-  "Flora & Fungi",
-  "Mammal Ethology",
-  "Insects & Pollinators",
-  "Marine & Aquatic Life",
-  "Amphibians & Reptiles"
+/**
+ * Each vignette maps onto the persona values the feed ranking (services/ranking.ts) and the AI curator
+ * (genAiService.curateAgenticFeed) already understand, so the saved shape is unchanged:
+ * taxaInterests / observationStyles / habitatAffinities use the same strings as before.
+ */
+interface Vignette { id: string; title: string; line: string; glyph: GlyphName; bg: string; taxa: string[]; styles: string[]; habitats: string[] }
+
+const VIGNETTES: Vignette[] = [
+  { id: 'dawn-bird', title: 'A bird at dawn', line: 'The first song before the light', glyph: 'bird', bg: 'from-theme-accent/15 to-stone-50', taxa: ['Birds & Avian Vocalizations'], styles: ['Bioacoustic Soundscapes'], habitats: ['Dense Canopy Forests'] },
+  { id: 'mushroom', title: 'A mushroom after rain', line: 'Something new on the forest floor', glyph: 'mushroom', bg: 'from-stone-200/70 to-stone-50', taxa: ['Flora & Fungi'], styles: ['Macro Photography'], habitats: ['Dense Canopy Forests'] },
+  { id: 'tide-pool', title: 'A tide pool', line: 'A whole world left by the sea', glyph: 'shell', bg: 'from-theme-primary/10 to-stone-50', taxa: ['Marine & Aquatic Life'], styles: [], habitats: ['Coastal Tidepools & Reefs'] },
+  { id: 'city-fox', title: 'A fox in the city', line: 'Wild lives between the houses', glyph: 'paw', bg: 'from-theme-accent/10 to-stone-100', taxa: ['Mammal Ethology'], styles: ['Behavioral Motion Video'], habitats: ['Urban Wildlife Habitats'] },
+  { id: 'bee', title: 'A bee on a flower', line: 'Small work, done carefully', glyph: 'insect', bg: 'from-theme-vivid/10 to-stone-50', taxa: ['Insects & Pollinators'], styles: ['Macro Photography'], habitats: [] },
+  { id: 'night', title: 'Sounds in the night', line: 'Owls, frogs, a chorus in the dark', glyph: 'sound', bg: 'from-stone-300/70 to-stone-100', taxa: ['Amphibians & Reptiles'], styles: ['Bioacoustic Soundscapes'], habitats: ['Wetlands & Swamps'] },
+  { id: 'trees', title: 'Trees and leaves', line: 'How a wood changes with the seasons', glyph: 'leaf', bg: 'from-theme-primary/15 to-stone-50', taxa: ['Flora & Fungi'], styles: ['Field Journal Notes'], habitats: ['Dense Canopy Forests', 'Alpine & High Elevation'] },
+  { id: 'insects-close', title: 'Insects up close', line: 'Wings, eyes and patterns', glyph: 'lens', bg: 'from-stone-100 to-theme-accent/10', taxa: ['Insects & Pollinators'], styles: ['Macro Photography', 'Field Journal Notes'], habitats: [] },
 ];
 
-const STYLE_OPTIONS = [
-  "Bioacoustic Soundscapes",
-  "Macro Photography",
-  "Behavioral Motion Video",
-  "Field Journal Notes"
-];
+const uniq = (xs: string[]) => Array.from(new Set(xs));
 
-const HABITAT_OPTIONS = [
-  "Dense Canopy Forests",
-  "Coastal Tidepools & Reefs",
-  "Alpine & High Elevation",
-  "Wetlands & Swamps",
-  "Urban Wildlife Habitats"
-];
+/** Vignettes that match a persona saved earlier (old or new modal), so reopening shows what was chosen. */
+const picksFrom = (p?: NaturalistPersona | null): string[] => {
+  if (!p) return [];
+  const taxa = new Set(p.taxaInterests || []);
+  const habitats = new Set(p.habitatAffinities || []);
+  const styles = new Set(p.observationStyles || []);
+  return VIGNETTES.filter(v => v.taxa.every(t => taxa.has(t))
+    && (v.habitats.length === 0 || v.habitats.some(h => habitats.has(h)))
+    && (v.styles.length === 0 || v.styles.some(s => styles.has(s)))).map(v => v.id);
+};
 
-const ARCHETYPE_PRESETS = [
-  {
-    title: "Avian Bioacoustics Specialist",
-    taxa: ["Birds & Avian Vocalizations"],
-    styles: ["Bioacoustic Soundscapes", "Field Journal Notes"],
-    habitats: ["Dense Canopy Forests", "Wetlands & Swamps"]
-  },
-  {
-    title: "Botanical & Mycological Archivist",
-    taxa: ["Flora & Fungi"],
-    styles: ["Macro Photography", "Field Journal Notes"],
-    habitats: ["Dense Canopy Forests", "Alpine & High Elevation"]
-  },
-  {
-    title: "Coastal & Marine Ethologist",
-    taxa: ["Marine & Aquatic Life"],
-    styles: ["Behavioral Motion Video", "Macro Photography"],
-    habitats: ["Coastal Tidepools & Reefs"]
-  },
-  {
-    title: "Mammalian Ethologist",
-    taxa: ["Mammal Ethology"],
-    styles: ["Behavioral Motion Video", "Field Journal Notes"],
-    habitats: ["Dense Canopy Forests", "Alpine & High Elevation"]
-  },
-  {
-    title: "General Natural History Explorer",
-    taxa: ["Birds & Avian Vocalizations", "Flora & Fungi", "Mammal Ethology"],
-    styles: ["Bioacoustic Soundscapes", "Macro Photography", "Field Journal Notes"],
-    habitats: ["Dense Canopy Forests", "Coastal Tidepools & Reefs", "Wetlands & Swamps"]
-  }
-];
+/** A plain line in place of the old archetype titles; shown on the profile and given to the curator. */
+const archetypeFor = (picked: Vignette[]) => {
+  if (!picked.length) return 'Explorer';
+  const names = picked.map(v => v.title.charAt(0).toLowerCase() + v.title.slice(1));
+  const line = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and more`;
+  return `Stops for ${line}`.slice(0, 80);
+};
 
-export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({
-  userId,
-  initialPersona,
-  isOpen,
-  onClose,
-  onSave,
-  showSkipOption = false
-}) => {
-  const [archetype, setArchetype] = useState<string>(initialPersona?.archetype || "General Natural History Explorer");
-  const [selectedTaxa, setSelectedTaxa] = useState<string[]>(initialPersona?.taxaInterests || ["Birds & Avian Vocalizations"]);
-  const [selectedStyles, setSelectedStyles] = useState<string[]>(initialPersona?.observationStyles || ["Bioacoustic Soundscapes", "Field Journal Notes"]);
-  const [selectedHabitats, setSelectedHabitats] = useState<string[]>(initialPersona?.habitatAffinities || ["Dense Canopy Forests"]);
-  const [customFocus, setCustomFocus] = useState<string>(initialPersona?.customFocus || "");
-  const [isSaving, setIsSaving] = useState(false);
+/** "What makes you stop and look?": a few illustrated moments, any number of them, all optional. */
+export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ userId, initialPersona, isOpen, onClose, onSave }) => {
+  const [picked, setPicked] = useState<string[]>(() => picksFrom(initialPersona));
+  const [note, setNote] = useState<string>(initialPersona?.customFocus || '');
+  const [state, setState] = useState<'choosing' | 'saving' | 'saved'>('choosing');
+  const theme = getDailyTheme();
+  const extra = getNaturalistExtra(theme.id);
+
+  useEffect(() => { if (isOpen) { setPicked(picksFrom(initialPersona)); setNote(initialPersona?.customFocus || ''); setState('choosing'); } }, [isOpen, initialPersona]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && state === 'choosing') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, state, onClose]);
 
   if (!isOpen) return null;
 
-  const toggleItem = (list: string[], setList: (val: string[]) => void, item: string) => {
-    if (list.includes(item)) {
-      setList(list.filter(i => i !== item));
-    } else {
-      setList([...list, item]);
-    }
-  };
-
-  const applyPreset = (preset: typeof ARCHETYPE_PRESETS[0]) => {
-    setArchetype(preset.title);
-    setSelectedTaxa(preset.taxa);
-    setSelectedStyles(preset.styles);
-    setSelectedHabitats(preset.habitats);
-  };
+  const toggle = (id: string) => setPicked(list => list.includes(id) ? list.filter(x => x !== id) : [...list, id]);
 
   const handleSave = async () => {
-    setIsSaving(true);
-    const updatedPersona: NaturalistPersona = {
-      archetype,
-      taxaInterests: selectedTaxa,
-      observationStyles: selectedStyles,
-      habitatAffinities: selectedHabitats,
-      customFocus: customFocus.trim()
+    setState('saving');
+    const chosen = VIGNETTES.filter(v => picked.includes(v.id));
+    const persona: NaturalistPersona = {
+      archetype: archetypeFor(chosen),
+      taxaInterests: uniq(chosen.flatMap(v => v.taxa)),
+      observationStyles: uniq(chosen.flatMap(v => v.styles)),
+      habitatAffinities: uniq(chosen.flatMap(v => v.habitats)),
+      customFocus: note.trim(),
     };
-
-    if (userId && userId !== 'explorer_guest') {
-      await FirebaseService.updateNaturalistPersona(userId, updatedPersona);
-    }
-    setIsSaving(false);
-    onSave(updatedPersona);
-    onClose();
+    if (initialPersona?.curatorPrompt) persona.curatorPrompt = initialPersona.curatorPrompt;
+    try {
+      if (userId && userId !== 'explorer_guest') await FirebaseService.updateNaturalistPersona(userId, persona);
+    } catch { /* saved quietly; the feed simply stays unpersonalised */ }
+    setState('saved');
+    window.setTimeout(() => onSave(persona), 1900); // the parent closes the modal on save
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-5 font-body">
-      <div className="bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 rounded-2xl sm:rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl my-auto relative flex flex-col max-h-[88vh] border border-theme-primary/10 dark:border-stone-800">
-        
-        {/* Sticky Header */}
-        <div className="sticky top-0 bg-white dark:bg-stone-900 z-10 pb-4 border-b border-theme-primary/10 dark:border-stone-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-theme-accent/10 text-theme-accent flex items-center justify-center shrink-0">
-              <Compass className="w-5 h-5" />
-            </div>
-            <div>
-              <span className="text-[9px] text-theme-accent font-bold uppercase tracking-widest block">
-                Personalized Discovery
-              </span>
-              <h2 className="text-lg sm:text-xl font-display font-semibold text-stone-900 dark:text-stone-100">
-                Naturalist Persona Profile
-              </h2>
-            </div>
+    <div className="fixed inset-0 z-[160] flex items-end sm:items-center justify-center bg-stone-900/60 backdrop-blur-sm sm:p-5 font-body animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="persona-title">
+      <div className="bg-day-bg text-stone-900 rounded-t-[2rem] sm:rounded-[2rem] w-full max-w-xl shadow-2xl flex flex-col max-h-[92dvh] animate-slide-up">
+        {state === 'saved' ? (
+          <div className="p-8 text-center" role="status">
+            <Glyph name="feather" size={34} className="text-theme-accent mx-auto" />
+            <p className="font-display text-xl text-stone-900 mt-4">Noted in your field notebook.</p>
+            <p className="font-display italic text-lg text-theme-primary mt-4 leading-snug">“{extra.philosophy}”</p>
+            <p className="text-sm text-stone-500 mt-2">{theme.naturalist}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-9 h-9 rounded-full bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 flex items-center justify-center text-stone-500 dark:text-stone-400 transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        ) : (
+          <>
+            <header className="px-6 pt-6 pb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 id="persona-title" className="text-2xl font-display font-semibold text-stone-900">What makes you stop and look?</h2>
+                <p className="text-sm text-stone-600 mt-1">Choose any that ring true. Your feed and your guide will lean towards them.</p>
+              </div>
+              <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-500 shrink-0">
+                <span className="material-symbols-outlined" aria-hidden="true">close</span>
+              </button>
+            </header>
 
-        {/* Scrollable Form Body */}
-        <div className="overflow-y-auto py-5 pr-1 space-y-6 flex-1 custom-scrollbar">
-          
-          <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed bg-theme-primary/5 dark:bg-stone-800/50 p-3.5 rounded-xl border border-theme-primary/10 dark:border-stone-800">
-            Configure your focus domains. Your personal Companion Curator uses these preferences to assemble your custom ecosystem dispatch.
-          </p>
-
-          {/* 1. Naturalist Archetype */}
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <Feather className="w-4 h-4 text-theme-accent" />
-              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                1. Naturalist Archetype Presets
+            <div className="overflow-y-auto px-6 pb-4 flex-1">
+              <ul className="grid grid-cols-2 gap-3" role="list">
+                {VIGNETTES.map(v => {
+                  const on = picked.includes(v.id);
+                  return (
+                    <li key={v.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggle(v.id)}
+                        aria-pressed={on}
+                        className={`relative w-full h-full text-left rounded-2xl p-3.5 border transition-all active:scale-[0.98] bg-gradient-to-br ${v.bg} ${on ? 'border-theme-accent ring-2 ring-theme-accent/40' : 'border-stone-200 hover:border-theme-primary/30'}`}
+                      >
+                        <span className={`block ${on ? 'text-theme-accent' : 'text-theme-primary/80'}`}><Glyph name={v.glyph} size={36} strokeWidth={1.3} /></span>
+                        <span className="block font-display text-[17px] leading-tight text-stone-900 mt-3">{v.title}</span>
+                        <span className="block text-xs text-stone-600 mt-1 leading-snug">{v.line}</span>
+                        {on && (
+                          <span className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-theme-accent text-white flex items-center justify-center" aria-hidden="true">
+                            <span className="material-symbols-outlined text-[16px]">check</span>
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <label className="block mt-5">
+                <span className="text-sm text-stone-700">Anything else you love to watch? <span className="text-stone-500">(optional)</span></span>
+                <input
+                  value={note}
+                  onChange={e => setNote(e.target.value.slice(0, 200))}
+                  placeholder="For example, herons on the canal"
+                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-400 focus:border-theme-accent"
+                />
               </label>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {ARCHETYPE_PRESETS.map((preset) => {
-                const isSelected = archetype === preset.title;
-                return (
-                  <button
-                    key={preset.title}
-                    type="button"
-                    onClick={() => applyPreset(preset)}
-                    className={`text-left p-3 rounded-xl border text-xs transition-all cursor-pointer flex items-center justify-between gap-2 min-h-[44px] ${
-                      isSelected
-                        ? 'border-theme-accent bg-theme-accent/10 text-theme-accent font-bold shadow-sm'
-                        : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/40 text-stone-800 dark:text-stone-200 hover:border-theme-primary/30'
-                    }`}
-                  >
-                    <span className="font-display font-semibold text-xs line-clamp-1">{preset.title}</span>
-                    {isSelected && <Check className="w-4 h-4 text-theme-accent shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
-          {/* 2. Primary Taxa Focus */}
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-theme-accent" />
-              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                2. Primary Taxa Focus
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {TAXA_OPTIONS.map((taxa) => {
-                const isSelected = selectedTaxa.includes(taxa);
-                return (
-                  <button
-                    key={taxa}
-                    type="button"
-                    onClick={() => toggleItem(selectedTaxa, setSelectedTaxa, taxa)}
-                    className={`px-3.5 py-2.5 rounded-xl text-xs border font-medium transition-all cursor-pointer flex items-center gap-1.5 min-h-[40px] ${
-                      isSelected
-                        ? 'border-theme-accent bg-theme-accent/10 text-theme-accent font-bold'
-                        : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/40 text-stone-700 dark:text-stone-300 hover:border-theme-primary/30'
-                    }`}
-                  >
-                    {isSelected && <Check className="w-3.5 h-3.5 text-theme-accent" />}
-                    <span>{taxa}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Preferred Media Styles */}
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <Camera className="w-4 h-4 text-theme-accent" />
-              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                3. Preferred Media Styles
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {STYLE_OPTIONS.map((style) => {
-                const isSelected = selectedStyles.includes(style);
-                return (
-                  <button
-                    key={style}
-                    type="button"
-                    onClick={() => toggleItem(selectedStyles, setSelectedStyles, style)}
-                    className={`px-3.5 py-2.5 rounded-xl text-xs border font-medium transition-all cursor-pointer flex items-center gap-1.5 min-h-[40px] ${
-                      isSelected
-                        ? 'border-theme-accent bg-theme-accent/10 text-theme-accent font-bold'
-                        : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/40 text-stone-700 dark:text-stone-300 hover:border-theme-primary/30'
-                    }`}
-                  >
-                    {isSelected && <Check className="w-3.5 h-3.5 text-theme-accent" />}
-                    <span>{style}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. Habitat Affinities */}
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <Trees className="w-4 h-4 text-theme-accent" />
-              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                4. Habitat Affinities
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {HABITAT_OPTIONS.map((habitat) => {
-                const isSelected = selectedHabitats.includes(habitat);
-                return (
-                  <button
-                    key={habitat}
-                    type="button"
-                    onClick={() => toggleItem(selectedHabitats, setSelectedHabitats, habitat)}
-                    className={`px-3.5 py-2.5 rounded-xl text-xs border font-medium transition-all cursor-pointer flex items-center gap-1.5 min-h-[40px] ${
-                      isSelected
-                        ? 'border-theme-accent bg-theme-accent/10 text-theme-accent font-bold'
-                        : 'border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800/40 text-stone-700 dark:text-stone-300 hover:border-theme-primary/30'
-                    }`}
-                  >
-                    {isSelected && <Check className="w-3.5 h-3.5 text-theme-accent" />}
-                    <span>{habitat}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 5. Custom Naturalist Focus */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-theme-accent" />
-              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300">
-                5. Custom Research Focus (Optional)
-              </label>
-            </div>
-            <textarea
-              value={customFocus}
-              onChange={(e) => setCustomFocus(e.target.value)}
-              placeholder="e.g. High-altitude avian bioacoustics and moss canopy micro-habitats..."
-              className="w-full bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 rounded-xl p-3 text-xs text-stone-900 dark:text-stone-100 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:border-theme-accent min-h-[75px] resize-none"
-            />
-          </div>
-
-        </div>
-
-        {/* Sticky Actions Footer */}
-        <div className="sticky bottom-0 bg-white dark:bg-stone-900 z-10 pt-3 border-t border-theme-primary/10 dark:border-stone-800 flex items-center justify-between gap-3">
-          {showSkipOption ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors cursor-pointer"
-            >
-              Skip for Now
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-5 py-3 rounded-xl text-xs font-bold bg-theme-primary text-white hover:opacity-90 shadow-lg shadow-theme-primary/20 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-theme-accent" />
-            <span>{isSaving ? "Saving Persona..." : "Activate Curated Dispatch"}</span>
-          </button>
-        </div>
-
+            <footer className="px-6 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] border-t border-stone-100 flex items-center justify-between gap-3">
+              <button type="button" onClick={onClose} className="px-3 py-3 text-sm font-semibold text-stone-600 hover:text-stone-900">Not now</button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={state === 'saving' || (picked.length === 0 && !note.trim())}
+                className="px-6 py-3 rounded-full text-sm font-semibold bg-theme-primary text-white disabled:opacity-40"
+              >
+                {state === 'saving' ? 'Noting it down…' : 'Keep these'}
+              </button>
+            </footer>
+          </>
+        )}
       </div>
     </div>
   );
 };
 
 export default NaturalistPersonaModal;
-
