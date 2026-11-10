@@ -13,7 +13,8 @@ import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
 import { getThemePeriod } from '../constants/naturalistExtras';
-import { fieldMoment } from './Wonder';
+import { resolvePoster } from './PlayableVideo';
+import FirstHint from './FirstHint';
 import { themeAccent } from './ShareSheet';
 import { challengeStamps } from '../services/stamps';
 import GuardianCare from './GuardianCare';
@@ -70,13 +71,24 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 };
 
-/** "23 species since March 2026. Your first was the House Sparrow." in one quiet line. */
-const lifeListSummary = (entries: LifeEntry[], own: boolean): string => {
+const BINOMIAL = /^[A-Z][a-z]+ [a-z]+( [a-z]+)?$/;
+
+/** The everyday name for a life-list entry: the guide's common name when the label is the Latin one. */
+const commonNameOf = (e: LifeEntry, posts: CommunityPost[]): string => {
+  const latin = BINOMIAL.test(e.name) || (!!e.scientific && e.scientific.toLowerCase() === e.name.toLowerCase());
+  if (!latin) return e.name;
+  const p: any = posts.find(x => x.id === e.postId);
+  const common = (p?.aiIdentifications?.[0]?.commonName || p?.items?.[0]?.aiIdentifications?.[0]?.commonName || '').trim();
+  return common || e.name;
+};
+
+/** "23 species since March 2026. Your first was the house sparrow." in one quiet line. */
+const lifeListSummary = (entries: LifeEntry[], own: boolean, firstName?: string): string => {
   const first = entries[0];
   if (!first) return '';
   const since = first.firstMs ? ` since ${new Date(first.firstMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
   const n = entries.length;
-  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${first.name}.`;
+  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${firstName || first.name}.`;
 };
 
 const monthKey = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';
@@ -128,7 +140,10 @@ const LifeListView: React.FC<{
   ghosts: Ghost[] | null;
   onOpenPost?: (id: string) => void;
   onShare: (e: LifeEntry) => void;
-}> = ({ entries, own, ghosts, onOpenPost, onShare }) => {
+  firstName?: string;
+  homeRange?: string;
+  season?: string;
+}> = ({ entries, own, ghosts, onOpenPost, onShare, firstName, homeRange, season }) => {
   const [view, setView] = useState<'kind' | 'chronicle'>(() => {
     try { return localStorage.getItem('ng_lifelist_view') === 'chronicle' ? 'chronicle' : 'kind'; } catch { return 'kind'; }
   });
@@ -145,9 +160,17 @@ const LifeListView: React.FC<{
   return (
     <div className="px-4 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-3">
-        <p className="text-sm font-display text-stone-600 min-w-0">{lifeListSummary(entries, own)}</p>
+        <div className="min-w-0">
+          <p className="text-sm font-display text-stone-600">{lifeListSummary(entries, own, firstName)}</p>
+          {(homeRange || season) && (
+            <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
+              {homeRange && <div className="flex gap-1.5 min-w-0"><dt className="text-stone-500 shrink-0">Home range</dt><dd className="text-stone-800 font-display truncate">{homeRange}</dd></div>}
+              {season && <div className="flex gap-1.5"><dt className="text-stone-500 shrink-0">Favourite season</dt><dd className="text-stone-800 font-display">{season}</dd></div>}
+            </dl>
+          )}
+        </div>
         <div role="radiogroup" aria-label="Arrange the life list" className="flex p-0.5 rounded-full bg-theme-primary/5 border border-theme-primary/10 text-sm">
-          {([['kind', 'By kind of life'], ['chronicle', 'Chronicle']] as const).map(([k, label]) => (
+          {([['kind', 'By kind of life'], ['chronicle', 'By date']] as const).map(([k, label]) => (
             <button key={k} role="radio" aria-checked={view === k} onClick={() => choose(k)} className={`px-3.5 py-1.5 rounded-full transition-colors ${view === k ? 'bg-white text-theme-primary font-semibold shadow-sm' : 'text-stone-500'}`}>{label}</button>
           ))}
         </div>
@@ -207,6 +230,41 @@ const LifeListView: React.FC<{
   );
 };
 
+/** The picture for a drawer tile: the still, else the sound's picture, else (for video) the server's poster frame. */
+const stillOf = (p: CommunityPost): string | undefined => {
+  const it: any = p.items?.[0];
+  return p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl || p.associatedImageUrls?.[0]
+    || it?.thumbnailUrl || it?.imageUrl || it?.associatedImageUrls?.[0] || undefined;
+};
+
+const DrawerThumb: React.FC<{ post: CommunityPost }> = ({ post: p }) => {
+  const still = stillOf(p);
+  const [poster, setPoster] = useState<string | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (still || p.mediaType !== 'video' || !ref.current) return;
+    let live = true;
+    const io = new IntersectionObserver(entries => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      io.disconnect();
+      const direct = (p as any).videoUrl || (p.items?.[0] as any)?.videoUrl;
+      (direct ? Promise.resolve(direct) : FirebaseService.getFullPost(p.id).then(f => f?.videoUrl || (f?.items?.[0] as any)?.videoUrl))
+        .then(u => resolvePoster(u)).then(u => { if (live && u) setPoster(u); }).catch(() => {});
+    }, { rootMargin: '200px' });
+    io.observe(ref.current);
+    return () => { live = false; io.disconnect(); };
+  }, [p, still]);
+  const src = still || poster;
+  return (
+    <span ref={ref} className="block aspect-[4/5] bg-[#efe7d6] overflow-hidden relative">
+      {src
+        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]">{p.mediaType === 'audio' ? <Glyph name="sound" size={32} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={32} />}</span>}
+      {p.mediaType === 'audio' && src && <span className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-black/45 text-white flex items-center justify-center" aria-hidden="true"><Glyph name="sound" size={14} /></span>}
+    </span>
+  );
+};
+
 /** Sightings as specimen drawers: one drawer per month, each tile labelled along a date strip. */
 const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPost?: (id: string) => void }> = ({ posts, own, onOpenPost }) => {
   const drawers = useMemo(() => {
@@ -232,22 +290,19 @@ const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPo
             {d.list.map(p => {
               const ms = toMs(p.timestamp);
               const name = p.labels?.[0] || p.title || 'Sighting';
-              const src = p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl;
               const multi = (p.items?.length || 0) > 1;
               return (
                 <li key={p.id} className="relative bg-[#fbf7ef] rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12)] overflow-hidden">
                   <button onClick={() => onOpenPost?.(p.id)} className="group block w-full text-left" aria-label={`Open ${name}`}>
-                    <span className="block aspect-[4/5] bg-[#efe7d6] overflow-hidden relative">
-                      {src
-                        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]">{p.mediaType === 'audio' ? <Glyph name="sound" size={32} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={32} />}</span>}
+                    <span className="block relative">
+                      <DrawerThumb post={p} />
                       {(p.mediaType === 'video' || multi) && (
                         <span className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-black/45 text-white px-1.5 py-0.5" aria-hidden="true">
                           {p.mediaType === 'video' && <span className="material-symbols-outlined text-[16px]">play_circle</span>}
                           {multi && <><span className="material-symbols-outlined text-[16px]">collections</span><span className="text-[11px] font-semibold tabular">{p.items!.length}</span></>}
                         </span>
                       )}
-                      {own && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/55 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Journal</span>}
+                      {own && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/55 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Only me</span>}
                     </span>
                     <span className="flex items-baseline justify-between gap-2 px-2 py-1.5 border-t border-[#e8dfcd]">
                       <span className="font-display italic text-[14px] text-[#2f2a22] truncate">{name}</span>
@@ -438,20 +493,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   // Fortnights this explorer answered the naturalist's challenge
   const stamps = useMemo(() => challengeStamps(visiblePosts), [visiblePosts]);
 
-  // The masthead: home range, favourite season and hour, latest plate
+  // Home range and favourite season, shown in the life list's header
   const masthead = useMemo(() => {
-    const stamps = visiblePosts.map(p => toMs(p.timestamp)).filter(ms => ms > 0);
+    const times = visiblePosts.map(p => toMs(p.timestamp)).filter(ms => ms > 0);
     const areas = visiblePosts
       .filter(p => isOwnProfile || p.showLocation !== false)
       .map(p => String(p.locationArea || p.items?.[0]?.locationArea || '').trim());
-    const latest = lifeList.length ? lifeList[lifeList.length - 1] : null;
-    return {
-      homeRange: mode(areas),
-      season: mode(stamps.map(seasonWord)),
-      hour: mode(stamps.map(ms => fieldMoment(new Date(ms)).name.toLowerCase())),
-      latest,
-    };
-  }, [visiblePosts, lifeList, isOwnProfile]);
+    return { homeRange: mode(areas), season: mode(times.map(seasonWord)) };
+  }, [visiblePosts, isOwnProfile]);
+  const firstName = useMemo(() => (lifeList[0] ? commonNameOf(lifeList[0], visiblePosts) : ''), [lifeList, visiblePosts]);
 
   // "Still to find nearby": species other explorers posted publicly near this explorer's places
   const [ghosts, setGhosts] = useState<Ghost[] | null>(null);
@@ -605,6 +655,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
+        {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
         <section className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-4">
             <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change profile photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
@@ -618,31 +669,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           {profile?.bio ? <p className="text-[15px] font-display text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
             <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a bio</button>
           )}
-          <section aria-label="Field page" className="mt-5 py-4 border-y border-theme-primary/15 flex gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-5">
-                <button onClick={() => setTab('lifelist')} className="text-left group">
-                  <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{lifeList.length}</span>
-                  <span className="block text-xs text-stone-500 mt-1">species on the list</span>
-                </button>
-                <button onClick={() => setTab('posts')} className="text-left group">
-                  <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{visiblePosts.length}</span>
-                  <span className="block text-xs text-stone-500 mt-1">{visiblePosts.length === 1 ? 'sighting' : 'sightings'}</span>
-                </button>
-              </div>
-              <dl className="mt-3 space-y-1 text-sm">
-                {masthead.homeRange && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Home range</dt><dd className="text-stone-800 font-display truncate">{masthead.homeRange}</dd></div>}
-                {masthead.season && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Favourite season</dt><dd className="text-stone-800 font-display">{masthead.season}</dd></div>}
-                {masthead.hour && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Favourite hour</dt><dd className="text-stone-800 font-display">{masthead.hour}</dd></div>}
-                {!masthead.homeRange && !masthead.season && <div className="text-stone-500">{isOwnProfile ? 'The first entry on this page is still to be written.' : 'This field page is still blank.'}</div>}
-              </dl>
+          <section aria-label="Field page" className="mt-5 py-4 border-y border-theme-primary/15">
+            <div className="flex items-baseline gap-6">
+              <button onClick={() => setTab('lifelist')} className="text-left group">
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{lifeList.length}</span>
+                <span className="block text-xs text-stone-500 mt-1">species</span>
+              </button>
+              <button onClick={() => setTab('posts')} className="text-left group">
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{visiblePosts.length}</span>
+                <span className="block text-xs text-stone-500 mt-1">{visiblePosts.length === 1 ? 'sighting' : 'sightings'}</span>
+              </button>
+              <p className="ml-auto self-center text-sm text-stone-500 text-right">
+                <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">{(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'follower' : 'followers'}</button>
+                <span aria-hidden="true"> · </span>
+                <button onClick={() => setSheet('following')} className="hover:text-theme-primary hover:underline underline-offset-4">{(profile?.followingCount || 0).toLocaleString()} following</button>
+              </p>
             </div>
-            {masthead.latest && (
-              <div className="w-[112px] shrink-0">
-                <p className="text-xs text-stone-500 mb-1.5">Latest plate</p>
-                <SpecimenPlate size="sm" data={plateOf(masthead.latest)} onClick={() => onOpenPost?.(masthead.latest!.postId)} />
-              </div>
-            )}
           </section>
           {stamps.length > 0 && (
             <section aria-label="Challenge stamps" className="mt-4">
@@ -658,16 +700,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </ul>
             </section>
           )}
-          <p className="mt-3 text-sm text-stone-500">
-            <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">Read by {(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'explorer' : 'explorers'}</button>
-            <span aria-hidden="true"> · </span>
-            <button onClick={() => setSheet('following')} className="hover:text-theme-primary hover:underline underline-offset-4">reads {(profile?.followingCount || 0).toLocaleString()}</button>
-          </p>
           <div className="flex gap-2 mt-4">
             {isOwnProfile ? (
               <>
                 <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit profile</button>
-                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><Glyph name="rings" size={18} />Journal</button>
                 <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             ) : blocked ? (
@@ -680,7 +716,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <button onClick={async () => {
                   // A letter that can't be opened says why, instead of doing nothing.
                   try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
-                }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Write a letter</button>
+                }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Letter</button>
                 <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             )}
@@ -726,7 +762,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                   <p className="text-sm mt-1">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} becomes a numbered plate here, with the day, place and season it was first seen.</p>
                 </div>
               ) : (
-                <LifeListView entries={lifeList} own={isOwnProfile} ghosts={ghosts} onOpenPost={onOpenPost} onShare={sharePlateOf} />
+                <LifeListView entries={lifeList} own={isOwnProfile} ghosts={ghosts} onOpenPost={onOpenPost} onShare={sharePlateOf} firstName={firstName} homeRange={masthead.homeRange} season={masthead.season} />
               )
             )}
 
@@ -740,7 +776,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               saved.length === 0 ? (
                 <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
                   <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">filter_vintage</span>
-                  <p className="text-sm">Tap Keep on any sighting you want to come back to, and it is pressed here like a flower between pages. Only you can see what you've kept.</p>
+                  <p className="text-sm">Tap Keep on any sighting to find it here. Only you can see this.</p>
                 </div>
               ) : (
                 <KeptPages items={saved} onOpenPost={onOpenPost} />
@@ -753,7 +789,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'edit' && <EditProfileSheet profile={profile} onClose={() => setSheet(null)} onSaved={(m) => { setSheet(null); showToast(m); }} />}
 
       {(sheet === 'followers' || sheet === 'following') && (
-        <Sheet title={sheet === 'followers' ? 'Read by' : 'Reading'} onClose={() => setSheet(null)}>
+        <Sheet title={sheet === 'followers' ? 'Followers' : 'Following'} onClose={() => setSheet(null)}>
           {people === null ? <p className="text-stone-500 text-center py-6 font-display" role="status">Gathering the names…</p> :
             people.length === 0 ? (
               <div className="text-center py-6 px-2">
