@@ -910,6 +910,10 @@ const App: React.FC = () => {
               setSelectedPostId(null);
               window.history.replaceState({}, document.title, '/feed');
               enterApp();
+            }} onOpenLens={() => {
+              setSelectedPostId(null);
+              window.history.replaceState({}, document.title, '/feed');
+              handleNavigationRequest(AppView.LENS);
             }} />
           </Suspense>
         )}

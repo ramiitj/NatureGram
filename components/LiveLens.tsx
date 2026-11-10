@@ -760,7 +760,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     // The closing beat: what the outing gathered, pinned like specimens, while the session wraps up
     const items = Array.from(sessionCapturesRef.current.values());
     setClosing({ items, minutes: Math.max(1, Math.round((startedAt - sessionStartMsRef.current) / 60_000)), place: placeRef.current });
-    const finalSummary = summary || "Exploration concluded.";
+    const finalSummary = summary || "We closed the notebook on a good walk. Your captures are waiting for you to write them up.";
     if (naturalistId) {
       try {
         await FirebaseService.updateNaturalistMemory(naturalistId, { lastSessionSummary: finalSummary });

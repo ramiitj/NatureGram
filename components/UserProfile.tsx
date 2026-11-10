@@ -15,6 +15,7 @@ import Glyph from './Glyph';
 import { getThemePeriod } from '../constants/naturalistExtras';
 import { fieldMoment } from './Wonder';
 import { themeAccent } from './ShareSheet';
+import { challengeStamps } from '../services/stamps';
 
 /** "Exploring since March 2026", tolerant of Firestore Timestamps, {seconds} objects, ISO strings and millis. */
 const exploringSince = (t: any): string => {
@@ -406,6 +407,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   // Life list: every distinct species, numbered in the order it was first found
   const lifeList = useMemo(() => buildLifeList(visiblePosts), [visiblePosts]);
 
+  // Fortnights this explorer answered the naturalist's challenge
+  const stamps = useMemo(() => challengeStamps(visiblePosts), [visiblePosts]);
+
   // The masthead: home range, favourite season and hour, latest plate
   const masthead = useMemo(() => {
     const stamps = visiblePosts.map(p => toMs(p.timestamp)).filter(ms => ms > 0);
@@ -601,6 +605,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </div>
             )}
           </section>
+          {stamps.length > 0 && (
+            <section aria-label="Challenge stamps" className="mt-4">
+              <p className="text-xs text-stone-500 mb-2">{stamps.length === 1 ? 'One fortnight answered' : `${stamps.length} fortnights answered`}</p>
+              <ul className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                {stamps.map(st => (
+                  <li key={`${st.naturalistId}-${st.periodStart}`}>
+                    <button onClick={() => st.postId && onOpenPost?.(st.postId)} title={`Answered ${st.naturalist}'s challenge`} className="block">
+                      <PlateStamp tone="accent">{st.naturalist.split(' ').slice(-1)[0]}<br />{new Date(st.periodStart).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })}</PlateStamp>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <p className="mt-3 text-sm text-stone-500">
             <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">Read by {(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'explorer' : 'explorers'}</button>
             <span aria-hidden="true"> · </span>
@@ -748,7 +766,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         <Sheet title="Settings" onClose={() => setSheet(null)}>
           <nav className="flex flex-col gap-1" aria-label="Account settings">
             <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit profile</button>
-            <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">Naturalist persona<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
+            <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
             {isAdmin && onAdminConsole && (
@@ -769,7 +787,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           initialPersona={profile?.naturalistPersona}
           isOpen={personaOpen}
           onClose={() => setPersonaOpen(false)}
-          onSave={(updated: any) => { setProfile(prev => prev ? { ...prev, naturalistPersona: updated } : prev); setPersonaOpen(false); showToast('Persona saved'); }}
+          onSave={(updated: any) => { setProfile(prev => prev ? { ...prev, naturalistPersona: updated } : prev); setPersonaOpen(false); showToast('Noted. Your feed and guide will follow your eye.'); }}
         />
       )}
 

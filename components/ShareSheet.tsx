@@ -166,7 +166,7 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
           </button>
           {onSendLetter && (
             <button onClick={() => { track('share', { kind: 'letter' }); onSendLetter(post); onClose(); }} className="w-full py-3 rounded-2xl border border-theme-primary/15 text-theme-primary font-semibold flex items-center justify-center gap-2 hover:bg-theme-primary/5">
-              <Glyph name="letter" size={20} />Send as a letter
+              <Glyph name="letter" size={20} />Put it in a letter<span className="text-xs font-normal text-stone-500">(link copied)</span>
             </button>
           )}
           {allowMediaDownload && (

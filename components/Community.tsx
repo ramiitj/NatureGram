@@ -260,6 +260,12 @@ const Community: React.FC<CommunityProps> = ({
     onOpenNaturalist
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
+  const sendAsLetter = onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
+          // Letters have no recipient picker yet: carry the link over so it can be pasted into any letter.
+          const url = `${window.location.origin}/s/${post.id}`;
+          try { navigator.clipboard?.writeText(url); } catch { /* ignore */ }
+          onOpenMessages();
+      } : undefined;
   const [lastVisible, setLastVisible] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
   const [activePost, setActivePost] = useState<CommunityPost | null>(null);
@@ -2234,7 +2240,7 @@ const Community: React.FC<CommunityProps> = ({
     </>
 
     <>
-        {sharingPost && <React.Suspense fallback={null}><ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} /></React.Suspense>}
+        {sharingPost && <React.Suspense fallback={null}><ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} onSendLetter={sendAsLetter} /></React.Suspense>}
     </>
 
     <>
@@ -2243,6 +2249,7 @@ const Community: React.FC<CommunityProps> = ({
                 post={publishingPost} 
                 activeItemIndex={activeItemIndex} 
                 onClose={() => setPublishingPost(null)} 
+                onSendLetter={sendAsLetter}
             /></React.Suspense>
         )}
     </>

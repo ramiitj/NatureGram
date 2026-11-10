@@ -38,7 +38,7 @@ interface PostSessionViewProps {
 }
 
 /** Lines the app writes when a session ends on its own; they are not the guide's notes. */
-const SYSTEM_SUMMARY = /^(exploration concluded|session ended|unfinished expedition|that's today's live time)/i;
+const SYSTEM_SUMMARY = /^(exploration concluded|we closed the notebook on a good walk|session ended|unfinished expedition|that's today's live time)/i;
 const guideNotesOf = (summary?: string) => {
   const t = (summary || '').trim();
   return t && !SYSTEM_SUMMARY.test(t) ? t : '';
