@@ -1089,7 +1089,7 @@ const App: React.FC = () => {
         <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 ${darkNav ? 'bg-white text-stone-900 hover:bg-stone-100' : 'bg-stone-900 text-white hover:bg-stone-800'}`}>
+              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 bg-theme-primary text-white hover:brightness-110 shadow-[0_6px_18px_-8px_rgb(var(--theme-primary-rgb)/0.7)]`}>
                 <Glyph name="eyeEar" size={28} strokeWidth={1.6} />
               </button>
             ) : (
