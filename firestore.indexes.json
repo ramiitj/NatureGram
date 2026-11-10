@@ -1,6 +1,24 @@
 {
   "indexes": [
     {
+      "collectionGroup": "feed_thumbnails",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "searchTokens", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "feed_thumbnails",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "communityVerified", "order": "ASCENDING" },
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "ecosystem_feed",
       "queryScope": "COLLECTION",
       "fields": [
