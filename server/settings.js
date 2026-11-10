@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     safety: 'Field notes can\'t say a wild plant, fungus or animal is safe to eat, touch or use as medicine.',
   }),
   blockedNetworks: Object.freeze([]), // IP addresses or prefixes, e.g. "203.0.113." or "198.51.100.7"
+  moderationWords: Object.freeze([]), // extra words that send a sighting or comment to review (whole words, any case)
   requireAdminMfa: process.env.ADMIN_REQUIRE_MFA === 'true',
 });
 
