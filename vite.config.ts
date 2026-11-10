@@ -44,6 +44,19 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, '.'),
     },
+    // One React, always: a second copy (e.g. from a dependency re-bundled mid-session in the dev server)
+    // makes hooks run against a null dispatcher ("Cannot read properties of null (reading 'useState')")
+    dedupe: ['react', 'react-dom'],
+  },
+  // Pre-bundle everything the app loads lazily, so the dev server (and AI Studio's preview) never
+  // re-optimises dependencies while a session is open, which would load a second React and reload pages
+  optimizeDeps: {
+    include: [
+      'react', 'react-dom', 'react-dom/client', 'react/jsx-runtime',
+      'firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage',
+      'firebase/functions', 'firebase/app-check', 'firebase/messaging',
+      'motion/react', 'lucide-react',
+    ],
   },
   build: {
     target: 'es2020',
