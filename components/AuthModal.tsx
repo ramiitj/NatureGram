@@ -166,18 +166,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const blocked = mode === 'signup' && tooYoung;
   const teenStep = mode === 'signup' && !blocked && step !== 'form';
   const title = blocked ? 'Not quite yet'
-    : teenStep ? (step === 'guardian' ? 'A grown-up\'s OK' : 'Your notebook is ready')
-    : mode === 'signup' ? (isGuest ? 'Keep your field notebook' : 'Start your field notebook')
+    : teenStep ? (step === 'guardian' ? 'A grown-up\'s OK' : 'Your field page is ready')
+    : mode === 'signup' ? (isGuest ? 'Keep what you\'ve found' : 'Start your field page')
     : mode === 'login' ? 'Welcome back to the field' : 'Reset your password';
   // The reason was written for the mode we opened in ("Create an account to comment"), so it isn't repeated after switching
   const subtitle = blocked ? '' : teenStep ? (step === 'guardian' ? 'One more step, because you\'re under 18.' : 'It stays private until your grown-up says yes.') : (reason && mode === initialMode ? reason : '') || (
     mode === 'signup' ? 'Free, and yours to keep.'
-    : mode === 'login' ? 'Your pages, life list and letters are just where you left them.' : 'Tell us your email and we\'ll send a link to choose a new password.');
+    : mode === 'login' ? 'Your sightings, life list and letters are just where you left them.' : 'Tell us your email and we\'ll send a link to choose a new password.');
   const headGlyph: GlyphName = blocked ? 'feather' : teenStep ? (step === 'guardian' ? 'stamp' : 'letter') : mode === 'reset' ? 'key' : mode === 'login' ? 'compass' : 'notebook';
   // The threshold panel: what you're joining (sign-up), or who keeps the notebook this fortnight (log in)
   const wide = !inline && !blocked && mode !== 'reset';
 
-  const inputClass = 'w-full min-h-[48px] bg-white border border-stone-300 rounded-lg px-3.5 py-3 text-base text-text-main placeholder:text-stone-400 focus:border-theme-accent transition-colors';
+  const inputClass = 'w-full min-h-[48px] bg-white border border-stone-300 rounded-lg px-3.5 py-3 text-base text-text-main placeholder:text-stone-500 focus:border-theme-accent transition-colors';
   const labelClass = 'block text-sm font-semibold text-stone-700 mb-1.5';
   const linkBtn = 'inline-flex items-center min-h-[44px] px-1 font-semibold text-theme-accent underline-offset-4 hover:underline';
 
@@ -201,8 +201,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             <SpecimenPlate ghost size="sm" data={{ name: 'Your first species', no: 1 }} />
           </div>
           <ul className="flex flex-col gap-2 md:gap-3 text-[13px] md:text-sm text-stone-700 leading-snug" role="list">
-            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A field notebook for every outing</li>
-            <li className="flex items-center gap-2.5"><Glyph name="fern" size={20} className="text-theme-accent" />A life list, species by species</li>
+            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A journal for every outing</li>
+            <li className="flex items-center gap-2.5"><Glyph name="plate" size={20} className="text-theme-accent" />A life list, species by species</li>
             <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-theme-accent" />Letters with other explorers</li>
           </ul>
         </div>
@@ -225,7 +225,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           <header className={`${inline ? 'px-1 pt-1' : 'px-6 pt-6 pr-14'} ${wide ? 'md:p-0' : ''}`}>
             <Glyph name={headGlyph} size={28} className="text-theme-accent mb-3" />
             <h2 id="auth-title" className="text-[26px] md:text-[28px] leading-tight font-display font-semibold text-text-main">{title}</h2>
-            {subtitle && <p className="text-stone-600 text-[15px] mt-1.5 leading-relaxed">{subtitle}</p>}
+            {(mode === 'signup' || mode === 'login') && !blocked && !teenStep && (
+              <div role="tablist" aria-label="Sign up or log in" className="mt-3 inline-flex p-0.5 rounded-full bg-stone-900/5 border border-stone-900/10 text-sm">
+                {([['signup', 'Start my field page'], ['login', 'Log in']] as const).map(([m, label]) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === m}
+                    onClick={() => mode !== m && switchMode(m)}
+                    className={`min-h-[36px] px-3.5 rounded-full transition-colors ${mode === m ? 'bg-white text-text-main font-semibold shadow-sm' : 'text-stone-600 hover:text-stone-900'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {subtitle && <p className="text-stone-600 text-[15px] mt-2 leading-relaxed">{subtitle}</p>}
             {mode === 'login' && !inline && epigraph && <div className="md:hidden mt-4 pl-3 border-l-2 border-theme-accent/40">{epigraph}</div>}
           </header>
           {threshold}
@@ -236,27 +252,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         {teenStep && step === 'sent' ? (
           <div role="status" className="space-y-4">
             {guardianSent?.sent ? (
-              <p className="text-[15px] text-stone-700 leading-relaxed">We've written to <strong className="font-semibold text-text-main">{guardianSent.to}</strong>. When they say yes, your notebook opens to the community. Their link works for 7 days.</p>
+              <p className="text-[15px] text-stone-700 leading-relaxed">We've written to <strong className="font-semibold text-text-main">{guardianSent.to}</strong>. When they say yes, your field page opens to the community. Their link works for 7 days.</p>
             ) : guardianSent?.link ? (
               <>
                 <p className="text-[15px] text-stone-700 leading-relaxed">Send this link to your parent or guardian. It explains NatureGram and what we keep, and takes them about two minutes. It works for 7 days.</p>
-                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
+                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' /* glossary-ok: a text or email, not a letter */ : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
                   <Glyph name="sealed" size={20} />Send this to your parent
                 </button>
                 {shared && <p className="text-sm text-stone-600">{shared}</p>}
               </>
             ) : (
-              <p className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your notebook.</p>
+              <p className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your field page.</p>
             )}
             <div className="rounded-[3px] bg-[#fbf7ef] border border-[#e8dfcd] p-4">
               <p className="text-sm font-semibold text-stone-800">While you wait, you can</p>
               <ul className="mt-2 flex flex-col gap-2 text-sm text-stone-700" role="list">
                 <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-theme-accent" />Browse the feed, Moments and Explore</li>
                 <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-theme-accent" />Use the Lens and ask the guide</li>
-                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Keep sightings in your own journal</li>
+                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Save sightings to your own journal</li>
               </ul>
             </div>
-            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] font-semibold text-base py-3.5 rounded-xl ${guardianSent?.link ? 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50' : 'bg-theme-primary text-white hover:opacity-90'}`}>Open my notebook</button>
+            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] font-semibold text-base py-3.5 rounded-xl ${guardianSent?.link ? 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50' : 'bg-theme-primary text-white hover:opacity-90'}`}>Go to my field page</button>
           </div>
         ) : blocked ? (
           <div role="status" className="space-y-3">
@@ -269,7 +285,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate={false}>
             {teenStep && step === 'guardian' && (
               <>
-                <p className="text-[15px] text-stone-700 leading-relaxed">Because you're under 18, a parent or guardian needs to say it's all right before your notebook can be shared. Until then you can explore everything and keep sightings in your own journal.</p>
+                <p className="text-[15px] text-stone-700 leading-relaxed">Because you're under 18, a parent or guardian needs to say it's all right before your field page can be shared. Until then you can explore everything and save sightings to your own journal.</p>
                 <div>
                   <label htmlFor="auth-parent-email" className={labelClass}>Your parent or guardian's email</label>
                   <input id="auth-parent-email" autoFocus type="email" inputMode="email" value={parentEmail} onChange={e => setParentEmail(e.target.value)} required autoComplete="off" placeholder="grown-up@example.com" className={inputClass} aria-describedby="auth-parent-hint" />
@@ -282,34 +298,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                 </ul>
               </>
             )}
-            {!teenStep && mode === 'signup' && (
-              <div>
-                <label htmlFor="auth-username" className={labelClass}>Username <span className="font-normal text-stone-500">(optional)</span></label>
-                <input id="auth-username" ref={firstFieldRef} type="text" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" placeholder="e.g. owl_watcher" className={inputClass} aria-invalid={!usernameOk} aria-describedby={usernameOk ? undefined : 'auth-username-hint'} />
-                {!usernameOk && <p id="auth-username-hint" className="text-xs mt-1.5 text-red-800">3 to 30 letters, numbers, dots or underscores.</p>}
-              </div>
-            )}
-            {!teenStep && mode === 'signup' && (
-              <fieldset>
-                <legend className={labelClass}>Month and year you were born</legend>
-                <div className="flex gap-2">
-                  <label htmlFor="auth-birth-month" className="sr-only">Birth month</label>
-                  <select id="auth-birth-month" value={birthMonth} onChange={e => setBirthMonth(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[3]`}>
-                    <option value="">Month</option>
-                    {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-                  </select>
-                  <label htmlFor="auth-birth-year" className="sr-only">Birth year</label>
-                  <select id="auth-birth-year" value={birthYear} onChange={e => setBirthYear(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[2]`}>
-                    <option value="">Year</option>
-                    {Array.from({ length: 100 }, (_, i) => thisYear - i).map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                </div>
-                <p id="auth-birth-hint" className="text-xs mt-1.5 text-stone-500">Only used to check you're 13 or older. We don't keep it.</p>
-              </fieldset>
-            )}
             <div className={teenStep ? 'hidden' : ''}>
               <label htmlFor="auth-email" className={labelClass}>Email</label>
-              <input id="auth-email" ref={mode === 'signup' ? undefined : firstFieldRef} type="email" inputMode="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" className={inputClass} />
+              <input id="auth-email" ref={firstFieldRef} type="email" inputMode="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" className={inputClass} />
             </div>
             {mode !== 'reset' && (
               <div className={teenStep ? 'hidden' : ''}>
@@ -344,6 +335,32 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               </div>
             )}
 
+            {!teenStep && mode === 'signup' && (
+              <fieldset>
+                <legend className={labelClass}>Month and year you were born</legend>
+                <div className="flex gap-2">
+                  <label htmlFor="auth-birth-month" className="sr-only">Birth month</label>
+                  <select id="auth-birth-month" value={birthMonth} onChange={e => setBirthMonth(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[3]`}>
+                    <option value="">Month</option>
+                    {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                  </select>
+                  <label htmlFor="auth-birth-year" className="sr-only">Birth year</label>
+                  <select id="auth-birth-year" value={birthYear} onChange={e => setBirthYear(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[2]`}>
+                    <option value="">Year</option>
+                    {Array.from({ length: 100 }, (_, i) => thisYear - i).map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <p id="auth-birth-hint" className="text-xs mt-1.5 text-stone-500">Only used to check you're 13 or older. We don't keep it.</p>
+              </fieldset>
+            )}
+            {!teenStep && mode === 'signup' && (
+              <div>
+                <label htmlFor="auth-username" className={labelClass}>Username <span className="font-normal text-stone-500">(optional)</span></label>
+                <input id="auth-username" type="text" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" placeholder="e.g. owl_watcher" className={inputClass} aria-invalid={!usernameOk} aria-describedby={usernameOk ? undefined : 'auth-username-hint'} />
+                {!usernameOk && <p id="auth-username-hint" className="text-xs mt-1.5 text-red-800">3 to 30 letters, numbers, dots or underscores.</p>}
+              </div>
+            )}
+
             {error && (
               <div role="alert" className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">
                 <p>{error}</p>
@@ -360,8 +377,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
             <button type="submit" disabled={loading} aria-busy={loading} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-60 active:scale-[0.98]">
               {loading
-                ? (mode === 'signup' ? 'Opening your notebook…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
-                : mode === 'signup' ? (isGuest ? 'Keep my notebook' : 'Start my notebook') : mode === 'login' ? 'Log in' : 'Send reset link'}
+                ? (mode === 'signup' ? 'Starting your field page…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
+                : mode === 'signup' ? 'Start my field page' : mode === 'login' ? 'Log in' : 'Send reset link'}
             </button>
             {teenStep && step === 'guardian' && <button type="button" onClick={() => { setStep('form'); setError(''); }} className={`${linkBtn} self-center text-sm`}>Back</button>}
           </form>
@@ -370,12 +387,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         {mode === 'signup' && !blocked && !teenStep && !inline && epigraph && <div className="md:hidden mt-6 pt-4 border-t border-[#e8dfcd]">{epigraph}</div>}
 
         <div className={`mt-4 text-center text-sm text-stone-600 ${step === 'sent' && mode === 'signup' ? 'hidden' : ''}`}>
-          {mode === 'signup' ? (
-            <>Already keep a notebook here? <button type="button" onClick={() => switchMode('login')} className={linkBtn}>Log in</button></>
-          ) : mode === 'reset' ? (
+          {mode === 'reset' && (
             <>Remembered it? <button type="button" onClick={() => switchMode('login')} className={linkBtn}>Back to log in</button></>
-          ) : (
-            <>New to NatureGram? <button type="button" onClick={() => switchMode('signup')} className={linkBtn}>Start a field notebook</button></>
           )}
         </div>
         {mode === 'signup' && (

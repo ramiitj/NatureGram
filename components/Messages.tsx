@@ -7,6 +7,7 @@ import { track } from '../services/analytics';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import Glyph from './Glyph';
+import FirstHint from './FirstHint';
 
 const IGNORE = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)/i;
 
@@ -61,7 +62,7 @@ const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 
 
 const Avatar: React.FC<{ name?: string; url?: string | null; size?: number }> = ({ name, url, size = 48 }) => url
   ? <img src={url} alt="" className="rounded-full object-cover bg-stone-100 shrink-0" style={{ width: size, height: size }} />
-  : <span className="rounded-full bg-theme-accent/10 text-theme-accent font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
+  : <span className="rounded-full bg-theme-accent/10 text-theme-deep font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
 
 /** Letters: private correspondence between explorers (inbox + 1:1 threads, realtime), written like notes between naturalists. */
 const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfile, onOpenPost }) => {
@@ -89,6 +90,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
         <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-theme-primary/5 text-theme-primary"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
+        <FirstHint id="letters" text="Letters are slow notes between explorers. Ask about a find, or plan a walk." />
         {convos === null ? (
           <p className="text-center text-stone-500 py-16" role="status">Opening your letters…</p>
         ) : convos.length === 0 ? (
@@ -232,7 +234,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           </div>
         </div>
       )}
-      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their profile.</p>}
+      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their field page.</p>}
       <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-live="polite" aria-label="Letters">
         <div className="max-w-xl mx-auto">
           {opening}

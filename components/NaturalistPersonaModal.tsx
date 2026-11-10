@@ -98,7 +98,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
         {state === 'saved' ? (
           <div className="p-8 text-center" role="status">
             <Glyph name="feather" size={34} className="text-theme-accent mx-auto" />
-            <p className="font-display text-xl text-stone-900 mt-4">Noted in your field notebook.</p>
+            <p className="font-display text-xl text-stone-900 mt-4">Noted on your field page.</p>
             <p className="font-display italic text-lg text-theme-primary mt-4 leading-snug">“{extra.philosophy}”</p>
             <p className="text-sm text-stone-500 mt-2">{theme.naturalist}</p>
           </div>
@@ -145,7 +145,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                   value={note}
                   onChange={e => setNote(e.target.value.slice(0, 200))}
                   placeholder="For example, herons on the canal"
-                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-400 focus:border-theme-accent"
+                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-500 focus:border-theme-accent"
                 />
               </label>
             </div>

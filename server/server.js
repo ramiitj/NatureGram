@@ -37,6 +37,7 @@ import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
+import { feedFirstPost, firstTilesJson } from './media.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -423,22 +424,23 @@ async function startServer() {
   // -------------------------------------------------------------------------
   // Share previews for social crawlers
   // -------------------------------------------------------------------------
-  // The fortnight's naturalist and palette, mirrored from constants/naturalists.ts (same order and
-  // the same ~15.21-day rotation as getThemePeriod) so the link card wears the current theme.
+  // The fortnight's naturalist and palette (deep tone for ink, accent for the wash), mirrored from
+  // constants/palettes.json in rotation order on the same ~15.21-day rotation as rotationAt, so the
+  // link card wears the current theme. server/test/palettes.test.mjs checks the copy.
   const SHARE_THEMES = [
-    ['Jane Goodall', '#2d4a22', '#aed581'], ['Dian Fossey', '#1f2937', '#10b981'], ['Charles Darwin', '#44403c', '#a8a29e'],
-    ['Alfred Russel Wallace', '#065f46', '#34d399'], ['John Muir', '#334155', '#3b82f6'], ['Rachel Carson', '#0f766e', '#06b6d4'],
-    ['Henry David Thoreau', '#047857', '#10b981'], ['Aldo Leopold', '#b45309', '#f59e0b'], ['Ralph Waldo Emerson', '#c2410c', '#f97316'],
-    ['Wangari Maathai', '#3f6212', '#84cc16'], ['David Attenborough', '#a16207', '#fbbf24'], ['Jacques-Yves Cousteau', '#0369a1', '#38bdf8'],
-    ['Alexander von Humboldt', '#374151', '#9ca3af'], ['Carl Linnaeus', '#166534', '#4ade80'], ['E.O. Wilson', '#78350f', '#fb923c'],
-    ['Sylvia Earle', '#1e3a8a', '#60a5fa'], ['George Washington Carver', '#5c2a16', '#f97316'], ['Mary Anning', '#4b5563', '#9ca3af'],
-    ['Steve Irwin', '#854d0e', '#fde047'], ['Robin Wall Kimmerer', '#14532d', '#86efac'], ['Maria Sibylla Merian', '#831843', '#f472b6'],
-    ['Salim Ali', '#581c87', '#c084fc'], ['Beatrix Potter', '#1e40af', '#93c5fd'], ['John James Audubon', '#86198f', '#e879f9'],
+    ['E.O. Wilson', '#72371e', '#b74e03'], ['Alfred Russel Wallace', '#005d3b', '#067d59'], ['John James Audubon', '#873833', '#d42617'],
+    ['Jane Goodall', '#00451b', '#007e44'], ['Alexander von Humboldt', '#5b3e81', '#9546d4'], ['Wangari Maathai', '#445801', '#637500'],
+    ['John Muir', '#354666', '#536ca9'], ['Ralph Waldo Emerson', '#605000', '#836c02'], ['Charles Darwin', '#00515e', '#00788e'],
+    ['Mary Anning', '#5c4819', '#896900'], ['Rachel Carson', '#035a5d', '#087a81'], ['David Attenborough', '#704903', '#956400'],
+    ['Dian Fossey', '#0e4d4c', '#017a7e'], ['George Washington Carver', '#5c3917', '#9c6003'], ['Sylvia Earle', '#005875', '#0575a2'],
+    ['Steve Irwin', '#4c4b25', '#776f1e'], ['Jacques-Yves Cousteau', '#0d346c', '#2766e3'], ['Beatrix Potter', '#394c23', '#597717'],
+    ['Carl Linnaeus', '#444b8f', '#6258e9'], ['Robin Wall Kimmerer', '#305b26', '#008017'], ['Maria Sibylla Merian', '#753157', '#c62e82'],
+    ['Salim Ali', '#035587', '#006fc8'], ['Aldo Leopold', '#7f4001', '#a55b01'], ['Henry David Thoreau', '#085546', '#047c6b'],
   ];
   const shareTheme = (now = new Date()) => {
     const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
-    const [naturalist, primary, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
-    return { naturalist, primary, accent };
+    const [naturalist, deep, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+    return { naturalist, deep, accent };
   };
   const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
 
@@ -458,7 +460,7 @@ async function startServer() {
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
     const theme = shareTheme();
     let title = 'NatureGram: a living field notebook';
-    let heading = 'A page from a field notebook';
+    let heading = 'A wild sighting';
     let scientific = '';
     let byline = '';
     let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
@@ -523,7 +525,7 @@ async function startServer() {
       : `<span class="note">Shared during ${e(theme.naturalist)}'s fortnight on NatureGram</span>`;
     // Theme colours come from the fixed table above, never from user input; still validated as hex.
     const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c) ? c : d);
-    const ink = hex(theme.primary, '#44403c');
+    const ink = hex(theme.deep, '#44403c');
     const wash = hex(theme.accent, '#a8a29e');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.type('html').send(`<!DOCTYPE html>
@@ -560,7 +562,7 @@ ${scientific ? `<p class="sci">${e(scientific)}</p>` : ''}
 ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 <p class="desc">${e(description)}</p>
 <div>${tagHtml}</div>
-<a class="btn" href="${e(appUrl)}">Open this field page</a>
+<a class="btn" href="${e(appUrl)}">Open this sighting</a>
 </main></body></html>`);
   });
 
@@ -696,35 +698,53 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 
   // First page of the feed as plain JSON: arrives before the database SDK has even started,
   // and is shared by everyone for a few seconds (fast on slow connections, cheap to serve).
-  let firstPage = { at: 0, body: null };
+  // The same page feeds the first tiles inlined into index.html (see server/media.js).
+  let firstPage = { at: 0, body: null, tiles: null };
+  let firstPageLoading = null;
   // When this server's credentials can't read Firestore (e.g. a preview environment), say so once and
   // stop asking for 10 minutes: the app loads the feed directly from Firestore either way.
   let firstPageDeniedUntil = 0;
+  async function loadFirstPage() {
+    const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
+    const posts = snap.docs.map(d => feedFirstPost(d.id, d.data()));
+    firstPage = {
+      at: Date.now(),
+      body: JSON.stringify({ posts, more: snap.size === 12 }),
+      tiles: firstTilesJson(posts),
+    };
+    return firstPage;
+  }
+  function refreshFirstPage() {
+    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return Promise.reject(new Error('unavailable'));
+    if (!firstPageLoading) {
+      firstPageLoading = loadFirstPage().catch((e) => {
+        const msg = String(e.message).slice(0, 120);
+        // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
+        // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
+        const denied = /PERMISSION_DENIED/.test(msg);
+        if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
+        log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
+        throw e;
+      }).finally(() => { firstPageLoading = null; });
+    }
+    return firstPageLoading;
+  }
+  /** The first tiles for the page, from the cached first page (refreshed in the background, never awaited). */
+  const firstTilesNow = () => {
+    if (Date.now() - firstPage.at > 20_000) refreshFirstPage().catch(() => {});
+    // An old page is fine for a first paint (the app refreshes it at once), but not a very old one
+    return firstPage.tiles && Date.now() - firstPage.at < 15 * 60_000 ? firstPage.tiles : null;
+  };
+  refreshFirstPage().catch(() => {});
   app.get('/api/feed/first', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=30, stale-while-revalidate=120');
     if (firstPage.body && Date.now() - firstPage.at < 20_000) return res.type('json').send(firstPage.body);
-    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return res.status(503).json({ posts: [] });
     try {
-      const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
-      const posts = snap.docs.map(d => {
-        const x = d.data();
-        return {
-          id: d.id, mediaType: x.mediaType || 'image', thumbnailUrl: x.thumbnailUrl || '', thumbSmallUrl: x.thumbSmallUrl || null, videoUrl: x.videoUrl || null,
-          title: x.title || null, caption: x.caption || null, userId: x.userId, userName: x.userName || null, userAvatar: x.userAvatar || null,
-          likes: x.likes || [], likeCount: x.likeCount || 0, commentCount: x.commentCount || 0, isPublic: true, tags: x.tags || [], labels: x.labels || [],
-          behavior: x.behavior || '', aiInsight: x.aiInsight || null, locationArea: x.locationArea || '', isHybrid: !!x.isHybrid, curatorNote: null,
-          ts: x.timestamp?.toMillis?.() || 0,
-        };
-      });
-      firstPage = { at: Date.now(), body: JSON.stringify({ posts, more: snap.size === 12 }) };
-      res.type('json').send(firstPage.body);
-    } catch (e) {
-      const msg = String(e.message).slice(0, 120);
-      // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
-      // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
-      const denied = /PERMISSION_DENIED/.test(msg);
-      if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
-      log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
+      const page = await refreshFirstPage();
+      res.type('json').send(page.body);
+    } catch {
+      // A slightly old page beats an empty one
+      if (firstPage.body) return res.type('json').send(firstPage.body);
       res.status(503).json({ posts: [] });
     }
   });
@@ -769,7 +789,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   const server = http.createServer(app);
   // Only real app routes get the app; anything else is a proper 404
   const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|explore\/?$|guardian\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
-  const seoDeps = { db: () => firestoreDb, log, publicHost: PUBLIC_HOST, iosUrl: process.env.IOS_APP_URL || '', androidUrl: process.env.ANDROID_APP_URL || '' };
+  const seoDeps = { db: () => firestoreDb, firstTiles: firstTilesNow, log, publicHost: PUBLIC_HOST, iosUrl: process.env.IOS_APP_URL || '', androidUrl: process.env.ANDROID_APP_URL || '' };
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa', root: ROOT_DIR });

@@ -1,4 +1,4 @@
-import { NATURALIST_THEMES, NaturalistTheme } from './naturalists';
+import { PERIOD_DAYS, rotationAt, themeAt } from './naturalists';
 
 /**
  * The fortnightly naturalist is NatureGram's ritual: every ~15 days the app's palette,
@@ -52,21 +52,12 @@ const FALLBACK: NaturalistExtra = {
 
 export const getNaturalistExtra = (id?: string): NaturalistExtra => (id && NATURALIST_EXTRAS[id]) || FALLBACK;
 
-const PERIOD_DAYS = 15.21;
-
 /** Details of the current fortnightly naturalist period (matches getDailyTheme()). */
 export const getThemePeriod = (now = new Date()) => {
-  const yearStart = new Date(now.getFullYear(), 0, 0);
-  const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / 86_400_000);
-  const slot = Math.floor(dayOfYear / PERIOD_DAYS);
-  const index = slot % NATURALIST_THEMES.length;
+  const { dayOfYear, slot, index, theme } = rotationAt(now);
   const nextStartDay = Math.ceil((slot + 1) * PERIOD_DAYS);
   const daysRemaining = Math.max(1, nextStartDay - dayOfYear);
-  const nextIndex = (index + 1) % NATURALIST_THEMES.length;
-  return {
-    index,
-    theme: NATURALIST_THEMES[index] as NaturalistTheme,
-    daysRemaining,
-    next: NATURALIST_THEMES[nextIndex] as NaturalistTheme,
-  };
+  // Whoever holds the notebook on the first day of the next period (it may fall in the next year)
+  const next = themeAt(new Date(now.getFullYear(), 0, nextStartDay));
+  return { index, theme, daysRemaining, next };
 };

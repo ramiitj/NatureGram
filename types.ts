@@ -58,9 +58,12 @@ export interface UserProfileData {
   location?: string;
   lastVisit?: any;
   joinedAt: any;
+  /** Written by the server only (server/userStats.js); trust species/sightings once reconciledAt exists */
   stats?: {
     observations: number;
     species: number;
+    sightings?: number;
+    reconciledAt?: any;
   }
   /** Teen mode (13 to 17). Missing on older profiles, which are adults. */
   ageBand?: 'teen' | 'adult';
@@ -204,6 +207,19 @@ export interface CommunityPostItem {
   aiFlags?: { isNatureSubject: boolean; fungi: boolean; dangerous: boolean; sensitiveSpecies: boolean; peopleVisible: boolean } | null;
   needsExpertReview?: boolean;
   aiSafetyNote?: string;
+  thumbSmallUrl?: string | null;
+  /** Blur-up preview: a ~16 px WebP/JPEG data URL (under 1000 chars), shown blurred until the picture loads */
+  lqip?: string | null;
+  /** Main colour of the picture (#rrggbb), painted behind the tile */
+  tint?: string | null;
+  /** Natural size of the picture or clip, so the tile takes its shape at once */
+  w?: number | null;
+  h?: number | null;
+  aspect?: number | null;
+  /** A "video" with no picture track: shown as a sound */
+  soundOnly?: boolean;
+  /** Still made by the server from the clip (media_variants), written back onto the post */
+  posterUrl?: string | null;
 }
 
 export interface FeedThumbnail {
@@ -233,6 +249,18 @@ export interface FeedThumbnail {
   userAvatar?: string | null;
   ethologicalDescriptors?: EthologicalDescriptors | null;
   curatorNote?: string;
+  /** Blur-up preview: a ~16 px WebP/JPEG data URL (under 1000 chars), shown blurred until the picture loads */
+  lqip?: string | null;
+  /** Main colour of the picture (#rrggbb), painted behind the tile */
+  tint?: string | null;
+  /** Natural size of the picture or clip, so the tile takes its shape at once */
+  w?: number | null;
+  h?: number | null;
+  aspect?: number | null;
+  /** A "video" with no picture track: shown as a sound */
+  soundOnly?: boolean;
+  /** Still made by the server from the clip (media_variants), written back onto the post */
+  posterUrl?: string | null;
 }
 
 export interface CommunityPost extends FeedThumbnail {
@@ -260,6 +288,8 @@ export interface CommunityPost extends FeedThumbnail {
   aiProposedBehavior?: string;
   humanDelta?: boolean;
   sessionRetakes?: number;
+  /** Storage paths of the post's clips and recordings (the poster function finds posts by them) */
+  mediaPaths?: string[];
 }
 
 export interface Comment {

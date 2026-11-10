@@ -118,7 +118,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
               <h2 id="fortnight-challenge" className="font-display text-xl font-semibold text-stone-900">This fortnight's challenge</h2>
               <p className="text-[16px] text-theme-primary leading-relaxed mt-1.5">{extra.challenge}</p>
               <p className="text-sm text-stone-600 mt-2">
-                Tag your sighting {extra.challengeTag} · {periodLabel(span)} · {period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'} left
+                Tag your sighting {extra.challengeTag}
               </p>
               {onOpenLens && (
                 <button onClick={onOpenLens} className="mt-4 px-5 py-2.5 rounded-full bg-theme-primary text-white text-sm font-semibold inline-flex items-center gap-2">

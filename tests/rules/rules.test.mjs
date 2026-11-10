@@ -27,6 +27,10 @@ await t('owner cannot clear moderation', assertFails(updateDoc(doc(A, 'ecosystem
 await t('owner cannot change the guide words', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { aiInsight: 'fake' })));
 await t('owner cannot swap picture and stay public', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { imageUrl: 'b', isPublic: true, moderation: { status: 'edited' } })));
 await t('owner can swap picture going private+edited', assertSucceeds(updateDoc(doc(A, 'ecosystem_feed/p1'), { imageUrl: 'b', isPublic: false, moderation: { status: 'edited' } })));
+await t('owner can swap a clip with its paths list', assertSucceeds(updateDoc(doc(A, 'ecosystem_feed/p1'), { videoUrl: 'v2', mediaPaths: ['videos/alice/v2.webm'], isPublic: false, moderation: { status: 'edited' } })));
+await t('paths list must be a short list', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { videoUrl: 'v3', mediaPaths: 'videos/alice/v3.webm', isPublic: false, moderation: { status: 'edited' } })));
+await t('owner cannot set preview fields directly', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { lqip: 'data:image/webp;base64,AAAA' })));
+await t('owner cannot set preview fields on the feed entry', assertFails(updateDoc(doc(A, 'feed_thumbnails/p2'), { tint: '#000000', posterUrl: 'x' })));
 await t('client cannot create thumbnail', assertFails(setDoc(doc(A, 'feed_thumbnails/p9'), { userId: 'alice', id: 'p9' })));
 await t('owner cannot swap thumbnail image', assertFails(updateDoc(doc(A, 'feed_thumbnails/p2'), { thumbnailUrl: 'evil' })));
 await t('owner can edit thumbnail caption', assertSucceeds(updateDoc(doc(A, 'feed_thumbnails/p2'), { caption: 'new' })));
@@ -40,6 +44,17 @@ await t('participant reports a letter', assertSucceeds(addDoc(collection(A, 'let
 await t('outsider cannot report others letters', assertFails(addDoc(collection(G, 'letter_reports'), { cid: 'alice_bob', reporterId: 'g1', reason: 'spam', status: 'open' })));
 await t('cannot read usage', assertFails(getDoc(doc(A, 'ai_usage/alice_2026-11-09'))));
 await t('message send ok', assertSucceeds(addDoc(collection(A, 'conversations/alice_bob/messages'), { senderId: 'alice', text: 'hi' })));
+// One true count: stats belong to the server
+const carol = env.authenticatedContext('carol', { email: 'c@x.com', email_verified: true, firebase: { sign_in_provider: 'password' } });
+const C = carol.firestore();
+const carolProfile = { uid: 'carol', username: 'carol', usernameLower: 'carol', isAnonymous: false };
+await t('new profile may start stats at zero', assertSucceeds(setDoc(doc(C, 'users/carol'), { ...carolProfile, stats: { observations: 0, species: 0 } })));
+await t('owner cannot raise own species', assertFails(updateDoc(doc(C, 'users/carol'), { 'stats.species': 375 })));
+await t('owner cannot mark stats reconciled', assertFails(updateDoc(doc(C, 'users/carol'), { 'stats.reconciledAt': new Date() })));
+await t('owner can still edit bio', assertSucceeds(updateDoc(doc(C, 'users/carol'), { bio: 'hello' })));
+const dave = env.authenticatedContext('dave', { email: 'd@x.com', email_verified: true, firebase: { sign_in_provider: 'password' } });
+await t('new profile cannot start with counts', assertFails(setDoc(doc(dave.firestore(), 'users/dave'), { uid: 'dave', username: 'dave', isAnonymous: false, stats: { observations: 0, species: 9 } })));
+await t('new profile cannot start reconciled', assertFails(setDoc(doc(dave.firestore(), 'users/dave'), { uid: 'dave', username: 'dave', isAnonymous: false, stats: { species: 0, reconciledAt: new Date() } })));
 const S = (c) => c.storage();
 await t('member uploads own photo', assertSucceeds(uploadString(ref(S(alice), 'snapshots/alice/a.jpg'), 'x', 'raw', { contentType: 'image/jpeg' })));
 await t('member uploads webm with codecs', assertSucceeds(uploadString(ref(S(alice), 'videos/alice/a.webm'), 'x', 'raw', { contentType: 'video/webm;codecs=vp9' })));

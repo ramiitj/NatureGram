@@ -8,12 +8,13 @@ import { PUBLIC_ORIGIN } from '../utils';
 import { track } from '../services/analytics';
 import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
 import { getCorsProxyUrl } from '../services/firebaseService';
-import { buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
+import { lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
 import { getThemePeriod } from '../constants/naturalistExtras';
-import { fieldMoment } from './Wonder';
+import { resolvePoster } from './PlayableVideo';
+import FirstHint from './FirstHint';
 import { themeAccent } from './ShareSheet';
 import { challengeStamps } from '../services/stamps';
 import GuardianCare from './GuardianCare';
@@ -44,8 +45,8 @@ type Tab = 'posts' | 'lifelist' | 'saved';
 
 const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = ({ url, name, size = 88 }) => (
   url
-    ? <img src={url} alt={`${name || 'Explorer'}'s profile photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
-    : <div className="rounded-full bg-theme-accent/10 text-theme-accent flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
+    ? <img src={url} alt={`${name || 'Explorer'}'s photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
+    : <div className="rounded-full bg-theme-accent/10 text-theme-deep flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
 );
 
 const Sheet: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
@@ -70,13 +71,24 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
   );
 };
 
-/** "23 species since March 2026. Your first was the House Sparrow." in one quiet line. */
-const lifeListSummary = (entries: LifeEntry[], own: boolean): string => {
+const BINOMIAL = /^[A-Z][a-z]+ [a-z]+( [a-z]+)?$/;
+
+/** The everyday name for a life-list entry: the guide's common name when the label is the Latin one. */
+const commonNameOf = (e: LifeEntry, posts: CommunityPost[]): string => {
+  const latin = BINOMIAL.test(e.name) || (!!e.scientific && e.scientific.toLowerCase() === e.name.toLowerCase());
+  if (!latin) return e.name;
+  const p: any = posts.find(x => x.id === e.postId);
+  const common = (p?.aiIdentifications?.[0]?.commonName || p?.items?.[0]?.aiIdentifications?.[0]?.commonName || '').trim();
+  return common || e.name;
+};
+
+/** "23 species since March 2026. Your first was the house sparrow." in one quiet line. */
+const lifeListSummary = (entries: LifeEntry[], own: boolean, firstName?: string): string => {
   const first = entries[0];
   if (!first) return '';
   const since = first.firstMs ? ` since ${new Date(first.firstMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
   const n = entries.length;
-  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${first.name}.`;
+  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${firstName || first.name}.`;
 };
 
 const monthKey = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';
@@ -128,7 +140,10 @@ const LifeListView: React.FC<{
   ghosts: Ghost[] | null;
   onOpenPost?: (id: string) => void;
   onShare: (e: LifeEntry) => void;
-}> = ({ entries, own, ghosts, onOpenPost, onShare }) => {
+  firstName?: string;
+  homeRange?: string;
+  season?: string;
+}> = ({ entries, own, ghosts, onOpenPost, onShare, firstName, homeRange, season }) => {
   const [view, setView] = useState<'kind' | 'chronicle'>(() => {
     try { return localStorage.getItem('ng_lifelist_view') === 'chronicle' ? 'chronicle' : 'kind'; } catch { return 'kind'; }
   });
@@ -145,9 +160,17 @@ const LifeListView: React.FC<{
   return (
     <div className="px-4 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-3">
-        <p className="text-sm font-display text-stone-600 min-w-0">{lifeListSummary(entries, own)}</p>
+        <div className="min-w-0">
+          <p className="text-sm font-display text-stone-600">{lifeListSummary(entries, own, firstName)}</p>
+          {(homeRange || season) && (
+            <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
+              {homeRange && <div className="flex gap-1.5 min-w-0"><dt className="text-stone-500 shrink-0">Home range</dt><dd className="text-stone-800 font-display truncate">{homeRange}</dd></div>}
+              {season && <div className="flex gap-1.5"><dt className="text-stone-500 shrink-0">Favourite season</dt><dd className="text-stone-800 font-display">{season}</dd></div>}
+            </dl>
+          )}
+        </div>
         <div role="radiogroup" aria-label="Arrange the life list" className="flex p-0.5 rounded-full bg-theme-primary/5 border border-theme-primary/10 text-sm">
-          {([['kind', 'By kind of life'], ['chronicle', 'Chronicle']] as const).map(([k, label]) => (
+          {([['kind', 'By kind of life'], ['chronicle', 'By date']] as const).map(([k, label]) => (
             <button key={k} role="radio" aria-checked={view === k} onClick={() => choose(k)} className={`px-3.5 py-1.5 rounded-full transition-colors ${view === k ? 'bg-white text-theme-primary font-semibold shadow-sm' : 'text-stone-500'}`}>{label}</button>
           ))}
         </div>
@@ -207,6 +230,41 @@ const LifeListView: React.FC<{
   );
 };
 
+/** The picture for a drawer tile: the still, else the sound's picture, else (for video) the server's poster frame. */
+const stillOf = (p: CommunityPost): string | undefined => {
+  const it: any = p.items?.[0];
+  return p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl || p.associatedImageUrls?.[0]
+    || it?.thumbnailUrl || it?.imageUrl || it?.associatedImageUrls?.[0] || undefined;
+};
+
+const DrawerThumb: React.FC<{ post: CommunityPost }> = ({ post: p }) => {
+  const still = stillOf(p);
+  const [poster, setPoster] = useState<string | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (still || p.mediaType !== 'video' || !ref.current) return;
+    let live = true;
+    const io = new IntersectionObserver(entries => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      io.disconnect();
+      const direct = (p as any).videoUrl || (p.items?.[0] as any)?.videoUrl;
+      (direct ? Promise.resolve(direct) : FirebaseService.getFullPost(p.id).then(f => f?.videoUrl || (f?.items?.[0] as any)?.videoUrl))
+        .then(u => resolvePoster(u)).then(u => { if (live && u) setPoster(u); }).catch(() => {});
+    }, { rootMargin: '200px' });
+    io.observe(ref.current);
+    return () => { live = false; io.disconnect(); };
+  }, [p, still]);
+  const src = still || poster;
+  return (
+    <span ref={ref} className="block aspect-[4/5] bg-[#efe7d6] overflow-hidden relative">
+      {src
+        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]">{p.mediaType === 'audio' ? <Glyph name="sound" size={32} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={32} />}</span>}
+      {p.mediaType === 'audio' && src && <span className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-black/45 text-white flex items-center justify-center" aria-hidden="true"><Glyph name="sound" size={14} /></span>}
+    </span>
+  );
+};
+
 /** Sightings as specimen drawers: one drawer per month, each tile labelled along a date strip. */
 const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPost?: (id: string) => void }> = ({ posts, own, onOpenPost }) => {
   const drawers = useMemo(() => {
@@ -232,22 +290,19 @@ const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPo
             {d.list.map(p => {
               const ms = toMs(p.timestamp);
               const name = p.labels?.[0] || p.title || 'Sighting';
-              const src = p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl;
               const multi = (p.items?.length || 0) > 1;
               return (
                 <li key={p.id} className="relative bg-[#fbf7ef] rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12)] overflow-hidden">
                   <button onClick={() => onOpenPost?.(p.id)} className="group block w-full text-left" aria-label={`Open ${name}`}>
-                    <span className="block aspect-[4/5] bg-[#efe7d6] overflow-hidden relative">
-                      {src
-                        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]">{p.mediaType === 'audio' ? <Glyph name="sound" size={32} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={32} />}</span>}
+                    <span className="block relative">
+                      <DrawerThumb post={p} />
                       {(p.mediaType === 'video' || multi) && (
                         <span className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-black/45 text-white px-1.5 py-0.5" aria-hidden="true">
                           {p.mediaType === 'video' && <span className="material-symbols-outlined text-[16px]">play_circle</span>}
                           {multi && <><span className="material-symbols-outlined text-[16px]">collections</span><span className="text-[11px] font-semibold tabular">{p.items!.length}</span></>}
                         </span>
                       )}
-                      {own && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/55 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Journal</span>}
+                      {own && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/55 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Only me</span>}
                     </span>
                     <span className="flex items-baseline justify-between gap-2 px-2 py-1.5 border-t border-[#e8dfcd]">
                       <span className="font-display italic text-[14px] text-[#2f2a22] truncate">{name}</span>
@@ -371,7 +426,7 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
       <Glyph name="sealed" size={26} className="text-theme-accent shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="font-display text-[17px] text-stone-900 leading-snug">Check your inbox</p>
-        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your notebook is yours to keep.</p>
+        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your field page is yours to keep.</p>
         <button onClick={resend} disabled={busy || wait > 0} className="mt-2 text-sm font-semibold text-theme-primary disabled:text-stone-400">
           {busy ? 'Sending…' : wait > 0 ? `Send another in ${wait}s` : 'Send it again'}
         </button>
@@ -431,6 +486,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   const username = profile?.username || (isOwnProfile ? auth.currentUser?.displayName : '') || 'Explorer';
   const visiblePosts = useMemo(() => isOwnProfile ? posts : posts.filter(p => p.isPublic), [posts, isOwnProfile]);
+  // The same public count shown beside this explorer's name everywhere else (server stats use the same rule)
+  const headerStats = useMemo(() => lifeStats(posts), [posts]);
 
   // Life list: every distinct species, numbered in the order it was first found
   const lifeList = useMemo(() => buildLifeList(visiblePosts), [visiblePosts]);
@@ -438,20 +495,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   // Fortnights this explorer answered the naturalist's challenge
   const stamps = useMemo(() => challengeStamps(visiblePosts), [visiblePosts]);
 
-  // The masthead: home range, favourite season and hour, latest plate
+  // Home range and favourite season, shown in the life list's header
   const masthead = useMemo(() => {
-    const stamps = visiblePosts.map(p => toMs(p.timestamp)).filter(ms => ms > 0);
+    const times = visiblePosts.map(p => toMs(p.timestamp)).filter(ms => ms > 0);
     const areas = visiblePosts
       .filter(p => isOwnProfile || p.showLocation !== false)
       .map(p => String(p.locationArea || p.items?.[0]?.locationArea || '').trim());
-    const latest = lifeList.length ? lifeList[lifeList.length - 1] : null;
-    return {
-      homeRange: mode(areas),
-      season: mode(stamps.map(seasonWord)),
-      hour: mode(stamps.map(ms => fieldMoment(new Date(ms)).name.toLowerCase())),
-      latest,
-    };
-  }, [visiblePosts, lifeList, isOwnProfile]);
+    return { homeRange: mode(areas), season: mode(times.map(seasonWord)) };
+  }, [visiblePosts, isOwnProfile]);
+  const firstName = useMemo(() => (lifeList[0] ? commonNameOf(lifeList[0], visiblePosts) : ''), [lifeList, visiblePosts]);
 
   // "Still to find nearby": species other explorers posted publicly near this explorer's places
   const [ghosts, setGhosts] = useState<Ghost[] | null>(null);
@@ -529,7 +581,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   const toggleBlock = async () => {
     setSheet(null);
-    if (!blocked && !window.confirm(`Block ${username}? You won't see their posts or comments, and they'll be removed from your followers list.`)) return;
+    if (!blocked && !window.confirm(`Block ${username}? You won't see their sightings or field notes, and they'll be removed from your followers.`)) return;
     try {
       if (blocked) { await FirebaseService.unblockUser(userId); setBlocked(false); showToast(`${username} unblocked`); }
       else { await FirebaseService.blockUser(userId); setBlocked(true); setFollowing(false); showToast(`${username} blocked`); }
@@ -540,7 +592,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
     const url = `${PUBLIC_ORIGIN}/profile?user=${encodeURIComponent(userId)}`;
     try {
       if (navigator.share) await navigator.share({ title: `${username} on NatureGram`, url });
-      else { await navigator.clipboard.writeText(url); showToast('Profile link copied'); }
+      else { await navigator.clipboard.writeText(url); showToast('Link to the field page copied'); }
     } catch { /* cancelled */ }
   };
 
@@ -605,9 +657,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
+        {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
         <section className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change profile photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
+            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
             <div className="min-w-0">
@@ -618,31 +671,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           {profile?.bio ? <p className="text-[15px] font-display text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
             <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a bio</button>
           )}
-          <section aria-label="Field page" className="mt-5 py-4 border-y border-theme-primary/15 flex gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-5">
-                <button onClick={() => setTab('lifelist')} className="text-left group">
-                  <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{lifeList.length}</span>
-                  <span className="block text-xs text-stone-500 mt-1">species on the list</span>
-                </button>
-                <button onClick={() => setTab('posts')} className="text-left group">
-                  <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{visiblePosts.length}</span>
-                  <span className="block text-xs text-stone-500 mt-1">{visiblePosts.length === 1 ? 'sighting' : 'sightings'}</span>
-                </button>
-              </div>
-              <dl className="mt-3 space-y-1 text-sm">
-                {masthead.homeRange && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Home range</dt><dd className="text-stone-800 font-display truncate">{masthead.homeRange}</dd></div>}
-                {masthead.season && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Favourite season</dt><dd className="text-stone-800 font-display">{masthead.season}</dd></div>}
-                {masthead.hour && <div className="flex gap-2"><dt className="text-stone-500 shrink-0">Favourite hour</dt><dd className="text-stone-800 font-display">{masthead.hour}</dd></div>}
-                {!masthead.homeRange && !masthead.season && <div className="text-stone-500">{isOwnProfile ? 'The first entry on this page is still to be written.' : 'This field page is still blank.'}</div>}
-              </dl>
+          <section aria-label="Field page" className="mt-5 py-4 border-y border-theme-primary/15">
+            <div className="flex items-baseline gap-6">
+              <button onClick={() => setTab('lifelist')} className="text-left group">
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.species}</span>
+                <span className="block text-xs text-stone-500 mt-1">species</span>
+              </button>
+              <button onClick={() => setTab('posts')} className="text-left group">
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.sightings}</span>
+                <span className="block text-xs text-stone-500 mt-1">{headerStats.sightings === 1 ? 'sighting' : 'sightings'}</span>
+              </button>
+              <p className="ml-auto self-center text-sm text-stone-500 text-right">
+                <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">{(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'follower' : 'followers'}</button>
+                <span aria-hidden="true"> · </span>
+                <button onClick={() => setSheet('following')} className="hover:text-theme-primary hover:underline underline-offset-4">{(profile?.followingCount || 0).toLocaleString()} following</button>
+              </p>
             </div>
-            {masthead.latest && (
-              <div className="w-[112px] shrink-0">
-                <p className="text-xs text-stone-500 mb-1.5">Latest plate</p>
-                <SpecimenPlate size="sm" data={plateOf(masthead.latest)} onClick={() => onOpenPost?.(masthead.latest!.postId)} />
-              </div>
-            )}
           </section>
           {stamps.length > 0 && (
             <section aria-label="Challenge stamps" className="mt-4">
@@ -658,17 +702,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </ul>
             </section>
           )}
-          <p className="mt-3 text-sm text-stone-500">
-            <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">Read by {(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'explorer' : 'explorers'}</button>
-            <span aria-hidden="true"> · </span>
-            <button onClick={() => setSheet('following')} className="hover:text-theme-primary hover:underline underline-offset-4">reads {(profile?.followingCount || 0).toLocaleString()}</button>
-          </p>
           <div className="flex gap-2 mt-4">
             {isOwnProfile ? (
               <>
-                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit profile</button>
-                <button onClick={onViewJournal} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><Glyph name="rings" size={18} />Journal</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit field page</button>
+                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             ) : blocked ? (
               <button onClick={toggleBlock} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-sm font-bold text-theme-primary">Unblock</button>
@@ -680,8 +718,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <button onClick={async () => {
                   // A letter that can't be opened says why, instead of doing nothing.
                   try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
-                }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Write a letter</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Letter</button>
+                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             )}
           </div>
@@ -689,18 +727,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         </section>
 
         {blocked && !isOwnProfile ? (
-          <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their posts.</p>
+          <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their sightings.</p>
         ) : (
           <>
-            <div role="tablist" aria-label="Profile sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
+            <div role="tablist" aria-label="Field page sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
               {([
                 { key: 'posts', icon: 'landscape', label: 'Sightings' },
-                { key: 'lifelist', icon: 'fern', label: 'Life list' },
+                { key: 'lifelist', icon: 'plate', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
                 <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-theme-primary font-display font-semibold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
-                  {t.icon === 'fern'
-                    ? <Glyph name="fern" size={20} strokeWidth={tab === t.key ? 1.8 : 1.4} />
+                  {t.icon === 'plate'
+                    ? <Glyph name="plate" size={20} strokeWidth={tab === t.key ? 1.8 : 1.4} />
                     : <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: tab === t.key ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{t.icon}</span>}{t.label}
                 </button>
               ))}
@@ -721,12 +759,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {tab === 'lifelist' && (
               lifeList.length === 0 ? (
                 <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
-                  <Glyph name="fern" size={44} className="text-theme-accent/60 mb-3" />
+                  <Glyph name="seedling" size={44} className="text-theme-accent/60 mb-3" />
                   <p className="font-display text-xl text-stone-800">{isOwnProfile ? 'Your herbarium is waiting' : 'No plates yet'}</p>
                   <p className="text-sm mt-1">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} becomes a numbered plate here, with the day, place and season it was first seen.</p>
                 </div>
               ) : (
-                <LifeListView entries={lifeList} own={isOwnProfile} ghosts={ghosts} onOpenPost={onOpenPost} onShare={sharePlateOf} />
+                <LifeListView entries={lifeList} own={isOwnProfile} ghosts={ghosts} onOpenPost={onOpenPost} onShare={sharePlateOf} firstName={firstName} homeRange={masthead.homeRange} season={masthead.season} />
               )
             )}
 
@@ -740,7 +778,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               saved.length === 0 ? (
                 <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
                   <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">filter_vintage</span>
-                  <p className="text-sm">Tap Keep on any sighting you want to come back to, and it is pressed here like a flower between pages. Only you can see what you've kept.</p>
+                  <p className="text-sm">Tap Keep on any sighting to find it here. Only you can see this.</p>
                 </div>
               ) : (
                 <KeptPages items={saved} onOpenPost={onOpenPost} />
@@ -753,20 +791,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'edit' && <EditProfileSheet profile={profile} onClose={() => setSheet(null)} onSaved={(m) => { setSheet(null); showToast(m); }} />}
 
       {(sheet === 'followers' || sheet === 'following') && (
-        <Sheet title={sheet === 'followers' ? 'Read by' : 'Reading'} onClose={() => setSheet(null)}>
+        <Sheet title={sheet === 'followers' ? 'Followers' : 'Following'} onClose={() => setSheet(null)}>
           {people === null ? <p className="text-stone-500 text-center py-6 font-display" role="status">Gathering the names…</p> :
             people.length === 0 ? (
               <div className="text-center py-6 px-2">
                 <Glyph name={sheet === 'followers' ? 'binoculars' : 'notebook'} size={32} className="text-theme-accent/60 mb-2" />
                 <p className="text-stone-700 font-display text-lg">
                   {sheet === 'followers'
-                    ? (isOwnProfile ? 'No one is reading your field page yet' : `No one reads ${username}'s page yet`)
-                    : (isOwnProfile ? "You're not reading anyone yet" : `${username} isn't reading anyone yet`)}
+                    ? (isOwnProfile ? 'No one follows you yet' : `No one follows ${username} yet`)
+                    : (isOwnProfile ? "You're not following anyone yet" : `${username} isn't following anyone yet`)}
                 </p>
                 <p className="text-sm text-stone-500 mt-1">
                   {sheet === 'followers'
                     ? (isOwnProfile ? 'Share a sighting or two; explorers who notice the same things tend to find you.' : 'You could be the first to follow along.')
-                    : (isOwnProfile ? 'Follow an explorer from any sighting and their new pages will reach you.' : 'Their own pages are worth a look in the meantime.')}
+                    : (isOwnProfile ? 'Follow an explorer from any sighting and their new sightings will reach you.' : 'Their own sightings are worth a look in the meantime.')}
                 </p>
               </div>
             ) : (
@@ -787,7 +825,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'menu' && !isOwnProfile && (
         <Sheet title={username} onClose={() => setSheet(null)}>
           <div className="flex flex-col gap-1">
-            <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share profile</button>
+            <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share field page</button>
             {currentUserId && !isAnonymous && (<>
               <button onClick={toggleMute} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_up' : 'volume_off'}</span>{muted ? 'Unmute' : 'Mute'} {username}</button>
               <button onClick={toggleBlock} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">block</span>{blocked ? 'Unblock' : 'Block'} {username}</button>
@@ -799,7 +837,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'settings' && isOwnProfile && (
         <Sheet title="Settings" onClose={() => setSheet(null)}>
           <nav className="flex flex-col gap-1" aria-label="Account settings">
-            <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit profile</button>
+            <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit field page</button>
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
@@ -872,14 +910,14 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
     try {
       if (avatarFile) await FirebaseService.uploadAvatar(avatarFile);
       await FirebaseService.updateMyProfile({ username, bio, displayName });
-      onSaved('Profile updated');
+      onSaved('Field page updated');
     } catch (err: any) {
-      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your profile. Please try again.');
+      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your field page. Please try again.');
     } finally { setBusy(false); }
   };
 
   return (
-    <Sheet title="Edit profile" onClose={onClose}>
+    <Sheet title="Edit field page" onClose={onClose}>
       <form onSubmit={save} className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-2">
           <Avatar url={avatarPreview || profile?.avatarUrl} name={username} size={96} />
@@ -904,7 +942,7 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
           <span className="block text-xs text-stone-500 mt-1 text-right">{bio.length}/300</span>
         </label>
         {error && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-xl">{error}</p>}
-        <button type="submit" disabled={busy} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold disabled:opacity-60">{busy ? 'Saving…' : 'Save'}</button>
+        <button type="submit" disabled={busy} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold disabled:opacity-60">{busy ? 'Saving…' : 'Save'}</button>
       </form>
     </Sheet>
   );
@@ -949,7 +987,7 @@ const DeleteAccountSheet: React.FC<{ username: string; lifeList: LifeEntry[]; on
         <AuthModal inline initialIsSignUp={false} reason="Log in again to confirm it's you." onSuccess={() => { setNeedsReauth(false); setError(''); run(); }} />
       ) : (
         <div className="flex flex-col gap-4">
-          <p className="text-stone-700 leading-relaxed">This permanently deletes <strong>{username}</strong>: your profile, every post and its media, comments, likes, follows, drafts and private records. <strong>This cannot be undone.</strong></p>
+          <p className="text-stone-700 leading-relaxed">This permanently deletes <strong>{username}</strong>: your field page, every sighting and its media, field notes, marvels, follows, drafts and private details. <strong>This cannot be undone.</strong></p>
           <section aria-labelledby="keep-first" className="rounded-2xl bg-[#fbf7ef] border border-[#e8dfcd] p-4">
             <h3 id="keep-first" className="font-display text-lg text-theme-primary flex items-center gap-2"><Glyph name="plate" size={20} className="text-theme-accent" />Download your plates first</h3>
             <p className="text-sm text-stone-600 mt-1">

@@ -144,9 +144,11 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/users/$(b)/following/$(a)));
     }
 
-    // Changing the picture takes the sighting out of the feed until the server checks it again
+    // Changing the picture takes the sighting out of the feed until the server checks it again.
+    // mediaPaths: the clips' storage paths, kept in step with a new clip (the poster function finds posts by them)
     function authorMediaEdit() {
-      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation']))
+      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation', 'mediaPaths']))
+        && (!('mediaPaths' in changedKeys()) || (incoming().mediaPaths is list && incoming().mediaPaths.size() <= 24))
         && incoming().isPublic == false
         && incoming().moderation.keys().hasOnly(['status'])
         && incoming().moderation.status == 'edited';
@@ -154,16 +156,27 @@ service cloud.firestore {
 
     // ------------------------------------------------------------------ users
     match /users/{userId} {
+      // Counts (stats.species, stats.sightings, stats.reconciledAt) are the server's alone; a new
+      // profile may start them at zero and nothing else (server/userStats.js keeps them true)
+      function freshStats() {
+        return !('stats' in incoming())
+          || (incoming().stats is map
+              && incoming().stats.keys().hasOnly(['observations', 'species', 'sightings'])
+              && incoming().stats.get('observations', 0) == 0
+              && incoming().stats.get('species', 0) == 0
+              && incoming().stats.get('sightings', 0) == 0);
+      }
       allow get: if signedIn();
       allow list: if isAdmin() || (signedIn() && request.query.limit <= 50);
       allow create: if isOwner(userId)
         && incoming().uid == userId
         && !incoming().keys().hasAny(['admin', 'role', 'verified', 'followersCount', 'followingCount'])
+        && freshStats()
         && isStr(incoming().username, 40) && ageOk() && ageBandCreateOk(userId)
         && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60);
       allow update: if isAdmin()
         || (isOwner(userId)
-            && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount'])
+            && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount', 'stats'])
             && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
             && ageOk() && ageBandUpdateOk(userId)
             && optStr('username', 40) && optStr('usernameLower', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))

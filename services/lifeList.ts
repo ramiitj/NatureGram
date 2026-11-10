@@ -105,3 +105,56 @@ export const ordinal = (n: number) => {
 /** Does this explorer already have this species on their list? */
 export const isOnList = (entries: { name: string }[], name?: string | null) =>
   !!name && entries.some(e => e.name.toLowerCase() === name.trim().toLowerCase());
+
+/** Kinds of life in the order every chip row and drawer lists them. */
+export const GROUP_ORDER: LifeGroup[] = ['Birds', 'Plants', 'Insects', 'Fungi', 'Mammals', 'Reptiles & amphibians', 'Water life', 'Other life'];
+
+/**
+ * One true count, as the server keeps it (server/userStats.js): sightings are public posts,
+ * species are distinct life-list names among them.
+ */
+export const lifeStats = (posts: any[]): { species: number; sightings: number } => {
+  const pub = (posts || []).filter(p => p && p.isPublic === true);
+  return { species: buildLifeList(pub).length, sightings: pub.length };
+};
+
+/**
+ * A profile's counts, only once the server has reconciled them (stats.reconciledAt).
+ * Before that the numbers may be wrong, so callers show none.
+ */
+export const reconciledStats = (profile: any): { species: number; sightings: number } | null => {
+  const st = profile?.stats;
+  if (!st || !st.reconciledAt || typeof st.species !== 'number' || typeof st.sightings !== 'number') return null;
+  return { species: st.species, sightings: st.sightings };
+};
+
+const BINOMIAL = /^[A-Z][a-z]+ [a-z]+(?: [a-z]+)?$/;
+
+/**
+ * The name to lead with and the Latin to put underneath. A sighting labelled only with its
+ * scientific name leads with the guide's common name when there is one.
+ */
+export const namesOf = (p: any): { common: string; latin?: string } => {
+  const labels: string[] = (p?.labels || []).map((l: any) => String(l || '').trim()).filter(Boolean);
+  const ids: any[] = p?.aiIdentifications || p?.items?.[0]?.aiIdentifications || [];
+  const first = labels[0] || '';
+  // Labels written as "Orthotomus sutorius (Common Tailorbird)" or "Common Tailorbird (Orthotomus sutorius)"
+  const paren = /^(.+?)\s*\((.+)\)$/.exec(first);
+  if (paren) {
+    const [a, b] = [paren[1].trim(), paren[2].trim()];
+    if (BINOMIAL.test(a) && !BINOMIAL.test(b)) return { common: b, latin: a };
+    if (BINOMIAL.test(b) && !BINOMIAL.test(a)) return { common: a, latin: b };
+  }
+  const sciFromIds = ids.find(i => i?.scientificName)?.scientificName as string | undefined;
+  if (first && BINOMIAL.test(first)) {
+    const match = ids.find(i => i?.commonName && String(i.scientificName || '').trim().toLowerCase() === first.toLowerCase());
+    if (match?.commonName && match.commonName.trim().toLowerCase() !== first.toLowerCase()) return { common: match.commonName.trim(), latin: first };
+    // The guide's own words often open with the common name: "A Blackish Rail is observed…"
+    const prose = String(p?.behavior || p?.aiInsight || p?.items?.[0]?.aiInsight || '');
+    const named = /^(?:An?|The)\s+([A-Z][a-z'-]+(?:\s[A-Z][a-z'-]+){1,3})\s+(?:is|are|was|were|has|perches|sits|stands|feeds|forages|rests|flies|calls|sings)\b/.exec(prose.trim());
+    if (named) return { common: named[1], latin: first };
+    return { common: first };
+  }
+  const latin = labels[1] && BINOMIAL.test(labels[1]) ? labels[1] : (sciFromIds && sciFromIds.trim().toLowerCase() !== first.toLowerCase() ? sciFromIds.trim() : undefined);
+  return { common: first, latin };
+};

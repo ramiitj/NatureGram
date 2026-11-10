@@ -3,13 +3,13 @@
  *
  * Every ~15.21 days a new naturalist takes over (see constants/naturalistExtras.ts getThemePeriod).
  * The rotation restarts each 1 January, so a period is identified by its naturalist AND its start date.
+ * The order changed on ROTATION_CUTOVER (constants/palettes.json); periods before it are read in the
+ * legacy order, so a stamp earned in the past keeps the naturalist who set that challenge.
  * Everything here is computed from data already stored (post tags + timestamps): no schema change.
  */
-import { NATURALIST_THEMES, NaturalistTheme } from '../constants/naturalists';
+import { NaturalistTheme, PERIOD_DAYS, rotationAt } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
 import { toMs } from './lifeList';
-
-const PERIOD_DAYS = 15.21;
 
 export interface FortnightPeriod {
   index: number;
@@ -24,17 +24,14 @@ export interface FortnightPeriod {
 export const periodAt = (when: Date | number = new Date()): FortnightPeriod => {
   const now = typeof when === 'number' ? new Date(when) : when;
   const y = now.getFullYear();
-  const yearStart = new Date(y, 0, 0);
-  const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / 86_400_000);
-  const slot = Math.floor(dayOfYear / PERIOD_DAYS);
-  const index = slot % NATURALIST_THEMES.length;
+  const { slot, index, theme } = rotationAt(now);
   const startDay = Math.ceil(slot * PERIOD_DAYS);
   const endDay = Math.ceil((slot + 1) * PERIOD_DAYS);
   const nextYear = new Date(y + 1, 0, 1);
   const end = new Date(y, 0, endDay);
   return {
     index,
-    theme: NATURALIST_THEMES[index],
+    theme,
     start: new Date(y, 0, Math.max(1, startDay)),
     end: end > nextYear ? nextYear : end,
   };

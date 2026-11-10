@@ -98,14 +98,14 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
   if (phase === 'loading') {
     main = <p className="text-stone-600 py-16 text-center" role="status">Opening the letter…</p>;
   } else if (phase === 'approved') {
-    main = done(`Thank you. ${teenName}'s notebook is open`, [
+    main = done(`Thank you. ${teenName}'s field page is open`, [
       `${teenName} can now share sightings with the community in teen mode: no ads or tracking, never where a sighting was made, and letters only with explorers they both follow. We've let them know.`,
-      <>You can change your mind at any time. In NatureGram, open your profile, then <strong className="font-semibold text-stone-900">Settings</strong>, and you'll find <strong className="font-semibold text-stone-900">Explorers in your care</strong>. From there you can withdraw consent, which makes their notebook private again, or delete their account.</>,
+      <>You can change your mind at any time. In NatureGram, open your field page, then <strong className="font-semibold text-stone-900">Settings</strong>, and you'll find <strong className="font-semibold text-stone-900">Explorers in your care</strong>. From there you can withdraw consent, which makes their field page private again, or delete their account.</>,
       'Teen mode ends on its own when they turn 18.',
     ]);
   } else if (phase === 'declined') {
     main = done('Thank you for letting us know', [
-      `${teenName}'s notebook stays private. They can still browse and keep sightings in their own journal, but they can't share anything or write letters.`,
+      `${teenName}'s field page stays private. They can still browse and save sightings to their own journal, but they can't share anything or write letters.`,
       'If you change your mind, they can send you a new link from the app.',
     ], 'feather');
   } else if (phase !== 'open' || !summary) {
@@ -126,7 +126,7 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
           <p className="text-[15px] text-stone-600">A request for a parent or guardian</p>
           <h1 className="mt-1 font-display text-[30px] sm:text-[38px] leading-[1.15] text-text-main">{teenName} would like to explore NatureGram</h1>
           {summary.teen.firstName && <p className="mt-2 text-sm text-stone-600">Their username is <span className="font-semibold text-stone-800">{summary.teen.username}</span>.</p>}
-          <p className="mt-4 text-[16px] text-stone-700 leading-relaxed max-w-2xl">Because they are under 18, their notebook is private until you say it's all right. Here is everything you need to decide. It takes about two minutes.</p>
+          <p className="mt-4 text-[16px] text-stone-700 leading-relaxed max-w-2xl">Because they are under 18, their field page is private until you say it's all right. Here is everything you need to decide. It takes about two minutes.</p>
         </header>
 
         <section className={`${card} p-5 sm:p-6`} aria-labelledby="g-what">
@@ -199,6 +199,7 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
                 <button type="button" onClick={() => decide('approve')} disabled={!!busy} className={`${btn} bg-theme-primary text-white hover:opacity-90 sm:flex-1`}>{busy === 'approve' ? 'Approving…' : 'Approve'}</button>
                 <button type="button" onClick={() => decide('decline')} disabled={!!busy} className={`${btn} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`}>{busy === 'decline' ? 'One moment…' : 'Not now'}</button>
               </div>
+              {/* glossary-ok: record as a verb */}
               <p className="mt-3 text-xs text-stone-500 leading-relaxed">We record that you approved, when, and from which account, so we can show consent was given. You can withdraw it at any time. <a href="/privacy.html" target="_blank" rel="noopener" className="underline underline-offset-2">Privacy policy</a></p>
             </>
           )}

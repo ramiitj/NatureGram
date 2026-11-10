@@ -105,7 +105,9 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
     const r = await sharePlate({ ...plate, line: text, accent: themeAccent() }, { text, url });
     setBusy(false);
     if (r === 'shared') onClose();
+    // glossary-ok: the plate image made from the sighting
     else if (r === 'downloaded') flash('Plate saved. Attach it wherever you like.');
+    // glossary-ok: the plate image
     else if (r === 'failed') flash("The plate couldn't be made. Try copying the link instead.");
   };
 
@@ -139,7 +141,7 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
       >
         <header className="flex items-start justify-between gap-3 px-5 pt-5">
           <div className="min-w-0">
-            <h2 className="font-display text-xl text-theme-primary leading-tight">Share this plate</h2>
+            <h2 className="font-display text-xl text-theme-primary leading-tight">Share this sighting</h2>
             <p className="text-sm text-stone-500 mt-0.5 truncate">{text}</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 w-11 h-11 -mr-2 -mt-1 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100">
@@ -150,23 +152,26 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
         <div className="px-8 pt-4">
           <div className="mx-auto w-full max-w-[240px] aspect-[4/5] rounded-[3px] bg-[#fbf7ef] shadow-[0_1px_2px_rgba(60,40,20,0.12),0_10px_28px_-10px_rgba(60,40,20,0.35)] overflow-hidden flex items-center justify-center">
             {preview
-              ? <img src={preview} alt={`Specimen plate of ${plate.name}`} className="w-full h-full object-contain" />
+              // glossary-ok: the plate image preview
+              ? <img src={preview} alt={`A plate of ${plate.name}`} className="w-full h-full object-contain" />
               : previewFailed
                 ? <span className="flex flex-col items-center gap-2 text-[#8a7a60] px-4 text-center"><Glyph name="plate" size={36} /><span className="text-xs">The preview couldn't be drawn, but the link still works.</span></span>
+                // glossary-ok: the plate image
                 : <span className="flex flex-col items-center gap-2 text-[#b9a98a]"><Glyph name="press" size={36} className="animate-pulse" /><span className="text-xs">Pressing the plate…</span></span>}
           </div>
         </div>
 
         <div className="px-5 pt-5 flex flex-col gap-2">
           <button onClick={doShare} disabled={busy || previewFailed} className="w-full py-3.5 rounded-2xl bg-theme-primary text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
-            <span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span>{busy ? 'Preparing…' : 'Share plate'}
+            <span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span>{/* glossary-ok: the plate image */}
+            {busy ? 'Preparing…' : 'Share as a plate'}
           </button>
           <button onClick={copyLink} className="w-full py-3 rounded-2xl border border-theme-primary/15 text-theme-primary font-semibold flex items-center justify-center gap-2 hover:bg-theme-primary/5">
             <span className="material-symbols-outlined text-xl" aria-hidden="true">link</span>Copy link
           </button>
           {onSendLetter && (
             <button onClick={() => { track('share', { kind: 'letter' }); onSendLetter(post); onClose(); }} className="w-full py-3 rounded-2xl border border-theme-primary/15 text-theme-primary font-semibold flex items-center justify-center gap-2 hover:bg-theme-primary/5">
-              <Glyph name="sealed" size={20} />Put it in a letter<span className="text-xs font-normal text-stone-500">(link copied)</span>
+              <Glyph name="sealed" size={20} />Send in a letter<span className="text-xs font-normal text-stone-500">(link copied)</span>
             </button>
           )}
           {allowMediaDownload && (

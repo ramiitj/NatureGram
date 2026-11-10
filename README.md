@@ -6,8 +6,8 @@ Production: https://thenaturegram.com
 
 ## Features
 - **Live Lens.** A real-time voice and vision guide built on the Gemini Live API. It can capture frames, zoom and switch cameras through tool calls, and keeps a transcript you can re-read.
-- **Capture → review → share.** Photos, video, sound recordings and hybrid captures. You get an editable AI identification with a confidence level, plus a caption, hashtags and an audience choice (feed or journal only).
-- **Social.** Following and For-you feeds, likes (including double-tap), comments, saves, follows, profiles with a post grid and life list, notifications, share links with rich previews.
+- **Capture → review → share.** Photos, video, sound recordings and hybrid captures. You get an editable AI identification with a confidence level, plus your note, hashtags and who can see it ("Share with everyone" or "Only me").
+- **Social.** Following and For-you feeds, marvels (including double-tap), field notes, keeping sightings, follows, field pages with a sighting grid and life list, letters, notifications, share links with rich previews.
 - **Safety.** Report, block, a moderation queue, fungi safety warnings, and AI labelling on every identification.
 - **Privacy.** Exact GPS is never public and image metadata is stripped. You can download your data and delete your account.
 - **Naturalist of the fortnight.** Every ~15 days the palette, landing story and a community field challenge change to honour one of 24 naturalists.

@@ -3,10 +3,10 @@ import Glyph from './Glyph';
 import { track } from '../services/analytics.ts';
 
 /**
- * The first walk around the app: a short, skippable storyboard told by the guide.
- * Each step spotlights a real element marked with data-tour="…" and puts a small card beside it.
- * Steps whose element is not on screen are left out, so the bottom bar (phone) and the side rail
- * (desktop, landscape) both work.
+ * A three-step welcome (Wild, the Lens, the challenge card), skippable at every step.
+ * Each step spotlights a real element marked with data-tour="…" and puts a small card beside it;
+ * a step whose element is not on screen shows a centred card. Everything else is taught in place,
+ * once, by FirstHint.
  */
 
 export const TOUR_KEY = 'naturegram_tour_v1';
@@ -23,16 +23,11 @@ const remember = (how: 'done' | 'skipped') => {
 
 type Step = { id: string; target: string; title: string; body: string };
 
-/** One explorer's story, in the order they will live it. */
+/** Three steps, then the explorer finds the rest in place (see FirstHint). */
 const STEPS: Step[] = [
-  { id: 'wild', target: 'feed', title: 'What explorers are noticing', body: 'This is Wild: what people outside have stopped to look at today, from first buds to rare visitors.' },
-  { id: 'explore', target: 'explore', title: 'Wander by place or kind', body: 'The leaf compass opens Explore. Browse by where things were seen, or by the kind of life you love.' },
-  { id: 'lens', target: 'capture', title: 'Your guide sees what you see', body: 'Open the Lens and point it at anything alive. I will look and listen with you, and help you put a name to it.' },
-  { id: 'moments', target: 'reels', title: 'Small lives, in motion', body: 'Moments are short clips of wingbeats, birdsong and rustling leaves, one after another.' },
-  { id: 'journal', target: 'journal', title: 'Every outing becomes a page', body: 'Each walk is written up in your Journal, with its photos, the place, and my notes from the day.' },
-  { id: 'you', target: 'profile', title: 'Your collection grows species by species', body: 'Under You, every first sighting earns a pressed plate on your life list.' },
-  { id: 'letters', target: 'letters', title: 'Write to a fellow explorer', body: 'Letters are slow, thoughtful notes between explorers. Ask about a find, or send one along.' },
-  { id: 'challenge', target: 'challenge', title: 'A fortnight, a naturalist, a challenge', body: 'Every fifteen days a great naturalist sets a small task. Take it with you on your next walk.' },
+  { id: 'wild', target: 'feed', title: 'Wild', body: 'What others are noticing outside today, from first buds to rare visitors.' },
+  { id: 'lens', target: 'capture', title: 'The Lens', body: 'Your guide sees and hears with you. Point it at anything alive and put a name to it together.' },
+  { id: 'challenge', target: 'challenge', title: 'The challenge card', body: 'A small invitation every fortnight, set by a great naturalist. It lives on this card.' },
 ];
 
 const findTarget = (target: string): HTMLElement | null => {
@@ -65,12 +60,10 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
   const closed = useRef(false);
   const reduced = useRef(prefersReducedMotion());
 
-  // Let the feed settle, then keep only the steps that have something on screen
+  // Let the feed settle. All three steps always show; a step whose element is off screen
+  // gets a centred card instead of a spotlight.
   useEffect(() => {
-    const t = setTimeout(() => {
-      const present = STEPS.filter(s => findTarget(s.target));
-      setSteps(present);
-    }, 650);
+    const t = setTimeout(() => setSteps(STEPS), 650);
     return () => clearTimeout(t);
   }, []);
 
@@ -200,31 +193,22 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
         style={{ top: cardPos?.top ?? -9999, left: cardPos?.left ?? -9999, visibility: cardPos ? 'visible' : 'hidden' }}
       >
         <div className="bg-[#fcfaf8] rounded-2xl p-5 shadow-2xl border border-[#e8dfcd] relative overflow-hidden">
-          <div className="flex justify-between items-center mb-3 border-b border-[#e8dfcd] pb-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <Glyph name="guide" size={18} className="text-theme-accent shrink-0" />
-              <span className="text-sm font-display italic text-stone-600 truncate">A first walk with your guide</span>
-            </div>
-            <button onClick={() => close('skipped')} className="min-h-[44px] -my-2 -mr-2 px-2 text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors shrink-0">
-              Skip tour
-            </button>
-          </div>
-
-          <h2 id="first-tour-title" className="text-xl font-display font-semibold text-stone-900 leading-snug">{step.title}</h2>
+          <button onClick={() => close('skipped')} className="absolute top-2 right-2 min-h-[44px] px-3 text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors">
+            Skip
+          </button>
+          <h2 id="first-tour-title" className="pr-14 flex items-center gap-2 text-xl font-display font-semibold text-stone-900 leading-snug"><Glyph name={step.id === 'wild' ? 'fern' : step.id === 'lens' ? 'lens' : 'compass'} size={20} className="text-theme-accent shrink-0" />{step.title}</h2>
           <p id="first-tour-body" className="text-stone-700 text-[15px] leading-relaxed mt-1.5">{step.body}</p>
           <p className="sr-only" aria-live="polite" aria-atomic="true">{`Step ${index + 1} of ${total}. ${step.title}. ${step.body}`}</p>
 
-          <div className="flex items-center gap-1.5 mt-4" aria-hidden="true">
-            {steps.map((s, i) => (
-              <span key={s.id} className={`h-1.5 rounded-full ${reduced.current ? '' : 'transition-all duration-500'} ${i === index ? 'w-6 bg-theme-accent' : i < index ? 'w-1.5 bg-theme-accent/40' : 'w-1.5 bg-stone-300'}`} />
-            ))}
-            <span className="ml-2 text-xs text-stone-500">{index + 1} of {total}</span>
-          </div>
-
-          <div className="flex justify-between items-center mt-3 gap-2">
-            {index > 0
-              ? <button onClick={back} className="min-h-[44px] px-2 -ml-2 text-sm font-semibold text-stone-600 hover:text-stone-900">Back</button>
-              : <span />}
+          <div className="flex justify-between items-center mt-4 gap-2">
+            <div className="flex items-center gap-1.5">
+              {index > 0 && <button onClick={back} className="min-h-[44px] pr-3 -ml-1 text-sm font-semibold text-stone-600 hover:text-stone-900">Back</button>}
+              <span className="flex items-center gap-1.5" aria-hidden="true">
+                {steps.map((s, i) => (
+                  <span key={s.id} className={`h-1.5 rounded-full ${reduced.current ? '' : 'transition-all duration-500'} ${i === index ? 'w-6 bg-theme-accent' : i < index ? 'w-1.5 bg-theme-accent/40' : 'w-1.5 bg-stone-300'}`} />
+                ))}
+              </span>
+            </div>
             <button
               ref={nextRef}
               onClick={next}

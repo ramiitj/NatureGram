@@ -12,7 +12,7 @@ import SpecimenPlate, { PlateStamp } from './SpecimenPlate';
  * handler, rebuilt on our own origin) and /welcome (the continue URL after confirming an email).
  *
  * Verifying an email is the first page someone sees from their first letter, so it is a moment,
- * not a form: the mark, "Your field notebook is ready", plate No. 1 waiting for a first species,
+ * not a form: the mark, "Your field page is ready", plate No. 1 waiting for a first species,
  * a line from the naturalist of the fortnight, and one clear next step.
  */
 
@@ -128,9 +128,9 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
               <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:gap-12 items-center">
                 <div>
                   <p className="text-[15px] text-stone-500">Email confirmed</p>
-                  <h1 className="font-display text-[32px] sm:text-[44px] leading-[1.1] font-medium text-stone-900 mt-1.5">Your field notebook is ready</h1>
+                  <h1 className="font-display text-[32px] sm:text-[44px] leading-[1.1] font-medium text-stone-900 mt-1.5">Your field page is ready</h1>
                   <p className="text-[17px] leading-relaxed text-stone-700 mt-4 max-w-[34ch]">
-                    The first page is blank on purpose. Go outside, look closely at one living thing, and it becomes No. 1 on your life list.
+                    It starts blank on purpose. Go outside, look closely at one living thing, and it becomes No. 1 on your life list.
                   </p>
                   <NaturalistLine quote={theme.quote} by={theme.naturalist} />
                   <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -154,9 +154,9 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
 
             {stage.k === 'reset-done' && (
               <Moment glyph="notebook" kicker="Password saved" title={stage.signedIn ? "You're back in" : 'Your new password is set'}
-                body={stage.signedIn ? 'Your sightings, life list and letters are right where you left them.' : `Sign in with ${stage.email} and your new password, and your notebook is right where you left it.`}>
+                body={stage.signedIn ? 'Your sightings, life list and letters are right where you left them.' : `Sign in with ${stage.email} and your new password, and your field page is right where you left it.`}>
                 {stage.signedIn
-                  ? <Primary onClick={() => onDone('feed')}>Open my notebook</Primary>
+                  ? <Primary onClick={() => onDone('feed')}>Back to the wild</Primary>
                   : <Primary onClick={onSignIn}>Sign in</Primary>}
                 <NaturalistLine quote={theme.quote} by={theme.naturalist} />
               </Moment>
@@ -211,7 +211,7 @@ const Working: React.FC<{ mode: Mode }> = ({ mode }) => (
     <svg viewBox="0 0 48 48" width={44} height={44} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="press-leaf text-theme-primary/50" aria-hidden="true">
       <path d="M24 42C12 36 9 24 14 13c6 1 17 5 20 15 2 7-3 12-10 14z" /><path d="M24 42c-1-9-4-17-9-26M20 30l-6-1M22 24l6-3" />
     </svg>
-    <p className="font-display italic text-xl text-stone-600 mt-4">{mode === 'resetPassword' ? 'Checking your link…' : mode === 'welcome' ? 'Opening your notebook…' : 'Opening your letter…'}</p>
+    <p className="font-display italic text-xl text-stone-600 mt-4">{mode === 'resetPassword' ? 'Checking your link…' : mode === 'welcome' ? 'Opening your field page…' : 'Opening your letter…'}</p>
   </div>
 );
 
@@ -253,7 +253,7 @@ const ResetForm: React.FC<{ email: string; code: string; onSaved: (signedIn: boo
       <p id="pw-help" className={`text-[14px] mt-2 ${error ? 'text-[rgb(var(--theme-accent-rgb))]' : 'text-stone-500'}`} role={error ? 'alert' : undefined}>
         {error || 'At least 6 characters. You will be signed in straight after.'}
       </p>
-      <Primary type="submit" disabled={busy} className="mt-6 w-full sm:w-auto">{busy ? 'Saving…' : 'Save and open my notebook'}</Primary>
+      <Primary type="submit" disabled={busy} className="mt-6 w-full sm:w-auto">{busy ? 'Saving…' : 'Save and carry on'}</Primary>
     </form>
   );
 };
@@ -266,7 +266,7 @@ const Recovered: React.FC<{ email: string; onDone: () => void }> = ({ email, onD
   };
   return (
     <Moment glyph="compass" kicker="Email restored" title="Your email is back as it was"
-      body={<>Letters will go to <span className="font-semibold text-stone-900 break-all">{email || 'your original address'}</span> again. If you didn't ask for the change, someone may know your password. Choosing a new one keeps your notebook safe.</>}>
+      body={<>Letters will go to <span className="font-semibold text-stone-900 break-all">{email || 'your original address'}</span> again. If you didn't ask for the change, someone may know your password. Choosing a new one keeps your field page safe.</>}>
       {sent === 'sent'
         ? <p className="text-[16px] text-stone-700" role="status">A reset letter is on its way. It can take a minute or two.</p>
         : <Primary onClick={reset} disabled={sent === 'busy' || !email}>{sent === 'busy' ? 'Sending…' : 'Reset my password'}</Primary>}

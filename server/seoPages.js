@@ -242,7 +242,7 @@ export function aboutPage({ host, appLdNodes }) {
 // ------------------------------------------------------------------ a page that isn't available right now
 export function unavailablePage({ host, path }) {
   return layout({
-    host, path, noindex: true, title: 'Back in a moment · NatureGram', description: 'This field page is unavailable for a moment.',
+    host, path, noindex: true, title: 'Back in a moment · NatureGram', description: 'The field guide is unavailable for a moment.',
     body: '<h1>Back in a moment</h1><p class="lede">The field guide is resting. Please try again shortly.</p><a class="btn" href="/">Open NatureGram</a>',
   });
 }

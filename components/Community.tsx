@@ -2,22 +2,24 @@
 import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import PlayableVideo, { PlayableAudio, resolvePoster } from './PlayableVideo';
-import { FirebaseService } from '../services/firebaseService';
+import { FirebaseService, peekFirstTiles, releaseFirstTiles } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
 import CommunityId from './CommunityId';
-import { UserProfileData, NaturalistPersona } from '../types';
+import { NaturalistPersona } from '../types';
 import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
+import { markFirstTile, registerTile, unregisterTile, scheduleBlankCount, setFirstSource } from '../services/feedMetrics';
 import { CommunityPost, UserMode, Comment } from '../types';
-const ShareStudio = React.lazy(() => import('./ShareStudio'));
-const PublisherStudio = React.lazy(() => import('./PublisherStudio'));
+const ShareSheet = React.lazy(() => import('./ShareSheet'));
+import SearchPanel from './SearchPanel';
+import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';
 import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
 import { PlateStamp } from './SpecimenPlate';
-import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs } from '../services/lifeList';
+import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs, namesOf, reconciledStats } from '../services/lifeList';
 import { speciesPath } from '../services/speciesSlug';
 import AuthModal from './AuthModal';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
@@ -33,132 +35,247 @@ const visibleTags = (post: CommunityPost): string[] => {
     });
 };
 
+// ------------------------------------------------------------------ feed tiles
+// A tile paints at once at its exact shape: its main colour (or the naturalist's gradient), then the
+// blurred preview, then the picture fading in over it. Nothing is ever a black box. Clips get one
+// small corner mark; sound-only recordings are drawn as sounds. See docs/CLARITY_PLAN.md, section A.
+
+/** Tile widths as the grid lays them out, for choosing between the 400 px and 800 px pictures. */
+const TILE_SIZES = '(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw';
+const THEME_WASH = 'linear-gradient(160deg, rgb(var(--theme-primary-rgb) / 0.16), rgb(var(--theme-accent-rgb) / 0.20))';
+const BINOMIAL = /^[A-Z][a-z]+ [a-z-]+(?: [a-z-]+)?$/;
+
+const isSoundTile = (post: CommunityPost) =>
+    post.soundOnly === true || (post.mediaType === 'audio' && !(post.thumbSmallUrl || post.thumbnailUrl || post.imageUrl));
+
+/** Its own shape when known (kept between 1:2 and 2:1); otherwise 4:5 photos, 9:16 clips, 1:1 sounds. */
+const tileAspect = (post: CommunityPost): number => {
+    if (isSoundTile(post)) return 1;
+    const w = Number(post.w), h = Number(post.h);
+    if (w > 0 && h > 0) return Math.min(2, Math.max(0.5, w / h));
+    return post.mediaType === 'video' ? 9 / 16 : 4 / 5;
+};
+
+const isLatin = (s?: string | null) => !!s && BINOMIAL.test(s.trim());
+/**
+ * The Latin name to show under a common name: the second label when it is one ("Vulpes vulpes"),
+ * the same reading the species page uses. When the first label is itself the Latin name, it is the
+ * title (in italics) and nothing goes beneath: a second Latin label there is another species.
+ */
+const latinOf = (post: CommunityPost): string | null => {
+    const first = (post.labels?.[0] || '').trim();
+    const l = (post.labels?.[1] || '').trim();
+    return first && !isLatin(first) && isLatin(l) && l.toLowerCase() !== first.toLowerCase() ? l : null;
+};
+
+/** The scroller the feed lives in, so "near the viewport" means near what the explorer can scroll to. */
+const scrollRootOf = (el: Element | null): Element | null => el?.closest('#main-scroll') || null;
+
+// Moving previews: never more than one, only when the device can afford it and nobody asked for stillness
+const previewsAllowed = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false; } catch { /* ignore */ }
+    const c: any = (navigator as any).connection;
+    if (c && (c.saveData || /(^|-)2g$/.test(String(c.effectiveType || '')))) return false;
+    return true;
+};
+const previewTurn = { current: null as string | null, waiting: [] as string[], listeners: new Set<() => void>() };
+const notifyPreview = () => previewTurn.listeners.forEach(l => l());
+const claimPreview = (id: string) => {
+    if (!previewTurn.waiting.includes(id)) previewTurn.waiting.push(id);
+    if (!previewTurn.current) { previewTurn.current = id; notifyPreview(); }
+};
+const releasePreview = (id: string) => {
+    previewTurn.waiting = previewTurn.waiting.filter(x => x !== id);
+    if (previewTurn.current === id) { previewTurn.current = previewTurn.waiting[0] || null; notifyPreview(); }
+};
+const usePreviewTurn = (id: string) => {
+    const [mine, setMine] = useState(previewTurn.current === id);
+    useEffect(() => {
+        const l = () => setMine(previewTurn.current === id);
+        previewTurn.listeners.add(l);
+        return () => { previewTurn.listeners.delete(l); releasePreview(id); };
+    }, [id]);
+    return mine;
+};
+
+/** A sound drawn as one: the waveform the post page's SoundScape uses, sized for a tile. */
+const SoundTile: React.FC<{ seed: string }> = ({ seed }) => {
+    const offset = Array.from(seed).reduce((n, c) => n + c.charCodeAt(0), 0) % 7;
+    const bars = Array.from({ length: 18 }, (_, i) => 22 + Math.round(70 * Math.abs(Math.sin((i + offset) * 0.62) * Math.cos((i + offset) * 0.21))));
+    return (
+        <div className="absolute inset-0 bg-gradient-to-b from-theme-primary to-stone-950 flex items-center justify-center" aria-hidden="true">
+            <div className="flex items-center justify-center gap-[3px] h-2/5 w-3/4">
+                {bars.map((h, i) => <span key={i} className="w-[3px] rounded-full bg-white/70" style={{ height: `${h}%` }} />)}
+            </div>
+        </div>
+    );
+};
+
 const FeedCard: React.FC<{
     post: CommunityPost;
     onPostClick: (post: CommunityPost) => void;
-    loadedImages: Record<string, boolean>;
-    onImageLoad: (id: string) => void;
-}> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const hasThumb = !!(post.thumbnailUrl || post.imageUrl);
-    const isLoaded = post.mediaType === 'audio' || !hasThumb ? true : loadedImages[post.id];
+    /** The first tiles: fetched at once and first */
+    priority?: boolean;
+}> = ({ post, onPostClick, priority = false }) => {
     const label = post.labels?.[0] || post.title || 'Sighting';
-    const [isHovered, setIsHovered] = useState(false);
-    const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
+    const latin = latinOf(post);
+    const sound = isSoundTile(post);
+    const isVideo = post.mediaType === 'video' && !post.soundOnly;
     const cardRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
+    const [near, setNear] = useState(priority);
+    const [loaded, setLoaded] = useState(false);
+    const [failed, setFailed] = useState(false);
+    const [legacyPoster, setLegacyPoster] = useState<string | null>(null);
 
+    // Near the viewport (600 px ahead): load the picture, and look up a still for older clips
     useEffect(() => {
-        const isMobile = window.matchMedia("(hover: none)").matches;
-        if (!isMobile || !cardRef.current) return;
+        if (near) return;
+        const el = cardRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') { setNear(true); return; }
+        const io = new IntersectionObserver((entries) => {
+            if (entries.some(e => e.isIntersecting)) { setNear(true); io.disconnect(); }
+        }, { root: scrollRootOf(el), rootMargin: '600px 0px' });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [near]);
 
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    // Start playing if at least 60% of the card is visible
-                    setIsHovered(entry.isIntersecting);
-                });
-            },
-            { threshold: 0.6 }
-        );
-        
-        observer.observe(cardRef.current);
-        return () => observer.disconnect();
-    }, []);
+    const big = post.thumbnailUrl || post.imageUrl || post.posterUrl || legacyPoster || '';
+    const small = post.thumbSmallUrl || '';
+    const src = sound ? '' : (big || small);
+    const srcSet = !sound && small && big && small !== big ? `${small} 400w, ${big} 800w` : undefined;
+    const lqip = !sound && post.lqip && post.lqip.startsWith('data:image/') ? post.lqip : null;
 
+    // Older clips have no still on their post: the one the server made is in media_variants
     useEffect(() => {
-        let active = true;
-        if (isHovered && !post.videoUrl && !post.audioUrl && (post.mediaType === 'video' || post.mediaType === 'audio')) {
-            FirebaseService.getFullPost(post.id).then(full => {
-                if (active && full) {
-                    setFullMedia({ videoUrl: full.videoUrl, audioUrl: full.audioUrl });
-                }
-            });
-        }
-        return () => { active = false; };
-    }, [isHovered, post]);
-
-    const videoUrl = post.videoUrl || fullMedia?.videoUrl;
-    const audioUrl = post.audioUrl || fullMedia?.audioUrl;
-    // Video sightings without a still: use the frame the server made when it converted the video
-    const [poster, setPoster] = useState<string | null>(null);
-    useEffect(() => {
-        if (post.mediaType !== 'video' || post.thumbnailUrl || post.imageUrl || !isHovered) return;
+        if (!near || !isVideo || post.thumbnailUrl || post.imageUrl || post.posterUrl || post.thumbSmallUrl) return;
         let live = true;
-        (videoUrl ? Promise.resolve(videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
-          .then(u => resolvePoster(u)).then(p => { if (live && p) setPoster(p); });
+        (post.videoUrl ? Promise.resolve(post.videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
+            .then(u => resolvePoster(u)).then(p => { if (live && p) setLegacyPoster(p); }).catch(() => {});
         return () => { live = false; };
-    }, [post.id, post.mediaType, post.thumbnailUrl, post.imageUrl, isHovered, videoUrl]);
+    }, [near, isVideo, post.id, post.videoUrl, post.thumbnailUrl, post.imageUrl, post.posterUrl, post.thumbSmallUrl]);
+
+    // A picture already in the cache is shown without the fade
+    useEffect(() => {
+        const img = imgRef.current;
+        if (img && img.complete && img.naturalWidth > 0) { setLoaded(true); markFirstTile('image'); }
+    }, [src, near]);
+
+    // Blank-tile count: anything to show at all (a picture, a still, a preview or the sound drawing)
+    const hasSource = sound || !!lqip || (!!src && !failed);
+    useEffect(() => { if (near) registerTile(post.id, hasSource); else unregisterTile(post.id); }, [post.id, hasSource, near]);
+    useEffect(() => () => unregisterTile(post.id), [post.id]);
+
+    // One gentle moving preview at a time, while the clip is at least 60% visible
+    const canPreview = isVideo && !!post.videoUrl && previewsAllowed();
+    const myTurn = usePreviewTurn(post.id);
+    const [playing, setPlaying] = useState(false);
+    useEffect(() => {
+        const el = cardRef.current;
+        if (!canPreview || !el || typeof IntersectionObserver === 'undefined') return;
+        const io = new IntersectionObserver((entries) => {
+            const e = entries[entries.length - 1];
+            if (e.isIntersecting && e.intersectionRatio >= 0.6) claimPreview(post.id); else releasePreview(post.id);
+        }, { root: scrollRootOf(el), threshold: [0, 0.6, 1] });
+        io.observe(el);
+        return () => { io.disconnect(); releasePreview(post.id); };
+    }, [canPreview, post.id]);
+    useEffect(() => { if (!myTurn) setPlaying(false); }, [myTurn]);
+    const startPreview = useCallback((v: HTMLVideoElement | null) => { if (v) { v.muted = true; v.play().catch(() => {}); } }, []);
+
+    const open = () => { releasePreview(post.id); onPostClick(post); };
+    const showFallback = !sound && (!src || failed) && !lqip;
+    const where = post.locationArea;
 
     return (
-        <div 
+        <div
             ref={cardRef}
             role="button"
             tabIndex={0}
-            aria-label={`${label} by ${post.userName || 'an explorer'}`}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPostClick(post); } }}
-            onClick={() => { setIsHovered(false); onPostClick(post); }} 
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            className={`relative group cursor-pointer transition-all duration-700 break-inside-avoid ${isLoaded ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-[0.98]'}`}
+            aria-label={`${label}${latin ? ` (${latin})` : ''} by ${post.userName || 'an explorer'}`}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+            onClick={open}
+            data-feed-tile={post.id}
+            className="relative group cursor-pointer"
         >
-            <div className="relative overflow-hidden bg-theme-primary/10 shadow-sm border border-theme-primary/10 rounded-lg">
-                {post.mediaType === 'audio' ? (
-                    <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="" loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
-                        ) : null}
-                        <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
-                    </div>
-                ) : post.mediaType === 'video' ? (
-                    <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl || poster ? (
-                            <img src={post.thumbnailUrl || post.imageUrl || poster!} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
-                        ) : (
-                            <div className="w-full h-full bg-stone-900 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
+            <div
+                className="relative overflow-hidden shadow-sm border border-theme-primary/10 rounded-lg"
+                style={{ aspectRatio: String(tileAspect(post)), background: post.tint && /^#[0-9a-f]{6}$/i.test(post.tint) ? post.tint : THEME_WASH }}
+            >
+                {sound ? <SoundTile seed={post.id} /> : (
+                    <>
+                        {lqip && (
+                            <img
+                                src={lqip}
+                                alt=""
+                                aria-hidden="true"
+                                decoding="sync"
+                                onLoad={() => markFirstTile('lqip')}
+                                className={`absolute inset-0 w-full h-full object-cover scale-110 blur-lg transition-opacity duration-500 ${loaded ? 'opacity-0' : 'opacity-100'}`}
+                            />
+                        )}
+                        {src && !failed && (near || priority) && (
+                            <img
+                                ref={imgRef}
+                                src={src}
+                                srcSet={srcSet}
+                                sizes={srcSet ? TILE_SIZES : undefined}
+                                alt={isVideo ? `Clip: ${label}` : label}
+                                loading={priority ? 'eager' : 'lazy'}
+                                fetchPriority={priority ? 'high' : 'auto'}
+                                decoding="async"
+                                onLoad={() => { setLoaded(true); markFirstTile('image'); }}
+                                onError={() => setFailed(true)}
+                                className={`absolute inset-0 w-full h-full object-cover transition-[opacity,transform] duration-700 group-hover:scale-105 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        )}
+                        {showFallback && (
+                            <div className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+                                <Glyph name={GROUP_GLYPH[groupOf(post)]} size={30} strokeWidth={1.2} className="text-theme-primary/35" />
                             </div>
                         )}
-                        <span className="material-symbols-outlined text-white text-4xl absolute z-10 drop-shadow-md">play_circle</span>
-                    </div>
-                ) : (
-                    <img 
-                        src={post.thumbnailUrl || post.imageUrl} 
-                        alt={label}
-                        srcSet={post.thumbSmallUrl ? `${post.thumbSmallUrl} 400w, ${post.thumbnailUrl || post.imageUrl} 800w` : undefined}
-                        sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
-                        loading="lazy" 
-                        decoding="async"
-                        onLoad={() => onImageLoad(post.id)}
-                        onError={() => onImageLoad(post.id)}
-                        className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
-                    />
+                        {canPreview && myTurn && (
+                            <PlayableVideo
+                                ref={startPreview}
+                                src={post.videoUrl}
+                                muted
+                                loop
+                                playsInline
+                                autoPlay
+                                preload="metadata"
+                                aria-hidden="true"
+                                tabIndex={-1}
+                                onPlaying={() => setPlaying(true)}
+                                // Loops the first three seconds: a glimpse, not the whole clip
+                                onTimeUpdate={(e) => { if (e.currentTarget.currentTime > 3) e.currentTarget.currentTime = 0; }}
+                                className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-500 ${playing ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        )}
+                    </>
                 )}
                 {post.items && post.items.length > 1 && (
-                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center z-20">
+                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center z-20" aria-hidden="true">
                         <span className="material-symbols-outlined text-white text-[12px]">filter_none</span>
                     </div>
                 )}
-                {post.mediaType === 'video' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">play_arrow</span>
+                {(isVideo || sound || post.audioUrl) && (
+                    <div className="absolute bottom-2 right-2 w-6 h-6 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center text-white z-20" aria-hidden="true">
+                        {isVideo
+                            ? <span className="material-symbols-outlined text-[15px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                            : <Glyph name="sound" size={14} strokeWidth={1.6} />}
                     </div>
-                ) : post.mediaType === 'audio' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">mic</span>
-                    </div>
-                ) : post.audioUrl ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">music_note</span>
-                    </div>
-                ) : null}
+                )}
             </div>
-            
-            <div className={`px-1 mt-2 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h3 className="text-sm font-display italic font-semibold text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
+
+            <div className="px-1 mt-2">
+                <h3 className={`text-sm font-display font-semibold text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors ${isLatin(label) ? 'italic' : ''}`}>
                     {label}
                 </h3>
+                {latin && <p className="font-display italic text-xs text-stone-500 leading-tight truncate mt-0.5">{latin}</p>}
                 <div className="flex items-center gap-1 mt-1 text-[11px] text-stone-500 min-w-0">
-                    {post.locationArea
-                        ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{post.locationArea}</span></>
+                    {where
+                        ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{where}</span></>
                         : <span className="truncate">{post.userName || 'Explorer'}</span>}
                     {likeTotal(post) > 0 && (
                         <span className="ml-auto flex items-center gap-0.5 shrink-0 text-theme-accent" aria-label={wonderLabel(likeTotal(post))}>
@@ -168,6 +285,50 @@ const FeedCard: React.FC<{
                     )}
                 </div>
             </div>
+        </div>
+    );
+};
+
+/** Columns by breakpoint, as the old CSS columns had them (2, 3, 4, 5). */
+const columnsFor = (w: number) => (w >= 1280 ? 5 : w >= 1024 ? 4 : w >= 768 ? 3 : 2);
+const useColumnCount = () => {
+    const [n, setN] = useState(() => (typeof window === 'undefined' ? 2 : columnsFor(window.innerWidth)));
+    useEffect(() => {
+        const on = () => setN(columnsFor(window.innerWidth));
+        window.addEventListener('resize', on);
+        return () => window.removeEventListener('resize', on);
+    }, []);
+    return n;
+};
+
+/**
+ * The feed grid. Tiles go to the shortest column, by their known shape, in order: the first tiles
+ * sit across the top row, and tiles added later never move the ones already shown (CSS columns
+ * reshuffled everything whenever a page arrived).
+ */
+const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: CommunityPost) => void }> = ({ posts, onPostClick }) => {
+    const n = useColumnCount();
+    const columns = React.useMemo(() => {
+        const cols: { post: CommunityPost; index: number }[][] = Array.from({ length: n }, () => []);
+        const heights = new Array(n).fill(0);
+        posts.forEach((post, index) => {
+            let c = 0;
+            for (let i = 1; i < n; i++) if (heights[i] < heights[c] - 0.001) c = i;
+            cols[c].push({ post, index });
+            heights[c] += 1 / tileAspect(post) + 0.32; // the name and place beneath
+        });
+        return cols;
+    }, [posts, n]);
+    useEffect(() => { if (posts.length) scheduleBlankCount(); }, [posts.length]);
+    return (
+        <div className="flex items-start gap-2 md:gap-4">
+            {columns.map((col, ci) => (
+                <div key={ci} className="flex-1 min-w-0 flex flex-col gap-2 md:gap-4">
+                    {col.map(({ post, index }) => (
+                        <FeedCard key={post.id} post={post} onPostClick={onPostClick} priority={index < 2} />
+                    ))}
+                </div>
+            ))}
         </div>
     );
 };
@@ -211,6 +372,26 @@ const SightingSound: React.FC<{ src?: string; image?: string | null; noDownload:
     );
 };
 
+/** The guide's "Why it does this", two sentences at first, the rest a tap away. */
+const WhyItDoes: React.FC<{ paragraphs: string[] }> = ({ paragraphs }) => {
+    const [open, setOpen] = useState(false);
+    const sentences = paragraphs.join(' ').split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+    const long = sentences.length > 2;
+    const cls = 'text-[17px] font-display text-stone-800 leading-[1.6]';
+    return (
+        <div className="space-y-3">
+            {!long || open
+                ? paragraphs.map((para, idx) => <p key={idx} className={cls}>{para}</p>)
+                : <p className={cls}>{sentences.slice(0, 2).join(' ')}</p>}
+            {long && (
+                <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} className="text-sm font-semibold text-theme-accent hover:underline underline-offset-4">
+                    {open ? 'Show less' : 'Read more'}
+                </button>
+            )}
+        </div>
+    );
+};
+
 interface CommunityProps {
   currentUserMode: UserMode;
   selectedPostId?: string | null;
@@ -238,6 +419,9 @@ interface CommunityProps {
   onOpenNaturalist?: () => void;
   /** Opens Explore (places, kinds of life, the fortnight's challenge) */
   onOpenExplore?: () => void;
+  /** Journal grid only. The journal draws the header: a string is its search (this header, chips and
+   *  filters are hidden); null keeps the search, chips and filters here but drops the title row. */
+  journalQuery?: string | null;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -261,9 +445,19 @@ const Community: React.FC<CommunityProps> = ({
     initialPost = null,
     headerActions,
     onOpenNaturalist,
-    onOpenExplore
+    onOpenExplore,
+    journalQuery
 }) => {
-  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  // The first tiles arrive inside the page itself (server/media.js): paint them before any request
+  const [bootPosts] = useState<CommunityPost[]>(() => {
+    const boot = !isJournalOnly && !detailOnly ? peekFirstTiles() : [];
+    // Before any tile mounts, so the first-tile metric knows where its data came from
+    setFirstSource(boot.length ? 'inline' : 'network');
+    return boot;
+  });
+  const [posts, setPosts] = useState<CommunityPost[]>(bootPosts);
+  // Tiles already on screen keep their places when the full first page arrives
+  const pinnedIdsRef = useRef<string[]>(bootPosts.map(p => p.id));
   const sendAsLetter = onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
           // Letters have no recipient picker yet: carry the link over so it can be pasted into any letter.
           const url = `${window.location.origin}/s/${post.id}`;
@@ -275,10 +469,9 @@ const Community: React.FC<CommunityProps> = ({
   const [activePost, setActivePost] = useState<CommunityPost | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(bootPosts.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [searchTag, setSearchTag] = useState<string | null>(null);
-  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [feedMode, setFeedMode] = useState<'foryou' | 'following'>('foryou');
@@ -306,12 +499,8 @@ const Community: React.FC<CommunityProps> = ({
     const startDay = Math.ceil(Math.floor(dayOfYear / 15.21) * 15.21);
     return new Date(now.getFullYear(), 0, startDay).getTime();
   }, []);
-  /** Kinds of life present in what's loaded, so the filter never offers an empty choice */
-  const groupsPresent = React.useMemo(() => {
-    const seen = new Map<LifeGroup, number>();
-    posts.forEach(p => { const g = groupOf(p); seen.set(g, (seen.get(g) || 0) + 1); });
-    return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
-  }, [posts]);
+  /** Kinds of life present in what's loaded, so the chip row never offers an empty choice */
+  const groupsPresent = React.useMemo(() => new Set(posts.map(p => groupOf(p))), [posts]);
   // Re-read the hour each time the feed mounts; no need to tick live.
   const moment = React.useMemo(() => fieldMoment(), []);
   const [challenge, setChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
@@ -361,68 +550,39 @@ const Community: React.FC<CommunityProps> = ({
 
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
+  // The journal grid takes its search from the journal's own header
+  useEffect(() => { if (typeof journalQuery === 'string') setSearchQuery(journalQuery); }, [journalQuery]);
   const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'fortnight' | 'month' | 'season'>('all');
-  const [selectedGroups, setSelectedGroups] = useState<LifeGroup[]>([]);
-  const [sortOrder, setSortOrder] = useState<'newest' | 'likes' | 'title'>('newest');
-  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  /** One kind of life at a time, from the chip row */
+  const [selectedGroup, setSelectedGroup] = useState<LifeGroup | null>(null);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'likes'>('newest');
   const [showFilters, setShowFilters] = useState(false);
+  /** The feed's search field is in use: the one search (SearchPanel) takes the place of the grid */
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [activeExploreTab, setActiveExploreTab] = useState<'all' | 'flora' | 'fauna' | 'fungi' | 'audio' | 'video' | 'popular'>('all');
-  const [serverUsers, setServerUsers] = useState<UserProfileData[]>([]);
-  const [serverMatches, setServerMatches] = useState<CommunityPost[]>([]);
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 2 || isJournalOnly) { setServerUsers([]); setServerMatches([]); return; }
-    const t = window.setTimeout(() => {
-      // Sightings beyond the loaded page: search keys written on publish (falls back to tags inside the service)
-      FirebaseService.searchPosts(q).then(setServerMatches).catch(() => setServerMatches([]));
-      if (q.startsWith('#')) { setServerUsers([]); return; }
-      FirebaseService.searchUsers(q).then(setServerUsers);
-      track('search', { length: q.length });
-    }, 300);
-    return () => window.clearTimeout(t);
-  }, [searchQuery, isJournalOnly]);
+  const searchOpen = !isJournalOnly && (isSearchFocused || !!searchQuery.trim());
+  const closeSearch = () => { setIsSearchFocused(false); setSearchQuery(''); };
   const openMention = async (username: string) => {
     const u = await FirebaseService.findUserByUsername(username);
     if (u) { setIsCommentsOpen(false); onViewProfile?.(u.uid); }
     else showToast(`@${username} isn't on NatureGram yet`);
   };
 
-  // Search suggestions drawn from the sightings already loaded
-  const dynamicSuggestions = React.useMemo(() => {
-    const popularTags = new Set<string>();
-    const activeCreators = new Set<string>();
-    const topLocations = new Set<string>();
-
-    posts.forEach(p => {
-      if (p.tags) p.tags.forEach(t => {
-        if (t) popularTags.add(t.startsWith('#') ? t : `#${t}`);
-      });
-      if (p.labels) p.labels.forEach(lbl => {
-        if (lbl) popularTags.add(`#${lbl.toLowerCase().replace(/\s+/g, '')}`);
-      });
-      if (p.userName) activeCreators.add(p.userName);
-      if (p.locationArea) topLocations.add(p.locationArea);
-    });
-
-    return {
-      tags: Array.from(popularTags).slice(0, 8),
-      creators: Array.from(activeCreators).slice(0, 6),
-      locations: Array.from(topLocations).slice(0, 5),
-    };
+  // Words to offer in the search before anything is typed: the species most seen in what's loaded
+  const searchSuggestions = React.useMemo(() => {
+    const seen = new Map<string, number>();
+    posts.forEach(p => { const l = String(p.labels?.[0] || '').trim(); if (l && !/^(unknown|nature|unidentified|captured|uploaded)/i.test(l)) seen.set(l, (seen.get(l) || 0) + 1); });
+    return [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([l]) => l);
   }, [posts]);
 
-  // Computes sorted and filtered posts in memory (allowing dynamic full-text and attribute search without Firestore indexing errors)
+  // Filters what's loaded in memory: the kind of life, media, season and order. Words are searched on
+  // the server by SearchPanel; only the journal (the explorer's own sightings) is searched here.
   const filteredAndSortedPosts = React.useMemo(() => {
-    const pool = searchQuery.trim() && serverMatches.length
-      ? [...posts, ...serverMatches.filter(m => !posts.some(p => p.id === m.id))]
-      : posts;
-    return pool
+    return posts
       .filter(post => {
         if (blockedIds.includes(post.userId)) return false;
-        // 1. Full-text search match (Titles, Labels, Descriptions, Locations, Insights)
-        if (searchQuery.trim()) {
+        // 1. The journal's own search (titles, labels, descriptions, places, insights)
+        if (isJournalOnly && searchQuery.trim()) {
           const query = searchQuery.toLowerCase().trim();
           const cleanQuery = query.startsWith('#') ? query.slice(1) : query;
           const cleanQueryAt = query.startsWith('@') ? query.slice(1) : query;
@@ -441,30 +601,8 @@ const Community: React.FC<CommunityProps> = ({
           }
         }
 
-        // 2. Category pills
-        if (activeExploreTab === 'flora') {
-          const floraKeywords = ['plant', 'flower', 'flora', 'tree', 'vegetation', 'leaf', 'shrub', 'moss', 'clover', 'botany', 'fern', 'bloom', 'rose', 'grass', 'oak', 'maple', 'pine', 'nature'];
-          const matchesFlora = post.labels?.some(lbl => floraKeywords.some(kw => lbl.toLowerCase().includes(kw))) ||
-                              post.tags?.some(tag => floraKeywords.some(kw => tag.toLowerCase().includes(kw))) ||
-                              floraKeywords.some(kw => post.description?.toLowerCase().includes(kw));
-          if (!matchesFlora) return false;
-        } else if (activeExploreTab === 'fauna') {
-          const faunaKeywords = ['animal', 'bird', 'insect', 'reptile', 'fauna', 'bug', 'wildlife', 'mammal', 'creature', 'caterpillar', 'squirrel', 'deer', 'rabbit', 'fly', 'moth', 'butterfly', 'bee', 'sparrow', 'frog', 'lizard', 'snake', 'fish', 'hawk', 'crow'];
-          const matchesFauna = post.labels?.some(lbl => faunaKeywords.some(kw => lbl.toLowerCase().includes(kw))) ||
-                              post.tags?.some(tag => faunaKeywords.some(kw => tag.toLowerCase().includes(kw))) ||
-                              faunaKeywords.some(kw => post.description?.toLowerCase().includes(kw));
-          if (!matchesFauna) return false;
-        } else if (activeExploreTab === 'fungi') {
-          const fungiKeywords = ['mushroom', 'fungus', 'fungi', 'mycelium', 'lichen', 'spore', 'toadstool', 'amanita', 'chanterelle', 'bolete', 'shelf', 'mold'];
-          const matchesFungi = post.labels?.some(lbl => fungiKeywords.some(kw => lbl.toLowerCase().includes(kw))) ||
-                               post.tags?.some(tag => fungiKeywords.some(kw => tag.toLowerCase().includes(kw))) ||
-                               fungiKeywords.some(kw => post.description?.toLowerCase().includes(kw));
-          if (!matchesFungi) return false;
-        } else if (activeExploreTab === 'audio') {
-          if (post.mediaType !== 'audio') return false;
-        } else if (activeExploreTab === 'video') {
-          if (post.mediaType !== 'video') return false;
-        }
+        // 2. Kind of life (the chip row)
+        if (selectedGroup && groupOf(post) !== selectedGroup) return false;
 
         // 3. Media Type Filter
         if (mediaFilter !== 'all') {
@@ -488,74 +626,40 @@ const Community: React.FC<CommunityProps> = ({
           }
         }
 
-        // 5. Kind of life
-        if (selectedGroups.length > 0 && !selectedGroups.includes(groupOf(post))) return false;
-
-        // 6. Particular species
-        if (selectedLabels.length > 0) {
-          const hasLabel = post.labels?.some(lbl => selectedLabels.includes(lbl));
-          if (!hasLabel) return false;
-        }
-
         return true;
       })
       .sort((a, b) => {
-        const querySortOrder = activeExploreTab === 'popular' ? 'likes' : sortOrder;
-        // 6. High-fidelity Sorting Order
-        if (querySortOrder === 'newest') {
-          const tA = a.timestamp?.seconds || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
-          const tB = b.timestamp?.seconds || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
-          return tB - tA;
-        } else if (querySortOrder === 'likes') {
-          const likesA = likeTotal(a);
-          const likesB = likeTotal(b);
-          return likesB - likesA;
-        } else if (querySortOrder === 'title') {
-          const titleA = a.title || a.labels?.[0] || 'Specimen';
-          const titleB = b.title || b.labels?.[0] || 'Specimen';
-          return titleA.localeCompare(titleB);
-        }
-        return 0;
+        if (sortOrder === 'likes') return likeTotal(b) - likeTotal(a);
+        const tA = a.timestamp?.seconds || (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+        const tB = b.timestamp?.seconds || (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+        return tB - tA;
       });
-  }, [posts, serverMatches, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, selectedGroups, blockedIds]);
+  }, [posts, searchQuery, isJournalOnly, mediaFilter, dateFilter, sortOrder, selectedGroup, blockedIds]);
 
-  // "For you" is ranked when no search/filter/sort override is active; otherwise explicit ordering wins
+  /** Filters behind the Filters button that are set (the chip row is shown on its own) */
+  const drawerFiltersOn = mediaFilter !== 'all' || dateFilter !== 'all' || sortOrder !== 'newest';
+  const anyFilterOn = drawerFiltersOn || !!selectedGroup || !!searchTag || (isJournalOnly && !!searchQuery.trim());
+
+  // "For you" is ranked when no filter or order is chosen; otherwise explicit ordering wins
   const displayPosts = React.useMemo(() => {
-    const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !searchQuery.trim()
-      && activeExploreTab === 'all' && sortOrder === 'newest' && mediaFilter === 'all' && dateFilter === 'all' && selectedLabels.length === 0 && selectedGroups.length === 0;
+    const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !anyFilterOn;
     if (!ranked) return filteredAndSortedPosts;
-    // AI-curated picks (persona) stay first; the rest is ranked transparently
-    const curated = filteredAndSortedPosts.filter(p => p.curatorNote);
-    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote);
-    return [...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
-  }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, searchQuery, activeExploreTab, sortOrder, mediaFilter, dateFilter, selectedLabels, selectedGroups, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
+    // Tiles painted from the page keep their places; AI-curated picks (persona) come next; the rest is ranked transparently
+    const pinned = new Set(pinnedIdsRef.current);
+    const first = pinnedIdsRef.current.map(id => filteredAndSortedPosts.find(p => p.id === id)).filter(Boolean) as CommunityPost[];
+    const curated = filteredAndSortedPosts.filter(p => p.curatorNote && !pinned.has(p.id));
+    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote && !pinned.has(p.id));
+    return [...first, ...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
+  }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, anyFilterOn, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
 
-  // Extract all categories / species labels currently present in observations for selection
-  const allAvailableLabels = React.useMemo(() => {
-    const labelsSet = new Set<string>();
-    posts.forEach(p => {
-      if (p.labels) p.labels.forEach(lbl => labelsSet.add(lbl));
-    });
-    return Array.from(labelsSet).sort();
-  }, [posts]);
-
-  // Handle label selection clicks
-  const toggleLabelFilter = (lbl: string) => {
-    setSelectedLabels(prev => 
-      prev.includes(lbl) ? prev.filter(x => x !== lbl) : [...prev, lbl]
-    );
-  };
-
-  // Reset all search search query indices and category filters
+  // Clear every filter (and the journal's own search)
   const resetAllFilters = () => {
     setSearchQuery("");
     setMediaFilter('all');
     setDateFilter('all');
     setSortOrder('newest');
-    setSelectedLabels([]);
-    setSelectedGroups([]);
+    setSelectedGroup(null);
     setSearchTag(null);
-    setActiveExploreTab('all');
     setIsSearchFocused(false);
   };
   
@@ -632,7 +736,6 @@ const Community: React.FC<CommunityProps> = ({
   }, [activePost]);
 
   const [sharingPost, setSharingPost] = useState<CommunityPost | null>(null);
-  const [publishingPost, setPublishingPost] = useState<CommunityPost | null>(null);
 
   const loadMore = useCallback(async () => {
       if (!hasMore || isLoading || isJournalOnly || feedMode === 'following' || loadMoreState === 'loading') return;
@@ -741,7 +844,7 @@ const Community: React.FC<CommunityProps> = ({
             }
         }
         setSpeciesData({
-            extract: found?.extract || `No encyclopedia entry for "${clean}" yet. The name may cover a group rather than a single species.`,
+            extract: found?.extract || `The encyclopedia has nothing on "${clean}" yet. The name may cover a group rather than a single species.`,
             thumbnail: found?.thumbnail?.source || "",
             loading: false,
             url: found?.content_urls?.desktop?.page || '',
@@ -769,7 +872,7 @@ const Community: React.FC<CommunityProps> = ({
           }
       } catch (e) {
           console.error("Failed to delete post", e);
-          alert("Failed to delete observation.");
+          alert("Could not delete the sighting. Please try again.");
           // Revert optimistic update is handled by the onSnapshot listener automatically
       }
   };
@@ -844,24 +947,41 @@ const Community: React.FC<CommunityProps> = ({
 
   useEffect(() => {
     if (isJournalOnly || feedMode !== 'foryou') return;
-    
-    window.scrollTo(0, 0);
-    const container = document.getElementById('community-scroll-container');
-    if (container) container.scrollTop = 0;
-    
-    setIsLoading(true);
-    setPosts([]);
+    let live = true;
+    // First visit with tiles from the page: they stay on screen while the full first page loads
+    const fromPage = !searchTag && peekFirstTiles().length > 0 && pinnedIdsRef.current.length > 0;
+
+    if (!fromPage) {
+      window.scrollTo(0, 0);
+      const container = document.getElementById('community-scroll-container');
+      if (container) container.scrollTop = 0;
+      pinnedIdsRef.current = [];
+      setIsLoading(true);
+      setPosts([]);
+    } else {
+      // No "load more" until the real first page (and its cursor) is here
+      setLoadMoreState('loading');
+    }
     setLastVisible(null);
     setHasMore(true);
     setError(null);
-    
+
     FirebaseService.getMorePosts(null, searchTag).then(({ posts: newPosts, lastVisible: newLastVisible }) => {
+        if (!live) return;
+        releaseFirstTiles();
         setPosts(newPosts);
         setLastVisible(newLastVisible);
         setHasMore(newLastVisible !== null);
         setIsLoading(false);
+        if (fromPage) setLoadMoreState('idle');
     }).catch(err => {
+        if (!live) return;
         console.error("Failed to load initial posts:", err);
+        if (fromPage) {
+          // Keep the tiles from the page; the explorer can retry for more
+          setLoadMoreState('error');
+          return;
+        }
         let msg = err.message || String(err);
         try {
             const parsed = JSON.parse(msg);
@@ -870,6 +990,7 @@ const Community: React.FC<CommunityProps> = ({
         setError(msg);
         setIsLoading(false);
     });
+    return () => { live = false; };
   }, [searchTag, isJournalOnly, feedMode]);
 
   useEffect(() => {
@@ -1021,7 +1142,7 @@ const Community: React.FC<CommunityProps> = ({
       } catch (err) {
           console.error('Like failed', err);
           setPosts(snapshot.posts); setActivePost(snapshot.active); setMyLikes(snapshot.mine);
-          showToast('Could not save your like. Please try again.');
+          showToast('Could not save your marvel. Please try again.');
       }
   };
 
@@ -1058,7 +1179,7 @@ const Community: React.FC<CommunityProps> = ({
           showToast(next ? 'Kept in your collection' : 'Removed from your collection');
       } catch {
           setIsSaved(!next);
-          showToast('Could not update saved posts.');
+          showToast('Could not update your kept sightings.');
       }
   };
 
@@ -1066,12 +1187,12 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost) return;
       setReportOpen(false);
       if (!isMember) { askAccount('Create a free account to report content.'); return; }
-      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this post. Thank you.'); return; }
+      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this sighting. Thank you.'); return; }
       try {
           await FirebaseService.reportPost(activePost.id, reason);
           track('report', { reason });
           setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
-          showToast('Thanks. Our moderators will review this post.');
+          showToast('Thanks. Our moderators will review this sighting.');
       } catch {
           showToast('Could not send the report. Please try again.');
       }
@@ -1085,7 +1206,7 @@ const Community: React.FC<CommunityProps> = ({
           await FirebaseService.muteUser(activePost.userId);
           setBlockedIds(prev => [...prev, activePost.userId]);
           closeDetail();
-          showToast(`${activePost.userName} muted. They won't know, and you can unmute from their page.`);
+          showToast(`${activePost.userName} muted. They won't know, and you can unmute from their field page.`);
       } catch { showToast('Could not mute. Please try again.'); }
   };
 
@@ -1093,7 +1214,7 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost) return;
       setPostMenuOpen(false);
       if (!isMember) { askAccount('Create a free account to block explorers.'); return; }
-      if (!window.confirm(`Block ${activePost.userName}? You won't see their posts or comments.`)) return;
+      if (!window.confirm(`Block ${activePost.userName}? You won't see their sightings or field notes.`)) return;
       try {
           await FirebaseService.blockUser(activePost.userId);
           setBlockedIds(prev => [...prev, activePost.userId]);
@@ -1125,14 +1246,14 @@ const Community: React.FC<CommunityProps> = ({
 
   // Standing beside names: how many species each field-note author (and the poster) has on their list.
   // Shown for everyone once every author's count has loaded, so no name looks more or less trusted by accident.
+  // Only counts the server has reconciled (stats.reconciledAt) are shown: no count rather than a wrong one.
   const [speciesCounts, setSpeciesCounts] = useState<Record<string, number | null>>({});
   useEffect(() => {
       const ids = [...new Set([...(comments || []).map(c => c.userId), activePost?.userId].filter(Boolean) as string[])].filter(id => !(id in speciesCounts));
       if (!ids.length) return;
       let alive = true;
       Promise.all(ids.slice(0, 30).map(id => FirebaseService.getUserProfile(id).then(p => {
-          const st: any = (p as any)?.stats;
-          const n = st && typeof st.species === 'number' ? st.species : null;
+          const n = reconciledStats(p)?.species ?? null;
           return [id, n] as const;
       }).catch(() => [id, null] as const)))
           .then(rows => { if (alive) setSpeciesCounts(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
@@ -1142,7 +1263,7 @@ const Community: React.FC<CommunityProps> = ({
   const countsReady = (uids: string[]) => uids.every(u => typeof speciesCounts[u] === 'number');
   const speciesLine = (uid?: string) => { const n = uid ? speciesCounts[uid] : null; return typeof n === 'number' ? `${n} species` : ''; };
 
-  // Who has put a name to this sighting: their notes count as observations
+  // Who has put a name to this sighting: their notes carry a small "ID" tag
   const [identifierIds, setIdentifierIds] = useState<Set<string>>(new Set());
   useEffect(() => {
       if (!isCommentsOpen || !activePost?.isPublic) { setIdentifierIds(new Set()); return; }
@@ -1154,15 +1275,6 @@ const Community: React.FC<CommunityProps> = ({
   /** Field notes readers see: blocked authors and promotional spam are hidden. The post's author still sees spam, flagged, so they can delete it. */
   const isPostOwner = !!activePost && activePost.userId === currentUserMode.userId;
   const visibleComments = comments.filter(c => !blockedIds.includes(c.userId) && (!looksLikeSpam(c.text) || isPostOwner || c.userId === currentUserMode.userId));
-  /** A note that adds to the record (field marks, behaviour, a longer description, or from the poster or an identifier) rather than chatter. */
-  const FIELD_MARK = /\b(wing|wings|tail|beak|bill|crest|crown|throat|breast|belly|eye|eyes|ring|stripe|stripes|striped|bar|barred|spot|spots|spotted|patch|band|banded|plumage|feather|legs?|antenna|antennae|thorax|abdomen|leaf|leaves|petal|petals|stem|bark|cap|gills?|stipe|spore|spores|ridges?|veins?|call|song|calls|sings|nest|nesting|perched|feeding|foraging|juvenile|female|male|adult|immature|instar|larva|size|cm|mm|length|habitat|flowering|fruiting|underside|upperside|margin|lobed|serrated|compare|distinguish|differs?|rather than|not a)\b/i;
-  const isObservation = (c: Comment) => !looksLikeSpam(c.text) && (
-      (!!activePost && c.userId === activePost.userId && c.text.trim().length >= 25)
-      || identifierIds.has(c.userId)
-      || c.text.trim().length >= 140
-      || (c.text.trim().length >= 30 && FIELD_MARK.test(c.text)));
-  const observationNotes = visibleComments.filter(isObservation);
-  const chatterNotes = visibleComments.filter(c => !isObservation(c));
   const showSpeciesCounts = countsReady([...new Set(visibleComments.map(c => c.userId))]);
 
   const renderNote = (c: Comment) => activePost && (
@@ -1171,7 +1283,7 @@ const Community: React.FC<CommunityProps> = ({
                                         {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(c.userName || '?').charAt(0).toUpperCase()}</span>}
                                     </button>
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
+                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button>{identifierIds.has(c.userId) && <span className="inline-block align-[1px] mr-1.5 px-1.5 py-px rounded-[3px] border border-theme-accent/40 text-[10px] font-semibold text-theme-deep" title="Suggested a name for this sighting">ID</span>}<RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
                                         <div className="flex items-center gap-3 mt-1 text-xs text-stone-500 flex-wrap">
                                             <span>{[showSpeciesCounts ? speciesLine(c.userId) : '', timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
                                             {looksLikeSpam(c.text) && isPostOwner && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">Looks like spam, hidden from others</span>}
@@ -1278,26 +1390,20 @@ const Community: React.FC<CommunityProps> = ({
         }
     } catch (e) {
         console.error("Failed to update post", e);
-        alert("Failed to save edits.");
+        alert("Could not save your changes. Please try again.");
     }
   };
 
   const handleTagClick = (tag: string) => {
       const cleanTag = (tag.startsWith('#') ? tag.slice(1) : tag).toLowerCase();
-      setSearchTag(cleanTag);
-      setFeedMode('foryou');
       track('tag_open', { tag: cleanTag });
       closeDetail();
+      // A tag opens the one search, already asking for it
+      setSearchQuery(`#${cleanTag}`);
+      if (!isJournalOnly) { setFeedMode('foryou'); setIsSearchFocused(true); }
       window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const clearSearch = () => {
-      setSearchTag(null);
-  };
-
-  const onImageLoad = (postId: string) => {
-    setLoadedImages(prev => ({ ...prev, [postId]: true }));
-  };
 
   return (
     <div id="community-scroll-container" className="w-full relative">
@@ -1365,7 +1471,7 @@ const Community: React.FC<CommunityProps> = ({
                             {speciesPage.explorers > 0 && speciesPath(speciesPage.scientific || selectedSpecies.name) && (
                                 <a href={speciesPath(speciesPage.scientific || selectedSpecies.name)!} className="inline-flex items-center gap-2 min-h-[44px] text-sm text-theme-primary hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4">
                                     <Glyph name="notebook" size={16} className="text-theme-accent" />
-                                    The field guide page for <span className="font-display italic">{selectedSpecies.name}</span>
+                                    More on <span className="font-display italic">{selectedSpecies.name}</span> in the field guide
                                 </a>
                             )}
 
@@ -1402,7 +1508,7 @@ const Community: React.FC<CommunityProps> = ({
                         <span className="material-symbols-outlined text-3xl">delete_forever</span>
                     </div>
                     <h3 className="text-2xl font-display font-semibold text-theme-primary text-center mb-3">Delete this sighting?</h3>
-                    <p className="text-sm text-theme-primary/60 text-center leading-relaxed mb-8">
+                    <p className="text-sm text-stone-600 text-center leading-relaxed mb-8">
                         It will be removed from the feed and your journal. This can't be undone.
                     </p>
                     <div className="flex flex-col gap-3">
@@ -1414,7 +1520,7 @@ const Community: React.FC<CommunityProps> = ({
                         </button>
                         <button 
                             onClick={() => setConfirmDeleteId(null)}
-                            className="w-full py-4 bg-theme-primary/5 text-theme-primary/70 font-semibold text-sm rounded-full active:scale-95 transition-all"
+                            className="w-full py-4 bg-theme-primary/5 text-stone-600 font-semibold text-sm rounded-full active:scale-95 transition-all"
                         >
                             Keep it
                         </button>
@@ -1425,7 +1531,9 @@ const Community: React.FC<CommunityProps> = ({
 
         {!detailOnly && (<>
         {/* Field guide header */}
+        {typeof journalQuery !== 'string' && (
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
+            {journalQuery === undefined && (
             <div className="flex items-start justify-between gap-4">
                 <button
                     type="button"
@@ -1434,10 +1542,10 @@ const Community: React.FC<CommunityProps> = ({
                     className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary">
-                        {isJournalOnly ? "My Journal" : "NatureGram"}
+                        {isJournalOnly ? "My journal" : "NatureGram"}
                     </h2>
                     {!isJournalOnly && (
-                        <p className="text-sm text-theme-primary/70 mt-1 flex items-center gap-1.5">
+                        <p className="text-sm text-stone-600 mt-1 flex items-center gap-1.5">
                             <span className="material-symbols-outlined text-[17px] text-theme-accent" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{moment.icon}</span>
                             <span>{moment.name}: {moment.hint}</span>
                         </p>
@@ -1478,11 +1586,11 @@ const Community: React.FC<CommunityProps> = ({
                         </button>
                     )}
                 </div>
-            </div>
+            </div>)}
 
             {!isJournalOnly && (
                 <div className="flex items-center gap-6" role="tablist" aria-label="What to show">
-                    {([['foryou', 'Wander'], ['following', 'Fellow explorers']] as const).map(([key, label]) => (
+                    {([['foryou', 'For you'], ['following', 'Following']] as const).map(([key, label]) => (
                         <button
                             key={key}
                             role="tab"
@@ -1491,7 +1599,7 @@ const Community: React.FC<CommunityProps> = ({
                                 if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and gather their sightings here.'); return; }
                                 setFeedMode(key);
                             }}
-                            className={`relative py-2 text-[15px] font-medium transition-colors ${feedMode === key ? 'text-theme-primary' : 'text-theme-primary/50 hover:text-theme-primary/80'}`}
+                            className={`relative py-2 text-[15px] font-medium transition-colors ${feedMode === key ? 'text-theme-deep' : 'text-stone-600 hover:text-theme-deep'}`}
                         >
                             {label}
                             <span className={`absolute left-0 -bottom-0.5 h-[2px] rounded-full bg-theme-accent transition-all duration-500 ${feedMode === key ? 'w-full opacity-100' : 'w-0 opacity-0'}`} aria-hidden="true" />
@@ -1500,9 +1608,9 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             )}
 
-            {freshRail.length > 0 && feedMode === 'foryou' && (
+            {freshRail.length > 0 && !searchOpen && feedMode === 'foryou' && (
                 <section aria-label="Fresh sightings from explorers you follow">
-                    <p className="text-sm font-medium text-theme-primary/70 mb-2">Fresh tracks</p>
+                    <p className="text-sm font-medium text-stone-600 mb-2">Fresh tracks</p>
                     <ul className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pb-1" role="list">
                         {freshRail.map(r => (
                             <li key={r.userId} className="shrink-0">
@@ -1510,7 +1618,7 @@ const Community: React.FC<CommunityProps> = ({
                                     <span className="relative block w-[84px] h-[100px] rounded-xl overflow-hidden bg-theme-primary/10 border border-theme-primary/10">
                                         {(r.post.thumbnailUrl || r.post.imageUrl)
                                             ? <img src={(r.post.thumbSmallUrl || r.post.thumbnailUrl || r.post.imageUrl)!} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                            : <span className="w-full h-full flex items-center justify-center text-theme-primary/60"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'park'}</span></span>}
+                                            : <span className="w-full h-full flex items-center justify-center text-stone-600"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'image'}</span></span>}
                                         {r.count > 1 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-black/45 backdrop-blur text-white text-[11px] font-semibold flex items-center justify-center tabular">{r.count}</span>}
                                     </span>
                                     <span className="text-xs font-display italic font-semibold text-theme-primary truncate w-full leading-tight">{r.post.labels?.[0] || 'New sighting'}</span>
@@ -1522,11 +1630,11 @@ const Community: React.FC<CommunityProps> = ({
                 </section>
             )}
 
-            {!isJournalOnly && dailyTheme?.naturalist && (
+            {!isJournalOnly && !searchOpen && dailyTheme?.naturalist && (
                 <button
                     type="button"
                     data-tour="challenge"
-                    onClick={() => { if (onOpenNaturalist) { onOpenNaturalist(); return; } setSearchQuery(themeExtra.challengeTag); setFeedMode('foryou'); }}
+                    onClick={() => { if (onOpenNaturalist) { onOpenNaturalist(); return; } handleTagClick(themeExtra.challengeTag); }}
                     aria-label={`${dailyTheme.naturalist}'s challenge: ${themeExtra.challenge} Meet ${dailyTheme.naturalist} and see what explorers found.`}
                     className="w-full text-left rounded-2xl px-4 py-3 border border-theme-primary/15 hover:bg-theme-primary/5 flex items-start gap-3 transition-colors"
                 >
@@ -1534,215 +1642,79 @@ const Community: React.FC<CommunityProps> = ({
                     <span className="flex-1 min-w-0">
                         <span className="block text-[15px] text-theme-primary leading-snug">{themeExtra.challenge}</span>
                         <span className="block text-xs text-stone-500 mt-1">
-                            {[`${dailyTheme.naturalist}'s challenge`, `${themePeriod.daysRemaining} days left`, challenge?.mine ? 'you answered' : challenge?.explorers ? `${challenge.capped ? '60+' : challenge.explorers} answered` : null].filter(Boolean).join(' · ')}
+                            {[`${dailyTheme.naturalist}'s challenge`, `${themePeriod.daysRemaining} ${themePeriod.daysRemaining === 1 ? 'day' : 'days'} left`, challenge?.mine ? 'you answered' : challenge?.explorers ? `${challenge.capped ? '60+' : challenge.explorers} answered` : null].filter(Boolean).join(' · ')}
                         </span>
                     </span>
+                    <span className="material-symbols-outlined text-[18px] text-stone-500 shrink-0 self-center" aria-hidden="true">chevron_right</span>
                 </button>
             )}
 
-            {/* Search, with a cancel state while focused */}
-            <div className="relative flex flex-col gap-3">
-                {/* Backdrop overlay for focus state to make UX clean, elegant and focused */}
-                {isSearchFocused && (
-                    <div 
-                        className="fixed inset-0 bg-stone-950/10 backdrop-blur-[2px] z-[150] transition-opacity duration-300 pointer-events-auto" 
-                        onClick={() => setIsSearchFocused(false)}
-                    />
-                )}
-
-                <div className={`flex items-center gap-3 relative ${isSearchFocused ? 'z-[160]' : ''}`}>
-                    <div className="relative flex-1">
-                        <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-theme-primary/55 text-lg font-bold select-none">
-                            search
-                        </span>
-                        <input 
-                            type="text"
-                            value={searchQuery}
-                            onFocus={() => {
-                                setIsSearchFocused(true);
-                                setShowFilters(false);
-                            }}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            aria-label={isJournalOnly ? 'Search your journal' : 'Search sightings, species, places and explorers'}
-                            placeholder={isJournalOnly ? "Search your journal…" : "Search species, places, explorers…"}
-                            className="w-full pl-11 pr-11 py-3 bg-stone-100 hover:bg-stone-200/50 focus:bg-white text-sm text-theme-primary placeholder-theme-primary/40 rounded-2xl border-none outline-none focus:ring-2 focus:ring-theme-accent/20 transition-all font-sans font-medium"
-                        />
-                        {searchQuery && (
-                            <button 
-                                onClick={() => setSearchQuery("")}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 text-theme-primary/55 hover:text-theme-primary transition-colors flex items-center justify-center p-1"
-                            >
-                                <span className="material-symbols-outlined text-sm font-bold">close</span>
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Cancel while focused */}
-                    {isSearchFocused && (
-                        <button 
-                            onClick={() => {
-                                setIsSearchFocused(false);
-                                setSearchQuery("");
-                            }}
-                            className="text-sm font-medium text-theme-accent hover:opacity-70 transition-all cursor-pointer animate-fade-in px-1"
-                        >
-                            Cancel
-                        </button>
-                    )}
-
-                    {/* Minimal Inline filter toggle button */}
-                    <button 
-                        onClick={() => {
-                            setShowFilters(!showFilters);
-                            setIsSearchFocused(false);
-                        }}
-                        className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-medium text-sm cursor-pointer ${
-                            showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag
-                                ? 'bg-theme-accent/15 text-theme-accent' 
-                                : 'bg-stone-100 text-theme-primary/60 hover:bg-stone-200/50'
+            {/* The one search (shared with Explore), then one row of kinds of life; the rest behind Filters */}
+            {(() => {
+                const filtersButton = (
+                    <button
+                        type="button"
+                        onClick={() => setShowFilters(s => !s)}
+                        aria-expanded={showFilters}
+                        className={`h-12 px-4 rounded-xl border transition-colors flex items-center gap-1.5 font-medium text-sm shrink-0 ${
+                            showFilters || drawerFiltersOn
+                                ? 'border-theme-accent/40 bg-theme-accent/10 text-theme-deep'
+                                : 'border-theme-primary/25 bg-white text-stone-700 hover:bg-theme-primary/5'
                         }`}
                     >
                         <span className="material-symbols-outlined text-base" aria-hidden="true">tune</span>
                         <span className="hidden sm:inline">Filters</span><span className="sr-only sm:hidden">Filters</span>
+                        {drawerFiltersOn && <span className="w-1.5 h-1.5 rounded-full bg-theme-accent" aria-hidden="true" />}
                     </button>
-                </div>
-
-                {/* Search suggestions */}
-                {isSearchFocused && (
-                    <div className="absolute top-[105%] left-0 right-0 bg-white border border-theme-primary/10 rounded-2xl p-5 shadow-2xl animate-slide-up flex flex-col gap-5 max-h-[380px] overflow-y-auto no-scrollbar z-[160]">
-                        <div className="flex items-center justify-between border-b border-theme-primary/5 pb-2">
-                            <span className="text-sm font-display text-theme-primary/75">Where to look</span>
-                            <button 
-                                onClick={() => setIsSearchFocused(false)} 
-                                className="text-xs font-semibold text-theme-primary/55 hover:text-theme-primary"
-                            >
-                                Hide
-                            </button>
-                        </div>
-
-                        {searchQuery.trim().length >= 2 && !isJournalOnly && (
-                            <div className="space-y-2">
-                                <button
-                                    onClick={() => { const t = searchQuery.trim().replace(/^#/, '').toLowerCase().replace(/\s+/g, ''); setSearchTag(t); setSearchQuery(''); setIsSearchFocused(false); setFeedMode('foryou'); }}
-                                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-stone-50 hover:bg-stone-100 text-left"
-                                >
-                                    <span className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-stone-700" aria-hidden="true"><span className="material-symbols-outlined">tag</span></span>
-                                    <span><span className="block font-semibold text-stone-900">Search all posts for #{searchQuery.trim().replace(/^#/, '').toLowerCase().replace(/\s+/g, '')}</span><span className="block text-xs text-stone-500">Searches every public sighting, not just loaded ones</span></span>
-                                </button>
-                                {serverUsers.length > 0 && (
-                                    <div>
-                                        <p className="text-sm font-display text-stone-600 mb-1.5">Explorers</p>
-                                        {serverUsers.map(u => (
-                                            <button key={u.uid} onClick={() => { setIsSearchFocused(false); onViewProfile?.(u.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
-                                                {u.avatarUrl ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-bold text-theme-primary" aria-hidden="true">{u.username?.charAt(0).toUpperCase()}</span>}
-                                                <span className="min-w-0"><span className="block font-semibold text-stone-900 truncate">{u.username}</span><span className="block text-xs text-stone-500 truncate">{u.bio || `${u.stats?.observations || 0} sightings shared`}</span></span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Species & Hashtags Suggestions */}
-                        {dynamicSuggestions.tags.length > 0 && (
-                            <div className="space-y-2">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-xs text-theme-accent">local_offer</span>
-                                    Popular tags
-                                </span>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {dynamicSuggestions.tags.map((tag) => (
-                                        <button
-                                            key={tag}
-                                            onClick={() => {
-                                                setSearchQuery(tag.startsWith('#') ? tag : `#${tag}`);
-                                                setIsSearchFocused(false);
-                                            }}
-                                            className="px-3 py-1.5 bg-stone-50 hover:bg-theme-accent/5 hover:text-theme-accent border border-theme-primary/5 text-sm rounded-lg transition-all text-theme-primary/75"
-                                        >
-                                            {tag}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Explorers seen in loaded sightings */}
-                        {dynamicSuggestions.creators.length > 0 && !isJournalOnly && (
-                            <div className="space-y-2.5">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-xs text-theme-accent">alternate_email</span>
-                                    Observers
-                                </span>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                    {dynamicSuggestions.creators.map((name) => (
-                                        <button
-                                            key={name}
-                                            onClick={() => {
-                                                setSearchQuery(name);
-                                                setIsSearchFocused(false);
-                                            }}
-                                            className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 hover:bg-stone-100 transition-all text-left text-xs text-theme-primary font-semibold"
-                                        >
-                                            <div className="w-6 h-6 rounded-full bg-theme-primary/10 flex items-center justify-center text-xs font-semibold text-theme-primary">
-                                                {name.slice(0, 2).toUpperCase()}
-                                            </div>
-                                            <span className="truncate">@{name}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Recent Habitats & Places suggestions */}
-                        {dynamicSuggestions.locations.length > 0 && (
-                            <div className="space-y-2.5">
-                                <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
-                                    <span className="material-symbols-outlined text-xs text-theme-accent">distance</span>
-                                    Recent habitats
-                                </span>
-                                <div className="flex flex-wrap gap-2">
-                                    {dynamicSuggestions.locations.map((loc) => (
-                                        <button
-                                            key={loc}
-                                            onClick={() => {
-                                                setSearchQuery(loc);
-                                                setIsSearchFocused(false);
-                                            }}
-                                            className="text-xs text-theme-primary/70 hover:text-theme-accent font-sans font-medium flex items-center gap-1 bg-stone-50 p-1.5 px-3 rounded-lg hover:bg-stone-100"
-                                        >
-                                            <span className="material-symbols-outlined text-xs select-none">place</span>
-                                            {loc}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Filters drawer */}
-                {showFilters && (() => {
-                    const seg = (on: boolean) => `px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'}`;
-                    const naturalistShort = (themePeriod.theme?.naturalist || '').split(' ').slice(-1)[0];
+                );
+                if (isJournalOnly) {
                     return (
-                    <div className="p-5 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
-                        {groupsPresent.length > 0 && (
-                            <fieldset className="space-y-2">
-                                <legend className="text-sm font-display text-theme-primary mb-2">Kind of life</legend>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {groupsPresent.map(g => {
-                                        const on = selectedGroups.includes(g);
-                                        return (
-                                            <button key={g} type="button" aria-pressed={on} onClick={() => setSelectedGroups(prev => on ? prev.filter(x => x !== g) : [...prev, g])} className={`${seg(on)} flex items-center gap-1.5`}>
-                                                <Glyph name={GROUP_GLYPH[g]} size={15} />{g}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </fieldset>
-                        )}
+                        <div className="flex items-center gap-3">
+                            <div className="relative flex-1">
+                                <Glyph name="lens" size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-theme-accent pointer-events-none" />
+                                <input
+                                    type="search"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    aria-label="Search your journal"
+                                    placeholder="Search your journal"
+                                    className="w-full bg-white border border-theme-primary/25 rounded-xl pl-11 pr-4 py-3 text-base text-text-main placeholder:text-stone-600 outline-none focus:border-theme-accent focus:ring-2 focus:ring-theme-accent/20"
+                                />
+                            </div>
+                            {filtersButton}
+                        </div>
+                    );
+                }
+                return (
+                    <SearchPanel
+                        inputId="feed-search"
+                        query={searchQuery}
+                        onQueryChange={setSearchQuery}
+                        open={searchOpen}
+                        onFocus={() => { setIsSearchFocused(true); setShowFilters(false); }}
+                        onCancel={closeSearch}
+                        aside={filtersButton}
+                        onOpenPost={handlePostClick}
+                        onOpenProfile={(uid) => { closeSearch(); onViewProfile?.(uid); }}
+                        onOpenSpecies={(name) => handleSpeciesClick(name)}
+                        suggestions={searchSuggestions}
+                    />
+                );
+            })()}
 
+            {!searchOpen && showFilters && (() => {
+                const seg = (on: boolean) => `px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-stone-700 hover:bg-theme-primary/5'}`;
+                const naturalistShort = (themePeriod.theme?.naturalist || '').split(' ').slice(-1)[0];
+                return (
+                    <div className="p-5 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
+                        <fieldset className="space-y-2">
+                            <legend className="text-sm font-display text-theme-primary mb-2">Photo, video or sound</legend>
+                            <div className="flex flex-wrap gap-1.5">
+                                {([['all', 'Any'], ['image', 'Photos'], ['video', 'Videos'], ['audio', 'Sounds']] as const).map(([media, label]) => (
+                                    <button key={media} type="button" aria-pressed={mediaFilter === media} onClick={() => setMediaFilter(media)} className={seg(mediaFilter === media)}>{label}</button>
+                                ))}
+                            </div>
+                        </fieldset>
                         <fieldset className="space-y-2">
                             <legend className="text-sm font-display text-theme-primary mb-2">Season</legend>
                             <div className="flex flex-wrap gap-1.5">
@@ -1758,113 +1730,35 @@ const Community: React.FC<CommunityProps> = ({
                                     </button>
                                 ))}
                             </div>
-                            {dateFilter === 'fortnight' && naturalistShort && <p className="text-xs text-stone-500">Since {themePeriod.theme.naturalist}'s fortnight began, {themePeriod.daysRemaining} days left.</p>}
                         </fieldset>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                            <fieldset className="space-y-2">
-                                <legend className="text-sm font-display text-theme-primary mb-2">Kind of record</legend>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {([['all', 'Any'], ['image', 'Photos'], ['video', 'Videos'], ['audio', 'Sounds']] as const).map(([media, label]) => (
-                                        <button key={media} type="button" aria-pressed={mediaFilter === media} onClick={() => setMediaFilter(media)} className={seg(mediaFilter === media)}>{label}</button>
-                                    ))}
-                                </div>
-                            </fieldset>
-                            <fieldset className="space-y-2">
-                                <legend className="text-sm font-display text-theme-primary mb-2">Order</legend>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {([['newest', 'Newest first'], ['likes', 'Most marvelled'], ['title', 'A to Z']] as const).map(([opt, label]) => (
-                                        <button key={opt} type="button" aria-pressed={sortOrder === opt} onClick={() => setSortOrder(opt)} className={seg(sortOrder === opt)}>{label}</button>
-                                    ))}
-                                </div>
-                            </fieldset>
-                        </div>
-
-                        {allAvailableLabels.length > 0 && (
-                            <fieldset className="space-y-2 pt-4 border-t border-theme-primary/5">
-                                <legend className="text-sm font-display text-theme-primary mb-2">A particular species</legend>
-                                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-2 no-scrollbar">
-                                    {allAvailableLabels.map((lbl) => {
-                                        const isSelected = selectedLabels.includes(lbl);
-                                        return (
-                                            <button key={lbl} type="button" aria-pressed={isSelected} onClick={() => toggleLabelFilter(lbl)} className={`${seg(isSelected)} italic`}>
-                                                {lbl}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </fieldset>
+                        <fieldset className="space-y-2">
+                            <legend className="text-sm font-display text-theme-primary mb-2">Order</legend>
+                            <div className="flex flex-wrap gap-1.5">
+                                {([['newest', 'Newest first'], ['likes', 'Most marvelled']] as const).map(([opt, label]) => (
+                                    <button key={opt} type="button" aria-pressed={sortOrder === opt} onClick={() => setSortOrder(opt)} className={seg(sortOrder === opt)}>{label}</button>
+                                ))}
+                            </div>
+                        </fieldset>
+                        {drawerFiltersOn && (
+                            <button type="button" onClick={() => { setMediaFilter('all'); setDateFilter('all'); setSortOrder('newest'); }} className="self-start text-sm font-semibold text-theme-accent hover:opacity-80">Clear filters</button>
                         )}
                     </div>
-                    );
-                })()}
-            </div>
+                );
+            })()}
 
-            {/* Category pills */}
-            <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
-                {[
-                    { id: 'all', label: 'All' },
-                    { id: 'fauna', label: 'Animals' },
-                    { id: 'flora', label: 'Plants' },
-                    { id: 'fungi', label: 'Fungi' },
-                    { id: 'audio', label: 'Sounds' },
-                    { id: 'video', label: 'Videos' },
-                    { id: 'popular', label: 'Most marvelled' },
-                ].map((tab) => {
-                    const isActive = activeExploreTab === tab.id;
-                    return (
-                        <button
-                            key={tab.id}
-                            onClick={() => {
-                                setActiveExploreTab(tab.id as any);
-                                hapticFeedback();
-                            }}
-                            aria-pressed={isActive}
-                            className={`px-3.5 py-1.5 text-sm font-medium rounded-full transition-colors shrink-0 border cursor-pointer ${
-                                isActive 
-                                    ? 'bg-theme-primary text-white border-theme-primary' 
-                                    : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'
-                            }`}
-                        >
-                            {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {searchTag && (
-                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-stone-50 border border-theme-primary/10 rounded-2xl">
-                    <p className="text-sm text-stone-700 flex items-center gap-2"><Glyph name="tag" size={16} className="text-theme-accent" />Every sighting tagged <strong className="text-theme-primary">#{searchTag}</strong></p>
-                    <button onClick={() => setSearchTag(null)} className="text-sm font-semibold text-theme-accent">Clear</button>
-                </div>
+            {!searchOpen && (
+                <KindChips present={groupsPresent} selected={selectedGroup} onSelect={(g) => { setSelectedGroup(g); hapticFeedback(); }} />
             )}
+        </div>)}
 
-            {/* Reset status bar if any dynamic filter keyword is active */}
-            {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag) && (
-                <div className="flex items-center justify-between gap-3 p-3 bg-stone-50 border border-theme-primary/5 rounded-2xl">
-                    <div className="text-xs font-semibold text-theme-primary/60 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-theme-accent rounded-full animate-pulse"></span>
-                        <span>Filters on{posts.length && !isJournalOnly ? ` · searching ${posts.length} loaded posts` : ''}</span>
-                    </div>
-                    <button 
-                        onClick={resetAllFilters}
-                        className="text-sm font-semibold text-theme-accent hover:opacity-80 transition-all flex items-center gap-1 cursor-pointer"
-                    >
-                        <span className="material-symbols-outlined text-xs font-bold">restart_alt</span>
-                        Clear
-                    </button>
-                </div>
-            )}
-        </div>
-
-        <div className="w-full px-4 md:px-12 py-8">
+        <div className={`w-full px-4 md:px-12 py-8 ${searchOpen ? 'hidden' : ''}`}>
             {isLoading ? (
                 <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 pb-56 space-y-2 md:space-y-4">
                     {[...Array(10)].map((_, i) => <SkeletonPost key={i} tall={i % 3 === 0} />)}
                 </div>
             ) : error ? (
                 <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/60 mb-6" aria-hidden="true">cloud_off</span>
+                    <span className="material-symbols-outlined text-5xl text-stone-600 mb-6" aria-hidden="true">cloud_off</span>
                     <h3 className="text-xl font-display font-semibold text-stone-900 mb-3">The field guide didn't load</h3>
                     <p className="text-stone-600 text-base max-w-sm mb-8 leading-relaxed">
                         {typeof navigator !== 'undefined' && navigator.onLine === false
@@ -1873,7 +1767,7 @@ const Community: React.FC<CommunityProps> = ({
                     </p>
                     <button
                         onClick={() => window.location.reload()}
-                        className="px-8 py-3.5 bg-stone-900 text-white font-bold text-sm rounded-full shadow-lg active:scale-95 transition-all"
+                        className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full shadow-lg active:scale-95 transition-all"
                     >
                         Try again
                     </button>
@@ -1885,9 +1779,9 @@ const Community: React.FC<CommunityProps> = ({
                       : <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : 'travel_explore'}</span>}
                     {feedMode === 'following' && !searchQuery ? (
                         <>
-                            <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">No fellow explorers yet</h3>
+                            <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">You aren't following anyone yet</h3>
                             <p className="text-base text-stone-600 max-w-xs mb-8">Follow explorers from their sightings.</p>
-                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">Wander</button>
+                            <button onClick={() => setFeedMode('foryou')} className="px-8 py-3.5 bg-theme-primary text-white font-bold text-sm rounded-full">For you</button>
                         </>
                     ) : isJournalOnly && !searchQuery && !searchTag ? (
                         <>
@@ -1903,17 +1797,7 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
             ) : (
-                <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 space-y-2 md:space-y-4">
-                    {displayPosts.map((post) => (
-                        <FeedCard 
-                            key={post.id} 
-                            post={post} 
-                            onPostClick={handlePostClick} 
-                            loadedImages={loadedImages} 
-                            onImageLoad={onImageLoad} 
-                        />
-                    ))}
-                </div>
+                <FeedGrid posts={displayPosts} onPostClick={handlePostClick} />
             )}
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
                 <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
@@ -1922,7 +1806,7 @@ const Community: React.FC<CommunityProps> = ({
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span className="font-display text-base text-theme-primary/70">That's every sighting for now. The next one is outside.</span>
+                        <span className="font-display text-base text-stone-600">That's every sighting for now. The next one is outside.</span>
                     ) : null}
                 </div>
             )}
@@ -1942,26 +1826,6 @@ const Community: React.FC<CommunityProps> = ({
                         <span className="text-sm font-bold text-stone-800">{isJournalOnly ? 'Journal' : (searchTag ? 'Search' : backLabel)}</span>
                     </button>
 
-                    {/* Desktop floating navigation chevrons - replacing top header numbered pagination */}
-                    {activePostIndex > 0 && (
-                        <button 
-                            onClick={() => navigateSequential('prev')}
-                            className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl md:flex hidden"
-                            aria-label="Previous post"
-                        >
-                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_left</span>
-                        </button>
-                    )}
-                    {activePostIndex !== -1 && activePostIndex < displayPosts.length - 1 && (
-                        <button 
-                            onClick={() => navigateSequential('next')}
-                            className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl md:flex hidden"
-                            aria-label="Next post"
-                        >
-                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_right</span>
-                        </button>
-                    )}
-
                     <div className="flex items-center gap-1 relative">
                         <button onClick={() => setPostMenuOpen(o => !o)} aria-label="More options" aria-expanded={postMenuOpen} className="w-11 h-11 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100">
                             <span className="material-symbols-outlined" aria-hidden="true">more_horiz</span>
@@ -1973,14 +1837,13 @@ const Community: React.FC<CommunityProps> = ({
                                         {(((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType !== 'audio') && (
                                             <button role="menuitem" onClick={() => { setPostMenuOpen(false); setIsEditing(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">tune</span>{((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType === 'video' ? 'Rotate video' : 'Edit photo'}</button>
                                         )}
-                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now visible in the feed' : 'Now only in your journal'); } catch (err: any) { showToast(err?.message || 'Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make journal-only' : 'Share to feed'}</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setPublishingPost(activePost); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">campaign</span>Share to other apps</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete post</button>
+                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now shared with everyone' : 'Now only you can see it'); } catch (err: any) { showToast(err?.message || 'Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make it only me' : 'Share with everyone'}</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete sighting</button>
                                     </>
                                 ) : (
                                     <>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">person</span>View {activePost.userName}</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report post</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report sighting</button>
                                         <button role="menuitem" onClick={handleMuteAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">volume_off</span>Mute {activePost.userName}</button>
                                         <button role="menuitem" onClick={handleBlockAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">block</span>Block {activePost.userName}</button>
                                     </>
@@ -2007,6 +1870,25 @@ const Community: React.FC<CommunityProps> = ({
                                     onContextMenu={(e) => { if (activePost.userId !== currentUserMode.userId) e.preventDefault(); }}
                                 >
                                     {wonderBurst && <WonderBurst key={wonderBurst.key} x={wonderBurst.x} y={wonderBurst.y} />}
+                                    {/* Previous and next sighting, at the edges of the picture (desktop; phones swipe) */}
+                                    {activePostIndex > 0 && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); navigateSequential('prev'); }}
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all hidden md:flex"
+                                            aria-label="Previous sighting"
+                                        >
+                                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_left</span>
+                                        </button>
+                                    )}
+                                    {activePostIndex !== -1 && activePostIndex < displayPosts.length - 1 && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); navigateSequential('next'); }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all hidden md:flex"
+                                            aria-label="Next sighting"
+                                        >
+                                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_right</span>
+                                        </button>
+                                    )}
                                     {hasMultipleItems ? (
                                         <>
                                             <div 
@@ -2035,7 +1917,7 @@ const Community: React.FC<CommunityProps> = ({
                                             {activeItemIndex > 0 && (
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }}
-                                                    className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                                                    aria-label="Previous picture" className="absolute left-4 md:left-[4.5rem] top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_left</span>
                                                 </button>
@@ -2045,7 +1927,7 @@ const Community: React.FC<CommunityProps> = ({
                                             {activeItemIndex < (activePost.items?.length || 1) - 1 && (
                                                 <button 
                                                     onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }}
-                                                    className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                                                    aria-label="Next picture" className="absolute right-4 md:right-[4.5rem] top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-80 md:opacity-0 md:group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                                                 >
                                                     <span className="material-symbols-outlined text-xl">chevron_right</span>
                                                 </button>
@@ -2110,15 +1992,18 @@ const Community: React.FC<CommunityProps> = ({
                                         )}
                                         {(() => {
                                             const species = currentItem.labels?.[0];
+                                            // The common name leads; the Latin sits underneath
+                                            const names = namesOf({ ...currentItem, aiIdentifications: (currentItem as any).aiIdentifications || (activePost as any).aiIdentifications });
                                             const behaviour = observedBehaviour(currentItem.behavior);
-                                            const alsoSeen = (currentItem.labels || []).slice(1);
+                                            const alsoSeen = (currentItem.labels || []).slice(1).filter(l => !names.latin || l.trim().toLowerCase() !== names.latin.toLowerCase());
                                             const insight = currentItem.aiInsight ? (insightBeyond(currentItem.aiInsight, behaviour).length ? insightBeyond(currentItem.aiInsight, behaviour) : currentItem.aiInsight.split(/\n+/).filter(Boolean)) : [];
                                             return (
                                                 <>
                                                     <div>
                                                         {species ? (
-                                                            <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${species}`}>
-                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{species}</h2>
+                                                            <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${names.common || species}`}>
+                                                                <h2 className="text-[28px] font-display italic font-medium text-theme-primary leading-tight hover:underline decoration-theme-accent/40 underline-offset-4">{names.common || species}</h2>
+                                                                {names.latin && <p className="font-display italic text-base text-stone-500 mt-0.5">{names.latin}</p>}
                                                             </button>
                                                         ) : activePost.title ? (
                                                             <h2 className="text-[26px] font-display font-medium text-theme-primary leading-tight">{activePost.title}</h2>
@@ -2143,11 +2028,7 @@ const Community: React.FC<CommunityProps> = ({
                                                     {insight.length > 0 && (
                                                         <section aria-labelledby={`why-${activePost.id}`} className="pt-5 border-t border-theme-primary/10">
                                                             <h3 id={`why-${activePost.id}`} className="text-sm font-semibold text-theme-accent mb-2">Why it does this</h3>
-                                                            <div className="space-y-3">
-                                                                {insight.map((para, idx) => (
-                                                                    <p key={idx} className="text-[17px] font-display text-stone-800 leading-[1.6]">{para}</p>
-                                                                ))}
-                                                            </div>
+                                                            <WhyItDoes key={`${activePost.id}-${activeItemIndex}`} paragraphs={insight} />
                                                         </section>
                                                     )}
 
@@ -2187,7 +2068,7 @@ const Community: React.FC<CommunityProps> = ({
                                             >
                                                 <span className="material-symbols-outlined text-theme-accent text-xl" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span>
                                                 <span className="flex-1 text-sm font-semibold text-theme-primary">{visibleComments.length ? `${visibleComments.length} field note${visibleComments.length === 1 ? '' : 's'}` : 'Add a field note'}</span>
-                                                <span className="material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">chevron_right</span>
+                                                <span className="material-symbols-outlined text-stone-600 text-sm" aria-hidden="true">chevron_right</span>
                                             </button>
                                             <div className="flex gap-2">
                                                 <button onClick={handleSave} aria-pressed={isSaved} className={`flex-1 h-11 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${isSaved ? 'border-theme-accent/40 bg-theme-accent/10 text-theme-primary' : 'border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5'}`}>
@@ -2236,23 +2117,10 @@ const Community: React.FC<CommunityProps> = ({
                         {visibleComments.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center text-stone-500 text-center">
                                 <span className="material-symbols-outlined text-4xl mb-2 text-theme-accent/60" aria-hidden="true">history_edu</span>
-                                <p className="font-display text-lg text-stone-800">No field notes yet</p>
+                                <p className="font-display text-lg text-stone-800">Be the first to add what you noticed.</p>
                             </div>
                         ) : (
-                            <>
-                                {observationNotes.length > 0 && (
-                                    <section aria-labelledby="notes-obs" className="space-y-5">
-                                        <h4 id="notes-obs" className="text-sm font-display text-theme-primary flex items-center gap-1.5"><Glyph name="feather" size={15} className="text-theme-accent" />Observations</h4>
-                                        {observationNotes.map(c => renderNote(c))}
-                                    </section>
-                                )}
-                                {chatterNotes.length > 0 && (
-                                    <section aria-label="Conversation" className={`space-y-5 ${observationNotes.length ? 'pt-5 border-t border-theme-primary/10' : ''}`}>
-                                        {observationNotes.length > 0 && <h4 className="text-sm font-display text-stone-500">Conversation</h4>}
-                                        {chatterNotes.map(c => renderNote(c))}
-                                    </section>
-                                )}
-                            </>
+                            visibleComments.map(c => renderNote(c))
                         )}
                     </div>
 
@@ -2278,16 +2146,14 @@ const Community: React.FC<CommunityProps> = ({
     </>
 
     <>
-        {sharingPost && <React.Suspense fallback={null}><ShareStudio post={sharingPost} onClose={() => setSharingPost(null)} onSendLetter={sendAsLetter} /></React.Suspense>}
-    </>
-
-    <>
-        {publishingPost && (
-            <React.Suspense fallback={null}><PublisherStudio 
-                post={publishingPost} 
-                activeItemIndex={activeItemIndex} 
-                onClose={() => setPublishingPost(null)} 
+        {/* One Share: the plate, other apps, a letter, and for the author, the original too */}
+        {sharingPost && (
+            <React.Suspense fallback={null}><ShareSheet
+                post={sharingPost}
+                activeItemIndex={activeItemIndex}
+                onClose={() => setSharingPost(null)}
                 onSendLetter={sendAsLetter}
+                allowMediaDownload={sharingPost.userId === currentUserMode.userId}
             /></React.Suspense>
         )}
     </>
@@ -2311,7 +2177,7 @@ const Community: React.FC<CommunityProps> = ({
             <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
                 <div className="absolute inset-0 bg-black/50" onClick={() => setReportOpen(false)} aria-hidden="true" />
                 <div className="relative w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] animate-slide-up">
-                    <h2 id="report-title" className="text-lg font-bold text-stone-900">Why are you reporting this post?</h2>
+                    <h2 id="report-title" className="text-lg font-bold text-stone-900">Why are you reporting this sighting?</h2>
                     <p className="text-sm text-stone-600 mt-1 mb-4">Your report is anonymous to the author.</p>
                     <div className="flex flex-col gap-1">
                         {[

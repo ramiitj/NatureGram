@@ -14,7 +14,7 @@ import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
 import TeenBanner from './components/TeenBanner.tsx';
-import { weekKey, seasonNote, fieldMoment, WonderIcon } from './components/Wonder.tsx';
+import { weekKey, seasonNote, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
@@ -224,13 +224,11 @@ const App: React.FC = () => {
   const thisWeek = weekKey();
   const [letterSeenWeek, setLetterSeenWeek] = useState<string>(() => { try { return localStorage.getItem('naturegram_letter_week') || ''; } catch { return ''; } });
   const [myWeek, setMyWeek] = useState<{ sightings: number; species: string[]; newPlates: PlateData[]; hours: number[] } | null>(null);
-  const [weekChallenge, setWeekChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
   const [letterToast, setLetterToast] = useState('');
   useEffect(() => {
     if (!isNotificationsOpen) return;
     setLetterSeenWeek(thisWeek);
     try { localStorage.setItem('naturegram_letter_week', thisWeek); } catch { /* storage blocked */ }
-    FirebaseService.getChallengeProgress(getNaturalistExtra(dailyTheme?.id).challengeTag).then(setWeekChallenge).catch(() => {});
     if (userMode?.isAnonymous || !userMode?.userId) return;
     // The Sunday letter: this week's sightings, and the species new to the explorer's list as plates
     const since = Date.now() - 7 * 864e5;
@@ -251,26 +249,17 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNotificationsOpen]);
 
-  /** What to look for next week: the season ahead, and an hour of the day the explorer hasn't tried yet. */
-  const nextWeekHint = () => {
-    const hours = myWeek?.hours || [];
-    const tried = (from: number, to: number) => hours.some(h => h >= from && h < to);
-    const at = !tried(4, 7) ? new Date(2000, 0, 1, 5) : !tried(18, 20) ? new Date(2000, 0, 1, 19) : !tried(20, 24) ? new Date(2000, 0, 1, 22) : new Date(2000, 0, 1, 9);
-    const m = fieldMoment(at);
-    const ahead = seasonNote(new Date(Date.now() + 7 * 864e5));
-    return { season: ahead !== seasonNote() ? ahead : '', moment: `Try going out at ${m.name.toLowerCase()} once: ${m.hint}.` };
-  };
-
   const shareLetter = async () => {
     const w = myWeek;
     const text = w && w.sightings
-      ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my NatureGram field notebook.`
-      : 'My field notebook on NatureGram.';
+      ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my field page on NatureGram.`
+      : 'My field page on NatureGram.';
     const url = `${window.location.origin}/profile/${encodeURIComponent(userMode?.userId || '')}`;
     track('share', { surface: 'sunday_letter' });
     if (w?.newPlates.length) {
       const { sharePlate } = await import('./services/plateImage.ts');
       const r = await sharePlate({ ...w.newPlates[0], line: 'New to my list this week' }, { text, url });
+      // glossary-ok: the plate image of a new life-list species
       if (r === 'downloaded') { setLetterToast('Plate saved. Share it wherever you like.'); window.setTimeout(() => setLetterToast(''), 2600); }
       return;
     }
@@ -332,11 +321,9 @@ const App: React.FC = () => {
 
   useEffect(() => { refreshDraftsCount(); }, [userMode?.userId, refreshDraftsCount]);
 
-  const [showModeSelection, setShowModeSelection] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [limitNotice, setLimitNotice] = useState('');
-  const [rememberMode, setRememberMode] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('conversation');
+  const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('observation');
 
   const geminiServiceRef = useRef<GeminiLiveService | null>(null);
   const pendingSnapshotIdRef = useRef<string | null>(null);
@@ -465,13 +452,13 @@ const App: React.FC = () => {
 
   const handleSaveDraft = async () => {
     if (userMode?.isAnonymous) {
-      requireAccount('Create a free account to keep drafts of your expeditions.', () => handleSaveDraftRef.current?.());
+      requireAccount('Create a free account to keep drafts of your sightings.', () => handleSaveDraftRef.current?.());
       return;
     }
     const activeUserId = userMode?.userId;
     if (activeUserId && currentSessionRef.current.length > 0) {
       try {
-        await FirebaseService.saveDraft(activeUserId, currentSessionRef.current, sessionSummary || "Unfinished expedition.");
+        await FirebaseService.saveDraft(activeUserId, currentSessionRef.current, sessionSummary || "Unfinished sighting.");
         if (resumedDraftId) {
           await FirebaseService.deleteDraft(activeUserId, resumedDraftId).catch(() => {});
           setResumedDraftId(null);
@@ -519,15 +506,14 @@ const App: React.FC = () => {
   const openLens = async () => {
     setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
     await initAudioContext();
-    const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
-    if (saved) {
-      if (!allowSession(saved)) return;
-      track('lens_open', { mode: saved, remembered: true });
-      setSelectedMode(saved);
-      setCurrentView(AppView.LENS);
-    } else {
-      setShowModeSelection(true);
-    }
+    // No mode dialog: the Lens starts as the quiet companion unless the explorer turned on "Talk with me"
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(MODE_PREF_KEY); } catch { /* storage blocked */ }
+    const mode: 'observation' | 'conversation' = saved === 'conversation' ? 'conversation' : 'observation';
+    if (!allowSession(mode)) return;
+    track('lens_open', { mode, remembered: !!saved });
+    setSelectedMode(mode);
+    setCurrentView(AppView.LENS);
   };
 
   /** Daily session allowance (client-side guard from main; the server enforces the real quota). */
@@ -538,15 +524,6 @@ const App: React.FC = () => {
     if (!ok) { setLimitNotice(`You've used today's ${mode === 'observation' ? 'observation' : 'conversation'} sessions. They refresh tomorrow. You can still upload sightings.`); return false; }
     if (mode === 'observation') RateLimitService.incrementObservation(uid); else RateLimitService.incrementConversation(uid);
     return true;
-  };
-
-  const chooseMode = (mode: 'observation' | 'conversation') => {
-    if (!allowSession(mode)) { setShowModeSelection(false); return; }
-    track('lens_open', { mode, remembered: rememberMode });
-    setSelectedMode(mode);
-    if (rememberMode) localStorage.setItem(MODE_PREF_KEY, mode);
-    setShowModeSelection(false);
-    setCurrentView(AppView.LENS);
   };
 
   const handleNavigationRequest = async (targetView: AppView, params?: any) => {
@@ -673,7 +650,9 @@ const App: React.FC = () => {
   const openActivity = () => setIsNotificationsOpen(true);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
-  const letterUnread = letterSeenWeek !== thisWeek;
+  // The weekly line is a member's own week, so guests never get a dot for it
+  const isMemberMode = !!userMode?.userId && userMode.userId !== 'explorer_guest' && !userMode.isAnonymous;
+  const letterUnread = isMemberMode && letterSeenWeek !== thisWeek;
   const period = getThemePeriod();
   const extra = getNaturalistExtra(dailyTheme?.id);
 
@@ -708,44 +687,28 @@ const App: React.FC = () => {
               </div>
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
-              <article aria-labelledby="field-letter-title" className="p-5 rounded-2xl bg-insight-bg border border-theme-accent/25">
-                <p className="text-xs text-stone-500">Sunday letter · week of {new Date(Date.now() - ((new Date().getDay() + 6) % 7) * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}</p>
-                <h3 id="field-letter-title" className="font-display text-xl font-semibold text-theme-primary mt-0.5">Your week outside</h3>
-                <p className="text-[15px] font-display text-stone-800 mt-3 leading-relaxed">{seasonNote()}</p>
-                {!userMode?.isAnonymous && (
-                  <p className="text-sm text-stone-700 mt-3 leading-relaxed">
-                    {!myWeek ? 'Counting your week…'
-                      : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
-                      : `This week you recorded ${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'}${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
-                  </p>
-                )}
+              {/* Your week outside: one short line, the week's new plates and a way to share them */}
+              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-theme-accent/25">
+                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-theme-primary">Your week outside</h3>
+                <p className="text-sm text-stone-700 mt-1 leading-relaxed">
+                  {userMode?.isAnonymous ? seasonNote()
+                    : !myWeek ? 'Counting your week…'
+                    : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
+                    : `${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'} this week${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
+                </p>
                 {!!myWeek?.newPlates.length && (
-                  <div className="mt-4">
-                    <p className="text-sm text-stone-700">New to your list</p>
-                    <ul className="mt-2 flex gap-3 overflow-x-auto no-scrollbar pb-2 pt-2 -mx-1 px-1" role="list">
-                      {myWeek.newPlates.map(pl => (
-                        <li key={pl.name} className="w-[104px] shrink-0">
-                          <SpecimenPlate size="sm" data={pl} />
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  <ul className="mt-2 flex gap-3 overflow-x-auto no-scrollbar pb-2 pt-2 -mx-1 px-1" role="list" aria-label="New to your list">
+                    {myWeek.newPlates.map(pl => (
+                      <li key={pl.name} className="w-[104px] shrink-0">
+                        <SpecimenPlate size="sm" data={pl} />
+                      </li>
+                    ))}
+                  </ul>
                 )}
-                <div className="mt-4 pt-4 border-t border-theme-accent/15 flex items-start gap-2.5">
-                  <Glyph name="stamp" size={20} className="text-theme-accent mt-0.5" />
-                  <button onClick={() => { setIsNotificationsOpen(false); openNaturalist(); }} className="text-left text-sm text-stone-700 leading-relaxed hover:text-stone-900">
-                    {weekChallenge?.mine
-                      ? <>You answered {dailyTheme.naturalist}'s challenge. {period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'} left for one more.</>
-                      : <>{dailyTheme.naturalist}'s challenge: {extra.challenge} {weekChallenge?.explorers ? `${weekChallenge.capped ? '60+' : weekChallenge.explorers} explorers have answered; ` : ''}{period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'} left.</>}
-                  </button>
-                </div>
-                <div className="mt-3 flex items-start gap-2.5">
-                  <Glyph name="leafCompass" size={20} className="text-theme-accent mt-0.5" />
-                  <p className="text-sm text-stone-700 leading-relaxed">Next week: {[nextWeekHint().season, nextWeekHint().moment].filter(Boolean).join(' ')}</p>
-                </div>
-                {!userMode?.isAnonymous && (
-                  <button onClick={shareLetter} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
+                {!userMode?.isAnonymous && !!myWeek?.sightings && (
+                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
                     <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
+                    {/* glossary-ok: the life-list plate itself */}
                     {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
                   </button>
                 )}
@@ -807,18 +770,13 @@ const App: React.FC = () => {
                   </span>
                   <span className="block">
                     <span className="block font-display italic font-semibold text-2xl md:text-[28px] leading-tight text-white drop-shadow-md">Explore the wild</span>
-                    <span className="orb-hint block text-white/75 text-sm mt-1">Tap to begin</span>
                   </span>
                 </button>
               </div>
 
               <figure
                 className="text-center px-6 max-w-md mx-auto cursor-pointer rounded-2xl"
-                role="button"
-                tabIndex={0}
-                aria-label={`"${dailyTheme.quote}" ${dailyTheme.naturalist}. Read about ${dailyTheme.naturalist}, the naturalist of the fortnight.`}
                 onClick={openNaturalist}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNaturalist(); } }}
               >
                 <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px] [@media(max-height:700px)]:pt-6">"{dailyTheme.quote}"</blockquote>
                 <figcaption className="mt-6 flex flex-col items-center gap-1">
@@ -827,7 +785,13 @@ const App: React.FC = () => {
                     <span className="material-symbols-outlined text-[13px]" aria-hidden="true">location_on</span>
                     <span className="text-[11px] tracking-wider uppercase">{dailyTheme.locationName}</span>
                   </span>
-                  {dailyTheme.locationCaption && <span className="text-white/60 text-[11px] italic mt-1">{dailyTheme.locationCaption}</span>}
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); openNaturalist(); }}
+                    className="mt-3 px-3 py-2 rounded-full text-sm text-white/90 hover:text-white underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/70"
+                  >
+                    Meet {dailyTheme.naturalist} →
+                  </button>
                 </figcaption>
               </figure>
             </div>
@@ -858,51 +822,10 @@ const App: React.FC = () => {
                   pendingSnapshotIdRef={pendingSnapshotIdRef}
                   selectedMode={selectedMode}
                   initialAudioMode={selectedMode === 'observation' ? 'silent' : 'voice'}
+                  onImportFromRoll={() => { handleNavigationRequest(AppView.COMMUNITY); setShowUploadModal(true); }}
                 />
               </Suspense>
             </ErrorBoundary>
-          </div>
-        )}
-
-        {showModeSelection && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in">
-            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)} aria-hidden="true"></div>
-            <section role="dialog" aria-modal="true" aria-labelledby="mode-title" className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
-              <div className="p-7 text-center">
-                <h2 id="mode-title" className="text-2xl font-display font-semibold text-stone-900 mb-1">Who would you like to walk with?</h2>
-                <p className="text-sm text-stone-500 mb-6">You can change your mind any time from the Lens.</p>
-                <div className="space-y-3">
-                  {([
-                    { mode: 'conversation', glyph: 'guide', title: 'Walk with a talkative guide', desc: 'Your guide talks with you about what you see as you go, and answers whatever you wonder aloud.' },
-                    { mode: 'observation', glyph: 'binoculars', title: 'A quiet companion', desc: 'Your companion keeps quiet and speaks up only when it matters, or when you ask.' },
-                  ] as const).map(opt => (
-                    <button key={opt.mode} onClick={() => chooseMode(opt.mode)} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
-                      <span className="flex items-center gap-4 mb-1">
-                        <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                          <Glyph name={opt.glyph} size={24} />
-                        </span>
-                        <span className="font-display font-semibold text-lg text-stone-900">{opt.title}</span>
-                      </span>
-                      <span className="block text-sm text-stone-600 leading-relaxed">{opt.desc}</span>
-                    </button>
-                  ))}
-                  <button onClick={() => { setShowModeSelection(false); setShowUploadModal(true); }} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
-                    <span className="flex items-center gap-4 mb-1">
-                      <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                        <Glyph name="plate" size={24} />
-                      </span>
-                      <span className="font-display font-semibold text-lg text-stone-900">Bring in from your camera roll</span>
-                    </span>
-                    <span className="block text-sm text-stone-600 leading-relaxed">Photos, or sound and video clips up to 30 seconds. No live camera needed.</span>
-                  </button>
-                </div>
-                <label className="mt-5 flex items-center justify-center gap-2 text-sm text-stone-600 cursor-pointer">
-                  <input type="checkbox" checked={rememberMode} onChange={e => setRememberMode(e.target.checked)} className="w-4 h-4" />
-                  Remember my choice
-                </label>
-                <button onClick={() => setShowModeSelection(false)} className="mt-4 text-sm font-semibold text-stone-500 hover:text-stone-800 py-2 px-4">Cancel</button>
-              </div>
-            </section>
           </div>
         )}
 
@@ -942,7 +865,7 @@ const App: React.FC = () => {
         )}
 
         {isDashboardMode && (
-          <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar relative animate-fade-in pb-28 lg:pb-8">
+          <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar relative pb-28 lg:pb-8">
             <ErrorBoundary label="dashboard">
               {currentView === AppView.COMMUNITY && userMode && (
                 <Community
@@ -974,6 +897,8 @@ const App: React.FC = () => {
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
                   onPostClose={handlePostClose}
                   onLogoClick={scrollFeedToTop}
+                  onOpenLens={() => handleNavigationRequest(AppView.LENS)}
+                  onImportFromRoll={() => setShowUploadModal(true)}
                 />
               )}
               {currentView === AppView.DRAFTS && userMode && (
@@ -1048,6 +973,7 @@ const App: React.FC = () => {
               <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar pb-28 lg:pb-8">
                 <Explore
                   onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onOpenNaturalist={openNaturalist}
                   onOpenPost={(postId: string) => { setReturnView(AppView.EXPLORE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onOpenProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                 />
@@ -1142,7 +1068,7 @@ const App: React.FC = () => {
             />
           </Suspense>
         )}
-        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showModeSelection && !showUploadModal && (
+        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showUploadModal && (
           <FirstRunTour onClose={() => setTourPending(false)} />
         )}
       </main>

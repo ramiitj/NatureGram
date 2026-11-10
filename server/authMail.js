@@ -17,39 +17,42 @@ import crypto from 'crypto';
 import express from 'express';
 import { sendMail as defaultSendMail, letterHtml, letterText, mailConfigured as defaultMailConfigured, publicOrigin } from './mailer.js';
 
-// The fortnight's naturalist, mirrored from constants/naturalists.ts (same order, same ~15.21-day
-// rotation as getDailyTheme). server/test/authMail.test.mjs checks the two stay in step.
+// The fortnight's naturalist and the primary tone of their palette (the letter's button), mirrored
+// from constants/naturalists.ts and constants/palettes.json in rotation order, on the same ~15.21-day
+// rotation as rotationAt. server/test/authMail.test.mjs checks they stay in step. Letters are only
+// sent from now on, so the order in use before the cutover (2026-11-16) is not needed here: the
+// fortnight running at the cutover is Merian's in both orders.
 export const LETTER_NATURALISTS = [
-  ['Jane Goodall', 'Only if we understand, will we care. Only if we care, will we help.', '#aed581'],
-  ['Dian Fossey', 'When you realize the value of all life, you dwell less on what is past and concentrate more on the preservation of the future.', '#10b981'],
-  ['Charles Darwin', 'It is not the strongest of the species that survives, nor the most intelligent, but the one most responsive to change.', '#a8a29e'],
-  ['Alfred Russel Wallace', 'Nature seems to have taken every precaution that these, her choicest treasures, may not lose their value by being too easily obtained.', '#34d399'],
-  ['John Muir', 'In every walk with nature one receives far more than he seeks.', '#3b82f6'],
-  ['Rachel Carson', 'Those who contemplate the beauty of the earth find reserves of strength that will endure as long as life lasts.', '#06b6d4'],
-  ['Henry David Thoreau', 'All good things are wild and free.', '#10b981'],
-  ['Aldo Leopold', 'A thing is right when it tends to preserve the integrity, stability and beauty of the biotic community.', '#f59e0b'],
-  ['Ralph Waldo Emerson', 'Adopt the pace of nature: her secret is patience.', '#f97316'],
-  ['Wangari Maathai', 'When we plant trees, we plant the seeds of peace and seeds of hope.', '#84cc16'],
-  ['David Attenborough', 'It seems to me that the natural world is the greatest source of excitement; the greatest source of visual beauty.', '#fbbf24'],
-  ['Jacques-Yves Cousteau', 'The sea, once it casts its spell, holds one in its net of wonder forever.', '#38bdf8'],
-  ['Alexander von Humboldt', 'Nature is a living whole, not a dead mass.', '#9ca3af'],
-  ['Carl Linnaeus', 'If you do not know the names of things, the knowledge of them is lost too.', '#4ade80'],
-  ['E.O. Wilson', 'Nature holds the key to our aesthetic, intellectual, cognitive and even spiritual satisfaction.', '#fb923c'],
-  ['Sylvia Earle', 'No water, no life. No blue, no green.', '#60a5fa'],
-  ['George Washington Carver', 'I love to think of nature as an unlimited broadcasting station, through which God speaks to us every hour.', '#f97316'],
-  ['Mary Anning', 'The earth has music for those who listen.', '#9ca3af'],
-  ['Steve Irwin', 'If we can teach people about wildlife, they will be touched. Share my wildlife with me.', '#fde047'],
-  ['Robin Wall Kimmerer', 'Knowing that you love the earth changes you, activates you to defend and protect and celebrate.', '#86efac'],
-  ['Maria Sibylla Merian', 'In my youth, I spent my time investigating insects.', '#f472b6'],
-  ['Salim Ali', 'I suppose I have always been a watcher of birds.', '#c084fc'],
-  ['Beatrix Potter', "There is something delicious about writing the first words of a story. You never quite know where they'll take you.", '#93c5fd'],
-  ['John James Audubon', 'A true conservationist is a man who knows that the world is not given by his fathers, but borrowed from his children.', '#e879f9'],
+  ['E.O. Wilson', 'Nature holds the key to our aesthetic, intellectual, cognitive and even spiritual satisfaction.', '#aa3d00'],
+  ['Alfred Russel Wallace', 'Nature seems to have taken every precaution that these, her choicest treasures, may not lose their value by being too easily obtained.', '#068255'],
+  ['John James Audubon', 'A true conservationist is a man who knows that the world is not given by his fathers, but borrowed from his children.', '#ce3535'],
+  ['Jane Goodall', 'Only if we understand, will we care. Only if we care, will we help.', '#005c27'],
+  ['Alexander von Humboldt', 'Nature is a living whole, not a dead mass.', '#8448c7'],
+  ['Wangari Maathai', 'When we plant trees, we plant the seeds of peace and seeds of hope.', '#5f7c02'],
+  ['John Muir', 'In every walk with nature one receives far more than he seeks.', '#425e93'],
+  ['Ralph Waldo Emerson', 'Adopt the pace of nature: her secret is patience.', '#857105'],
+  ['Charles Darwin', 'It is not the strongest of the species that survives, nor the most intelligent, but the one most responsive to change.', '#006d7d'],
+  ['Mary Anning', 'The earth has music for those who listen.', '#806002'],
+  ['Rachel Carson', 'Those who contemplate the beauty of the earth find reserves of strength that will endure as long as life lasts.', '#057f83'],
+  ['David Attenborough', 'It seems to me that the natural world is the greatest source of excitement; the greatest source of visual beauty.', '#9c6701'],
+  ['Dian Fossey', 'When you realize the value of all life, you dwell less on what is past and concentrate more on the preservation of the future.', '#006866'],
+  ['George Washington Carver', 'I love to think of nature as an unlimited broadcasting station, through which God speaks to us every hour.', '#824903'],
+  ['Sylvia Earle', 'No water, no life. No blue, no green.', '#057ba3'],
+  ['Steve Irwin', 'If we can teach people about wildlife, they will be touched. Share my wildlife with me.', '#67661f'],
+  ['Jacques-Yves Cousteau', 'The sea, once it casts its spell, holds one in its net of wonder forever.', '#00459c'],
+  ['Beatrix Potter', "There is something delicious about writing the first words of a story. You never quite know where they'll take you.", '#476818'],
+  ['Carl Linnaeus', 'If you do not know the names of things, the knowledge of them is lost too.', '#5c63e3'],
+  ['Robin Wall Kimmerer', 'Knowing that you love the earth changes you, activates you to defend and protect and celebrate.', '#2d8312'],
+  ['Maria Sibylla Merian', 'In my youth, I spent my time investigating insects.', '#af2d7c'],
+  ['Salim Ali', 'I suppose I have always been a watcher of birds.', '#0176b8'],
+  ['Aldo Leopold', 'A thing is right when it tends to preserve the integrity, stability and beauty of the biotic community.', '#b15b00'],
+  ['Henry David Thoreau', 'All good things are wild and free.', '#03735e'],
 ];
 
 export const letterNaturalist = (now = new Date()) => {
   const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
-  const [name, quote, accent] = LETTER_NATURALISTS[Math.floor(day / 15.21) % LETTER_NATURALISTS.length];
-  return { name, quote, accent: inkFor(accent) };
+  const [name, quote, primary] = LETTER_NATURALISTS[Math.floor(day / 15.21) % LETTER_NATURALISTS.length];
+  return { name, quote, accent: inkFor(primary) };
 };
 
 /** The accent, deepened until white button text on it reads clearly (WCAG 4.5:1). */
@@ -100,25 +103,25 @@ const SETUP_ERROR = /insufficient-permission|permission|unauthorized|configurati
 
 export function verificationLetter({ username, link, naturalist = letterNaturalist() }) {
   const m = {
-    preheader: 'One tap and your field notebook is yours.',
-    heading: 'Your field notebook is waiting',
+    preheader: 'One tap and your field page is yours.',
+    heading: 'Your field page is waiting',
     paragraphs: [
       `Hi ${escapeName(username)},`,
-      'Your notebook, your life list and your letters from other explorers are ready. Confirm this is your email and they are yours to keep.',
+      'Your field page, your life list and your letters from other explorers are ready. Confirm this is your email and they are yours to keep.',
     ],
     button: { label: 'Confirm my email', url: link },
     after: ["If you didn't sign up, you can ignore this letter."],
     quote: { text: naturalist.quote, by: naturalist.name },
     accent: naturalist.accent,
-    footnote: 'This link works once and expires in a few days. You can always ask for a new one from your profile.',
+    footnote: 'This link works once and expires in a few days. You can always ask for a new one from your field page.',
   };
-  return { subject: 'Confirm your email and your field notebook is yours', html: letterHtml(m), text: letterText(m) };
+  return { subject: 'Confirm your email and your field page is yours', html: letterHtml(m), text: letterText(m) };
 }
 
 export function resetLetter({ link, naturalist = letterNaturalist() }) {
   const m = {
     preheader: 'Choose a new password and pick up where you left off.',
-    heading: 'A new password for your notebook',
+    heading: 'A new password for your field page',
     paragraphs: [
       'Someone, hopefully you, asked to reset the password for this NatureGram account.',
       'Choose a new one and your sightings, life list and letters will be right where you left them.',

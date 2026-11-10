@@ -233,6 +233,13 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "ecosystem_feed",
+      "fieldPath": "mediaPaths",
+      "indexes": [
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION" }
+      ]
+    },
+    {
       "collectionGroup": "comments",
       "fieldPath": "userId",
       "indexes": [

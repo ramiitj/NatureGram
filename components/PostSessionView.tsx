@@ -45,6 +45,10 @@ const guideNotesOf = (summary?: string) => {
 };
 const shortDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
+/** The guide's confidence, said in words. */
+const confidenceWords = (c?: string | null) =>
+  c === 'high' ? 'Your guide is quite sure' : c === 'medium' ? 'Your guide is fairly sure' : c === 'low' ? 'Your guide is not sure' : '';
+
 const ordinal = (n: number) => { const v = n % 100; const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'; return `${n}${suf}`; };
 /** A line that marks how far the explorer has come, with the round numbers called out. */
 const lifeListMilestone = (total: number, added: number) => {
@@ -91,7 +95,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [saveToJournal, setSaveToJournal] = useState(true);
   const [postToFeed, setPostToFeed] = useState(true);
   const [showLocation, setShowLocation] = useState(true);
-  const [showPostOptionsModal, setShowPostOptionsModal] = useState(false);
+  // Several captures post as separate sightings unless the explorer combines them
+  const [combine, setCombine] = useState(false);
 
   const isGeneratingCard = false;
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -151,6 +156,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             return;
         }
 
+        // glossary-ok: matches a stored placeholder from LiveLens
         if (current.aiInsight === "Processing..." || current.aiInsight === "Audio analysis pending..." || current.aiInsight === "Visual record for field study.") {
             if (current.aiInsight === "Processing..." && geminiServiceRef.current?.isConnected() && pendingSnapshotIdRef.current === current.id) {
                 setIsAnalyzing(true);
@@ -316,17 +322,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         return;
     }
 
-    if (selectedIndices.size > 1) {
-        setShowPostOptionsModal(true);
-    } else {
-        executeDispatch('separate');
-    }
+    executeDispatch(combine && selectedIndices.size > 1 ? 'stitch' : 'separate');
   };
 
   handleFinalizeRef.current = handleFinalizeClick;
 
   const executeDispatch = async (mode: 'stitch' | 'separate', requestReview = false) => {
-    setShowPostOptionsModal(false);
     setIsProcessing(true);
     setPublishError('');
     setReviewOffer(null);
@@ -430,8 +431,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           if (!plate) return shareLink();
           setShareNote('');
           const url = getShareUrl(createdPostId);
-          const res = await sharePlate({ ...plate, line: answeredChallenge ? `Answers ${theme.naturalist}'s challenge` : undefined }, { text: `${plate.name}, in my field notebook on NatureGram`, url });
+          const res = await sharePlate({ ...plate, line: answeredChallenge ? `Answers ${theme.naturalist}'s challenge` : undefined }, { text: `${plate.name}, from my field page on NatureGram`, url });
           if (res === 'failed') return shareLink();
+          // glossary-ok: the life-list plate image
           if (res === 'downloaded') setShareNote('Plate saved to your device.');
       };
       const isNew = newSpecies.length > 0;
@@ -453,8 +455,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    </div>
                )}
                {plate?.no && <p className="font-display italic text-lg text-theme-accent mb-1">No. {plate.no} in your collection</p>}
-               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with the field' : 'Saved to your journal'}</h2>
-               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.')}</p>
+               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
+               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with everyone any time.')}</p>
                {isNew && lifeListTotal > 0 && <p className="text-sm text-stone-700 mb-4 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                {answeredChallenge && (
                    <p className="mb-4 flex items-center justify-center gap-2 text-sm text-theme-accent"><Glyph name="stamp" size={18} />You answered {theme.naturalist}'s challenge</p>
@@ -467,8 +469,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                )}
                <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
-                       <button onClick={share} className="w-full bg-theme-accent text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
-                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
+                       <button onClick={share} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{/* glossary-ok: the life-list plate */}
+                           {copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
                    {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
@@ -496,10 +499,10 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-theme-primary/10 shrink-0 z-20 safe-pt box-content">
           <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="w-11 h-11 -ml-2 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
           <div className="text-center">
-              <h2 className="text-base font-display text-stone-900">Write up your field entry</h2>
-              <p className="text-xs text-stone-500">{selectedIndices.size} of {snapshots.length} capture{snapshots.length === 1 ? '' : 's'} selected</p>
+              <h2 className="text-base font-display text-stone-900">{selectedIndices.size > 1 && !combine ? 'Your sightings' : 'Your sighting'}</h2>
+              {snapshots.length > 1 && <p className="text-xs text-stone-500">{selectedIndices.size} of {snapshots.length} captures selected</p>}
           </div>
-          <button onClick={onSaveDraft} disabled={!snapshots.length} className="text-theme-accent text-sm font-bold px-3 py-2 rounded-full hover:bg-theme-accent/10 transition-colors disabled:opacity-40">Save draft</button>
+          <span className="w-11" aria-hidden="true" />
       </header>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -538,7 +541,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   )}
                               </div>
                               <div className="relative z-10 flex flex-col items-center gap-6 p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl">
-                                  <div className="w-16 h-16 rounded-full bg-theme-accent flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
+                                  <div className="w-16 h-16 rounded-full bg-theme-primary flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
                                       <Glyph name="sound" size={30} />
                                   </div>
                                   <audio 
@@ -554,7 +557,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <img
                                   src={currentPreviewUrl!}
                                   className="w-full h-full object-contain z-10 transition-transform duration-300"
-                                  alt="Observation"
+                                  alt="Your capture"
                               />
                               <div className="absolute inset-0 opacity-30 blur-3xl scale-110 pointer-events-none">
                                   <img src={currentPreviewUrl!} className="w-full h-full object-cover transition-transform duration-300" alt="" />
@@ -569,7 +572,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       <button
                           onClick={() => toggleSelection(currentSnapIndex)}
                           aria-pressed={selectedIndices.has(currentSnapIndex)}
-                          aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected for posting. Tap to exclude' : 'Not selected. Tap to include'}
+                          aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected to share. Tap to leave out' : 'Not selected. Tap to include'}
                           className={`absolute top-6 right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${selectedIndices.has(currentSnapIndex) ? 'bg-theme-accent text-white' : 'bg-white/20 backdrop-blur-md text-white border border-white/20'}`}
                       >
                           <span className="material-symbols-outlined text-2xl">{selectedIndices.has(currentSnapIndex) ? 'check_circle' : 'add_circle'}</span>
@@ -678,145 +681,71 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   )}
 
                   {snapshots.length > 0 && (
-                      <div className="space-y-8">
+                      <div className="space-y-7">
+                          {/* 1. The name, pre-filled by the guide, with its confidence in words */}
                           <section>
-                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Your field notes</label>
+                              <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800 mb-2">What did you see?</label>
+                              <input
+                                  id="post-labels"
+                                  type="text"
+                                  placeholder="e.g. Indian peafowl"
+                                  value={labels[0] || ''}
+                                  onChange={(e) => editLabels([e.target.value, ...labels.slice(1)])}
+                                  onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
+                                  aria-describedby="post-labels-hint"
+                                  className="w-full px-4 py-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-xl font-display italic text-stone-900 outline-none focus:border-theme-accent"
+                              />
+                              <p id="post-labels-hint" className="text-xs text-stone-500 mt-1.5 flex items-center gap-1.5">
+                                  {isAnalyzing
+                                      ? <><span className="motion-safe:animate-pulse inline-flex" aria-hidden="true"><Glyph name="guide" size={13} /></span>Your guide is looking…</>
+                                      : <>{confidenceWords(currentSnapshot?.aiConfidence) && <><Glyph name="guide" size={13} className="text-theme-accent" /><span className="text-stone-700">{confidenceWords(currentSnapshot?.aiConfidence)}.</span></>}<span>Change it if it's wrong.</span></>}
+                              </p>
+                          </section>
+
+                          {/* Safety notes stay in view */}
+                          {((isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) || currentSnapshot?.aiError || currentSnapshot?.aiFlags?.isNatureSubject === false || (currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError) || (currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi) || anySensitive || anyPeople) && (
+                              <div className="space-y-3 -mt-3">
+                                  {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <FungiWarning />}
+                                  {currentSnapshot?.aiError && (
+                                      <p className="text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own name above. You know what you saw.</p>
+                                  )}
+                                  {currentSnapshot?.aiFlags && currentSnapshot.aiFlags.isNatureSubject === false && (
+                                      <p className="text-sm text-amber-900 bg-amber-50 rounded-xl p-3">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
+                                  )}
+                                  {currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError && (
+                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once shared, other explorers can confirm or suggest a better name.</p>
+                                  )}
+                                  {currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi && (
+                                      <p className="text-sm text-red-900 bg-red-50 rounded-xl p-3">{currentSnapshot.aiSafetyNote}</p>
+                                  )}
+                                  {anySensitive && <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">shield</span><span>Location hidden: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</span></p>}
+                                  {anyPeople && (
+                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">person</span><span>People may be visible in a capture. Only share it publicly if they're happy to appear.</span></p>
+                                  )}
+                              </div>
+                          )}
+
+                          {/* 2. One thing about it */}
+                          <section>
+                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Your note</label>
                               <textarea
                                   id="post-caption"
                                   value={caption}
                                   onChange={(e) => setCaption(e.target.value.slice(0, 2200))}
-                                  placeholder="What did you notice? Where were you, what was it doing?"
+                                  placeholder="What did you notice? What was it doing?"
                                   rows={3}
                                   className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base text-stone-900 leading-relaxed resize-none focus:border-theme-accent"
                               />
-                              <p className="text-xs text-stone-500 text-right mt-1 tabular">{caption.length}/2200</p>
+                              {caption.length > 1800 && <p className="text-xs text-stone-500 text-right mt-1 tabular">{caption.length}/2200</p>}
                           </section>
 
-                          <section>
-                              <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800 mb-2">What did you see?</label>
-                              <div className="bg-stone-50 border border-stone-200 rounded-2xl focus-within:border-theme-accent overflow-hidden">
-                                  <input
-                                      id="post-labels"
-                                      type="text"
-                                      placeholder="e.g. Indian peafowl"
-                                      value={labels[0] || ''}
-                                      onChange={(e) => editLabels([e.target.value, ...labels.slice(1)])}
-                                      onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
-                                      className="w-full px-4 pt-4 pb-1.5 bg-transparent text-lg font-display italic text-stone-900 outline-none"
-                                  />
-                                  <label htmlFor="post-scientific" className="sr-only">Scientific name (optional)</label>
-                                  <input
-                                      id="post-scientific"
-                                      type="text"
-                                      placeholder="Scientific name, if you know it"
-                                      value={labels[1] || ''}
-                                      onChange={(e) => editLabels([labels[0] || '', e.target.value, ...labels.slice(2)])}
-                                      onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
-                                      className="w-full px-4 pt-0 pb-3.5 bg-transparent text-sm font-display italic text-stone-500 outline-none placeholder:not-italic"
-                                  />
-                              </div>
-                              <p className="text-xs text-stone-500 mt-1.5">Correct it if it's wrong; your fixes make NatureGram smarter for everyone.</p>
-                              {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <div className="mt-3"><FungiWarning /></div>}
-                              {currentSnapshot?.aiError && (
-                                  <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own identification above. You know what you saw.</p>
-                              )}
-                              {currentSnapshot?.aiFlags && currentSnapshot.aiFlags.isNatureSubject === false && (
-                                  <p className="mt-3 text-sm text-amber-900 bg-amber-50 rounded-xl p-3">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
-                              )}
-                              {currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError && (
-                                  <p className="mt-3 text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once posted, other explorers can confirm or suggest a better ID.</p>
-                              )}
-                              {currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi && (
-                                  <p className="mt-3 text-sm text-red-900 bg-red-50 rounded-xl p-3">{currentSnapshot.aiSafetyNote}</p>
-                              )}
-                              {!!currentSnapshot?.aiIdentifications?.length && (
-                                  <details className="mt-3 rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
-                                      <summary className="cursor-pointer font-semibold text-stone-800">Why your guide thinks so</summary>
-                                      <ul className="mt-2 space-y-2">
-                                          {currentSnapshot.aiIdentifications.map((id, i) => (
-                                              <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
-                                          ))}
-                                      </ul>
-                                  </details>
-                              )}
-                          </section>
-
-                          <section>
-                              <label htmlFor="post-insight" className="block text-sm font-bold text-stone-800 mb-2">Behaviour & ecology <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
-                              <div className="relative">
-                                  <textarea
-                                      id="post-insight"
-                                      value={aiInsight}
-                                      onChange={(e) => editInsight(e.target.value)}
-                                      placeholder="Describe the behaviour and why it matters…"
-                                      className={`w-full p-5 bg-theme-accent/5 border rounded-3xl text-base font-display text-stone-900 leading-relaxed resize-none h-44 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`}
-                                  />
-                                  {isAnalyzing && aiInsight === "Processing..." && (
-                                      <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-3xl pointer-events-none" role="status">
-                                          <div className="flex flex-col items-center gap-3">
-                                              <div className="w-8 h-8 rounded-full border-2 border-theme-accent border-t-transparent animate-spin" aria-hidden="true" />
-                                              <span className="text-sm font-semibold text-theme-accent">Your guide is analysing…</span>
-                                          </div>
-                                      </div>
-                                  )}
-                              </div>
-                          </section>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <section>
-                                  <div className="flex items-center justify-between mb-3">
-                                      <label htmlFor="post-location" className="text-xs font-bold text-theme-primary/70">Location</label>
-                                      <label className="flex items-center gap-2 text-xs font-semibold text-theme-primary/70 cursor-pointer">
-                                          <input
-                                              type="checkbox"
-                                              checked={showLocation}
-                                              onChange={(e) => setShowLocation(e.target.checked)}
-                                              className="w-4 h-4 accent-[rgb(var(--theme-accent-rgb))]"
-                                          />
-                                          Show area
-                                      </label>
-                                  </div>
-                                  <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
-                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">location_on</span>
-                                      <input
-                                          id="post-location"
-                                          type="text"
-                                          value={resolvedArea}
-                                          disabled={!showLocation}
-                                          onChange={(e) => setResolvedArea(e.target.value)}
-                                          className="w-full pl-11 pr-4 py-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
-                                      />
-                                  </div>
-                                  <p className="text-xs text-theme-primary/50 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your private records.</p>
-                                  {(currentSnapshot as any)?.takenAtMs && <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-theme-accent" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
-                                  {anySensitive && <p className="text-xs text-stone-700 bg-stone-100 rounded-lg p-2.5 mt-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent shrink-0" aria-hidden="true">shield</span><span>Location hidden by default: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</span></p>}
-                              </section>
-
-                              <section>
-                                  <label htmlFor="post-tags" className="block text-xs font-bold text-theme-primary/70 mb-3">Hashtags</label>
-                                  <div className="relative">
-                                      <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">tag</span>
-                                      <input
-                                          id="post-tags"
-                                          type="text"
-                                          value={tags.join(' ')}
-                                          onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }}
-                                          placeholder="#birding #monsoon"
-                                          className="w-full pl-11 p-4 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
-                                      />
-                                  </div>
-                              </section>
-                          </div>
-
-                          {anyPeople && (
-                              <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">person</span><span>People may be visible in a capture. Only share it publicly if they're happy to appear.</span></p>
-                          )}
-                          <fieldset className="pt-2">
-                              <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see this?</legend>
+                          {/* 3. Who can see it */}
+                          <fieldset>
+                              <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see it?</legend>
                               <div className="grid grid-cols-2 gap-3">
                                   {([
-                                      { v: true, icon: 'public', title: 'Share with the wild', desc: 'Everyone on NatureGram, and your journal' },
-                                      { v: false, icon: 'fingerprint', title: 'Journal only', desc: 'Just for you' },
+                                      { v: true, icon: 'public', title: 'Share with everyone', desc: 'Everyone on NatureGram, and your journal' },
+                                      { v: false, icon: 'fingerprint', title: 'Only me', desc: 'Just in your journal' },
                                   ]).map(opt => (
                                       <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
@@ -826,6 +755,116 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   ))}
                               </div>
                           </fieldset>
+
+                          {selectedIndices.size > 1 && (
+                              <label className="flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-stone-200 px-4 py-3">
+                                  <span className="min-w-0">
+                                      <span className="block font-bold text-stone-900 text-sm">Combine into one sighting</span>
+                                      <span className="block text-xs text-stone-600 mt-0.5">{combine ? `All ${selectedIndices.size} captures together, with a few lines on the outing` : `${selectedIndices.size} separate sightings, each with its own name`}</span>
+                                  </span>
+                                  <input type="checkbox" role="switch" checked={combine} onChange={e => setCombine(e.target.checked)} className="sr-only peer" />
+                                  <span aria-hidden="true" className={`relative shrink-0 w-11 h-6 rounded-full transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[rgb(var(--theme-accent-rgb))] ${combine ? 'bg-theme-accent' : 'bg-stone-300'}`}>
+                                      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${combine ? 'left-[22px]' : 'left-0.5'}`} />
+                                  </span>
+                              </label>
+                          )}
+
+                          {/* Everything else, already filled in by the guide */}
+                          <details className="group rounded-2xl border border-stone-200">
+                              <summary className="cursor-pointer list-none flex items-center justify-between gap-3 px-4 py-3.5 font-bold text-stone-800 text-sm">
+                                  <span>More details <span className="font-normal text-stone-500">· filled in by your guide</span></span>
+                                  <span className="material-symbols-outlined text-stone-500 transition-transform group-open:rotate-180" aria-hidden="true">expand_more</span>
+                              </summary>
+                              <div className="px-4 pb-5 pt-1 space-y-6">
+                                  <section>
+                                      <label htmlFor="post-scientific" className="block text-xs font-bold text-theme-primary/70 mb-2">Scientific name</label>
+                                      <input
+                                          id="post-scientific"
+                                          type="text"
+                                          placeholder="If you know it"
+                                          value={labels[1] || ''}
+                                          onChange={(e) => editLabels([labels[0] || '', e.target.value, ...labels.slice(2)])}
+                                          onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
+                                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-base font-display italic text-stone-800 outline-none focus:border-theme-accent placeholder:not-italic"
+                                      />
+                                  </section>
+
+                                  {!!currentSnapshot?.aiIdentifications?.length && (
+                                      <section className="rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
+                                          <h4 className="font-semibold text-stone-800">Why your guide thinks so</h4>
+                                          <ul className="mt-2 space-y-2">
+                                              {currentSnapshot.aiIdentifications.map((id, i) => (
+                                                  <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
+                                              ))}
+                                          </ul>
+                                      </section>
+                                  )}
+
+                                  <section>
+                                      <label htmlFor="post-insight" className="block text-xs font-bold text-theme-primary/70 mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
+                                      <div className="relative">
+                                          <textarea
+                                              id="post-insight"
+                                              value={aiInsight}
+                                              onChange={(e) => editInsight(e.target.value)}
+                                              placeholder="What it was doing, and why"
+                                              className={`w-full p-4 bg-theme-accent/5 border rounded-2xl text-base font-display text-stone-900 leading-relaxed resize-none h-36 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`}
+                                          />
+                                          {isAnalyzing && aiInsight === "Processing..." && (
+                                              <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-2xl pointer-events-none" role="status">
+                                                  <div className="flex flex-col items-center gap-3">
+                                                      <div className="w-8 h-8 rounded-full border-2 border-theme-accent border-t-transparent animate-spin" aria-hidden="true" />
+                                                      <span className="text-sm font-semibold text-theme-accent">Your guide is analysing…</span>
+                                                  </div>
+                                              </div>
+                                          )}
+                                      </div>
+                                  </section>
+
+                                  <section>
+                                      <div className="flex items-center justify-between mb-2">
+                                          <label htmlFor="post-location" className="text-xs font-bold text-theme-primary/70">Location</label>
+                                          <label className="flex items-center gap-2 text-xs font-semibold text-theme-primary/70 cursor-pointer">
+                                              <input
+                                                  type="checkbox"
+                                                  checked={showLocation}
+                                                  onChange={(e) => setShowLocation(e.target.checked)}
+                                                  className="w-4 h-4 accent-[rgb(var(--theme-accent-rgb))]"
+                                              />
+                                              Show area
+                                          </label>
+                                      </div>
+                                      <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
+                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">location_on</span>
+                                          <input
+                                              id="post-location"
+                                              type="text"
+                                              value={resolvedArea}
+                                              disabled={!showLocation}
+                                              onChange={(e) => setResolvedArea(e.target.value)}
+                                              className="w-full pl-11 pr-4 py-3.5 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
+                                          />
+                                      </div>
+                                      <p className="text-xs text-stone-500 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
+                                      {(currentSnapshot as any)?.takenAtMs && <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-theme-accent" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
+                                  </section>
+
+                                  <section>
+                                      <label htmlFor="post-tags" className="block text-xs font-bold text-theme-primary/70 mb-2">Hashtags</label>
+                                      <div className="relative">
+                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">tag</span>
+                                          <input
+                                              id="post-tags"
+                                              type="text"
+                                              value={tags.join(' ')}
+                                              onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }}
+                                              placeholder="#birding #monsoon"
+                                              className="w-full pl-11 p-3.5 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
+                                          />
+                                      </div>
+                                  </section>
+                              </div>
+                          </details>
                       </div>
                   )}
               </div>
@@ -852,7 +891,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   onClick={handleFinalizeClick}
                   disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
                   aria-busy={isProcessing}
-                  className="w-full py-4 bg-theme-accent text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-accent/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+                  className="w-full py-4 bg-theme-primary text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-primary/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
               >
                   {isProcessing ? (
                       <>
@@ -867,68 +906,20 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   ) : (
                       <>
                           {postToFeed ? <span className="material-symbols-outlined" aria-hidden="true">public</span> : <Glyph name="rings" size={22} />}
-                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? `Share ${selectedIndices.size > 1 ? `${selectedIndices.size} sightings` : 'sighting'}` : 'Save to journal'}</span>
+                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Save for only me'}</span>
                       </>
                   ))}
               </button>
           </div>
       </main>
 
-      {showPostOptionsModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in">
-              <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl">
-                  <h3 className="text-2xl font-display text-stone-900 mb-2">How should these {selectedIndices.size} go in?</h3>
-                  <p className="text-sm text-stone-600 mb-6">Your notes and hashtags go with each entry.</p>
-
-                  <div className="space-y-4">
-                      <button
-                          onClick={() => executeDispatch('separate')}
-                          className="w-full p-4 border border-theme-primary/20 rounded-2xl text-left hover:border-theme-accent hover:bg-theme-accent/5 transition-all group"
-                      >
-                          <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center group-hover:bg-theme-accent/10 group-hover:text-theme-accent transition-colors">
-                                  <Glyph name="plate" size={22} />
-                              </div>
-                              <div>
-                                  <div className="font-bold text-theme-primary text-sm">One entry per specimen</div>
-                                  <div className="text-xs text-theme-primary/60">{selectedIndices.size} entries, each with its own name and notes</div>
-                              </div>
-                          </div>
-                      </button>
-
-                      <button
-                          onClick={() => executeDispatch('stitch')}
-                          className="w-full p-4 border border-theme-primary/20 rounded-2xl text-left hover:border-theme-accent hover:bg-theme-accent/5 transition-all group"
-                      >
-                          <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center group-hover:bg-theme-accent/10 group-hover:text-theme-accent transition-colors">
-                                  <Glyph name="notebook" size={22} />
-                              </div>
-                              <div>
-                                  <div className="font-bold text-theme-primary text-sm">One expedition page</div>
-                                  <div className="text-xs text-theme-primary/60">Everything together, with a few lines on the whole outing</div>
-                              </div>
-                          </div>
-                      </button>
-                  </div>
-
-                  <button
-                      onClick={() => setShowPostOptionsModal(false)}
-                      className="w-full mt-6 py-4 text-sm font-semibold text-theme-primary/70 hover:text-theme-primary transition-colors"
-                  >
-                      Not yet
-                  </button>
-              </div>
-          </div>
-      )}
-
       {confirmLeave && (
           <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
               <div className="w-full sm:max-w-sm bg-white rounded-t-[2rem] sm:rounded-[2rem] p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
-                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Keep your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
+                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
                   <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
                   <div className="flex flex-col gap-2">
-                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold">Save draft</button>
+                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold">Save draft</button>
                       <button onClick={() => { setConfirmLeave(false); onClose(); }} className="w-full py-3.5 rounded-xl bg-red-50 text-red-700 font-bold">Discard</button>
                       <button onClick={() => setConfirmLeave(false)} className="w-full py-3.5 rounded-xl bg-stone-100 text-stone-800 font-bold">Keep editing</button>
                   </div>

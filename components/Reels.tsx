@@ -5,7 +5,8 @@ import { likeTotal, isDataSaver, timeAgo } from '../utils';
 import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
 import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour } from './Wonder';
-import { groupOf } from '../services/lifeList';
+import { groupOf, namesOf } from '../services/lifeList';
+import FirstHint from './FirstHint';
 
 interface Props {
   currentUserMode: UserMode;
@@ -28,7 +29,8 @@ const HOUR_MATCH: Record<string, RegExp> = {
   'Night': /(owl|frog|toad|moth|cricket|night|bat\b|bats\b|firefl)/i,
 };
 
-const ordinalWord = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh'];
+/** "Tonight" only once the evening has come (after five o'clock); before that, "today". */
+const isEvening = () => new Date().getHours() >= 17;
 
 /**
  * Moments, as an evening screening: a short programme of video sightings, each introduced by a quiet
@@ -53,6 +55,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
   const lastTapRef = useRef(0);
   const isMember = !!currentUserMode.userId && currentUserMode.userId !== 'explorer_guest' && !currentUserMode.isAnonymous;
   const moment = useMemo(() => fieldMoment(), []);
+  const evening = useMemo(() => isEvening(), []);
+  const when = evening ? 'tonight' : 'today';
 
   const loadMore = useCallback(async (pageSize?: number) => {
     if (!hasMore) return;
@@ -112,10 +116,10 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
     return () => io.disconnect();
   }, [visible.length, showEndCard]);
 
-  // A quiet title card before each clip of the programme, once
+  // A quiet title card before the first clip of the programme, once
   const active = visible[activeIdx];
   useEffect(() => {
-    if (!active || titleShown[active.id] || !programmeIds.has(active.id)) { setTitleFor(null); return; }
+    if (!active || activeIdx !== 0 || titleShown[active.id] || !programmeIds.has(active.id)) { setTitleFor(null); return; }
     setTitleFor(active.id);
     setTitleShown(prev => ({ ...prev, [active.id]: true }));
     const t = window.setTimeout(() => setTitleFor(id => id === active.id ? null : id), TITLE_MS);
@@ -177,8 +181,9 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
       <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 land:pl-20 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 bg-gradient-to-b from-black/30 to-transparent">
         <button onClick={onBack} aria-label="Back to the wild" className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
         <h1 className="sr-only">Moments</h1>
-        <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'graphic_eq'}</span></button>
+        <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'volume_up'}</span></button>
       </header>
+      <FirstHint id="moments" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
 
       {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold">{toast}</div>}
       {loading ? (
@@ -191,18 +196,19 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
       ) : items.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center">
           <span className="material-symbols-outlined text-4xl text-white/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">videocam</span>
-          <p className="font-display text-xl">No moments recorded yet</p>
-          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to record one.</p>
+          <p className="font-display text-xl">No moments captured yet</p>
+          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to capture one.</p>
         </div>
       ) : (
-        <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading} aria-label={extended ? 'Moments' : `Tonight's moments: ${countWord} clips`}>
+        <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading} aria-label={extended ? 'Moments' : `${evening ? "Tonight's" : "Today's"} moments: ${countWord} clips`}>
           {visible.map((p, idx) => {
             const isLiked = !!liked[p.id] || !!p.likes?.includes(currentUserMode.userId || '');
             const src = videoUrls[p.id];
             const near = Math.abs(idx - activeIdx) <= 2;
-            const species = p.labels?.[0] || p.title || 'Unnamed sighting';
+            const species = namesOf(p).common || p.title || 'Unnamed sighting';
+            const place = p.showLocation !== false && p.locationArea ? String(p.locationArea).split(',')[0].trim() : '';
             const n = likeTotal(p);
-            const inProgramme = idx < programmeCount;
+            const isOpening = idx === 0 && programmeCount > 0;
             const line = observedBehaviour(p.behavior) || (p.caption || '').split(/(?<=[.!?])\s/)[0] || (p.timestamp ? `Recorded ${timeAgo(p.timestamp)}.` : '');
             return (
               <article key={p.id} data-idx={idx} className="relative h-[100dvh] w-full snap-start snap-always flex items-center justify-center bg-black" aria-label={`${species} by ${p.userName}`}>
@@ -213,12 +219,12 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
-                  {inProgramme && (
+                  {isOpening && (
                     <div
                       className={`absolute inset-0 z-[5] bg-black flex flex-col items-center justify-center text-center px-10 transition-opacity duration-1000 ${titleFor === p.id ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                       aria-hidden={titleFor !== p.id}
                     >
-                      <p className="text-xs text-white/50 font-display">{ordinalWord[idx] || `No. ${idx + 1}`} of {countWord}</p>
+                      <p className="text-xs text-white/60 font-display">{evening ? "Tonight's" : "Today's"} moments · {countWord} {programmeCount === 1 ? 'clip' : 'clips'}</p>
                       <p className="font-display italic text-3xl sm:text-4xl leading-tight mt-4">{species}</p>
                       {p.locationArea && p.showLocation !== false && <p className="text-sm text-white/70 mt-3">{p.locationArea}</p>}
                       {line && <p className="font-display text-white/80 text-base mt-5 max-w-sm leading-relaxed">{line}</p>}
@@ -226,9 +232,15 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                   )}
                 </div>
 
-                <div className={`absolute right-2 lg:right-6 bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
+                {/* A small caption on every clip: the common name and the place */}
+                <p className={`absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-sm text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)] truncate pointer-events-none transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
+                  <span className="font-display italic">{species}</span>{place && <span className="text-white/80"> · {place}</span>}
+                </p>
+
+                {/* The actions sit beside the clip on wide screens, at the edge on phones */}
+                <div className={`absolute right-2 md:right-auto md:left-[calc(50%_+_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`} className="flex flex-col items-center gap-0.5">
-                    <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-vivid/90 text-white shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
+                    <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-primary text-white ring-2 ring-theme-vivid/70 shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
                       <WonderIcon active={isLiked} className="text-[28px] drop-shadow" />
                     </span>
                   </button>
@@ -252,12 +264,12 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
             );
           })}
           {showEndCard && (
-            <article data-idx={visible.length} className="relative h-[100dvh] w-full snap-start snap-always flex flex-col items-center justify-center text-center px-8 bg-black" aria-label="The end of tonight's moments">
+            <article data-idx={visible.length} className="relative h-[100dvh] w-full snap-start snap-always flex flex-col items-center justify-center text-center px-8 bg-black" aria-label={`The end of ${when}'s moments`}>
               <span className="material-symbols-outlined text-4xl text-white/50" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{moment.icon}</span>
-              <p className="font-display text-2xl sm:text-3xl leading-snug mt-5 max-w-sm">That's tonight's moments.<br />Go and listen outside.</p>
+              <p className="font-display text-2xl sm:text-3xl leading-snug mt-5 max-w-sm">That's {when}'s moments.<br />Go and listen outside.</p>
               <p className="text-sm text-white/60 mt-3 max-w-xs">{moment.name}: {moment.hint}.</p>
               <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
-                <button onClick={onBack} className="px-6 py-3 rounded-full bg-white text-black font-semibold text-sm">Close for tonight</button>
+                <button onClick={onBack} className="px-6 py-3 rounded-full bg-white text-black font-semibold text-sm">{evening ? 'Close for tonight' : 'Close for now'}</button>
                 <button onClick={watchAgain} className="px-5 py-3 rounded-full text-white/80 hover:text-white text-sm font-semibold">Watch again</button>
                 {(hasMore || items.length > programmeCount) && (
                   <button onClick={keepWatching} className="px-5 py-3 rounded-full border border-white/30 text-white text-sm font-semibold">Keep watching</button>

@@ -90,17 +90,19 @@ export function parentProblem({ parent, parentProfile, teenUid, confirmAdult, co
 
 /** The same facts go into the letter and onto the consent page. */
 export const GUARDIAN_FACTS = Object.freeze({
+  // glossary-ok: record as a verb
   what: 'NatureGram is a field notebook for the living world. Explorers photograph and record plants, animals, fungi and natural sounds, keep a life list of the species they find, and can ask an AI guide to help identify them.',
   collected: [
     'Their email address and the username they chose',
-    'The sightings they record: photos, sound clips, species names and their own notes',
-    'Where a sighting was made, kept private in their own notebook and never shown to others',
+    'Their sightings: photos, sound clips, species names and their own notes',
+    'Where a sighting was made, kept private in their own journal and never shown to others',
     'Who they follow and who follows them, and letters with explorers they both follow',
     'What they show or say to the AI guide during a session, used only to answer them',
   ],
   notCollected: [
     'Their date of birth (we keep only the month they turn 18)',
     'Phone number, contacts or address',
+    // glossary-ok: an advertising profile, not a field page
     'Any advertising profile, tracking or behavioural monitoring',
   ],
   teenMode: [
@@ -112,7 +114,7 @@ export const GUARDIAN_FACTS = Object.freeze({
     'The AI guide never asks for personal details',
   ],
   controls: [
-    'Withdraw your consent at any time: their notebook goes back to private',
+    'Withdraw your consent at any time: their field page goes back to private',
     'Ask us to delete their account and everything in it',
     'Write to us with any question about their data',
   ],
@@ -135,7 +137,7 @@ function parentLetter({ teenName, link, accent, naturalist }) {
     preheader: `${teenName} would like to explore NatureGram. It needs your OK.`,
     heading: `${teenName} would like to explore NatureGram`,
     paragraphs: [
-      `Hello. ${teenName} has started a field notebook on NatureGram and named you as their parent or guardian. Because they are under 18, their notebook stays private until you say it's all right.`,
+      `Hello. ${teenName} has started a field page on NatureGram and named you as their parent or guardian. Because they are under 18, their field page stays private until you say it's all right.`,
       GUARDIAN_FACTS.what,
       `<strong>What we keep about them</strong><br>${li(GUARDIAN_FACTS.collected)}`,
       `<strong>What we never keep</strong><br>${li(GUARDIAN_FACTS.notCollected)}`,
@@ -144,7 +146,7 @@ function parentLetter({ teenName, link, accent, naturalist }) {
     ],
     button: { label: 'Review and approve', url: link },
     after: [
-      'This link works once and for 7 days. If you weren\'t expecting this, you can ignore it: nothing changes and their notebook stays private.',
+      'This link works once and for 7 days. If you weren\'t expecting this, you can ignore it: nothing changes and their field page stays private.',
       `<strong>Your controls, any time</strong><br>${li(GUARDIAN_FACTS.controls)}`,
     ],
     accent,
@@ -318,7 +320,7 @@ export function mountGuardian(app, deps) {
     }
     await db.collection(`users/${teenUid}/notifications`).add({
       type: 'system', senderId: 'naturegram', senderName: 'NatureGram', isRead: false, timestamp: FieldValue.serverTimestamp(),
-      message: 'Your grown-up said yes. Your notebook is open: you can share sightings with the community now.',
+      message: 'Your grown-up said yes. Your field page is open: you can share sightings with the community now.',
     }).catch(() => {});
     log('info', 'guardian approved', { teenUid, parentUid: parent.uid, emailMatched });
     res.json({ ok: true, teen: { uid: teenUid, username: teenProfile.username || 'An explorer' } });
@@ -372,7 +374,7 @@ export function mountGuardian(app, deps) {
     const hidden = await makePrivate(db, teenUid);
     await db.collection(`users/${teenUid}/notifications`).add({
       type: 'system', senderId: 'naturegram', senderName: 'NatureGram', isRead: false, timestamp: FieldValue.serverTimestamp(),
-      message: 'Your grown-up has paused sharing. Your notebook is private again, and everything in it is still yours.',
+      message: 'Your grown-up has paused sharing. Your field page is private again, and everything in it is still yours.',
     }).catch(() => {});
     log('info', 'guardian withdrew', { teenUid, hidden });
     res.json({ ok: true, status: 'withdrawn' });

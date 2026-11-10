@@ -32,5 +32,5 @@ try { setLogLevel('error'); } catch { /* ignore */ }
 try { localStorage.removeItem("firestore_db_override"); } catch { /* storage unavailable */ }
 
 export const auth: Auth = getAuth(app);
-export { db };
+export { db, app };
 export const storage: FirebaseStorage = getStorage(app);

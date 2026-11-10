@@ -80,7 +80,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
       return (
           <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] px-6 text-center" role="status" aria-live="polite">
               <Glyph name="press" size={40} className="text-theme-accent/70 animate-pulse" />
-              <p className="mt-4 font-display text-lg text-stone-700">Opening this field page…</p>
+              <p className="mt-4 font-display text-lg text-stone-700">Opening this sighting…</p>
           </div>
       );
   }
@@ -88,9 +88,9 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   if (error || !post) {
       return (
         <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] p-6 text-center">
-            <Glyph name="fern" size={48} className="text-theme-accent/60 mb-5" />
-            <h1 className="font-display text-2xl text-theme-primary mb-2">This page has gone back to the wild</h1>
-            <p className="text-stone-600 mb-8 max-w-sm leading-relaxed">The explorer may have removed it, or kept it for their own journal. There is plenty more alive out there.</p>
+            <Glyph name="leafCompass" size={48} className="text-theme-accent/60 mb-5" />
+            <h1 className="font-display text-2xl text-theme-primary mb-2">This sighting has gone back to the wild</h1>
+            <p className="text-stone-600 mb-8 max-w-sm leading-relaxed">The explorer may have removed it, or made it visible only to themselves. There is plenty more alive out there.</p>
             <button onClick={onOpenLens || onGoToApp} className="bg-theme-primary text-white px-7 py-3.5 rounded-2xl font-semibold shadow-sm active:scale-95 transition-transform">
                 Open the Lens
             </button>

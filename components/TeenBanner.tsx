@@ -40,10 +40,10 @@ const TeenBanner: React.FC<{ state?: TeenState }> = ({ state: forced }) => {
     : s.status === 'withdrawn' ? 'Sharing is paused for now'
     : s.status === 'none' ? 'Ask a grown-up to say yes'
     : 'Waiting for a grown-up\'s OK';
-  const body = s.status === 'declined' ? 'Your notebook stays private, and everything in it is still yours. If they change their mind, or another grown-up can say yes, ask again here.'
-    : s.status === 'withdrawn' ? 'Your grown-up has paused sharing, so your notebook is private again. Everything in it is still yours.'
-    : s.status === 'none' ? 'Because you\'re under 18, a parent or guardian needs to say it\'s all right before your notebook can be shared.'
-    : 'Your notebook is private until they say yes. Meanwhile you can browse, use the Lens and keep sightings in your journal.';
+  const body = s.status === 'declined' ? 'Your field page stays private, and everything in it is still yours. If they change their mind, or another grown-up can say yes, ask again here.'
+    : s.status === 'withdrawn' ? 'Your grown-up has paused sharing, so your field page is private again. Everything in it is still yours.'
+    : s.status === 'none' ? 'Because you\'re under 18, a parent or guardian needs to say it\'s all right before your field page can be shared.'
+    : 'Your field page is private until they say yes. Meanwhile you can browse, use the Lens and save sightings to your journal.';
 
   if (folded) {
     return (
@@ -82,7 +82,7 @@ const TeenBanner: React.FC<{ state?: TeenState }> = ({ state: forced }) => {
         </div>
       )}
       {link && (
-        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.'); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-theme-primary text-white text-sm font-semibold flex items-center justify-center gap-2">
+        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.' /* glossary-ok: a text or email */); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-theme-primary text-white text-sm font-semibold flex items-center justify-center gap-2">
           <Glyph name="sealed" size={18} />Send this to your parent
         </button>
       )}

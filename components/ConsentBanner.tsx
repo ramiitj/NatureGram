@@ -16,7 +16,7 @@ const ConsentBanner: React.FC = () => {
       <div className="flex gap-3">
         <Glyph name="feather" size={22} className="text-theme-accent mt-0.5" />
         <p className="text-sm text-stone-800 leading-relaxed">
-          May we learn how NatureGram is used? With your OK we collect usage statistics (screens used, crashes, speed) and let Google measure our ads. Never your photos, location or messages. <a href="/privacy.html" target="_blank" rel="noopener" className="underline underline-offset-2 text-theme-accent font-medium">Privacy</a>
+          May we learn how NatureGram is used? With your OK we collect usage statistics (screens used, crashes, speed) and let Google measure our ads. Never your photos, location or letters. <a href="/privacy.html" target="_blank" rel="noopener" className="underline underline-offset-2 text-theme-accent font-medium">Privacy</a>
         </p>
       </div>
       {/* Both answers carry equal weight: same size, same style, side by side */}

@@ -187,7 +187,7 @@ const matches = (p: CommunityPost, q: string) => {
 // ---------------------------------------------------------------------------- pieces
 
 const MountedPhoto: React.FC<{ c: Capture; tilt: number; pencil: boolean; onClick: () => void; label: string }> = ({ c, tilt, pencil, onClick, label }) => {
-  const group = c.label ? GROUP_GLYPH[groupOf({ labels: [c.label] })] : 'fern';
+  const group = c.label ? GROUP_GLYPH[groupOf({ labels: [c.label] })] : 'leaf';
   return (
     <button
       type="button"
@@ -250,18 +250,82 @@ const EntryView: React.FC<{ e: Entry; onOpen: (p: CommunityPost) => void; index:
 
 // ---------------------------------------------------------------------------- the notebook
 
+/** The journal's one header, shared by the notebook and the grid: title, count, view switch and search. */
+export const JournalHeader: React.FC<{
+  count: number;
+  firstMs?: number;
+  view: 'notebook' | 'grid';
+  onView: (v: 'notebook' | 'grid') => void;
+  query: string;
+  onQuery: (q: string) => void;
+  /** The search is left out when the grid shows its own search and filters (more than 20 sightings) */
+  showSearch?: boolean;
+  onTitleClick?: () => void;
+}> = ({ count, firstMs, view, onView, query, onQuery, showSearch = true, onTitleClick }) => (
+  <header className="px-4 md:px-12 pt-10 pb-5 border-b border-theme-primary/10">
+    <div className="flex items-start justify-between gap-3">
+      <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
+        <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary flex items-center gap-2">
+          <Glyph name="rings" size={26} className="text-theme-accent" />
+          My journal
+        </h2>
+        {count > 0 && (
+          <p className="text-sm text-stone-500 mt-1">
+            {count} {count === 1 ? 'sighting' : 'sightings'}{firstMs ? ` since ${monthTitle(firstMs)}` : ''}
+          </p>
+        )}
+      </button>
+      {count > 0 && (
+        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Journal view">
+          {(['notebook', 'grid'] as const).map(v => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onView(v)}
+              aria-pressed={view === v}
+              className={`h-9 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 ${view === v ? 'bg-theme-primary text-white' : 'border border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5'}`}
+            >
+              {v === 'notebook'
+                ? <><Glyph name="notebook" size={16} />Notebook</>
+                : <><span className="material-symbols-outlined text-[17px]" aria-hidden="true">grid_view</span>Grid</>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+    {showSearch && count > 0 && (
+      <label className="relative block mt-4 max-w-md">
+        <span className="sr-only">Search your journal</span>
+        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-lg" aria-hidden="true">search</span>
+        <input
+          type="search"
+          value={query}
+          onChange={e => onQuery(e.target.value)}
+          placeholder="Find a species, place or word"
+          className="w-full pl-10 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-500 focus:border-[rgb(var(--theme-accent-rgb))] outline-none"
+        />
+      </label>
+    )}
+  </header>
+);
+
+/** The first sighting's time, for "since March 2025". */
+export const firstSightingMs = (posts: CommunityPost[]) => posts.reduce((m, p) => { const t = postMs(p); return t && (!m || t < m) ? t : m; }, 0);
+
 interface Props {
   posts: CommunityPost[];
   loading: boolean;
   drafts: ExpeditionDraft[];
   onOpenPost: (post: CommunityPost) => void;
   onOpenDrafts?: () => void;
-  onShowGrid: () => void;
-  onTitleClick?: () => void;
+  /** The search typed in the shared JournalHeader */
+  query: string;
+  onClearQuery: () => void;
+  /** Shown when there are no sightings at all (the journal's one empty state) */
+  emptyState: React.ReactNode;
 }
 
-const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, onOpenDrafts, onShowGrid, onTitleClick }) => {
-  const [query, setQuery] = useState('');
+const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, onOpenDrafts, query, onClearQuery, emptyState }) => {
   const [shownMonths, setShownMonths] = useState(3);
   const q = query.trim().toLowerCase();
 
@@ -285,8 +349,6 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
     return null;
   }, [posts]);
 
-  const firstMs = useMemo(() => posts.reduce((m, p) => { const t = postMs(p); return t && (!m || t < m) ? t : m; }, 0), [posts]);
-
   const jump = (key: string, idx: number) => {
     if (idx >= shownMonths) setShownMonths(idx + 1);
     window.setTimeout(() => document.getElementById(`nb-${key}`)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }), 30);
@@ -294,40 +356,6 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
 
   return (
     <div className="w-full min-h-full bg-day-bg">
-      {/* Header */}
-      <header className="px-4 md:px-12 pt-10 pb-5 border-b border-theme-primary/10">
-        <div className="flex items-start justify-between gap-3">
-          <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
-            <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary flex items-center gap-2">
-              <Glyph name="rings" size={26} className="text-theme-accent" />
-              My journal
-            </h2>
-            {posts.length > 0 && (
-              <p className="text-sm text-stone-500 mt-1">
-                {posts.length} {posts.length === 1 ? 'entry' : 'entries'}{firstMs ? ` since ${monthTitle(firstMs)}` : ''}
-              </p>
-            )}
-          </button>
-          <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Journal view">
-            <span className="h-9 px-3 rounded-full bg-theme-primary text-white text-sm font-medium flex items-center gap-1.5" aria-current="true"><Glyph name="notebook" size={16} />Notebook</span>
-            <button type="button" onClick={onShowGrid} className="h-9 px-3 rounded-full border border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5 text-sm font-medium flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[17px]" aria-hidden="true">grid_view</span>Grid
-            </button>
-          </div>
-        </div>
-        <label className="relative block mt-4 max-w-md">
-          <span className="sr-only">Search your journal</span>
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-lg" aria-hidden="true">search</span>
-          <input
-            type="search"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Find a species, place or word"
-            className="w-full pl-10 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-400 focus:border-[rgb(var(--theme-accent-rgb))] outline-none"
-          />
-        </label>
-      </header>
-
       <div className="px-4 md:px-12 py-6 pb-40 lg:flex lg:gap-10">
         {/* Season spine (wide screens) */}
         {months.length > 1 && (
@@ -337,7 +365,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
                 <li key={m.key}>
                   <button type="button" onClick={() => jump(m.key, i)} className="text-left group">
                     <span className="block text-sm font-display text-theme-primary group-hover:underline">{m.title}</span>
-                    <span className="block text-[11px] text-stone-500">{(() => { const n = m.days.reduce((t, d) => t + d.outings.reduce((k, o) => k + o.entries.length, 0), 0); return `${m.season} · ${n} ${n === 1 ? 'entry' : 'entries'}`; })()}</span>
+                    <span className="block text-[11px] text-stone-500">{(() => { const n = m.days.reduce((t, d) => t + d.outings.reduce((k, o) => k + o.entries.length, 0), 0); return `${m.season} · ${n} ${n === 1 ? 'sighting' : 'sightings'}`; })()}</span>
                   </button>
                 </li>
               ))}
@@ -401,16 +429,10 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
               {months.length === 0 ? (
                 q ? (
                   <div className="py-20 text-center">
-                    <p className="font-display text-xl text-stone-800">No pages mention "{query.trim()}"</p>
-                    <button type="button" onClick={() => setQuery('')} className="mt-3 text-sm text-theme-accent font-medium">Clear the search</button>
+                    <p className="font-display text-xl text-stone-800">No sightings mention "{query.trim()}"</p>
+                    <button type="button" onClick={onClearQuery} className="mt-3 text-sm text-theme-accent font-medium">Clear the search</button>
                   </div>
-                ) : (
-                  <div className="py-24 flex flex-col items-center text-center">
-                    <Glyph name="rings" size={48} strokeWidth={1.1} className="text-theme-primary/25 mb-5" />
-                    <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">Your journal starts outside</h3>
-                    <p className="text-base text-stone-600 max-w-xs">Each outing becomes a page here, dated, placed and in your own words.</p>
-                  </div>
-                )
+                ) : emptyState
               ) : (
                 visible.map(m => (
                   <section key={m.key} id={`nb-${m.key}`} aria-labelledby={`nbh-${m.key}`} className="mb-6 scroll-mt-4">
@@ -429,7 +451,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
                               <Glyph name="tracks" size={15} className="text-[rgb(var(--theme-accent-rgb))]" />
                               <span className="tabular">{timeSpan(o.start, o.end)}</span>
                               {o.place && <><span aria-hidden="true">·</span><span>{o.place}</span></>}
-                              {o.entries.length > 1 && <><span aria-hidden="true">·</span><span>{o.entries.length} entries</span></>}
+                              {o.entries.length > 1 && <><span aria-hidden="true">·</span><span>{o.entries.length} sightings</span></>}
                             </p>
                             <ul className="divide-y divide-[#efe7d6]" role="list">
                               {o.entries.map((e, i) => <EntryView key={e.post.id} e={e} index={i} onOpen={onOpenPost} />)}
