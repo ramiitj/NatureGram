@@ -7,6 +7,8 @@ Settings, switches and one-off jobs for running NatureGram. Deployment steps are
 ### Server (Cloud Run)
 | Variable | Default | What it does |
 |---|---|---|
+| `APPCHECK_SITE_KEY` | unset | reCAPTCHA Enterprise site key handed to the web app at runtime (`/api/client-config`). Setting it turns App Check on without a rebuild. |
+| `APPCHECK_PROVIDER` | `enterprise` | `v3` for a classic reCAPTCHA v3 key. |
 | `APPCHECK_ENFORCE` | unset (monitoring) | `true` refuses AI, publishing and live calls without a valid App Check token. Leave unset until the counts under Admin → Audit & security show almost every call verified, and never while native apps ship without an App Check provider. |
 | `LIVE_GLOBAL_MAX_CONCURRENT` | `0` (no cap) | Live sessions open at once across all explorers and all server instances (shared leases). |
 | `QUOTA_MAX_CONCURRENT_LIVE` | `1` | Existing: live sessions per explorer. Now enforced across instances through `live_leases`. |
@@ -25,7 +27,7 @@ Settings, switches and one-off jobs for running NatureGram. Deployment steps are
 
 ## App Check: turning it on
 1. Firebase console → App Check → register the web app with **reCAPTCHA Enterprise** (create the key in Google Cloud → reCAPTCHA Enterprise, add `thenaturegram.com`, `www.thenaturegram.com` and any preview domains).
-2. Build with `VITE_APPCHECK_SITE_KEY=<site key>` and deploy. The server's Content-Security-Policy already allows `www.google.com`/`recaptcha.net` scripts and frames.
+2. Set `APPCHECK_SITE_KEY=<site key>` on the Cloud Run service (or build with `VITE_APPCHECK_SITE_KEY`) and deploy. The server's Content-Security-Policy already allows `www.google.com`/`recaptcha.net` scripts and frames.
 3. Watch Admin → Audit & security → App Check for a few days (verified / without a token / invalid).
 4. Native apps: add App Attest (iOS) and Play Integrity (Android) providers before enforcing; until then they send no token.
 5. Set `APPCHECK_ENFORCE=true` on the server. Roll back by removing it.

@@ -314,7 +314,17 @@ async function startServer() {
   // Health: also says whether the shared store (allowances, settings, logs) is reachable,
   // because the AI refuses requests when it isn't (limits fail closed).
   let probe = { at: 0, ok: false, error: null };
-  app.get('/healthz', async (req, res) => {
+  // Public, non-secret client settings read at runtime, so they can be changed on Cloud Run without a rebuild
+  app.get('/api/client-config', (req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json({
+      appCheckSiteKey: process.env.APPCHECK_SITE_KEY || '',
+      appCheckProvider: process.env.APPCHECK_PROVIDER === 'v3' ? 'v3' : 'enterprise',
+    });
+  });
+
+  // Cloud Run's front end reserves /healthz for itself, so the same check also answers at /api/health
+  app.get(['/healthz', '/api/health'], async (req, res) => {
     if (Date.now() - probe.at > 30_000 && firestoreDb) {
       try {
         await Promise.race([firestoreDb.doc('app_config/flags').get(), new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))]);
