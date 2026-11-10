@@ -35,6 +35,7 @@ const Explore = lazy(() => import('./components/Explore.tsx'));
 const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
 const NaturalistPage = lazy(() => import('./components/NaturalistPage.tsx'));
 const NaturalistPersonaModal = lazy(() => import('./components/NaturalistPersonaModal.tsx'));
+const AuthAction = lazy(() => import('./components/AuthAction.tsx'));
 
 /** One gentle loader for the whole app: a leaf outline being pressed into the page (still under reduced motion). */
 const PressingLeaf: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 44 }) => (
@@ -109,8 +110,20 @@ const pathId = (p: string, prefix: string) => (p.startsWith(prefix) ? decodeURIC
 const getInitialPostId = () => pathId(window.location.pathname, '/post/') || new URLSearchParams(window.location.search).get('p');
 const getInitialProfileId = () => pathId(window.location.pathname, '/profile/') || new URLSearchParams(window.location.search).get('user');
 
+/**
+ * Links from our letters (/auth/action?mode=…&oobCode=…) and the /welcome continue URL open
+ * AuthAction over the feed. The address is read once, then the one-time code leaves the address bar.
+ */
+const AUTH_ACTION_URL = (() => {
+  if (!/^\/(auth\/action|welcome)\/?$/.test(window.location.pathname)) return null;
+  const url = window.location.pathname + window.location.search;
+  window.history.replaceState(null, '', '/feed');
+  return url;
+})();
+
 const viewFromPath = (p: string): AppView => {
   if (p === '/' || p === '') return AppView.LANDING;
+  if (p.startsWith('/auth/action') || p.startsWith('/welcome')) return AppView.COMMUNITY;
   if (p.startsWith('/post/')) return AppView.COMMUNITY;
   if (p.startsWith('/journal')) return AppView.JOURNAL;
   if (p.startsWith('/profile')) return AppView.USER_PROFILE;
@@ -264,6 +277,7 @@ const App: React.FC = () => {
 
   // The naturalist of the fortnight: their page, and the one-time handover card after a rotation
   const [naturalistOpen, setNaturalistOpen] = useState(false);
+  const [authActionUrl, setAuthActionUrl] = useState<string | null>(AUTH_ACTION_URL);
   const [handoverFrom, setHandoverFrom] = useState<string | null>(() => pendingHandover(getFallbackTheme().id));
   const openNaturalist = useCallback(() => { track('naturalist_page_open', {}); setNaturalistOpen(true); }, []);
 
@@ -1070,6 +1084,16 @@ const App: React.FC = () => {
             onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
             onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.COMMUNITY); }}
           />
+        )}
+
+        {authActionUrl && (
+          <Suspense fallback={<div className="fixed inset-0 z-[150] bg-[#f3eee4] flex"><ViewLoader /></div>}>
+            <AuthAction
+              url={authActionUrl}
+              onDone={(to) => { setAuthActionUrl(null); setCurrentView(AppView.COMMUNITY); if (to === 'lens') handleNavigationRequest(AppView.LENS); }}
+              onSignIn={() => { setAuthActionUrl(null); setCurrentView(AppView.COMMUNITY); setAuthModal({ signUp: false }); }}
+            />
+          </Suspense>
         )}
 
         {naturalistOpen && (

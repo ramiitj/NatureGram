@@ -166,6 +166,24 @@ const DEFAULT_CONFIG: GeminiConfig = {
   trainingExamples: []
 };
 
+/**
+ * Ask the server to send NatureGram's own account letter (server/authMail.js). 'fallback' means
+ * use Firebase's built-in email instead: no mail provider, no link permission, or no server at all.
+ */
+const brandedAuthMail = async (path: string, body: object, token?: string): Promise<'sent' | 'limited' | 'fallback'> => {
+  try {
+    const res = await fetch(apiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    if (res.status === 429) return 'limited';
+    if (!res.ok) return 'fallback';
+    const j = await res.json().catch(() => ({}));
+    return j.sent ? 'sent' : j.verified ? 'sent' : 'fallback';
+  } catch { return 'fallback'; }
+};
+
 export const FirebaseService = {
   getUserProfile: async (userId: string): Promise<UserProfileData | null> => {
     try {
@@ -325,7 +343,7 @@ export const FirebaseService = {
         await updateDoc(doc(db, "users", cred.user.uid), updates);
         if (desired) await updateProfile(cred.user, { displayName: desired });
         else if (!cred.user.displayName) await updateProfile(cred.user, { displayName: email.split('@')[0].slice(0, 30) });
-        sendEmailVerification(cred.user).catch(() => {});
+        FirebaseService.sendVerificationEmail().catch(() => {});
     } catch (err) {
         console.warn("Profile setup after registration failed:", err);
     }
@@ -333,7 +351,12 @@ export const FirebaseService = {
   },
 
   sendPasswordReset: async (email: string) => {
-    await sendPasswordResetEmail(auth, email);
+    // NatureGram's own letter first; Firebase's email when the server can't send one
+    const r = await brandedAuthMail('/api/auth/send-reset', { email });
+    if (r === 'sent') return;
+    if (r === 'limited') throw Object.assign(new Error('Too many requests'), { code: 'auth/too-many-requests' });
+    await sendPasswordResetEmail(auth, email, { url: apiUrl('/feed') })
+      .catch((e) => /continue-uri|domain/.test(e?.code || '') ? sendPasswordResetEmail(auth, email) : Promise.reject(e));
   },
 
   loginUser: async (email: string, pass: string) => {
@@ -1724,7 +1747,13 @@ export const FirebaseService = {
   },
 
   sendVerificationEmail: async () => {
-    if (auth.currentUser) await sendEmailVerification(auth.currentUser);
+    const u = auth.currentUser;
+    if (!u) return;
+    const r = await brandedAuthMail('/api/auth/send-verification', {}, await u.getIdToken(true).catch(() => ''));
+    if (r === 'sent') return;
+    if (r === 'limited') throw Object.assign(new Error('Too many requests'), { code: 'auth/too-many-requests' });
+    await sendEmailVerification(u, { url: apiUrl('/welcome') })
+      .catch((e) => /continue-uri|domain/.test(e?.code || '') ? sendEmailVerification(u) : Promise.reject(e));
   },
 
   /** Report a letters conversation; only then can the admin read it (through the server). */

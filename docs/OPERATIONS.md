@@ -62,3 +62,56 @@ Admin → Data explorer → **Export Darwin Core Archive** downloads `naturegram
 
 ## Native icons and splash
 `node scripts/generate-native-assets.mjs` regenerates every iOS and Android icon and splash image from `public/icon.svg` (uses Playwright's Chromium; set `PW_CHROMIUM_PATH` if needed), then `npx cap sync`.
+
+## Account letters: email verification and password reset
+NatureGram sends its own branded letters for email verification and password resets, and handles every Firebase email link on its own page, `https://thenaturegram.com/auth/action` (`components/AuthAction.tsx`). The server (`server/authMail.js`) generates the link with the Admin SDK, rebuilds it on our origin (`/auth/action?mode=…&oobCode=…&continueUrl=…`) and sends it through Resend (`server/mailer.js`). When it can't (no mail provider, or the server account lacks the role below) it answers `{ sent: false, fallback: true }` and the app asks Firebase to send its own email instead, so sign-up and resets always work.
+
+| Endpoint | Body | Limits | Notes |
+|---|---|---|---|
+| `POST /api/auth/send-verification` | `Authorization: Bearer <ID token>` | 3 an hour per explorer, 6 per network | Signed-in, unverified accounts only. Continue URL `/welcome`. |
+| `POST /api/auth/send-reset` | `{ "email": "…" }` | 3 an hour per address (silently), 8 per network | Always answers the same way, known address or not, and takes at least 1.2 s, so it can't be used to find accounts. |
+
+Logs record outcomes (`auth mail: …`) with the uid or a hash of the address; never links, codes, tokens or addresses.
+
+### Server variables
+| Variable | Default | What it does |
+|---|---|---|
+| `RESEND_API_KEY` | unset | Turns on NatureGram's own letters. Unset means Firebase's built-in emails (still linking to our page once the action URL below is set). |
+| `MAIL_FROM` | `NatureGram <field@thenaturegram.com>` | Sender. The domain must be verified in Resend. |
+| `MAIL_REPLY_TO` | unset | Optional reply-to address. |
+| `PUBLIC_ORIGIN` | `https://thenaturegram.com` | Origin used for links in letters. |
+
+### One-time setup for the owner
+1. **Let the server make action links.** Generating links needs the Firebase Authentication Admin role on the Cloud Run runtime account:
+   ```sh
+   gcloud projects add-iam-policy-binding biostream-6490a \
+     --member="serviceAccount:292328394577-compute@developer.gserviceaccount.com" \
+     --role="roles/firebaseauth.admin"
+   ```
+   Until this is done the logs show `auth mail: … link failed, falling back` and Firebase's own email goes out instead.
+2. **Point every Firebase email at our page.** Firebase console → Authentication → Templates → open any template (pencil icon) → **Customize action URL** (at the bottom of the editor) → `https://thenaturegram.com/auth/action` → Save. This applies to all templates, so even Firebase's own emails (the fallback, email change, and "recover email") land on NatureGram's page instead of `biostream-6490a.firebaseapp.com/__/auth/action`. The old firebaseapp.com handler keeps working for links already sent.
+3. **Authorized domains.** Authentication → Settings → Authorized domains: make sure `thenaturegram.com` and `www.thenaturegram.com` are listed (continue URLs such as `/welcome` must be on one of them).
+4. **Sender name and reply-to.** Authentication → Templates → each template (Email address verification, Password reset, Email address change) → pencil → **Sender name** `NatureGram`; **Reply to** e.g. `field@thenaturegram.com`.
+5. **Optional: send Firebase's emails from our domain.** Authentication → Templates → pencil → **Customize domain** → `thenaturegram.com`. Add the TXT and CNAME records Firebase shows at your DNS host, then click Verify (can take up to 48 hours). Firebase's emails then come from `noreply@thenaturegram.com` instead of `noreply@biostream-6490a.firebaseapp.com`.
+6. **Template text in the house voice** (edit where the console allows; it locks some message bodies against spam, but subject, sender name and reply-to are always editable):
+   - *Email address verification.* Subject: `Confirm your email and your field notebook is yours`. Message:
+     > Hi %DISPLAY_NAME%,
+     >
+     > Your notebook, your life list and your letters from other explorers are ready. Confirm this is your email and they are yours to keep.
+     >
+     > %LINK%
+     >
+     > If you didn't sign up, you can ignore this letter. The link works once and expires in a few days.
+     >
+     > NatureGram, a field notebook for the living world
+   - *Password reset.* Subject: `Your NatureGram password reset`. Message:
+     > Someone, hopefully you, asked to reset the password for %EMAIL% on NatureGram.
+     >
+     > Choose a new one here and your sightings, life list and letters will be right where you left them: %LINK%
+     >
+     > If you didn't ask, you can ignore this letter. Your password stays as it is.
+   - *Email address change.* Subject: `Your NatureGram email was changed`. Message:
+     > The email on your NatureGram account was changed to %NEW_EMAIL%.
+     >
+     > If that wasn't you, this link puts %EMAIL% back and helps you secure your notebook: %LINK%
+7. **Optional: turn on our own letters.** Create a Resend account, add and verify the domain `thenaturegram.com` (Resend → Domains → add the SPF/DKIM records it shows), create an API key with sending access, then set `RESEND_API_KEY` (as a Secret Manager secret) and, if you want a different sender, `MAIL_FROM` on the Cloud Run service. Deploy. Sign up with a test address and check the logs for `auth mail: verification sent`.

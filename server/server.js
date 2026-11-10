@@ -33,6 +33,7 @@ import { mountAdmin } from './admin.js';
 import { initLeases, acquire as acquireLease, hold as holdLease, leaseHealth } from './liveLeases.js';
 import { appCheckVerdict, appCheckStats, splitWsAppCheck } from './appCheck.js';
 import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
+import { mountAuthMail } from './authMail.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -734,6 +735,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     return null;
   };
   mountLive(app, { verifyIdToken, bearer, gate, burstOk, clientIp, log, quotas: QUOTAS, networkOpen, apiKey: API_KEY });
+  mountAuthMail(app, { verifyIdToken, bearer, clientIp, log, auth: () => getAuth() });
 
   // -------------------------------------------------------------------------
   // Frontend
@@ -753,7 +755,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     // Friendly addresses for the legal pages
     app.get(['/privacy', '/terms'], (req, res) => res.redirect(301, `${req.path}.html`));
     // Only real app routes get the app; anything else is a proper 404
-    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|lens\/?$|review\/?$|admin\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
+    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
       res.setHeader('Cache-Control', 'no-cache');
