@@ -14,21 +14,33 @@ import { NATURALIST_THEMES, getDailyTheme } from '../constants/naturalists';
  * version and writes the audit log. Nothing here talks to the database directly.
  */
 
-type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'experiments' | 'branding' | 'data' | 'security';
+/** The eleven working panes, grouped into six sections below. */
+type Pane = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'experiments' | 'branding' | 'data' | 'security';
+type Section = 'today' | 'queue' | 'people' | 'guide' | 'settings' | 'records';
 
-const SECTIONS: { id: Section; label: string; glyph: GlyphName; blurb: string }[] = [
-  { id: 'overview', label: 'Overview', glyph: 'plate', blurb: 'How the field station is doing today. The figures refresh every minute.' },
-  { id: 'controls', label: 'Allowances & switches', glyph: 'scales', blurb: 'Daily allowances, what is switched on for everyone, and spending limits.' },
-  { id: 'ai', label: 'AI governance', glyph: 'feather', blurb: "The guide's instructions, the platform policy, the models and the messages explorers see." },
-  { id: 'monitor', label: 'AI monitor', glyph: 'guide', blurb: "Every call the guide makes, today's usage, and how often explorers correct it." },
-  { id: 'review', label: 'Review', glyph: 'stamp', blurb: 'Sightings and field notes waiting for a decision, and reports from explorers.' },
-  { id: 'people', label: 'People', glyph: 'binoculars', blurb: 'Look up an explorer, see what they have been doing, and step in when needed.' },
-  { id: 'letters', label: 'Reported letters', glyph: 'sealed', blurb: 'Conversations an explorer has reported. Only these can be read.' },
-  { id: 'experiments', label: 'Experiments', glyph: 'compass', blurb: 'Feature flags and A/B tests. Each explorer always lands in the same group.' },
-  { id: 'branding', label: 'Branding', glyph: 'sun', blurb: "NatureGram's mark in the browser tab and on home screens. By default it is the landing sun in the colours of the naturalist of the fortnight." },
-  { id: 'data', label: 'Data explorer', glyph: 'notebook', blurb: 'Exports, maintenance jobs and a read-only look at the records.' },
-  { id: 'security', label: 'Audit & security', glyph: 'seal', blurb: 'Who holds the keys, blocked networks, server safety settings and every admin action.' },
+const PANES: Record<Pane, { label: string; blurb: string }> = {
+  overview: { label: 'Today', blurb: 'How the field station is doing today. The figures refresh every minute.' },
+  review: { label: 'Sightings and notes', blurb: 'Sightings and field notes waiting for a decision, and reports from explorers.' },
+  letters: { label: 'Reported letters', blurb: 'Conversations an explorer has reported. Only these can be read.' },
+  people: { label: 'People', blurb: 'Look up an explorer, see what they have been doing, and step in when needed.' },
+  ai: { label: 'Governance', blurb: "The guide's instructions, the platform policy, the models and the messages explorers see." },
+  monitor: { label: 'Monitor', blurb: "Every call the guide makes, today's usage, and how often explorers correct it." },
+  controls: { label: 'Allowances & switches', blurb: 'Daily allowances, what is switched on for everyone, and spending limits.' },
+  experiments: { label: 'Experiments', blurb: 'Feature flags and A/B tests. Each explorer always lands in the same group.' },
+  branding: { label: 'Branding', blurb: "NatureGram's mark in the browser tab and on home screens. The colour switch only changes the favicon and the home-screen icon, not the app's theme." },
+  data: { label: 'Data explorer', blurb: 'Exports, maintenance jobs and a read-only look at the records.' },
+  security: { label: 'Audit & security', blurb: 'Who holds the keys, blocked networks, server safety settings and every admin action.' },
+};
+
+const SECTIONS: { id: Section; label: string; glyph: GlyphName; panes: Pane[] }[] = [
+  { id: 'today', label: 'Today', glyph: 'plate', panes: ['overview'] },
+  { id: 'queue', label: 'Review queue', glyph: 'stamp', panes: ['review', 'letters'] },
+  { id: 'people', label: 'People', glyph: 'binoculars', panes: ['people'] },
+  { id: 'guide', label: 'The guide', glyph: 'guide', panes: ['ai', 'monitor'] },
+  { id: 'settings', label: 'Settings', glyph: 'scales', panes: ['controls', 'experiments', 'branding'] },
+  { id: 'records', label: 'Records & security', glyph: 'seal', panes: ['data', 'security'] },
 ];
+const sectionOf = (p: Pane): Section => SECTIONS.find(s => s.panes.includes(p))!.id;
 
 class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 
@@ -196,7 +208,7 @@ const linkCls = 'underline decoration-stone-400 underline-offset-2 hover:decorat
 
 // ---------------------------------------------------------------------------- sections
 
-const Overview: React.FC<{ go: (s: Section) => void }> = ({ go }) => {
+const Overview: React.FC<{ go: (p: Pane) => void }> = ({ go }) => {
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState('');
   const load = useCallback(() => api('/overview').then(setD).catch(e => setErr(e.message)), []);
@@ -1042,7 +1054,8 @@ const Security: React.FC = () => {
 
 const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [state, setState] = useState<'checking' | 'ok' | 'denied' | 'reauth' | 'mfa'>('checking');
-  const [section, setSection] = useState<Section>('overview');
+  const [pane, setPane] = useState<Pane>('overview');
+  const section = sectionOf(pane);
   const [uid, setUid] = useState<string | null>(null);
   const [me, setMe] = useState<any>(null);
   const [why, setWhy] = useState('');
@@ -1054,8 +1067,9 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setState(e.code === 'reauth' ? 'reauth' : e.code === 'mfa' ? 'mfa' : 'denied');
     });
   }, []);
-  const openUser = (u: string) => { setUid(u); setSection('people'); };
-  const pick = (s: Section) => { setSection(s); if (s !== 'people') setUid(null); };
+  const openUser = (u: string) => { setUid(u); setPane('people'); };
+  const go = (p: Pane) => { setPane(p); if (p !== 'people') setUid(null); };
+  const pick = (s: Section) => go(SECTIONS.find(x => x.id === s)!.panes[0]);
 
   if (state !== 'ok') {
     const [title, body] = state === 'checking' ? ['', '']
@@ -1080,6 +1094,7 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   }
 
   const current = SECTIONS.find(s => s.id === section)!;
+  const info = PANES[pane];
   return (
     <div className="flex-1 min-h-0 h-full overflow-y-auto bg-[#f6f1e6] text-stone-900">
       <header className="sticky top-0 z-20 bg-[#fbf7ef]/95 backdrop-blur border-b border-[#e3d8c4] safe-pt">
@@ -1118,20 +1133,25 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <span className="mt-0.5 w-10 h-10 shrink-0 rounded-full bg-[#fbf7ef] border border-[#e3d8c4] flex items-center justify-center text-theme-accent"><Glyph name={current.glyph} size={22} /></span>
             <div className="min-w-0">
               <h2 className="font-display text-2xl leading-tight text-stone-900">{current.label}</h2>
-              <p className="text-sm text-stone-600 mt-0.5">{current.blurb}</p>
+              <p className="text-sm text-stone-600 mt-0.5">{info.blurb}</p>
             </div>
           </div>
-          {section === 'overview' && <Overview go={pick} />}
-          {section === 'controls' && <Controls />}
-          {section === 'ai' && <AiGovernance />}
-          {section === 'monitor' && <Monitor openUser={openUser} />}
-          {section === 'review' && <Review openUser={openUser} />}
-          {section === 'people' && <People uid={uid} setUid={setUid} />}
-          {section === 'letters' && <Letters />}
-          {section === 'experiments' && <Experiments />}
-          {section === 'branding' && <Branding />}
-          {section === 'data' && <div className="space-y-4"><DataTools /><DataExplorer /></div>}
-          {section === 'security' && <Security />}
+          {current.panes.length > 1 && (
+            <div className="mb-5">
+              <Tabs<Pane> label={current.label} value={pane} onChange={go} items={current.panes.map(p => [p, PANES[p].label] as [Pane, string])} />
+            </div>
+          )}
+          {pane === 'overview' && <Overview go={go} />}
+          {pane === 'controls' && <Controls />}
+          {pane === 'ai' && <AiGovernance />}
+          {pane === 'monitor' && <Monitor openUser={openUser} />}
+          {pane === 'review' && <Review openUser={openUser} />}
+          {pane === 'people' && <People uid={uid} setUid={setUid} />}
+          {pane === 'letters' && <Letters />}
+          {pane === 'experiments' && <Experiments />}
+          {pane === 'branding' && <Branding />}
+          {pane === 'data' && <div className="space-y-4"><DataTools /><DataExplorer /></div>}
+          {pane === 'security' && <Security />}
         </main>
       </div>
     </div>

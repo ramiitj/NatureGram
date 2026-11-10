@@ -5,6 +5,7 @@ import { FirebaseService } from '../services/firebaseService';
 import { groupOf, seasonOf, toMs, GROUP_GLYPH, LifeGroup } from '../services/lifeList';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import { CommunityPost } from '../types';
+import FirstHint from './FirstHint';
 
 /**
  * Explore: the community's collection laid out like a naturalist's cabinet rather than a feed.
@@ -140,6 +141,7 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onBack }) 
       </header>
 
       <main className="max-w-5xl mx-auto px-4 pt-5 space-y-10">
+        <FirstHint id="explore" text="Wander by place, by kind of life, or by season." className="!mx-0" />
         {/* Search */}
         <section aria-label="Search the collection">
           <label htmlFor="explore-search" className="sr-only">Search sightings</label>

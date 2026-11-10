@@ -225,7 +225,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           <header className={`${inline ? 'px-1 pt-1' : 'px-6 pt-6 pr-14'} ${wide ? 'md:p-0' : ''}`}>
             <Glyph name={headGlyph} size={28} className="text-theme-accent mb-3" />
             <h2 id="auth-title" className="text-[26px] md:text-[28px] leading-tight font-display font-semibold text-text-main">{title}</h2>
-            {subtitle && <p className="text-stone-600 text-[15px] mt-1.5 leading-relaxed">{subtitle}</p>}
+            {(mode === 'signup' || mode === 'login') && !blocked && !teenStep && (
+              <div role="tablist" aria-label="Sign up or log in" className="mt-3 inline-flex p-0.5 rounded-full bg-stone-900/5 border border-stone-900/10 text-sm">
+                {([['signup', 'Start my field page'], ['login', 'Log in']] as const).map(([m, label]) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === m}
+                    onClick={() => mode !== m && switchMode(m)}
+                    className={`min-h-[36px] px-3.5 rounded-full transition-colors ${mode === m ? 'bg-white text-text-main font-semibold shadow-sm' : 'text-stone-600 hover:text-stone-900'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {subtitle && <p className="text-stone-600 text-[15px] mt-2 leading-relaxed">{subtitle}</p>}
             {mode === 'login' && !inline && epigraph && <div className="md:hidden mt-4 pl-3 border-l-2 border-theme-accent/40">{epigraph}</div>}
           </header>
           {threshold}
@@ -282,34 +298,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                 </ul>
               </>
             )}
-            {!teenStep && mode === 'signup' && (
-              <div>
-                <label htmlFor="auth-username" className={labelClass}>Username <span className="font-normal text-stone-500">(optional)</span></label>
-                <input id="auth-username" ref={firstFieldRef} type="text" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" placeholder="e.g. owl_watcher" className={inputClass} aria-invalid={!usernameOk} aria-describedby={usernameOk ? undefined : 'auth-username-hint'} />
-                {!usernameOk && <p id="auth-username-hint" className="text-xs mt-1.5 text-red-800">3 to 30 letters, numbers, dots or underscores.</p>}
-              </div>
-            )}
-            {!teenStep && mode === 'signup' && (
-              <fieldset>
-                <legend className={labelClass}>Month and year you were born</legend>
-                <div className="flex gap-2">
-                  <label htmlFor="auth-birth-month" className="sr-only">Birth month</label>
-                  <select id="auth-birth-month" value={birthMonth} onChange={e => setBirthMonth(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[3]`}>
-                    <option value="">Month</option>
-                    {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-                  </select>
-                  <label htmlFor="auth-birth-year" className="sr-only">Birth year</label>
-                  <select id="auth-birth-year" value={birthYear} onChange={e => setBirthYear(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[2]`}>
-                    <option value="">Year</option>
-                    {Array.from({ length: 100 }, (_, i) => thisYear - i).map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                </div>
-                <p id="auth-birth-hint" className="text-xs mt-1.5 text-stone-500">Only used to check you're 13 or older. We don't keep it.</p>
-              </fieldset>
-            )}
             <div className={teenStep ? 'hidden' : ''}>
               <label htmlFor="auth-email" className={labelClass}>Email</label>
-              <input id="auth-email" ref={mode === 'signup' ? undefined : firstFieldRef} type="email" inputMode="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" className={inputClass} />
+              <input id="auth-email" ref={firstFieldRef} type="email" inputMode="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" className={inputClass} />
             </div>
             {mode !== 'reset' && (
               <div className={teenStep ? 'hidden' : ''}>
@@ -344,6 +335,32 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               </div>
             )}
 
+            {!teenStep && mode === 'signup' && (
+              <fieldset>
+                <legend className={labelClass}>Month and year you were born</legend>
+                <div className="flex gap-2">
+                  <label htmlFor="auth-birth-month" className="sr-only">Birth month</label>
+                  <select id="auth-birth-month" value={birthMonth} onChange={e => setBirthMonth(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[3]`}>
+                    <option value="">Month</option>
+                    {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                  </select>
+                  <label htmlFor="auth-birth-year" className="sr-only">Birth year</label>
+                  <select id="auth-birth-year" value={birthYear} onChange={e => setBirthYear(e.target.value)} required aria-describedby="auth-birth-hint" className={`${inputClass} flex-[2]`}>
+                    <option value="">Year</option>
+                    {Array.from({ length: 100 }, (_, i) => thisYear - i).map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <p id="auth-birth-hint" className="text-xs mt-1.5 text-stone-500">Only used to check you're 13 or older. We don't keep it.</p>
+              </fieldset>
+            )}
+            {!teenStep && mode === 'signup' && (
+              <div>
+                <label htmlFor="auth-username" className={labelClass}>Username <span className="font-normal text-stone-500">(optional)</span></label>
+                <input id="auth-username" type="text" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" placeholder="e.g. owl_watcher" className={inputClass} aria-invalid={!usernameOk} aria-describedby={usernameOk ? undefined : 'auth-username-hint'} />
+                {!usernameOk && <p id="auth-username-hint" className="text-xs mt-1.5 text-red-800">3 to 30 letters, numbers, dots or underscores.</p>}
+              </div>
+            )}
+
             {error && (
               <div role="alert" className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">
                 <p>{error}</p>
@@ -361,7 +378,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             <button type="submit" disabled={loading} aria-busy={loading} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-60 active:scale-[0.98]">
               {loading
                 ? (mode === 'signup' ? 'Opening your notebook…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
-                : mode === 'signup' ? (isGuest ? 'Keep my notebook' : 'Start my notebook') : mode === 'login' ? 'Log in' : 'Send reset link'}
+                : mode === 'signup' ? 'Start my field page' : mode === 'login' ? 'Log in' : 'Send reset link'}
             </button>
             {teenStep && step === 'guardian' && <button type="button" onClick={() => { setStep('form'); setError(''); }} className={`${linkBtn} self-center text-sm`}>Back</button>}
           </form>
@@ -370,12 +387,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         {mode === 'signup' && !blocked && !teenStep && !inline && epigraph && <div className="md:hidden mt-6 pt-4 border-t border-[#e8dfcd]">{epigraph}</div>}
 
         <div className={`mt-4 text-center text-sm text-stone-600 ${step === 'sent' && mode === 'signup' ? 'hidden' : ''}`}>
-          {mode === 'signup' ? (
-            <>Already keep a notebook here? <button type="button" onClick={() => switchMode('login')} className={linkBtn}>Log in</button></>
-          ) : mode === 'reset' ? (
+          {mode === 'reset' && (
             <>Remembered it? <button type="button" onClick={() => switchMode('login')} className={linkBtn}>Back to log in</button></>
-          ) : (
-            <>New to NatureGram? <button type="button" onClick={() => switchMode('signup')} className={linkBtn}>Start a field notebook</button></>
           )}
         </div>
         {mode === 'signup' && (

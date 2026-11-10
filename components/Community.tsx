@@ -398,6 +398,9 @@ interface CommunityProps {
   onOpenNaturalist?: () => void;
   /** Opens Explore (places, kinds of life, the fortnight's challenge) */
   onOpenExplore?: () => void;
+  /** Journal grid only. The journal draws the header: a string is its search (this header, chips and
+   *  filters are hidden); null keeps the search, chips and filters here but drops the title row. */
+  journalQuery?: string | null;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -421,7 +424,8 @@ const Community: React.FC<CommunityProps> = ({
     initialPost = null,
     headerActions,
     onOpenNaturalist,
-    onOpenExplore
+    onOpenExplore,
+    journalQuery
 }) => {
   // The first tiles arrive inside the page itself (server/media.js): paint them before any request
   const [bootPosts] = useState<CommunityPost[]>(() => {
@@ -529,6 +533,8 @@ const Community: React.FC<CommunityProps> = ({
 
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
+  // The journal grid takes its search from the journal's own header
+  useEffect(() => { if (typeof journalQuery === 'string') setSearchQuery(journalQuery); }, [journalQuery]);
   const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'fortnight' | 'month' | 'season'>('all');
   const [selectedGroups, setSelectedGroups] = useState<LifeGroup[]>([]);
@@ -1609,7 +1615,9 @@ const Community: React.FC<CommunityProps> = ({
 
         {!detailOnly && (<>
         {/* Field guide header */}
+        {typeof journalQuery !== 'string' && (
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
+            {journalQuery === undefined && (
             <div className="flex items-start justify-between gap-4">
                 <button
                     type="button"
@@ -1618,7 +1626,7 @@ const Community: React.FC<CommunityProps> = ({
                     className="text-left hover:opacity-80 active:scale-95 transition-all rounded-lg min-w-0"
                 >
                     <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary">
-                        {isJournalOnly ? "My Journal" : "NatureGram"}
+                        {isJournalOnly ? "My journal" : "NatureGram"}
                     </h2>
                     {!isJournalOnly && (
                         <p className="text-sm text-stone-600 mt-1 flex items-center gap-1.5">
@@ -1662,7 +1670,7 @@ const Community: React.FC<CommunityProps> = ({
                         </button>
                     )}
                 </div>
-            </div>
+            </div>)}
 
             {!isJournalOnly && (
                 <div className="flex items-center gap-6" role="tablist" aria-label="What to show">
@@ -2039,7 +2047,7 @@ const Community: React.FC<CommunityProps> = ({
                     </button>
                 </div>
             )}
-        </div>
+        </div>)}
 
         <div className="w-full px-4 md:px-12 py-8">
             {isLoading ? (
