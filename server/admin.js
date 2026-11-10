@@ -172,10 +172,19 @@ export function mountAdmin(app, deps) {
       return res.status(403).json({ error: 'Not allowed.' });
     };
     let decoded;
+    const token = String(bearer(req) || '');
+    if (!token) return res.status(401).json({ error: 'You are not signed in on this page yet. Reload and try again.', code: 'no-token' });
     try {
-      decoded = await deps.auth().verifyIdToken(String(bearer(req)), true); // signature, expiry and revocation
-    } catch {
-      return res.status(401).json({ error: 'Please sign in again.' });
+      decoded = await deps.auth().verifyIdToken(token, true); // signature, expiry and revocation
+    } catch (e) {
+      // Record why (never the token). A permission error here means the revocation check could not read
+      // the user from Firebase Auth: grant the server account Firebase Authentication Viewer.
+      const code = String(e?.code || e?.errorInfo?.code || '');
+      const msg = String(e?.message || '').slice(0, 200);
+      const permission = /insufficient-permission|PERMISSION_DENIED|permission/i.test(code + ' ' + msg);
+      log('warn', 'admin token check failed', { code, error: msg, path: req.path, ...(permission ? { hint: 'Grant the server account roles/firebaseauth.viewer on the Firebase project.' } : {}) });
+      if (permission) return res.status(503).json({ error: "The server can't check admin sign-ins yet (it needs read access to Firebase Authentication).", code: 'auth-permission' });
+      return res.status(401).json({ error: /revoked/i.test(code) ? 'Your session was signed out elsewhere. Sign in again.' : 'Please sign in again.', code: 'token' });
     }
     if (decoded.admin !== true) return deny('no claim');
     if (decoded.email_verified !== true) return deny('email not verified');

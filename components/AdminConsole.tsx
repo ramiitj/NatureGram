@@ -27,8 +27,14 @@ const SECTIONS: { id: Section; label: string; icon: string }[] = [
 
 class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 
+/** Wait for Firebase to restore the sign-in (opening /admin directly races it), then get a token. */
+async function adminToken(): Promise<string> {
+  try { await (auth as any).authStateReady?.(); } catch { /* older SDK */ }
+  return (await auth.currentUser?.getIdToken()) || '';
+}
+
 async function api<T = any>(path: string, opts: { method?: string; body?: any } = {}): Promise<T> {
-  const token = await auth.currentUser?.getIdToken();
+  const token = await adminToken();
   const res = await fetch(apiUrl(`/api/admin${path}`), {
     method: opts.method || 'GET',
     headers: { Authorization: `Bearer ${token || ''}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
@@ -41,7 +47,7 @@ async function api<T = any>(path: string, opts: { method?: string; body?: any } 
 
 /** Download a file from the admin API (for exports). */
 async function download(path: string, fallbackName: string): Promise<{ count: string | null; skipped: string | null }> {
-  const token = await auth.currentUser?.getIdToken();
+  const token = await adminToken();
   const res = await fetch(apiUrl(`/api/admin${path}`), { headers: { Authorization: `Bearer ${token || ''}` } });
   if (!res.ok) { const j = await res.json().catch(() => ({})); throw new ApiError(j.error || `Export failed (${res.status})`, res.status); }
   const blob = await res.blob();
@@ -776,9 +782,14 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [section, setSection] = useState<Section>('overview');
   const [uid, setUid] = useState<string | null>(null);
   const [me, setMe] = useState<any>(null);
+  const [why, setWhy] = useState('');
 
   useEffect(() => {
-    api('/me').then(m => { setMe(m); setState('ok'); }).catch((e: ApiError) => setState(e.code === 'reauth' ? 'reauth' : e.code === 'mfa' ? 'mfa' : 'denied'));
+    api('/me').then(m => { setMe(m); setState('ok'); }).catch((e: ApiError) => {
+      // Say what went wrong (not signed in, server can't check, refused) instead of one catch-all line
+      setWhy(e.status === 403 ? '' : `${e.message}${e.status ? ` (${e.status})` : ''}`);
+      setState(e.code === 'reauth' ? 'reauth' : e.code === 'mfa' ? 'mfa' : 'denied');
+    });
   }, []);
   const openUser = (u: string) => { setUid(u); setSection('people'); };
 
@@ -791,7 +802,7 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             {state === 'checking' ? 'Checking access…'
               : state === 'reauth' ? 'For safety, sign out and sign in again to open the admin console.'
               : state === 'mfa' ? 'The admin console needs two-step sign-in on this account.'
-              : 'This area is for the NatureGram admin.'}
+              : why || 'This area is for the NatureGram admin.'}
           </p>
           <Btn onClick={onBack}>Back</Btn>
         </div>
