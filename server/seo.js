@@ -345,9 +345,11 @@ export const AI_SEARCH_BOTS = ['OAI-SearchBot', 'ChatGPT-User', 'PerplexityBot',
 export const PRIVATE_PATHS = ['/admin', '/messages', '/review', '/lens', '/drafts', '/auth/', '/guardian', '/welcome', '/journal', '/api/', '/api-proxy'];
 export const PUBLIC_API_ALLOW = ['/api/feed/first', '/api/client-config'];
 
-export const aiCrawlerMode = (v) => (['allow', 'search-only', 'deny'].includes(String(v || '').trim().toLowerCase()) ? String(v).trim().toLowerCase() : 'allow');
+export const aiCrawlerMode = (v) => (['allow', 'search-only', 'deny'].includes(String(v || '').trim().toLowerCase()) ? String(v).trim().toLowerCase() : 'search-only');
+// Default: AI answer engines may read and cite NatureGram; training-only crawlers are refused, because the
+// terms licence explorers' content for display in NatureGram and previews, not model training.
 
-export function robotsTxt({ host, mode = 'allow' }) {
+export function robotsTxt({ host, mode = 'search-only' }) {
   const m = aiCrawlerMode(mode);
   const rules = [...PUBLIC_API_ALLOW.map(p => `Allow: ${p}`), ...PRIVATE_PATHS.map(p => `Disallow: ${p}`)];
   const group = (agents, body) => [...agents.map(a => `User-agent: ${a}`), ...body, ''].join('\n');

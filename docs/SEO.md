@@ -40,7 +40,7 @@ Data: the most recent `SEO_CORPUS_LIMIT` public sightings (default 2000) plus th
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AI_CRAWLERS` | `allow` | AI crawler policy in robots.txt: `allow`, `search-only` or `deny` |
+| `AI_CRAWLERS` | `search-only` | AI crawler policy in robots.txt: `allow`, `search-only` or `deny` |
 | `INDEXNOW_KEY` | off | Turns on IndexNow pings on publish and serves `/<key>.txt` |
 | `SEO_CORPUS_LIMIT` | 2000 | Recent public sightings used for species pages and sitemaps (50 to 10000) |
 | `IOS_APP_URL`, `ANDROID_APP_URL` | empty | Store listings; when set, MobileApplication structured data is added |

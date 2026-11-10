@@ -185,9 +185,9 @@ test('JSON-LD script blocks cannot be broken out of', () => {
 
 // ------------------------------------------------------------------ robots.txt
 test('robots.txt per AI crawler mode', () => {
-  assert.equal(aiCrawlerMode(undefined), 'allow');
+  assert.equal(aiCrawlerMode(undefined), 'search-only');
   assert.equal(aiCrawlerMode('SEARCH-ONLY'), 'search-only');
-  assert.equal(aiCrawlerMode('nonsense'), 'allow');
+  assert.equal(aiCrawlerMode('nonsense'), 'search-only');
 
   const allow = robotsTxt({ host: HOST, mode: 'allow' });
   assert.match(allow, /Sitemap: https:\/\/thenaturegram\.com\/sitemap\.xml/);
