@@ -7,6 +7,7 @@ import { track } from '../services/analytics';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import Glyph from './Glyph';
+import FirstHint from './FirstHint';
 
 const IGNORE = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)/i;
 
@@ -89,6 +90,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
         <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-theme-primary/5 text-theme-primary"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
+        <FirstHint id="letters" text="Letters are slow notes between explorers. Ask about a find, or plan a walk." />
         {convos === null ? (
           <p className="text-center text-stone-500 py-16" role="status">Opening your letters…</p>
         ) : convos.length === 0 ? (

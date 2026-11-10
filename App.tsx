@@ -332,11 +332,9 @@ const App: React.FC = () => {
 
   useEffect(() => { refreshDraftsCount(); }, [userMode?.userId, refreshDraftsCount]);
 
-  const [showModeSelection, setShowModeSelection] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [limitNotice, setLimitNotice] = useState('');
-  const [rememberMode, setRememberMode] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('conversation');
+  const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>('observation');
 
   const geminiServiceRef = useRef<GeminiLiveService | null>(null);
   const pendingSnapshotIdRef = useRef<string | null>(null);
@@ -519,15 +517,14 @@ const App: React.FC = () => {
   const openLens = async () => {
     setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
     await initAudioContext();
-    const saved = localStorage.getItem(MODE_PREF_KEY) as 'observation' | 'conversation' | null;
-    if (saved) {
-      if (!allowSession(saved)) return;
-      track('lens_open', { mode: saved, remembered: true });
-      setSelectedMode(saved);
-      setCurrentView(AppView.LENS);
-    } else {
-      setShowModeSelection(true);
-    }
+    // No mode dialog: the Lens starts as the quiet companion unless the explorer turned on "Talk with me"
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(MODE_PREF_KEY); } catch { /* storage blocked */ }
+    const mode: 'observation' | 'conversation' = saved === 'conversation' ? 'conversation' : 'observation';
+    if (!allowSession(mode)) return;
+    track('lens_open', { mode, remembered: !!saved });
+    setSelectedMode(mode);
+    setCurrentView(AppView.LENS);
   };
 
   /** Daily session allowance (client-side guard from main; the server enforces the real quota). */
@@ -538,15 +535,6 @@ const App: React.FC = () => {
     if (!ok) { setLimitNotice(`You've used today's ${mode === 'observation' ? 'observation' : 'conversation'} sessions. They refresh tomorrow. You can still upload sightings.`); return false; }
     if (mode === 'observation') RateLimitService.incrementObservation(uid); else RateLimitService.incrementConversation(uid);
     return true;
-  };
-
-  const chooseMode = (mode: 'observation' | 'conversation') => {
-    if (!allowSession(mode)) { setShowModeSelection(false); return; }
-    track('lens_open', { mode, remembered: rememberMode });
-    setSelectedMode(mode);
-    if (rememberMode) localStorage.setItem(MODE_PREF_KEY, mode);
-    setShowModeSelection(false);
-    setCurrentView(AppView.LENS);
   };
 
   const handleNavigationRequest = async (targetView: AppView, params?: any) => {
@@ -858,51 +846,10 @@ const App: React.FC = () => {
                   pendingSnapshotIdRef={pendingSnapshotIdRef}
                   selectedMode={selectedMode}
                   initialAudioMode={selectedMode === 'observation' ? 'silent' : 'voice'}
+                  onImportFromRoll={() => { handleNavigationRequest(AppView.COMMUNITY); setShowUploadModal(true); }}
                 />
               </Suspense>
             </ErrorBoundary>
-          </div>
-        )}
-
-        {showModeSelection && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 animate-fade-in">
-            <div className="absolute inset-0 bg-stone-900/80 backdrop-blur-md" onClick={() => setShowModeSelection(false)} aria-hidden="true"></div>
-            <section role="dialog" aria-modal="true" aria-labelledby="mode-title" className="relative w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up">
-              <div className="p-7 text-center">
-                <h2 id="mode-title" className="text-2xl font-display font-semibold text-stone-900 mb-1">Who would you like to walk with?</h2>
-                <p className="text-sm text-stone-500 mb-6">You can change your mind any time from the Lens.</p>
-                <div className="space-y-3">
-                  {([
-                    { mode: 'conversation', glyph: 'guide', title: 'Walk with a talkative guide', desc: 'Your guide talks with you about what you see as you go, and answers whatever you wonder aloud.' },
-                    { mode: 'observation', glyph: 'binoculars', title: 'A quiet companion', desc: 'Your companion keeps quiet and speaks up only when it matters, or when you ask.' },
-                  ] as const).map(opt => (
-                    <button key={opt.mode} onClick={() => chooseMode(opt.mode)} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
-                      <span className="flex items-center gap-4 mb-1">
-                        <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                          <Glyph name={opt.glyph} size={24} />
-                        </span>
-                        <span className="font-display font-semibold text-lg text-stone-900">{opt.title}</span>
-                      </span>
-                      <span className="block text-sm text-stone-600 leading-relaxed">{opt.desc}</span>
-                    </button>
-                  ))}
-                  <button onClick={() => { setShowModeSelection(false); setShowUploadModal(true); }} className="w-full p-5 rounded-3xl border-2 border-stone-100 hover:border-theme-accent hover:bg-theme-accent/5 transition-all text-left group active:scale-95">
-                    <span className="flex items-center gap-4 mb-1">
-                      <span className="w-11 h-11 rounded-full bg-stone-100 text-theme-accent flex items-center justify-center group-hover:bg-theme-accent group-hover:text-white transition-colors" aria-hidden="true">
-                        <Glyph name="plate" size={24} />
-                      </span>
-                      <span className="font-display font-semibold text-lg text-stone-900">Bring in from your camera roll</span>
-                    </span>
-                    <span className="block text-sm text-stone-600 leading-relaxed">Photos, or sound and video clips up to 30 seconds. No live camera needed.</span>
-                  </button>
-                </div>
-                <label className="mt-5 flex items-center justify-center gap-2 text-sm text-stone-600 cursor-pointer">
-                  <input type="checkbox" checked={rememberMode} onChange={e => setRememberMode(e.target.checked)} className="w-4 h-4" />
-                  Remember my choice
-                </label>
-                <button onClick={() => setShowModeSelection(false)} className="mt-4 text-sm font-semibold text-stone-500 hover:text-stone-800 py-2 px-4">Cancel</button>
-              </div>
-            </section>
           </div>
         )}
 
@@ -974,6 +921,8 @@ const App: React.FC = () => {
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
                   onPostClose={handlePostClose}
                   onLogoClick={scrollFeedToTop}
+                  onOpenLens={() => handleNavigationRequest(AppView.LENS)}
+                  onImportFromRoll={() => setShowUploadModal(true)}
                 />
               )}
               {currentView === AppView.DRAFTS && userMode && (
@@ -1142,7 +1091,7 @@ const App: React.FC = () => {
             />
           </Suspense>
         )}
-        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showModeSelection && !showUploadModal && (
+        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showUploadModal && (
           <FirstRunTour onClose={() => setTourPending(false)} />
         )}
       </main>

@@ -6,6 +6,7 @@ import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
 import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour } from './Wonder';
 import { groupOf } from '../services/lifeList';
+import FirstHint from './FirstHint';
 
 interface Props {
   currentUserMode: UserMode;
@@ -179,6 +180,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
         <h1 className="sr-only">Moments</h1>
         <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'graphic_eq'}</span></button>
       </header>
+      <FirstHint id="moments" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
 
       {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold">{toast}</div>}
       {loading ? (
