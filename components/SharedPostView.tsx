@@ -2,14 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { CommunityPost, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
+import { observedBehaviour, insightBeyond } from './Wonder';
+import { isFungiPost, FungiWarning } from './AiBadge';
+import { getThemePeriod, getNaturalistExtra } from '../constants/naturalistExtras';
+import { speciesOf, publicArea } from './ShareSheet';
+import Glyph from './Glyph';
 
 interface SharedPostViewProps {
   postId: string;
   onGoToApp: () => void;
+  /** Opens the Lens directly; falls back to entering the app (which opens the Lens on a first visit). */
+  onOpenLens?: () => void;
   userMode?: UserMode;
 }
 
-const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, userMode }) => {
+const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOpenLens, userMode }) => {
   const [post, setPost] = useState<CommunityPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -65,42 +72,61 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
     });
   }, [postId]);
 
+  const period = getThemePeriod();
+  const naturalist = period.theme.naturalist;
+  const extra = getNaturalistExtra(period.theme.id);
+
   if (loading) {
       return (
-          <div className="flex-1 bg-black text-white flex flex-col items-center justify-center font-body min-h-[100dvh]">
-              <span className="material-symbols-outlined text-4xl animate-spin text-theme-accent mb-4">autorenew</span>
-              <p className="tracking-widest uppercase text-sm font-bold text-white/50">Loading Discovery...</p>
+          <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] px-6 text-center" role="status" aria-live="polite">
+              <Glyph name="press" size={40} className="text-theme-accent/70 animate-pulse" />
+              <p className="mt-4 font-display text-lg text-stone-700">Opening this field page…</p>
           </div>
       );
   }
 
   if (error || !post) {
       return (
-        <div className="flex-1 bg-black text-white flex flex-col items-center justify-center font-body min-h-[100dvh] p-6 text-center">
-            <span className="material-symbols-outlined text-6xl text-red-500 mb-6">broken_image</span>
-            <h1 className="text-2xl font-black mb-2">Post Not Found</h1>
-            <p className="text-white/60 mb-8 max-w-md">This discovery may have been removed or the link is invalid.</p>
-            <button onClick={onGoToApp} className="bg-theme-accent text-white px-8 py-4 rounded-full font-bold shadow-lg active:scale-95 transition-transform uppercase tracking-widest text-sm">
-                Open NatureGram
+        <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] p-6 text-center">
+            <Glyph name="fern" size={48} className="text-theme-accent/60 mb-5" />
+            <h1 className="font-display text-2xl text-theme-primary mb-2">This page has gone back to the wild</h1>
+            <p className="text-stone-600 mb-8 max-w-sm leading-relaxed">The explorer may have removed it, or kept it for their own journal. There is plenty more alive out there.</p>
+            <button onClick={onOpenLens || onGoToApp} className="bg-theme-primary text-white px-7 py-3.5 rounded-2xl font-semibold shadow-sm active:scale-95 transition-transform">
+                Open the Lens
             </button>
+            <button onClick={onGoToApp} className="mt-3 text-sm text-theme-accent font-semibold py-2">See what others found</button>
         </div>
       );
   }
 
-  let currentItem = post.items && post.items.length > 0 ? post.items[activeItemIndex] : post;
-  
+  const currentItem: any = post.items && post.items.length > 0 ? post.items[activeItemIndex] : post;
+
   const canDownload = userMode ? (post.userId === userMode.userId || userMode.type === 'admin') : false;
+  const itemLabels: string[] = currentItem.labels || post.labels || [];
+  const species = speciesOf({ ...post, labels: itemLabels });
+  const hasSpecies = !!itemLabels[0] && species === itemLabels[0].trim();
+  const scientific: string = (itemLabels[1] && /^[A-Z][a-z]+ [a-z]+/.test(itemLabels[1])) ? itemLabels[1] : (currentItem.aiIdentifications?.[0]?.scientificName || '');
+  const alsoSeen = itemLabels.slice(1).filter(l => l !== scientific);
+  const behaviour = observedBehaviour(currentItem.behavior ?? post.behavior);
+  const insightRaw: string = currentItem.aiInsight || post.aiInsight || '';
+  const beyond = insightRaw ? insightBeyond(insightRaw, behaviour) : [];
+  const insight = beyond.length ? beyond : insightRaw.split(/\n+/).filter(Boolean);
+  const area = publicArea({ ...post, locationArea: currentItem.locationArea || post.locationArea, showLocation: currentItem.showLocation ?? post.showLocation });
+  const words = (post.caption || '').trim() || ((post.items?.length || 0) > 1 ? '' : (post.description || '').trim());
+  const explorer = post.userName || 'An explorer';
+  const ts: any = post.timestamp;
+  const ms = ts?.toMillis ? ts.toMillis() : (typeof ts?.seconds === 'number' ? ts.seconds * 1000 : 0);
+  const when = ms ? new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const tags = (post.tags || []).map((t: string) => String(t).replace(/^#+/, '')).filter(Boolean).slice(0, 6);
+  const fungi = isFungiPost({ labels: itemLabels, tags: post.tags }) || !!post.aiFlags?.fungi;
 
   return (
-      <div className="fixed inset-0 bg-black text-white flex flex-col font-body md:flex-row overflow-hidden">
-          {/* Header (Mobile) */}
-          <div className="absolute top-0 left-0 right-0 p-4 md:p-6 z-50 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-              <div className="flex items-center gap-2 text-theme-accent font-semibold font-display text-xl drop-shadow-md">
-                 NatureGram
-              </div>
+      <div className="fixed inset-0 bg-day-bg flex flex-col md:flex-row overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-4 py-3 md:px-6 md:py-5 z-50 flex items-center bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
+              <span className="font-display text-xl text-white drop-shadow">NatureGram</span>
           </div>
 
-          <div className="flex-1 relative bg-black/90 flex flex-col justify-center min-h-[50dvh] md:min-h-screen group/media overflow-hidden">
+          <div className="flex-1 relative bg-stone-950 flex flex-col justify-center min-h-[48dvh] md:min-h-screen group/media overflow-hidden">
               {post.items && post.items.length > 1 ? (
                   <>
                       <div 
@@ -122,7 +148,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                                        />
                                   ) : item.mediaType === 'audio' ? (
                                        <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-theme-primary/10 shadow-2xl rounded-sm">
-                                            <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
+                                            <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
                                             {item.audioUrl && (
                                                  <PlayableAudio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                             )}
@@ -143,7 +169,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                       {/* Hover Arrow Controllers */}
                       {activeItemIndex > 0 && (
                           <button 
-                              onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }}
+                              onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }} aria-label="Previous"
                               className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                           >
                               <span className="material-symbols-outlined text-xl">chevron_left</span>
@@ -152,7 +178,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
 
                       {activeItemIndex < post.items.length - 1 && (
                           <button 
-                              onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }}
+                              onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }} aria-label="Next"
                               className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                           >
                               <span className="material-symbols-outlined text-xl">chevron_right</span>
@@ -184,7 +210,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                            />
                       ) : currentItem.mediaType === 'audio' ? (
                            <div className="flex flex-col items-center justify-center w-full h-full bg-theme-primary/10 p-8 shadow-2xl rounded-sm">
-                                <span className="material-symbols-outlined text-6xl text-theme-accent mb-10">mic</span>
+                                <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
                                 {currentItem.audioUrl && (
                                      <PlayableAudio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                 )}
@@ -201,61 +227,52 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, user
                   </div>
               )}
           </div>
-          
-          <div className="w-full md:w-[400px] lg:w-[450px] bg-white text-black flex flex-col h-[50dvh] md:h-full overflow-y-auto z-10 shrink-0">
-             <div className="p-6 md:p-10 space-y-6 flex-1">
-                 <div className="flex items-center justify-between">
-                     <div className="flex items-center gap-3">
-                         <div className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-black uppercase text-sm border border-theme-primary/20">
-                             {post.userName.charAt(0)}
-                         </div>
-                         <div className="flex flex-col">
-                             <span className="font-bold text-sm tracking-tight">{post.userName}</span>
-                             <span className="text-[10px] text-theme-primary/60 uppercase tracking-wider font-bold">Explorer</span>
-                         </div>
-                     </div>
-                 </div>
 
-                 <div className="space-y-4">
-                     {post.title && <h2 className="text-2xl md:text-3xl font-display font-semibold">{post.title}</h2>}
-                     
-                     <div className="flex flex-wrap gap-2 mt-2">
-                         {post.labels.slice(0, 4).map((label: string, i: number) => (
-                             <span key={i} className="bg-theme-primary px-3 py-1 text-[10px] uppercase font-black tracking-widest rounded-full text-white">
-                                 {label}
-                             </span>
-                         ))}
-                         {post.tags && post.tags.length > 0 && post.tags.map((tag: string, i: number) => (
-                             <span key={`tag-${i}`} className="bg-stone-200 text-stone-700 px-3 py-1 text-[10px] font-bold tracking-widest rounded-full lowercase">
-                                 #{String(tag).replace(/^#+/, '')}
-                             </span>
-                         ))}
-                     </div>
-                     
-                     <div className="prose prose-sm text-theme-primary/80 prose-p:leading-relaxed">
-                         <p>{post.behavior}</p>
-                     </div>
-                     {post.description && (
-                         <div className="prose prose-sm text-theme-primary/70">
-                             <p>{post.description}</p>
-                         </div>
-                     )}
+          <div className="w-full md:w-[400px] lg:w-[450px] bg-day-bg text-stone-800 flex flex-col h-[52dvh] md:h-full overflow-y-auto z-10 shrink-0 border-t md:border-t-0 md:border-l border-theme-primary/10">
+             <article className="px-6 pt-6 pb-4 md:px-9 md:pt-10 space-y-6 flex-1">
+                 <header>
+                     <h1 className={`text-[30px] font-display font-medium text-theme-primary leading-tight ${hasSpecies ? 'italic' : ''}`}>{species}</h1>
+                     {scientific && <p className="font-display italic text-stone-500 mt-0.5">{scientific}</p>}
+                     {behaviour && <p className="text-base text-stone-700 mt-2 leading-snug">{behaviour}</p>}
+                     {alsoSeen.length > 0 && <p className="text-sm text-stone-600 mt-1">Also in view: <span className="italic">{alsoSeen.join(', ')}</span></p>}
+                     <p className="text-sm text-stone-500 mt-3">{[explorer, area ? `near ${area}` : '', when].filter(Boolean).join(' · ')}</p>
+                 </header>
 
-                     {post.aiInsight && (
-                         <div className="bg-theme-primary/5 rounded-xl p-5 border border-theme-primary/10 mt-6 relative">
-                             <h4 className="text-xs font-black uppercase tracking-widest text-theme-accent mb-2">Ecological Insight</h4>
-                             <p className="text-sm leading-relaxed text-theme-primary/70">{post.aiInsight}</p>
-                         </div>
-                     )}
-                 </div>
-             </div>
+                 {fungi && <FungiWarning />}
 
-             <div className="p-6 border-t border-stone-100 bg-stone-50">
-                 <button onClick={onGoToApp} className="w-full bg-theme-accent text-white px-6 py-4 rounded-xl font-black shadow-lg shadow-theme-accent/20 active:scale-95 transition-transform flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-                     <span className="material-symbols-outlined">explore</span>
-                     Explore More in App
+                 {words && (
+                     <figure className="border-l-2 border-theme-accent/40 pl-4">
+                         <blockquote className="text-[15px] text-stone-800 leading-relaxed whitespace-pre-line">{words}</blockquote>
+                         <figcaption className="text-xs text-stone-500 mt-1.5">{explorer}, in the field</figcaption>
+                     </figure>
+                 )}
+
+                 {insight.length > 0 && (
+                     <section aria-labelledby="why-it-does-this" className="pt-5 border-t border-theme-primary/10">
+                         <h2 id="why-it-does-this" className="text-sm font-semibold font-sans text-theme-accent mb-2">Why it does this</h2>
+                         <div className="space-y-3">
+                             {insight.map((para, i) => <p key={i} className="text-[17px] font-display text-stone-800 leading-[1.6]">{para}</p>)}
+                         </div>
+                     </section>
+                 )}
+
+                 {tags.length > 0 && (
+                     <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-theme-accent">{tags.map(t => <span key={t}>#{t}</span>)}</p>
+                 )}
+             </article>
+
+             <aside className="mx-4 mb-4 md:mx-6 md:mb-6 p-5 rounded-2xl bg-white border border-theme-primary/10 shadow-sm" aria-label={`An invitation in the spirit of ${naturalist}`}>
+                 <p className="text-xs text-stone-500 flex items-center gap-1.5"><Glyph name="feather" size={14} className="text-theme-accent" />A note in the spirit of {naturalist}</p>
+                 <p className="mt-2 font-display text-[19px] leading-snug text-theme-primary">
+                     {explorer} found this {hasSpecies ? <em>{species}</em> : 'sighting'}{area ? ` near ${area}` : ''}. What's alive near you?
+                 </p>
+                 {extra.philosophy && <p className="mt-2 text-sm text-stone-600 font-display italic">{extra.philosophy}</p>}
+                 <button onClick={onOpenLens || onGoToApp} className="mt-4 w-full bg-theme-primary text-white px-6 py-3.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center justify-center gap-2">
+                     <Glyph name="lens" size={20} />
+                     Open the Lens
                  </button>
-             </div>
+                 <button onClick={onGoToApp} className="mt-2 w-full text-sm text-theme-accent font-semibold py-2">See what others found</button>
+             </aside>
           </div>
       </div>
   );
