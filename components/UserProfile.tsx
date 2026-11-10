@@ -18,6 +18,7 @@ import FirstHint from './FirstHint';
 import { themeAccent } from './ShareSheet';
 import { challengeStamps } from '../services/stamps';
 import GuardianCare from './GuardianCare';
+import { PressingLoader } from './SkeletonPost';
 
 /** "Exploring since March 2026", tolerant of Firestore Timestamps, {seconds} objects, ISO strings and millis. */
 const exploringSince = (t: any): string => {
@@ -46,7 +47,7 @@ type Tab = 'posts' | 'lifelist' | 'saved';
 const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = ({ url, name, size = 88 }) => (
   url
     ? <img src={url} alt={`${name || 'Explorer'}'s photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
-    : <div className="rounded-full bg-stone-900/[0.045] text-theme-deep flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
+    : <div className="rounded-full bg-[#f3efe7] text-stone-700 flex items-center justify-center font-display" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
 );
 
 const Sheet: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
@@ -57,15 +58,15 @@ const Sheet: React.FC<{ title: string; onClose: () => void; children: React.Reac
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] max-h-[85dvh] flex flex-col animate-slide-up pb-[env(safe-area-inset-bottom)]">
-        <header className="flex items-center justify-between px-5 py-4 border-b border-stone-100">
-          <h2 className="text-lg font-bold text-stone-900">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
-            <span className="material-symbols-outlined" aria-hidden="true">close</span>
+      <div className="absolute inset-0 ng-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="relative w-full sm:max-w-md ng-sheet max-h-[85dvh] flex flex-col animate-slide-up pb-[env(safe-area-inset-bottom)]">
+        <header className="flex items-center justify-between px-6 pt-5 pb-3">
+          <h2 className="ng-subtitle">{title}</h2>
+          <button onClick={onClose} aria-label="Close" className="ng-icon-button -mr-2">
+            <Glyph name="close" size={24} />
           </button>
         </header>
-        <div className="overflow-y-auto p-5">{children}</div>
+        <div className="overflow-y-auto px-6 pb-6 pt-1">{children}</div>
       </div>
     </div>
   );
@@ -112,10 +113,10 @@ const MilestoneRibbon: React.FC<{ entry: LifeEntry; own: boolean }> = ({ entry, 
   const naturalist = getThemePeriod(new Date(entry.firstMs || Date.now())).theme.naturalist;
   return (
     <li className="col-span-full my-1" aria-label={`Milestone: ${ordinal(entry.no)} species`}>
-      <div className="relative flex items-center gap-3 px-4 py-2.5 bg-[#fdf4dc] border-y border-[#e3c98a] text-[#6f5114]">
-        <Glyph name="stamp" size={22} className="shrink-0 text-[#b8892b]" />
-        <p className="text-sm leading-snug">
-          <span className="font-display text-[15px]">{own ? 'Your' : 'Their'} {ordinal(entry.no)} species</span>, the <em className="font-display">{entry.name}</em>, found during {naturalist}'s fortnight.
+      <div className="relative flex items-center gap-4 py-3 border-y border-stone-200/80 text-stone-700">
+        <span className="ng-rule shrink-0" aria-hidden="true" />
+        <p className="text-sm leading-[1.55]">
+          <span className="font-display text-base text-stone-900">{own ? 'Your' : 'Their'} {ordinal(entry.no)} species</span>, the <em className="font-display">{entry.name}</em>, found during {naturalist}'s fortnight.
         </p>
       </div>
     </li>
@@ -126,8 +127,8 @@ const MilestoneRibbon: React.FC<{ entry: LifeEntry; own: boolean }> = ({ entry, 
 const PlateCell: React.FC<{ entry: LifeEntry; onOpen?: (id: string) => void; onShare: (e: LifeEntry) => void; milestone?: boolean }> = ({ entry, onOpen, onShare, milestone }) => (
   <li className="relative mb-2">
     <SpecimenPlate data={plateOf(entry)} onClick={() => onOpen?.(entry.postId)} stamp={milestone ? <PlateStamp>{ordinal(entry.no)} species</PlateStamp> : undefined} />
-    <button onClick={() => onShare(entry)} aria-label={`Share the plate of ${entry.name}`} className="absolute -bottom-3 right-2 w-9 h-9 rounded-full flex items-center justify-center bg-[#fbf7ef] border border-[#d8ccb6] shadow-sm text-[#8a7a60] hover:text-stone-900">
-      <span className="material-symbols-outlined text-[17px]" aria-hidden="true">ios_share</span>
+    <button onClick={() => onShare(entry)} aria-label={`Share the plate of ${entry.name}`} className="absolute -bottom-3 right-1 w-11 h-11 rounded-full flex items-center justify-center bg-day-bg border border-stone-200 text-stone-500 hover:text-stone-900">
+      <Glyph name="share" size={20} />
     </button>
   </li>
 );
@@ -155,34 +156,35 @@ const LifeListView: React.FC<{
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
   }, [entries]);
 
-  const grid = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4';
+  const grid = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6';
 
   return (
-    <div className="px-4 pb-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-4 pb-3">
+    <div className="ng-page pb-10">
+      <div className="flex flex-wrap items-center justify-between gap-4 pt-6 pb-6">
         <div className="min-w-0">
-          <p className="text-sm font-display text-stone-600">{lifeListSummary(entries, own, firstName)}</p>
+          <p className="font-display italic text-base text-stone-700">{lifeListSummary(entries, own, firstName)}</p>
           {(homeRange || season) && (
-            <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-sm">
+            <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm">
               {homeRange && <div className="flex gap-1.5 min-w-0"><dt className="text-stone-500 shrink-0">Home range</dt><dd className="text-stone-800 font-display truncate">{homeRange}</dd></div>}
               {season && <div className="flex gap-1.5"><dt className="text-stone-500 shrink-0">Favourite season</dt><dd className="text-stone-800 font-display">{season}</dd></div>}
             </dl>
           )}
         </div>
-        <div role="radiogroup" aria-label="Arrange the life list" className="flex p-0.5 rounded-full bg-stone-900/[0.03] border border-stone-200 text-sm">
+        <div role="radiogroup" aria-label="Arrange the life list" className="flex gap-5 text-sm">
           {([['kind', 'By kind of life'], ['chronicle', 'By date']] as const).map(([k, label]) => (
-            <button key={k} role="radio" aria-checked={view === k} onClick={() => choose(k)} className={`px-3.5 py-1.5 rounded-full transition-colors ${view === k ? 'bg-white text-stone-900 font-semibold shadow-sm' : 'text-stone-500'}`}>{label}</button>
+            <button key={k} role="radio" aria-checked={view === k} onClick={() => choose(k)} className={`ng-tab text-sm ${view === k ? 'ng-tab-on' : ''}`}>{label}</button>
           ))}
         </div>
       </div>
 
       {view === 'kind' ? (
-        <div className="space-y-7">
+        <div className="space-y-12">
           {groups.map(([g, list]) => (
             <section key={g} aria-labelledby={`grp-${g}`}>
-              <h3 id={`grp-${g}`} className="flex items-center gap-2 mb-3 text-stone-900">
-                <Glyph name={GROUP_GLYPH[g]} size={20} className="text-theme-accent" />
-                <span className="font-display text-lg">{g}</span>
+              <h3 id={`grp-${g}`} className="flex items-center gap-3 mb-5 text-stone-900">
+                <span className="ng-rule" aria-hidden="true" />
+                <span className="ng-subtitle">{g}</span>
+                <Glyph name={GROUP_GLYPH[g]} size={20} className="text-stone-400" />
                 <span className="text-sm text-stone-500 tabular">{list.length}</span>
               </h3>
               <ul className={grid} role="list">
@@ -199,8 +201,8 @@ const LifeListView: React.FC<{
             return (
               <React.Fragment key={e.postId + e.no}>
                 {newMonth && (
-                  <li className="col-span-full flex items-baseline gap-2 pt-3 first:pt-0 border-b border-stone-200 pb-1.5">
-                    <span className="font-display text-lg text-stone-900">{monthKey(e.firstMs)}</span>
+                  <li className="col-span-full flex items-baseline gap-3 pt-6 first:pt-0 border-b border-stone-200/80 pb-2">
+                    <span className="ng-subtitle">{monthKey(e.firstMs)}</span>
                     {e.season && <span className="text-sm text-stone-500">{e.season}</span>}
                   </li>
                 )}
@@ -213,14 +215,14 @@ const LifeListView: React.FC<{
       )}
 
       {own && ghosts && ghosts.length > 0 && (
-        <section aria-labelledby="still-to-find" className="mt-10">
-          <h3 id="still-to-find" className="font-display text-lg text-stone-900">Still to find nearby</h3>
-          <p className="text-sm text-stone-500 mb-3">Other explorers have recorded these close to where you walk. The plate is waiting.</p>
+        <section aria-labelledby="still-to-find" className="mt-16">
+          <h3 id="still-to-find" className="ng-subtitle flex items-center gap-3"><span className="ng-rule" aria-hidden="true" />Still to find nearby</h3>
+          <p className="ng-small mt-1 mb-5 pl-11">Other explorers have recorded these close to where you walk. The plate is waiting.</p>
           <ul className={grid} role="list">
             {ghosts.map(g => (
               <li key={g.id}>
                 <SpecimenPlate ghost data={{ name: g.name, group: g.group }} onClick={() => onOpenPost?.(g.id)} />
-                <p className="mt-1.5 px-1 text-xs text-stone-500 truncate">{[g.by ? `Seen by ${g.by}` : '', g.area ? `near ${g.area}` : ''].filter(Boolean).join(' ')}</p>
+                <p className="mt-2 px-1 ng-caption truncate">{[g.by ? `Seen by ${g.by}` : '', g.area ? `near ${g.area}` : ''].filter(Boolean).join(' ')}</p>
               </li>
             ))}
           </ul>
@@ -256,11 +258,11 @@ const DrawerThumb: React.FC<{ post: CommunityPost }> = ({ post: p }) => {
   }, [p, still]);
   const src = still || poster;
   return (
-    <span ref={ref} className="block aspect-[4/5] bg-[#efe7d6] overflow-hidden relative">
+    <span ref={ref} className="block aspect-[4/5] bg-[#f3efe7] overflow-hidden relative">
       {src
-        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]">{p.mediaType === 'audio' ? <Glyph name="sound" size={32} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={32} />}</span>}
-      {p.mediaType === 'audio' && src && <span className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full bg-black/45 text-white flex items-center justify-center" aria-hidden="true"><Glyph name="sound" size={14} /></span>}
+        ? <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+        : <span className="w-full h-full flex items-center justify-center text-stone-400/70">{p.mediaType === 'audio' ? <Glyph name="sound" size={24} strokeWidth={1.2} /> : <Glyph name={GROUP_GLYPH[groupOf(p)]} size={24} strokeWidth={1.2} />}</span>}
+      {p.mediaType === 'audio' && src && <span className="absolute bottom-2 right-2 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" aria-hidden="true"><Glyph name="sound" size={14} /></span>}
     </span>
   );
 };
@@ -279,34 +281,34 @@ const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPo
     return out;
   }, [posts]);
   return (
-    <div className="px-3 pb-8 pt-3 space-y-6">
+    <div className="ng-page pb-10 pt-6 space-y-12">
       {drawers.map(d => (
         <section key={d.key} aria-label={`${d.key}, ${d.list.length} sightings`}>
-          <header className="flex items-baseline justify-between px-1 mb-2">
-            <h3 className="font-display text-lg text-stone-900">{d.key}</h3>
-            <span className="text-sm text-stone-500">{d.season ? `${d.season} · ` : ''}{d.list.length} {d.list.length === 1 ? 'sighting' : 'sightings'}</span>
+          <header className="flex items-baseline justify-between gap-4 mb-4 pb-2 border-b border-stone-200/80">
+            <h3 className="ng-subtitle">{d.key}</h3>
+            <span className="ng-caption">{d.season ? `${d.season} · ` : ''}{d.list.length} {d.list.length === 1 ? 'sighting' : 'sightings'}</span>
           </header>
-          <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2 rounded-md bg-[#efe7d6]/70 border border-[#d8ccb6] shadow-[inset_0_2px_6px_rgba(60,40,20,0.10)]" role="list">
+          <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6 md:gap-x-6" role="list">
             {d.list.map(p => {
               const ms = toMs(p.timestamp);
               const name = p.labels?.[0] || p.title || 'Sighting';
               const multi = (p.items?.length || 0) > 1;
               return (
-                <li key={p.id} className="relative bg-[#fbf7ef] rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12)] overflow-hidden">
+                <li key={p.id} className="relative">
                   <button onClick={() => onOpenPost?.(p.id)} className="group block w-full text-left" aria-label={`Open ${name}`}>
-                    <span className="block relative">
+                    <span className="block relative rounded-md overflow-hidden">
                       <DrawerThumb post={p} />
                       {(p.mediaType === 'video' || multi) && (
-                        <span className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-full bg-black/45 text-white px-1.5 py-0.5" aria-hidden="true">
-                          {p.mediaType === 'video' && <span className="material-symbols-outlined text-[16px]">play_circle</span>}
-                          {multi && <><span className="material-symbols-outlined text-[16px]">collections</span><span className="text-[11px] font-semibold tabular">{p.items!.length}</span></>}
+                        <span className="absolute top-2 right-2 flex items-center gap-1 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]" aria-hidden="true">
+                          {p.mediaType === 'video' && <Glyph name="play" size={14} filled />}
+                          {multi && <><Glyph name="stack" size={14} /><span className="text-[11px] font-medium tabular">{p.items!.length}</span></>}
                         </span>
                       )}
-                      {own && !p.isPublic && <span className="absolute top-1.5 left-1.5 bg-black/55 text-white text-[11px] font-semibold rounded-full px-2 py-0.5 flex items-center gap-1"><span className="material-symbols-outlined text-xs" aria-hidden="true">lock</span>Only me</span>}
+                      {own && !p.isPublic && <span className="absolute top-2 left-2 text-white text-[11px] font-medium flex items-center gap-1 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"><Glyph name="lock" size={14} />Only me</span>}
                     </span>
-                    <span className="flex items-baseline justify-between gap-2 px-2 py-1.5 border-t border-[#e8dfcd]">
-                      <span className="font-display italic text-[14px] text-[#2f2a22] truncate">{name}</span>
-                      {ms > 0 && <span className="shrink-0 text-[11px] text-[#8a7a60] tabular">{new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
+                    <span className="flex items-baseline justify-between gap-2 pt-2">
+                      <span className="font-display italic text-base text-stone-900 truncate">{name}</span>
+                      {ms > 0 && <span className="shrink-0 text-xs text-stone-500 tabular">{new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>}
                     </span>
                   </button>
                 </li>
@@ -333,25 +335,23 @@ const KeptPages: React.FC<{ items: KeptItem[]; onOpenPost?: (id: string) => void
     return out;
   }, [items]);
   return (
-    <div className="px-4 pb-8 pt-3 space-y-6">
+    <div className="ng-page pb-10 pt-6 space-y-12">
       {folios.map(f => (
         <section key={f.key} aria-label={f.key}>
-          <h3 className="font-display text-base text-stone-600 mb-2 px-1">{f.key}</h3>
-          <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3" role="list">
+          <h3 className="ng-subtitle mb-4 pb-2 border-b border-stone-200/80">{f.key}</h3>
+          <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6 md:gap-x-6" role="list">
             {f.list.map(s => {
               const name = (s.label || '').trim() || 'A kept sighting';
               const group = groupOf({ labels: [name] });
               return (
                 <li key={s.id}>
-                  <button onClick={() => onOpenPost?.(s.id)} aria-label={`Open kept ${name}`} className="block w-full text-left p-2 pb-2.5 bg-[#fbf7ef] rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12),0_6px_14px_-8px_rgba(60,40,20,0.25)] active:scale-[0.98] transition-transform">
-                    <span className="relative block aspect-square overflow-hidden bg-[#efe7d6]">
+                  <button onClick={() => onOpenPost?.(s.id)} aria-label={`Open kept ${name}`} className="block w-full text-left transition-opacity hover:opacity-90">
+                    <span className="relative block aspect-square overflow-hidden rounded-md bg-[#f3efe7]">
                       {s.thumbnailUrl
-                        ? <img src={s.thumbnailUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover sepia-[.12] saturate-[.9]" />
-                        : <span className="w-full h-full flex items-center justify-center text-[#b9a98a]"><Glyph name={s.mediaType === 'audio' ? 'sound' : GROUP_GLYPH[group]} size={36} /></span>}
-                      {/* glassine: a faint translucent sheet over the specimen */}
-                      <span className="absolute inset-0 bg-gradient-to-b from-white/35 via-white/15 to-white/30 ring-1 ring-inset ring-white/60" aria-hidden="true" />
+                        ? <img src={s.thumbnailUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                        : <span className="w-full h-full flex items-center justify-center text-stone-400/70"><Glyph name={s.mediaType === 'audio' ? 'sound' : GROUP_GLYPH[group]} size={24} strokeWidth={1.2} /></span>}
                     </span>
-                    <span className="block mt-2 font-display italic text-[14px] text-[#2f2a22] leading-tight line-clamp-2">{name}</span>
+                    <span className="block mt-2 font-display italic text-base text-stone-900 leading-snug line-clamp-2">{name}</span>
                   </button>
                 </li>
               );
@@ -372,7 +372,7 @@ async function contactSheet(entries: LifeEntry[]): Promise<Blob | null> {
   const c = document.createElement('canvas');
   c.width = cols * cw + (cols + 1) * gap; c.height = rows * ch + (rows + 1) * gap;
   const ctx = c.getContext('2d'); if (!ctx) return null;
-  ctx.fillStyle = '#f3ede1'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#fcfaf8'; ctx.fillRect(0, 0, c.width, c.height);
   for (let i = 0; i < pick.length; i++) {
     const blob = await renderPlate(forCanvas(plateOf(pick[i]))).catch(() => null);
     if (!blob) continue;
@@ -422,12 +422,12 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
     finally { setBusy(false); }
   };
   return (
-    <div className="mt-4 p-4 rounded-[3px] bg-[#fbf7ef] border border-[#e3d9c6] flex items-start gap-3">
-      <Glyph name="sealed" size={26} className="text-theme-accent shrink-0 mt-0.5" />
+    <div className="mt-6 py-4 border-y border-stone-200/80 flex items-start gap-4">
+      <Glyph name="sealed" size={24} className="text-stone-500 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <p className="font-display text-[17px] text-stone-900 leading-snug">Check your inbox</p>
-        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your field page is yours to keep.</p>
-        <button onClick={resend} disabled={busy || wait > 0} className="mt-2 text-sm font-semibold text-stone-900 disabled:text-stone-400">
+        <p className="ng-subtitle">Check your inbox</p>
+        <p className="ng-small mt-1">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your field page is yours to keep.</p>
+        <button onClick={resend} disabled={busy || wait > 0} className="mt-2 ng-link-quiet min-h-[44px] disabled:text-stone-400 disabled:no-underline">
           {busy ? 'Sending…' : wait > 0 ? `Send another in ${wait}s` : 'Send it again'}
         </button>
       </div>
@@ -612,8 +612,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center" role="status">
-        <Glyph name="press" size={36} className="text-theme-accent/60 animate-pulse" />
-        <span className="sr-only">Opening the field page…</span>
+        <PressingLoader label="Opening the field page…" />
       </div>
     );
   }
@@ -621,22 +620,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   if (isAnonymous && isOwnProfile) {
     return (
       <div className="flex-1 overflow-y-auto no-scrollbar bg-day-bg pb-28 safe-pt">
-        <section className="px-6 pt-10 pb-4 max-w-lg mx-auto">
+        <section className="px-6 pt-10 pb-4 max-w-lg mx-auto ng-rise">
           <div className="flex items-center gap-5">
             <span className="shrink-0 w-[72px] h-[72px] rounded-full border border-dashed border-stone-300 flex items-center justify-center text-stone-400" aria-hidden="true">
               <Glyph name="rings" size={32} strokeWidth={1.1} />
             </span>
             <div>
-              <h1 className="ng-heading text-[28px] leading-tight">Your field page</h1>
-              <p className="text-sm text-stone-500 mt-0.5">Exploring as a guest</p>
+              <h1 className="ng-title">Your field page</h1>
+              <p className="ng-small text-stone-500 mt-1">Exploring as a guest</p>
             </div>
           </div>
           <dl className="mt-8 grid grid-cols-2 border-y border-stone-200 divide-x divide-stone-200">
             <div className="py-3 text-center"><dd className="text-2xl font-display text-stone-400 tabular">0</dd><dt className="text-xs text-stone-500">species</dt></div>
             <div className="py-3 text-center"><dd className="text-2xl font-display text-stone-400 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
           </dl>
-          <p className="text-[15px] text-stone-600 mt-8 leading-relaxed">Your life list and journal will live here.</p>
-          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="ng-button-primary group mt-6 w-full">Start my field page<span className="material-symbols-outlined text-[20px] text-theme-vivid transition-transform group-hover:translate-x-0.5" aria-hidden="true">arrow_forward</span></button>
+          <p className="ng-body mt-8">Your life list and journal will live here.</p>
+          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="ng-button-primary group mt-6 w-full">Start my field page<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" /></button>
         </section>
       </div>
     );
@@ -644,42 +643,42 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg overflow-hidden animate-fade-in">
-      <header className="px-3 py-2 flex items-center justify-between bg-day-bg/90 backdrop-blur border-b border-stone-200 shrink-0 safe-pt">
+      <header className="px-4 md:px-10 py-2 flex items-center justify-between bg-day-bg/95 backdrop-blur shrink-0 safe-pt">
         {!isOwnProfile ? (
-          <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
-            <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+          <button onClick={onBack} aria-label="Back" className="ng-icon-button -ml-2">
+            <Glyph name="back" size={24} />
           </button>
         ) : <span className="w-11" />}
-        <h1 className="font-display font-semibold text-lg text-stone-900 truncate">{username}</h1>
-        <button onClick={() => setSheet(isOwnProfile ? 'settings' : 'menu')} aria-label={isOwnProfile ? 'Settings' : 'More options'} className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100">
-          <span className="material-symbols-outlined" aria-hidden="true">{isOwnProfile ? 'menu' : 'more_horiz'}</span>
+        <h1 className="font-display italic text-lg text-stone-900 truncate">{username}</h1>
+        <button onClick={() => setSheet(isOwnProfile ? 'settings' : 'menu')} aria-label={isOwnProfile ? 'Settings' : 'More options'} className="ng-icon-button -mr-2">
+          <Glyph name={isOwnProfile ? 'menu' : 'more'} size={24} />
         </button>
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
         {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
-        <section className="px-5 pt-6 pb-4">
-          <div className="flex items-center gap-4">
-            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
+        <section className="ng-page pt-6 pb-6 max-w-4xl">
+          <div className="flex items-center gap-5">
+            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full">
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
             <div className="min-w-0">
-              <p className="text-2xl font-display font-semibold text-stone-900 leading-tight truncate">{profile?.displayName || username}</p>
-              <p className="text-sm text-stone-500 mt-0.5">{exploringSince(profile?.joinedAt)}</p>
+              <p className="ng-title truncate">{profile?.displayName || username}</p>
+              <p className="ng-small text-stone-500 mt-1">{exploringSince(profile?.joinedAt)}</p>
             </div>
           </div>
-          {profile?.bio ? <p className="text-[15px] font-display text-stone-700 mt-4 whitespace-pre-line leading-relaxed">{profile.bio}</p> : isOwnProfile && (
-            <button onClick={() => setSheet('edit')} className="text-sm text-theme-accent font-semibold mt-4">Add a bio</button>
+          {profile?.bio ? <p className="ng-quote text-[18px] text-stone-700 mt-5 whitespace-pre-line ng-measure">{profile.bio}</p> : isOwnProfile && (
+            <button onClick={() => setSheet('edit')} className="ng-link-quiet min-h-[44px] mt-3">Add a bio</button>
           )}
-          <section aria-label="Field page" className="mt-5 py-4 border-y border-stone-200">
-            <div className="flex items-baseline gap-6">
+          <section aria-label="Field page" className="mt-6 py-5 border-y border-stone-200/80">
+            <div className="flex items-baseline gap-8">
               <button onClick={() => setTab('lifelist')} className="text-left group">
-                <span className="block text-[28px] leading-none font-display text-stone-900 tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.species}</span>
-                <span className="block text-xs text-stone-500 mt-1">species</span>
+                <span className="block text-[28px] leading-none font-display text-stone-900 tabular group-hover:underline decoration-theme-accent/50 decoration-1 underline-offset-[6px]">{headerStats.species}</span>
+                <span className="block ng-caption mt-1.5">species</span>
               </button>
               <button onClick={() => setTab('posts')} className="text-left group">
-                <span className="block text-[28px] leading-none font-display text-stone-900 tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.sightings}</span>
-                <span className="block text-xs text-stone-500 mt-1">{headerStats.sightings === 1 ? 'sighting' : 'sightings'}</span>
+                <span className="block text-[28px] leading-none font-display text-stone-900 tabular group-hover:underline decoration-theme-accent/50 decoration-1 underline-offset-[6px]">{headerStats.sightings}</span>
+                <span className="block ng-caption mt-1.5">{headerStats.sightings === 1 ? 'sighting' : 'sightings'}</span>
               </button>
               <p className="ml-auto self-center text-sm text-stone-500 text-right">
                 <button onClick={() => setSheet('followers')} className="hover:text-stone-900 hover:underline underline-offset-4">{(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'follower' : 'followers'}</button>
@@ -689,9 +688,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             </div>
           </section>
           {stamps.length > 0 && (
-            <section aria-label="Challenge stamps" className="mt-4">
-              <p className="text-xs text-stone-500 mb-2">{stamps.length === 1 ? 'One fortnight answered' : `${stamps.length} fortnights answered`}</p>
-              <ul className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            <section aria-label="Challenge stamps" className="mt-6">
+              <p className="ng-caption mb-3">{stamps.length === 1 ? 'One fortnight answered' : `${stamps.length} fortnights answered`}</p>
+              <ul className="flex gap-3 overflow-x-auto no-scrollbar py-1 px-1">
                 {stamps.map(st => (
                   <li key={`${st.naturalistId}-${st.periodStart}`}>
                     <button onClick={() => st.postId && onOpenPost?.(st.postId)} title={`Answered ${st.naturalist}'s challenge`} className="block">
@@ -702,24 +701,24 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </ul>
             </section>
           )}
-          <div className="flex gap-2 mt-4">
+          <div className="flex items-center gap-3 mt-6">
             {isOwnProfile ? (
               <>
-                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-stone-200 hover:bg-stone-900/[0.03] text-sm font-bold text-stone-900">Edit field page</button>
-                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-stone-200 hover:bg-stone-900/[0.03] text-stone-900 flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                <button onClick={() => setSheet('edit')} className="ng-button-quiet flex-1 sm:flex-none">Edit field page</button>
+                <button onClick={shareProfile} aria-label="Share field page" className="ng-icon-button w-12 h-12 border border-stone-200"><Glyph name="share" size={20} /></button>
               </>
             ) : blocked ? (
-              <button onClick={toggleBlock} className="flex-1 py-2.5 rounded-xl border border-stone-200 text-sm font-bold text-stone-900">Unblock</button>
+              <button onClick={toggleBlock} className="ng-button-quiet flex-1 sm:flex-none">Unblock</button>
             ) : (
               <>
-                <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${following ? 'border border-stone-200 text-stone-900 hover:bg-stone-900/[0.03]' : 'bg-stone-900 text-white hover:opacity-90'}`}>
+                <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 sm:flex-none ${following ? 'ng-button-quiet' : 'ng-button-primary'}`}>
                   {following ? 'Following' : 'Follow'}
                 </button>
                 <button onClick={async () => {
                   // A letter that can't be opened says why, instead of doing nothing.
                   try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
-                }} className="flex-1 py-2.5 rounded-xl border border-stone-200 hover:bg-stone-900/[0.03] text-sm font-bold text-stone-900 flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Letter</button>
-                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-stone-200 hover:bg-stone-900/[0.03] text-stone-900 flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                }} className="ng-button-quiet flex-1 sm:flex-none"><Glyph name="letter" size={20} className="text-stone-500" />Letter</button>
+                <button onClick={shareProfile} aria-label="Share field page" className="ng-icon-button w-12 h-12 border border-stone-200"><Glyph name="share" size={20} /></button>
               </>
             )}
           </div>
@@ -727,29 +726,29 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         </section>
 
         {blocked && !isOwnProfile ? (
-          <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their sightings.</p>
+          <p className="text-center ng-small py-16 px-8">You've blocked this explorer. Unblock to see their sightings.</p>
         ) : (
           <>
-            <div role="tablist" aria-label="Field page sections" className="flex bg-day-bg/95 backdrop-blur border-b border-stone-200 sticky top-0 z-10">
+            <div role="tablist" aria-label="Field page sections" className="flex gap-8 ng-page bg-day-bg/95 backdrop-blur border-b border-stone-200/80 sticky top-0 z-10">
               {([
                 { key: 'posts', icon: 'landscape', label: 'Sightings' },
                 { key: 'lifelist', icon: 'plate', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-stone-900 font-display font-semibold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
+                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`ng-tab gap-2 min-h-[52px] ${tab === t.key ? 'ng-tab-on after:!bottom-0' : ''}`}>
                   {t.icon === 'plate'
-                    ? <Glyph name="plate" size={20} strokeWidth={tab === t.key ? 1.8 : 1.4} />
-                    : <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: tab === t.key ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{t.icon}</span>}{t.label}
+                    ? <Glyph name="plate" size={20} />
+                    : <Glyph name={t.icon === 'filter_vintage' ? 'keep' : 'landscape'} size={20} />}{t.label}
                 </button>
               ))}
             </div>
 
             {tab === 'posts' && (
               visiblePosts.length === 0 ? (
-                <div className="text-center py-16 px-8 text-stone-500">
-                  <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">camera</span>
-                  <p className="font-display text-xl text-stone-800">{isOwnProfile ? 'Your first sighting is out there' : 'No public sightings yet'}</p>
-                  {isOwnProfile && <p className="text-sm mt-1">Open the Lens and point it at something alive.</p>}
+                <div className="ng-empty">
+                  <Glyph name="camera" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                  <p className="ng-empty-title">{isOwnProfile ? 'Your first sighting is out there' : 'No public sightings yet'}</p>
+                  {isOwnProfile && <p className="ng-empty-body">Open the Lens and point it at something alive.</p>}
                 </div>
               ) : (
                 <SightingDrawers posts={visiblePosts} own={isOwnProfile} onOpenPost={onOpenPost} />
@@ -758,10 +757,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {tab === 'lifelist' && (
               lifeList.length === 0 ? (
-                <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
-                  <Glyph name="seedling" size={44} className="text-theme-accent/60 mb-3" />
-                  <p className="font-display text-xl text-stone-800">{isOwnProfile ? 'Your herbarium is waiting' : 'No plates yet'}</p>
-                  <p className="text-sm mt-1">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} becomes a numbered plate here, with the day, place and season it was first seen.</p>
+                <div className="ng-empty max-w-sm mx-auto">
+                  <Glyph name="seedling" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                  <p className="ng-empty-title">{isOwnProfile ? 'Your herbarium is waiting' : 'No plates yet'}</p>
+                  <p className="ng-empty-body">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} becomes a numbered plate here, with the day, place and season it was first seen.</p>
                 </div>
               ) : (
                 <LifeListView entries={lifeList} own={isOwnProfile} ghosts={ghosts} onOpenPost={onOpenPost} onShare={sharePlateOf} firstName={firstName} homeRange={masthead.homeRange} season={masthead.season} />
@@ -770,15 +769,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {tab === 'saved' && isOwnProfile && (
               saved === null ? (
-                <div className="flex flex-col items-center py-14 text-stone-500" role="status">
-                  <Glyph name="press" size={32} className="text-theme-accent/60 animate-pulse" />
-                  <p className="mt-2 text-sm font-display">Opening the press…</p>
-                </div>
+                <PressingLoader label="Opening the press…" className="py-14" />
               ) :
               saved.length === 0 ? (
-                <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
-                  <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">filter_vintage</span>
-                  <p className="text-sm">Tap Keep on any sighting to find it here. Only you can see this.</p>
+                <div className="ng-empty max-w-sm mx-auto">
+                  <Glyph name="keep" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                  <p className="ng-empty-body mt-0">Tap Keep on any sighting to find it here. Only you can see this.</p>
                 </div>
               ) : (
                 <KeptPages items={saved} onOpenPost={onOpenPost} />
@@ -792,28 +788,28 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {(sheet === 'followers' || sheet === 'following') && (
         <Sheet title={sheet === 'followers' ? 'Followers' : 'Following'} onClose={() => setSheet(null)}>
-          {people === null ? <p className="text-stone-500 text-center py-6 font-display" role="status">Gathering the names…</p> :
+          {people === null ? <p className="text-stone-500 text-center py-6 font-display italic" role="status">Gathering the names…</p> :
             people.length === 0 ? (
-              <div className="text-center py-6 px-2">
-                <Glyph name={sheet === 'followers' ? 'binoculars' : 'notebook'} size={32} className="text-theme-accent/60 mb-2" />
-                <p className="text-stone-700 font-display text-lg">
+              <div className="ng-empty py-8 px-2">
+                <Glyph name={sheet === 'followers' ? 'binoculars' : 'notebook'} size={32} strokeWidth={1.2} className="ng-empty-glyph" />
+                <p className="ng-empty-title">
                   {sheet === 'followers'
                     ? (isOwnProfile ? 'No one follows you yet' : `No one follows ${username} yet`)
                     : (isOwnProfile ? "You're not following anyone yet" : `${username} isn't following anyone yet`)}
                 </p>
-                <p className="text-sm text-stone-500 mt-1">
+                <p className="ng-empty-body">
                   {sheet === 'followers'
                     ? (isOwnProfile ? 'Share a sighting or two; explorers who notice the same things tend to find you.' : 'You could be the first to follow along.')
                     : (isOwnProfile ? 'Follow an explorer from any sighting and their new sightings will reach you.' : 'Their own sightings are worth a look in the meantime.')}
                 </p>
               </div>
             ) : (
-              <ul className="space-y-1" role="list">
+              <ul role="list">
                 {people.map(p => (
                   <li key={p.uid}>
-                    <button onClick={() => { setSheet(null); onViewProfile?.(p.uid); }} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
+                    <button onClick={() => { setSheet(null); onViewProfile?.(p.uid); }} className="w-full flex items-center gap-4 py-3 border-b border-stone-200/70 text-left">
                       <Avatar url={p.avatarUrl} name={p.username} size={44} />
-                      <span className="flex-1 min-w-0"><span className="block font-semibold text-stone-900 truncate">{p.username}</span>{p.bio && <span className="block text-xs text-stone-500 truncate">{p.bio}</span>}</span>
+                      <span className="flex-1 min-w-0"><span className="block font-medium text-stone-900 truncate">{p.username}</span>{p.bio && <span className="block text-xs text-stone-500 truncate">{p.bio}</span>}</span>
                     </button>
                   </li>
                 ))}
@@ -824,11 +820,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {sheet === 'menu' && !isOwnProfile && (
         <Sheet title={username} onClose={() => setSheet(null)}>
-          <div className="flex flex-col gap-1">
-            <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share field page</button>
+          <div className="flex flex-col -mx-3">
+            <button onClick={shareProfile} className="ng-menu-item min-h-[52px]"><Glyph name="share" size={20} className="text-stone-500" />Share field page</button>
             {currentUserId && !isAnonymous && (<>
-              <button onClick={toggleMute} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_up' : 'volume_off'}</span>{muted ? 'Unmute' : 'Mute'} {username}</button>
-              <button onClick={toggleBlock} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">block</span>{blocked ? 'Unblock' : 'Block'} {username}</button>
+              <button onClick={toggleMute} className="ng-menu-item min-h-[52px]"><Glyph name={muted ? 'soundOn' : 'soundOff'} size={20} className="text-stone-500" />{muted ? 'Unmute' : 'Mute'} {username}</button>
+              <button onClick={toggleBlock} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="block" size={20} className="text-stone-500" />{blocked ? 'Unblock' : 'Block'} {username}</button>
             </>)}
           </div>
         </Sheet>
@@ -836,23 +832,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {sheet === 'settings' && isOwnProfile && (
         <Sheet title="Settings" onClose={() => setSheet(null)}>
-          <nav className="flex flex-col gap-1" aria-label="Account settings">
-            <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit field page</button>
-            <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
+          <nav className="flex flex-col -mx-3" aria-label="Account settings">
+            <button onClick={() => setSheet('edit')} className="ng-menu-item min-h-[52px]"><Glyph name="edit" size={20} className="text-stone-500" />Edit field page</button>
+            <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="ng-menu-item min-h-[52px]"><Glyph name="guide" size={20} className="text-stone-500" /><span className="flex-1">What makes you stop and look<span className="block ng-caption">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
-            <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
+            <button onClick={downloadData} className="ng-menu-item min-h-[52px]"><Glyph name="download" size={20} className="text-stone-500" />Download my data</button>
             {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
             {isAdmin && onAdminConsole && (
-              <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
+              <button onClick={() => { setSheet(null); onAdminConsole(); }} className="ng-menu-item min-h-[52px]"><Glyph name="seal" size={20} className="text-stone-500" />Admin console</button>
             )}
             {onRetakeTour && (
-              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="leafCompass" size={24} />Take the tour again</button>
+              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="ng-menu-item min-h-[52px]"><Glyph name="leafCompass" size={20} className="text-stone-500" />Take the tour again</button>
             )}
-            <a href="/privacy.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">shield</span>Privacy policy</a>
-            <a href="/terms.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">description</span>Terms & community guidelines</a>
-            <hr className="my-2 border-stone-100" />
-            <button onClick={() => { setSheet(null); onSignOut(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">logout</span>Log out</button>
-            <button onClick={() => setSheet('delete')} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">delete_forever</span>Delete account</button>
+            <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
+            <a href="/terms.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="lines" size={20} className="text-stone-500" />Terms & community guidelines</a>
+            <hr className="my-2 mx-3 border-stone-200/80" />
+            <button onClick={() => { setSheet(null); onSignOut(); }} className="ng-menu-item min-h-[52px]"><Glyph name="signOut" size={20} className="text-stone-500" />Log out</button>
+            <button onClick={() => setSheet('delete')} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="trash" size={20} className="text-stone-500" />Delete account</button>
           </nav>
         </Sheet>
       )}
@@ -869,7 +865,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {sheet === 'delete' && <DeleteAccountSheet username={username} lifeList={lifeList} onDownloadData={downloadData} onClose={() => setSheet(null)} onDeleted={onSignOut} />}
 
-      {toast && <div role="status" className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[130] bg-stone-900 text-white text-sm font-semibold px-4 py-2.5 rounded-full animate-fade-in">{toast}</div>}
+      {toast && <div role="status" className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[130] ng-toast animate-fade-in">{toast}</div>}
     </div>
   );
 };
@@ -884,10 +880,10 @@ const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => 
     else onToast('This browser does not support notifications');
   };
   return (
-    <button role="switch" aria-checked={on} onClick={toggle} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3">
-      <span className="material-symbols-outlined" aria-hidden="true">notifications</span>
-      <span className="flex-1">Notifications<span className="block text-xs font-normal text-stone-500">When explorers marvel, leave field notes, follow or mention you</span></span>
-      <span className={`w-11 h-6 rounded-full relative transition-colors ${on ? 'bg-theme-accent' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
+    <button role="switch" aria-checked={on} onClick={toggle} className="ng-menu-item min-h-[52px]">
+      <Glyph name="bell" size={24} />
+      <span className="flex-1">Notifications<span className="block ng-caption">When explorers marvel, leave field notes, follow or mention you</span></span>
+      <span className={`w-11 h-6 rounded-full relative transition-colors ${on ? 'bg-stone-900' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
     </button>
   );
 };
@@ -921,28 +917,28 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
       <form onSubmit={save} className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-2">
           <Avatar url={avatarPreview || profile?.avatarUrl} name={username} size={96} />
-          <button type="button" onClick={() => fileRef.current?.click()} className="text-sm font-bold text-theme-accent">Change photo</button>
+          <button type="button" onClick={() => fileRef.current?.click()} className="ng-link-quiet min-h-[44px]">Change photo</button>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => {
             const f = e.target.files?.[0];
             if (f) { setAvatarFile(f); setAvatarPreview(URL.createObjectURL(f)); }
           }} />
         </div>
         <label className="block">
-          <span className="block text-sm font-semibold text-stone-700 mb-1.5">Name</span>
-          <input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={60} autoComplete="name" className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-base" />
+          <span className="block ng-label mb-2">Name</span>
+          <input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={60} autoComplete="name" className="ng-field w-full px-4 py-3" />
         </label>
         <label className="block">
-          <span className="block text-sm font-semibold text-stone-700 mb-1.5">Username</span>
-          <input value={username} onChange={e => setUsername(e.target.value)} maxLength={30} required minLength={3} pattern="[a-zA-Z0-9_.]{3,30}" autoComplete="username" className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-base" />
-          <span className="block text-xs text-stone-500 mt-1">Letters, numbers, dots and underscores.</span>
+          <span className="block ng-label mb-2">Username</span>
+          <input value={username} onChange={e => setUsername(e.target.value)} maxLength={30} required minLength={3} pattern="[a-zA-Z0-9_.]{3,30}" autoComplete="username" className="ng-field w-full px-4 py-3" />
+          <span className="block ng-caption mt-1.5">Letters, numbers, dots and underscores.</span>
         </label>
         <label className="block">
-          <span className="block text-sm font-semibold text-stone-700 mb-1.5">Bio</span>
-          <textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={300} rows={3} placeholder="Birder in the Thar desert. Moth enthusiast." className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-base resize-none" />
-          <span className="block text-xs text-stone-500 mt-1 text-right">{bio.length}/300</span>
+          <span className="block ng-label mb-2">Bio</span>
+          <textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={300} rows={3} placeholder="Birder in the Thar desert. Moth enthusiast." className="ng-field w-full px-4 py-3 resize-none" />
+          <span className="block ng-caption mt-1.5 text-right">{bio.length}/300</span>
         </label>
-        {error && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-xl">{error}</p>}
-        <button type="submit" disabled={busy} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold disabled:opacity-60">{busy ? 'Saving…' : 'Save'}</button>
+        {error && <p role="alert" className="text-sm text-red-800 border-l-2 border-red-700 pl-3 py-1">{error}</p>}
+        <button type="submit" disabled={busy} className="ng-button-primary w-full">{busy ? 'Saving…' : 'Save'}</button>
       </form>
     </Sheet>
   );
@@ -987,34 +983,34 @@ const DeleteAccountSheet: React.FC<{ username: string; lifeList: LifeEntry[]; on
         <AuthModal inline initialIsSignUp={false} reason="Log in again to confirm it's you." onSuccess={() => { setNeedsReauth(false); setError(''); run(); }} />
       ) : (
         <div className="flex flex-col gap-4">
-          <p className="text-stone-700 leading-relaxed">This permanently deletes <strong>{username}</strong>: your field page, every sighting and its media, field notes, marvels, follows, drafts and private details. <strong>This cannot be undone.</strong></p>
-          <section aria-labelledby="keep-first" className="rounded-2xl bg-[#fbf7ef] border border-[#e8dfcd] p-4">
-            <h3 id="keep-first" className="font-display text-lg text-stone-900 flex items-center gap-2"><Glyph name="plate" size={20} className="text-theme-accent" />Download your plates first</h3>
-            <p className="text-sm text-stone-600 mt-1">
+          <p className="ng-body">This permanently deletes <strong>{username}</strong>: your field page, every sighting and its media, field notes, marvels, follows, drafts and private details. <strong>This cannot be undone.</strong></p>
+          <section aria-labelledby="keep-first" className="py-5 border-y border-stone-200/80">
+            <h3 id="keep-first" className="ng-subtitle flex items-center gap-3"><Glyph name="plate" size={20} className="text-stone-500" />Download your plates first</h3>
+            <p className="ng-small mt-1">
               {lifeList.length
                 ? `Take your life list of ${lifeList.length} species with you before it goes.`
                 : 'Take a copy of everything you recorded before it goes.'}
             </p>
-            <div className="mt-3 flex flex-col gap-2">
+            <div className="mt-4 flex flex-col gap-3">
               {lifeList.length > 0 && (
                 <>
-                  <button onClick={savePlates} disabled={plating} className="w-full py-2.5 rounded-xl bg-white border border-stone-200 text-sm font-semibold text-stone-900 disabled:opacity-60">
+                  <button onClick={savePlates} disabled={plating} className="ng-button-quiet w-full text-sm">
                     {plating ? 'Pressing your plates…' : `Save ${Math.min(12, lifeList.length) === lifeList.length ? 'all your plates' : 'your first 12 plates'} as one picture`}
                   </button>
-                  <button onClick={() => lifeListFiles(lifeList)} className="w-full py-2.5 rounded-xl bg-white border border-stone-200 text-sm font-semibold text-stone-900">Save the life list (spreadsheet and JSON)</button>
+                  <button onClick={() => lifeListFiles(lifeList)} className="ng-button-quiet w-full text-sm">Save the life list (spreadsheet and JSON)</button>
                 </>
               )}
-              <button onClick={onDownloadData} className="w-full py-2.5 rounded-xl bg-white border border-stone-200 text-sm font-semibold text-stone-900">Download all my data</button>
+              <button onClick={onDownloadData} className="ng-button-quiet w-full text-sm">Download all my data</button>
             </div>
-            {saved && <p role="status" className="text-sm text-stone-600 mt-2">{saved}</p>}
+            {saved && <p role="status" className="ng-small mt-3">{saved}</p>}
           </section>
           <label className="block">
-            <span className="block text-sm font-semibold text-stone-700 mb-1.5">Type DELETE to confirm</span>
-            <input value={confirmText} onChange={e => setConfirmText(e.target.value)} className="w-full bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-base" autoCapitalize="characters" />
+            <span className="block ng-label mb-2">Type DELETE to confirm</span>
+            <input value={confirmText} onChange={e => setConfirmText(e.target.value)} className="ng-field w-full px-4 py-3" autoCapitalize="characters" />
           </label>
-          {progress && <p role="status" className="text-sm text-stone-700">{progress}</p>}
-          {error && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-xl">{error}</p>}
-          <button onClick={run} disabled={confirmText !== 'DELETE' || busy} className="w-full py-3.5 rounded-xl bg-red-700 text-white font-bold disabled:opacity-40">{busy ? 'Deleting…' : 'Permanently delete my account'}</button>
+          {progress && <p role="status" className="ng-small text-stone-700">{progress}</p>}
+          {error && <p role="alert" className="text-sm text-red-800 border-l-2 border-red-700 pl-3 py-1">{error}</p>}
+          <button onClick={run} disabled={confirmText !== 'DELETE' || busy} className="w-full min-h-[48px] rounded-full bg-red-700 hover:bg-red-800 text-white text-[15px] font-semibold disabled:opacity-40">{busy ? 'Deleting…' : 'Permanently delete my account'}</button>
         </div>
       )}
     </Sheet>

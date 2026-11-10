@@ -525,7 +525,6 @@ async function startServer() {
       : `<span class="note">Shared during ${e(theme.naturalist)}'s fortnight on NatureGram</span>`;
     // Theme colours come from the fixed table above, never from user input; still validated as hex.
     const hex = (c, d) => (/^#[0-9a-f]{6}$/i.test(c) ? c : d);
-    const ink = hex(theme.deep, '#44403c');
     const wash = hex(theme.accent, '#a8a29e');
     res.setHeader('Cache-Control', 'public, max-age=300');
     res.type('html').send(`<!DOCTYPE html>
@@ -539,30 +538,38 @@ async function startServer() {
 <meta property="og:description" content="${e(description)}"><meta property="og:image" content="${e(imageUrl)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${e(title)}">
 <meta name="twitter:description" content="${e(description)}"><meta name="twitter:image" content="${e(imageUrl)}">
-<meta property="og:image:alt" content="${e(heading)}"><meta name="theme-color" content="${ink}">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&display=swap" rel="stylesheet">
+<meta property="og:image:alt" content="${e(heading)}"><meta name="theme-color" content="#fcfaf8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f1e8;color:#292524;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
-.card{max-width:420px;width:100%;background:#fbf7ef;border-radius:4px;overflow:hidden;box-shadow:0 1px 2px rgba(60,40,20,.12),0 18px 40px -16px rgba(60,40,20,.35);padding:22px;border:1px solid #d8ccb6;outline:1px solid #e8dfcd;outline-offset:-8px}
-.brand{font-family:Newsreader,Georgia,serif;font-size:18px;color:${ink};margin:0 0 14px}
-img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#efe7d6;display:block}
-h1{font-family:Newsreader,Georgia,serif;font-style:italic;font-weight:500;font-size:28px;line-height:1.15;color:${ink};margin:16px 0 2px}
-.sci{font-family:Newsreader,Georgia,serif;font-style:italic;color:#8a7a60;margin:0 0 4px;font-size:15px}
-.by{font-size:13px;color:#8a7a60;margin:6px 0 10px}
-p.desc{font-family:Newsreader,Georgia,serif;font-size:17px;line-height:1.55;color:#44403c;margin:10px 0}
-.tag{display:inline-block;margin:0 10px 4px 0;color:${ink};font-size:13px}
-.tag,.note{opacity:.9}.note{font-size:13px;color:#8a7a60}
-a.btn{display:block;text-align:center;margin-top:18px;padding:14px;border-radius:12px;background:${ink};color:#fff;text-decoration:none;font-weight:600;box-shadow:0 0 0 3px ${wash}33}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#fcfaf8;color:#44403c;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center}
+.top{width:100%;max-width:440px;display:flex;align-items:center;gap:10px;margin:0 0 32px}
+.top svg{width:22px;height:22px;color:#1c1917}
+.brand{font-family:Newsreader,Georgia,serif;font-style:italic;font-size:20px;color:#1c1917;margin:0;letter-spacing:-.01em}
+.card{max-width:440px;width:100%}
+img{width:100%;aspect-ratio:4/5;object-fit:cover;background:#f3efe7;display:block;border-radius:6px}
+.kicker{display:flex;align-items:center;gap:12px;font-size:14px;color:#57534e;margin:28px 0 0}
+.kicker:before{content:"";display:block;width:32px;height:1px;background:${wash}}
+h1{font-family:Newsreader,Georgia,serif;font-style:italic;font-weight:400;font-size:28px;line-height:1.2;color:#1c1917;margin:12px 0 2px}
+.sci{font-family:Newsreader,Georgia,serif;font-style:italic;color:#78716c;margin:0;font-size:16px}
+.by{font-size:12px;color:#78716c;margin:10px 0 0}
+p.desc{font-size:16px;line-height:1.65;color:#44403c;margin:16px 0}
+.tag{display:inline-block;margin:0 12px 4px 0;color:#57534e;font-size:14px}
+.note{font-size:12px;color:#78716c}
+a.btn{display:inline-flex;align-items:center;gap:10px;margin-top:24px;min-height:48px;padding:0 22px 0 24px;border-radius:999px;background:#1c1917;color:#fff;text-decoration:none;font-weight:600;font-size:15px}
+a.btn span{color:${wash}}
+a:focus-visible{outline:3px solid ${wash};outline-offset:2px}
 </style>${ld ? `\n<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}</head>
-<body><main class="card">
-<p class="brand">NatureGram</p>
+<body><header class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.7" fill="currentColor"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7" stroke-width="2"/></svg><p class="brand">NatureGram</p></header>
+<main class="card">
 <a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(heading)}" referrerpolicy="no-referrer"></a>
+<p class="kicker">A sighting on NatureGram</p>
 <h1>${e(heading)}</h1>
 ${scientific ? `<p class="sci">${e(scientific)}</p>` : ''}
 ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 <p class="desc">${e(description)}</p>
 <div>${tagHtml}</div>
-<a class="btn" href="${e(appUrl)}">Open this sighting</a>
+<a class="btn" href="${e(appUrl)}">Open this sighting <span aria-hidden="true">&rarr;</span></a>
 </main></body></html>`);
   });
 

@@ -1,5 +1,6 @@
 
 import { getShareUrl } from '../utils';
+import { PressingLoader } from './SkeletonPost';
 import { FungiWarning, isFungiPost } from './AiBadge';
 import { WonderBurst } from './Wonder';
 import { track } from '../services/analytics';
@@ -438,45 +439,45 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       };
       const isNew = newSpecies.length > 0;
       return (
-          <div className="fixed inset-0 bg-day-bg flex flex-col items-center p-8 pt-[calc(env(safe-area-inset-top)+2.5rem)] text-center animate-fade-in z-[70] overflow-y-auto">
+          <div className="fixed inset-0 bg-day-bg flex flex-col items-center px-6 py-8 pt-[calc(env(safe-area-inset-top)+3rem)] text-center animate-fade-in z-[70] overflow-y-auto">
                {plate ? (
                    <motion.div
                        className="relative w-56 mb-7 shrink-0"
-                       initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 80, rotate: -6 }}
-                       animate={{ opacity: 1, y: 0, rotate: -1.5 }}
-                       transition={{ type: 'spring', damping: 20, stiffness: 160, delay: reduceMotion ? 0 : 0.1 }}
+                       initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 16 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       transition={{ duration: 0.9, ease: [0.2, 0.7, 0.2, 1], delay: reduceMotion ? 0 : 0.1 }}
                    >
                        {isNew && <span className="absolute -inset-16 pointer-events-none"><WonderBurst count={24} /></span>}
                        <SpecimenPlate data={plate} size="lg" stamp={isNew ? <PlateStamp>First for your list</PlateStamp> : undefined} />
                    </motion.div>
                ) : publishedThumb && (
                    <div className="relative mb-6">
-                       <img src={publishedThumb} alt="" className="w-40 h-40 rounded-[3px] object-cover shadow-2xl rotate-[-3deg]" />
+                       <img src={publishedThumb} alt="" className="w-40 h-40 rounded-md object-cover" />
                    </div>
                )}
-               {plate?.no && <p className="font-display italic text-lg text-theme-accent mb-1">No. {plate.no} in your collection</p>}
-               <h2 className="text-3xl font-display text-stone-900 mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
-               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with everyone any time.')}</p>
-               {isNew && lifeListTotal > 0 && <p className="text-sm text-stone-700 mb-4 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
+               {plate?.no && <p className="ng-kicker mb-3">No. {plate.no} in your collection</p>}
+               <h2 className="ng-display mb-3">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
+               <p className="ng-body text-stone-600 mb-5 max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with everyone any time.')}</p>
+               {isNew && lifeListTotal > 0 && <p className="ng-small text-stone-700 mb-5 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                {answeredChallenge && (
-                   <p className="mb-4 flex items-center justify-center gap-2 text-sm text-theme-accent"><Glyph name="stamp" size={18} />You answered {theme.naturalist}'s challenge</p>
+                   <p className="mb-5 flex items-center justify-center gap-2 text-sm text-stone-800"><Glyph name="stamp" size={20} className="text-stone-500" />You answered {theme.naturalist}'s challenge</p>
                )}
                {guideNotes && (
-                   <figure className="mb-7 w-full max-w-xs text-left border-l-2 border-theme-accent/40 pl-4">
-                       <figcaption className="text-xs text-stone-500 mb-1 flex items-center gap-1.5"><Glyph name="guide" size={13} />Your guide's notes</figcaption>
-                       <p className="font-display italic text-[15px] leading-relaxed text-stone-700 line-clamp-5">{guideNotes}</p>
+                   <figure className="mb-8 w-full max-w-xs text-left border-l border-theme-accent pl-5">
+                       <figcaption className="ng-caption mb-1.5 flex items-center gap-1.5"><Glyph name="guide" size={14} />Your guide's notes</figcaption>
+                       <p className="font-display italic text-base leading-[1.6] text-stone-700 line-clamp-5">{guideNotes}</p>
                    </figure>
                )}
-               <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
+               <div className="w-full max-w-xs flex flex-col items-center gap-4 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
-                       <button onClick={share} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2">
-                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{/* glossary-ok: the life-list plate */}
+                       <button onClick={share} className="ng-button-primary w-full">
+                           <Glyph name="share" size={20} className="ng-arrow" />{/* glossary-ok: the life-list plate */}
                            {copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
-                   {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
-                   <button onClick={onViewFeed} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
-                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-stone-200 text-stone-900 px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="eyeEar" size={20} />Keep looking</button>}
+                   {shareNote && <p className="ng-caption" role="status">{shareNote}</p>}
+                   <button onClick={onViewFeed} className={createdPostId && postToFeed && !heldMessage ? 'ng-button-quiet w-full' : 'ng-button-primary w-full'}>See it in the wild</button>
+                   {onCaptureMore && <button onClick={onCaptureMore} className="ng-link-quiet min-h-[44px] inline-flex items-center gap-2"><Glyph name="eyeEar" size={20} className="text-stone-500" />Keep looking</button>}
                </div>
           </div>
       );
@@ -490,24 +491,24 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
   return (
     <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.4, ease: [0.2, 0.7, 0.2, 1] }}
         className="fixed inset-0 bg-day-bg flex flex-col z-[70] overflow-hidden"
     >
-      <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-stone-200 shrink-0 z-20 safe-pt box-content">
-          <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="w-11 h-11 -ml-2 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
+      <header className="h-16 px-4 md:px-8 flex justify-between items-center bg-day-bg border-b border-stone-200/80 shrink-0 z-20 safe-pt box-content">
+          <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="ng-icon-button -ml-2"><Glyph name="close" size={24} /></button>
           <div className="text-center">
-              <h2 className="text-base font-display text-stone-900">{selectedIndices.size > 1 && !combine ? 'Your sightings' : 'Your sighting'}</h2>
-              {snapshots.length > 1 && <p className="text-xs text-stone-500">{selectedIndices.size} of {snapshots.length} captures selected</p>}
+              <h2 className="font-display italic text-lg text-stone-900">{selectedIndices.size > 1 && !combine ? 'Your sightings' : 'Your sighting'}</h2>
+              {snapshots.length > 1 && <p className="ng-caption">{selectedIndices.size} of {snapshots.length} captures selected</p>}
           </div>
           <span className="w-11" aria-hidden="true" />
       </header>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Primary Media Section - Fixed at top */}
-          <div className="w-full bg-theme-shadow shrink-0 flex items-center justify-center relative overflow-hidden group" style={{ height: '45vh' }}>
+          <div className="w-full bg-stone-950 shrink-0 flex items-center justify-center relative overflow-hidden group" style={{ height: '45vh' }}>
               {snapshots.length > 0 && currentSnapshot ? (
                   <div className="w-full h-full flex items-center justify-center">
                       {currentSnapshot.type === 'video' ? (
@@ -536,20 +537,18 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   ))}
                                   {[currentSnapshot.url, ...(currentSnapshot.associatedImages?.map(i => i.url) || [])].filter(Boolean).length === 0 && (
                                       <div className="col-span-2 row-span-2 bg-stone-900 flex items-center justify-center">
-                                          <Glyph name="sound" size={56} className="text-white/60" />
+                                          <Glyph name="sound" size={40} strokeWidth={1.2} className="text-white/60" />
                                       </div>
                                   )}
                               </div>
-                              <div className="relative z-10 flex flex-col items-center gap-6 p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl">
-                                  <div className="w-16 h-16 rounded-full bg-stone-900 flex items-center justify-center text-white">
-                                      <Glyph name="sound" size={30} />
-                                  </div>
-                                  <audio 
+                              <div className="relative z-10 flex flex-col items-center gap-5 p-8 bg-black/45 backdrop-blur-xl rounded-2xl">
+                                  <Glyph name="sound" size={32} className="text-white/85" />
+                                  <audio
                                       src={currentAudioUrl}
                                       controls
                                       className="w-64 h-10"
                                   />
-                                  <p className="text-sm font-semibold text-white/75">Sound</p>
+                                  <p className="text-sm font-display italic text-white/75">Sound</p>
                               </div>
                           </div>
                       ) : (
@@ -563,7 +562,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <img src={currentPreviewUrl!} className="w-full h-full object-cover transition-transform duration-300" alt="" />
                               </div>
                               {currentAudioUrl && (
-                                  <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 bg-black/60 backdrop-blur-xl p-3 rounded-full border border-white/10 shadow-2xl">
+                                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 bg-black/45 backdrop-blur-xl p-2 rounded-full">
                                       <audio src={currentAudioUrl} controls className="h-10 w-64" />
                                   </div>
                               )}
@@ -573,9 +572,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           onClick={() => toggleSelection(currentSnapIndex)}
                           aria-pressed={selectedIndices.has(currentSnapIndex)}
                           aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected to share. Tap to leave out' : 'Not selected. Tap to include'}
-                          className={`absolute top-6 right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${selectedIndices.has(currentSnapIndex) ? 'bg-theme-accent text-white' : 'bg-white/20 backdrop-blur-md text-white border border-white/20'}`}
+                          className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-colors ${selectedIndices.has(currentSnapIndex) ? 'bg-white text-stone-900' : 'bg-black/40 backdrop-blur-md text-white'}`}
                       >
-                          <span className="material-symbols-outlined text-2xl">{selectedIndices.has(currentSnapIndex) ? 'check_circle' : 'add_circle'}</span>
+                          <Glyph name={selectedIndices.has(currentSnapIndex) ? 'checkCircle' : 'plusCircle'} size={24} />
                       </button>
                       {(currentSnapshot.type === 'image' || currentSnapshot.type === 'video') && (
                           <button
@@ -612,36 +611,36 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               }}
                               disabled={isProcessing}
                               aria-label="Rotate 90 degrees"
-                              className="absolute top-6 left-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 bg-white/20 backdrop-blur-md text-white border border-white/20 disabled:opacity-50"
+                              className="absolute top-4 left-4 md:top-6 md:left-6 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-colors bg-black/40 backdrop-blur-md text-white disabled:opacity-50"
                           >
-                              <span className="material-symbols-outlined text-2xl">rotate_right</span>
+                              <Glyph name="rotate" size={24} />
                           </button>
                       )}
                   </div>
               ) : (
-                  <div className="text-center opacity-20">
-                      <span className="material-symbols-outlined text-6xl text-white mb-4">landscape</span>
-                      <h3 className="text-xl font-display font-semibold text-white">No captures in this session</h3>
+                  <div className="text-center text-white/50">
+                      <Glyph name="landscape" size={40} strokeWidth={1.2} className="mb-4" />
+                      <h3 className="font-display italic text-xl">No captures in this session</h3>
                   </div>
               )}
           </div>
 
           {/* Scrollable Content Section */}
-          <div className="flex-1 overflow-y-auto overscroll-contain no-scrollbar bg-white">
-              <div className="p-6 md:p-10 max-w-2xl mx-auto pb-10">
+          <div className="flex-1 overflow-y-auto overscroll-contain no-scrollbar bg-day-bg">
+              <div className="px-6 py-8 md:p-12 max-w-2xl mx-auto pb-12">
                   {guideNotes && (
-                      <section className="mb-8 rounded-2xl bg-stone-50 border border-stone-200 p-4" aria-labelledby="guide-notes-title">
-                          <h3 id="guide-notes-title" className="text-sm font-semibold text-stone-700 mb-1.5 flex items-center gap-1.5"><Glyph name="guide" size={15} className="text-theme-accent" />Your guide's notes from this outing</h3>
-                          <p className="font-display italic text-[15px] leading-relaxed text-stone-700">{guideNotes}</p>
+                      <section className="mb-10 border-l border-theme-accent pl-5" aria-labelledby="guide-notes-title">
+                          <h3 id="guide-notes-title" className="ng-caption mb-2 flex items-center gap-1.5"><Glyph name="guide" size={14} />Your guide's notes from this outing</h3>
+                          <p className="font-display italic text-base leading-[1.6] text-stone-700">{guideNotes}</p>
                       </section>
                   )}
                   {snapshots.length > 1 && (
                       <div className="mb-10">
                           <div className="flex items-center justify-between mb-4">
-                              <span className="text-sm font-bold text-stone-700">Your captures</span>
+                              <span className="ng-label">Your captures</span>
                               <button
                                   onClick={() => setSelectedIndices(selectedIndices.size === snapshots.length ? new Set() : new Set(snapshots.map((_, i) => i)))}
-                                  className="text-sm font-semibold text-theme-accent hover:text-theme-accent/80"
+                                  className="ng-link-quiet min-h-[44px]"
                               >
                                   {selectedIndices.size === snapshots.length ? 'Deselect all' : 'Select all'}
                               </button>
@@ -651,7 +650,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <button
                                       key={snap.id}
                                       onClick={() => setCurrentSnapIndex(i)}
-                                      className={`relative shrink-0 w-20 aspect-square rounded-xl overflow-hidden border-2 transition-all ${currentSnapIndex === i ? 'border-theme-accent scale-105 shadow-lg' : 'border-stone-200 opacity-60 hover:opacity-100'}`}
+                                      className={`relative shrink-0 w-20 aspect-square rounded-md overflow-hidden transition-opacity ring-offset-2 ring-offset-day-bg ${currentSnapIndex === i ? 'ring-2 ring-stone-900' : 'opacity-60 hover:opacity-100'}`}
                                   >
                                       {snap.type === 'audio' ? (
                                           snap.associatedImages && snap.associatedImages.length > 0 ? (
@@ -671,7 +670,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       )}
                                       {!selectedIndices.has(i) && (
                                           <div className="absolute inset-0 bg-stone-900/60 flex items-center justify-center">
-                                              <span className="material-symbols-outlined text-white text-xs">close</span>
+                                              <Glyph name="close" size={14} className="text-white" />
                                           </div>
                                       )}
                                   </button>
@@ -684,7 +683,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       <div className="space-y-7">
                           {/* 1. The name, pre-filled by the guide, with its confidence in words */}
                           <section>
-                              <label htmlFor="post-labels" className="block text-sm font-bold text-stone-800 mb-2">What did you see?</label>
+                              <label htmlFor="post-labels" className="block ng-label mb-2">What did you see?</label>
                               <input
                                   id="post-labels"
                                   type="text"
@@ -693,12 +692,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   onChange={(e) => editLabels([e.target.value, ...labels.slice(1)])}
                                   onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
                                   aria-describedby="post-labels-hint"
-                                  className="w-full px-4 py-3.5 bg-stone-50 border border-stone-200 rounded-2xl text-xl font-display italic text-stone-900 outline-none focus:border-theme-accent"
+                                  className="ng-field-line text-[28px] leading-[1.2] font-display italic"
                               />
-                              <p id="post-labels-hint" className="text-xs text-stone-500 mt-1.5 flex items-center gap-1.5">
+                              <p id="post-labels-hint" className="ng-caption mt-2 flex items-center gap-1.5">
                                   {isAnalyzing
-                                      ? <><span className="motion-safe:animate-pulse inline-flex" aria-hidden="true"><Glyph name="guide" size={13} /></span>Your guide is looking…</>
-                                      : <>{confidenceWords(currentSnapshot?.aiConfidence) && <><Glyph name="guide" size={13} className="text-theme-accent" /><span className="text-stone-700">{confidenceWords(currentSnapshot?.aiConfidence)}.</span></>}<span>Change it if it's wrong.</span></>}
+                                      ? <><span className="inline-flex" aria-hidden="true"><Glyph name="guide" size={14} /></span>Your guide is looking…</>
+                                      : <>{confidenceWords(currentSnapshot?.aiConfidence) && <><Glyph name="guide" size={14} className="text-stone-500" /><span className="text-stone-700">{confidenceWords(currentSnapshot?.aiConfidence)}.</span></>}<span>Change it if it's wrong.</span></>}
                               </p>
                           </section>
 
@@ -707,77 +706,77 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <div className="space-y-3 -mt-3">
                                   {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <FungiWarning />}
                                   {currentSnapshot?.aiError && (
-                                      <p className="text-sm text-amber-900 bg-amber-50 rounded-xl p-3">{currentSnapshot.aiError}. Add your own name above. You know what you saw.</p>
+                                      <p className="text-sm text-amber-950 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">{currentSnapshot.aiError}. Add your own name above. You know what you saw.</p>
                                   )}
                                   {currentSnapshot?.aiFlags && currentSnapshot.aiFlags.isNatureSubject === false && (
-                                      <p className="text-sm text-amber-900 bg-amber-50 rounded-xl p-3">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
+                                      <p className="text-sm text-amber-950 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
                                   )}
                                   {currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError && (
-                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once shared, other explorers can confirm or suggest a better name.</p>
+                                      <p className="text-sm text-stone-700 border-l border-stone-300 pl-3.5 py-1 leading-[1.6]"><strong className="font-semibold">Low certainty.</strong> Check the name before sharing. Once shared, other explorers can confirm or suggest a better name.</p>
                                   )}
                                   {currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi && (
-                                      <p className="text-sm text-red-900 bg-red-50 rounded-xl p-3">{currentSnapshot.aiSafetyNote}</p>
+                                      <p className="text-sm text-red-900 border-l-2 border-red-700 pl-3.5 py-1 leading-[1.6]">{currentSnapshot.aiSafetyNote}</p>
                                   )}
-                                  {anySensitive && <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">shield</span><span>Location hidden: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</span></p>}
+                                  {anySensitive && <p className="text-sm text-stone-700 border-l border-stone-300 pl-3.5 py-1 leading-[1.6] flex gap-2"><Glyph name="shield" size={20} className="text-stone-500 shrink-0" /><span>Location hidden: this may be a sensitive or threatened species. Sharing where it lives can put it at risk.</span></p>}
                                   {anyPeople && (
-                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3 flex gap-2"><span className="material-symbols-outlined text-lg text-theme-accent shrink-0" aria-hidden="true">person</span><span>People may be visible in a capture. Only share it publicly if they're happy to appear.</span></p>
+                                      <p className="text-sm text-stone-700 border-l border-stone-300 pl-3.5 py-1 leading-[1.6] flex gap-2"><Glyph name="person" size={20} className="text-stone-500 shrink-0" /><span>People may be visible in a capture. Only share it publicly if they're happy to appear.</span></p>
                                   )}
                               </div>
                           )}
 
                           {/* 2. One thing about it */}
                           <section>
-                              <label htmlFor="post-caption" className="block text-sm font-bold text-stone-800 mb-2">Your note</label>
+                              <label htmlFor="post-caption" className="block ng-label mb-2">Your note</label>
                               <textarea
                                   id="post-caption"
                                   value={caption}
                                   onChange={(e) => setCaption(e.target.value.slice(0, 2200))}
                                   placeholder="What did you notice? What was it doing?"
                                   rows={3}
-                                  className="w-full p-4 bg-stone-50 border border-stone-200 rounded-2xl text-base text-stone-900 leading-relaxed resize-none focus:border-theme-accent"
+                                  className="ng-field w-full p-4 leading-[1.65] resize-none"
                               />
-                              {caption.length > 1800 && <p className="text-xs text-stone-500 text-right mt-1 tabular">{caption.length}/2200</p>}
+                              {caption.length > 1800 && <p className="ng-caption text-right mt-1 tabular">{caption.length}/2200</p>}
                           </section>
 
                           {/* 3. Who can see it */}
                           <fieldset>
-                              <legend className="block text-sm font-bold text-stone-800 mb-2">Who can see it?</legend>
+                              <legend className="block ng-label mb-2">Who can see it?</legend>
                               <div className="grid grid-cols-2 gap-3">
                                   {([
                                       { v: true, icon: 'public', title: 'Share with everyone', desc: 'Everyone on NatureGram, and your journal' },
                                       { v: false, icon: 'fingerprint', title: 'Only me', desc: 'Just in your journal' },
                                   ]).map(opt => (
-                                      <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-stone-900/[0.03]' : 'border-stone-200 bg-white'}`}>
+                                      <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-xl border transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-theme-accent/40 ${postToFeed === opt.v ? 'border-stone-900' : 'border-stone-200 hover:border-stone-300'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
-                                          <span className="flex items-center gap-2 font-bold text-stone-900">{opt.icon === 'fingerprint' ? <Glyph name="rings" size={20} /> : <span className="material-symbols-outlined text-xl" aria-hidden="true">{opt.icon}</span>}{opt.title}</span>
-                                          <span className="block text-xs text-stone-600 mt-1">{opt.desc}</span>
+                                          <span className="flex items-center gap-2 font-medium text-stone-900">{opt.icon === 'fingerprint' ? <Glyph name="rings" size={20} /> : <Glyph name="globe" size={20} />}{opt.title}</span>
+                                          <span className="block ng-caption mt-1">{opt.desc}</span>
                                       </label>
                                   ))}
                               </div>
                           </fieldset>
 
                           {selectedIndices.size > 1 && (
-                              <label className="flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-stone-200 px-4 py-3">
+                              <label className="flex items-center justify-between gap-4 cursor-pointer border-y border-stone-200/80 py-4">
                                   <span className="min-w-0">
-                                      <span className="block font-bold text-stone-900 text-sm">Combine into one sighting</span>
-                                      <span className="block text-xs text-stone-600 mt-0.5">{combine ? `All ${selectedIndices.size} captures together, with a few lines on the outing` : `${selectedIndices.size} separate sightings, each with its own name`}</span>
+                                      <span className="block font-medium text-stone-900 text-sm">Combine into one sighting</span>
+                                      <span className="block ng-caption mt-0.5">{combine ? `All ${selectedIndices.size} captures together, with a few lines on the outing` : `${selectedIndices.size} separate sightings, each with its own name`}</span>
                                   </span>
                                   <input type="checkbox" role="switch" checked={combine} onChange={e => setCombine(e.target.checked)} className="sr-only peer" />
-                                  <span aria-hidden="true" className={`relative shrink-0 w-11 h-6 rounded-full transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[rgb(var(--theme-accent-rgb))] ${combine ? 'bg-theme-accent' : 'bg-stone-300'}`}>
+                                  <span aria-hidden="true" className={`relative shrink-0 w-11 h-6 rounded-full transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-[rgb(var(--theme-accent-rgb))] ${combine ? 'bg-stone-900' : 'bg-stone-300'}`}>
                                       <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${combine ? 'left-[22px]' : 'left-0.5'}`} />
                                   </span>
                               </label>
                           )}
 
                           {/* Everything else, already filled in by the guide */}
-                          <details className="group rounded-2xl border border-stone-200">
-                              <summary className="cursor-pointer list-none flex items-center justify-between gap-3 px-4 py-3.5 font-bold text-stone-800 text-sm">
+                          <details className="group border-y border-stone-200/80">
+                              <summary className="cursor-pointer list-none flex items-center justify-between gap-3 min-h-[56px] font-medium text-stone-800 text-sm">
                                   <span>More details <span className="font-normal text-stone-500">· filled in by your guide</span></span>
-                                  <span className="material-symbols-outlined text-stone-500 transition-transform group-open:rotate-180" aria-hidden="true">expand_more</span>
+                                  <Glyph name="chevronDown" size={20} className="text-stone-500 transition-transform group-open:rotate-180" />
                               </summary>
-                              <div className="px-4 pb-5 pt-1 space-y-6">
+                              <div className="pb-6 pt-2 space-y-7">
                                   <section>
-                                      <label htmlFor="post-scientific" className="block text-xs font-bold text-stone-900/70 mb-2">Scientific name</label>
+                                      <label htmlFor="post-scientific" className="block ng-label mb-2">Scientific name</label>
                                       <input
                                           id="post-scientific"
                                           type="text"
@@ -785,13 +784,13 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                           value={labels[1] || ''}
                                           onChange={(e) => editLabels([labels[0] || '', e.target.value, ...labels.slice(2)])}
                                           onBlur={() => editLabels(labels.map(l => (l || '').trim()).filter(Boolean))}
-                                          className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl text-base font-display italic text-stone-800 outline-none focus:border-theme-accent placeholder:not-italic"
+                                          className="ng-field w-full px-4 py-3 font-display italic placeholder:not-italic"
                                       />
                                   </section>
 
                                   {!!currentSnapshot?.aiIdentifications?.length && (
-                                      <section className="rounded-xl bg-stone-50 p-3 text-sm text-stone-700">
-                                          <h4 className="font-semibold text-stone-800">Why your guide thinks so</h4>
+                                      <section className="border-l border-stone-300 pl-4 text-sm text-stone-700 leading-[1.6]">
+                                          <h4 className="ng-label">Why your guide thinks so</h4>
                                           <ul className="mt-2 space-y-2">
                                               {currentSnapshot.aiIdentifications.map((id, i) => (
                                                   <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
@@ -801,20 +800,20 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   )}
 
                                   <section>
-                                      <label htmlFor="post-insight" className="block text-xs font-bold text-stone-900/70 mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
+                                      <label htmlFor="post-insight" className="block ng-label mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
                                       <div className="relative">
                                           <textarea
                                               id="post-insight"
                                               value={aiInsight}
                                               onChange={(e) => editInsight(e.target.value)}
                                               placeholder="What it was doing, and why"
-                                              className={`w-full p-4 bg-stone-900/[0.03] border rounded-2xl text-base font-display text-stone-900 leading-relaxed resize-none h-36 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-stone-300 animate-pulse' : 'border-stone-200 focus:border-theme-accent/50'}`}
+                                              className={`ng-field w-full p-4 font-display leading-[1.6] resize-none h-36 ${isAnalyzing && aiInsight === "Processing..." ? 'opacity-60' : ''}`}
                                           />
                                           {isAnalyzing && aiInsight === "Processing..." && (
-                                              <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-2xl pointer-events-none" role="status">
+                                              <div className="absolute inset-0 flex items-center justify-center rounded-lg pointer-events-none" role="status">
                                                   <div className="flex flex-col items-center gap-3">
-                                                      <div className="w-8 h-8 rounded-full border-2 border-theme-accent border-t-transparent animate-spin" aria-hidden="true" />
-                                                      <span className="text-sm font-semibold text-theme-accent">Your guide is analysing…</span>
+                                                      <PressingLoader size={28} />
+                                                      <span className="text-sm font-display italic text-stone-700">Your guide is analysing…</span>
                                                   </div>
                                               </div>
                                           )}
@@ -823,43 +822,43 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
                                   <section>
                                       <div className="flex items-center justify-between mb-2">
-                                          <label htmlFor="post-location" className="text-xs font-bold text-stone-900/70">Location</label>
-                                          <label className="flex items-center gap-2 text-xs font-semibold text-stone-900/70 cursor-pointer">
+                                          <label htmlFor="post-location" className="ng-label">Location</label>
+                                          <label className="flex items-center gap-2 text-sm text-stone-700 cursor-pointer min-h-[44px]">
                                               <input
                                                   type="checkbox"
                                                   checked={showLocation}
                                                   onChange={(e) => setShowLocation(e.target.checked)}
-                                                  className="w-4 h-4 accent-[rgb(var(--theme-accent-rgb))]"
+                                                  className="w-4 h-4 accent-stone-900"
                                               />
                                               Show area
                                           </label>
                                       </div>
                                       <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
-                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-stone-900/60 text-sm" aria-hidden="true">location_on</span>
+                                          <Glyph name="pin" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500" />
                                           <input
                                               id="post-location"
                                               type="text"
                                               value={resolvedArea}
                                               disabled={!showLocation}
                                               onChange={(e) => setResolvedArea(e.target.value)}
-                                              className="w-full pl-11 pr-4 py-3.5 bg-stone-900/[0.03] border border-stone-200 rounded-2xl text-sm font-display text-stone-900/90 outline-none focus:border-theme-accent/30"
+                                              className="ng-field w-full pl-11 pr-4 py-3"
                                           />
                                       </div>
-                                      <p className="text-xs text-stone-500 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
-                                      {(currentSnapshot as any)?.takenAtMs && <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-theme-accent" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
+                                      <p className="ng-caption mt-2">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
+                                      {(currentSnapshot as any)?.takenAtMs && <p className="ng-caption mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-stone-400" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
                                   </section>
 
                                   <section>
-                                      <label htmlFor="post-tags" className="block text-xs font-bold text-stone-900/70 mb-2">Hashtags</label>
+                                      <label htmlFor="post-tags" className="block ng-label mb-2">Hashtags</label>
                                       <div className="relative">
-                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-stone-900/60 text-sm" aria-hidden="true">tag</span>
+                                          <Glyph name="tag" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500" />
                                           <input
                                               id="post-tags"
                                               type="text"
                                               value={tags.join(' ')}
                                               onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }}
                                               placeholder="#birding #monsoon"
-                                              className="w-full pl-11 p-3.5 bg-stone-900/[0.03] border border-stone-200 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
+                                              className="ng-field w-full pl-11 pr-4 py-3"
                                           />
                                       </div>
                                   </section>
@@ -871,17 +870,17 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           </div>
 
           {/* Static Finalize Button at Bottom */}
-          <div className="shrink-0 p-4 bg-white border-t border-stone-200 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="shrink-0 px-6 pt-4 bg-day-bg border-t border-stone-200/80 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               {sharesLeft !== null && !publishError && (
-                  <p className="mb-2 text-xs text-stone-600 text-center">
+                  <p className="mb-3 ng-caption text-center">
                       {sharesLeft === 0 ? "You've shared today's sightings. Save this one as a draft and share it tomorrow." : `You can share ${sharesLeft} more sighting${sharesLeft === 1 ? '' : 's'} today.`}
                   </p>
               )}
               {publishError && (
-                  <div role="alert" className="mb-3 text-sm text-stone-800 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <div role="alert" className="mb-3 text-sm text-stone-800 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">
                       <p>{publishError}</p>
                       {reviewOffer && (
-                          <button onClick={() => executeDispatch(reviewOffer.mode, true)} disabled={isProcessing} className="mt-2 text-sm font-bold text-theme-accent underline underline-offset-2">
+                          <button onClick={() => executeDispatch(reviewOffer.mode, true)} disabled={isProcessing} className="mt-1 ng-link-quiet min-h-[44px]">
                               I think this is fine. Ask for a review
                           </button>
                       )}
@@ -891,21 +890,21 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   onClick={handleFinalizeClick}
                   disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
                   aria-busy={isProcessing}
-                  className="w-full py-4 bg-stone-900 text-white font-bold text-base rounded-2xl disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+                  className="ng-button-primary w-full max-w-2xl mx-auto flex min-h-[52px] text-base"
               >
                   {isProcessing ? (
                       <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" aria-hidden="true" />
+                          <span className="w-4 h-4 border-[1.5px] border-white/80 border-t-transparent animate-spin rounded-full" aria-hidden="true" />
                           <span>Publishing…</span>
                       </>
                   ) : (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing...") ? (
                       <>
-                          <span className="motion-safe:animate-pulse inline-flex" aria-hidden="true"><Glyph name="guide" size={20} /></span>
+                          <span className="inline-flex" aria-hidden="true"><Glyph name="guide" size={20} /></span>
                           <span>Waiting for your guide…</span>
                       </>
                   ) : (
                       <>
-                          {postToFeed ? <span className="material-symbols-outlined" aria-hidden="true">public</span> : <Glyph name="rings" size={22} />}
+                          {postToFeed ? <Glyph name="globe" size={20} className="ng-arrow" /> : <Glyph name="rings" size={20} className="ng-arrow" />}
                           <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Save for only me'}</span>
                       </>
                   ))}
@@ -914,14 +913,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       </main>
 
       {confirmLeave && (
-          <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
-              <div className="w-full sm:max-w-sm bg-white rounded-t-[2rem] sm:rounded-[2rem] p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
-                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
-                  <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
-                  <div className="flex flex-col gap-2">
-                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold">Save draft</button>
-                      <button onClick={() => { setConfirmLeave(false); onClose(); }} className="w-full py-3.5 rounded-xl bg-red-50 text-red-700 font-bold">Discard</button>
-                      <button onClick={() => setConfirmLeave(false)} className="w-full py-3.5 rounded-xl bg-stone-100 text-stone-800 font-bold">Keep editing</button>
+          <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center ng-scrim animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+              <div className="w-full sm:max-w-sm ng-sheet p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
+                  <h3 id="leave-title" className="ng-subtitle">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
+                  <p className="ng-small mt-1 mb-6">Save a draft to finish later, or discard them for good.</p>
+                  <div className="flex flex-col items-center gap-3">
+                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="ng-button-primary w-full">Save draft</button>
+                      <button onClick={() => setConfirmLeave(false)} className="ng-button-quiet w-full">Keep editing</button>
+                      <button onClick={() => { setConfirmLeave(false); onClose(); }} className="min-h-[44px] px-4 text-sm font-medium text-red-800 underline decoration-red-200 underline-offset-[6px] hover:decoration-red-800">Discard</button>
                   </div>
               </div>
           </div>

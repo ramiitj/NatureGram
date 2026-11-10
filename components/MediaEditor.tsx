@@ -137,14 +137,14 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
   } : undefined;
 
   return (
-    <div className="fixed inset-0 z-[200] bg-stone-950/95 flex flex-col text-white" role="dialog" aria-modal="true" aria-labelledby="frame-title">
-      <div className="flex justify-between items-center p-4 border-b border-white/10 safe-pt">
-        <button onClick={onCancel} className="text-sm font-medium text-white/75 hover:text-white transition-colors px-2 py-2">Cancel</button>
-        <h2 id="frame-title" className="text-base font-display">{type === 'image' ? 'Frame your sighting' : type === 'video' ? 'Turn the clip upright' : 'Your sound'}</h2>
+    <div className="fixed inset-0 z-[200] bg-black flex flex-col text-white" role="dialog" aria-modal="true" aria-labelledby="frame-title">
+      <div className="flex justify-between items-center px-4 md:px-8 py-3 safe-pt">
+        <button onClick={onCancel} className="text-sm font-medium text-white/75 hover:text-white transition-colors px-2 min-h-[44px]">Cancel</button>
+        <h2 id="frame-title" className="font-display italic text-lg">{type === 'image' ? 'Frame your sighting' : type === 'video' ? 'Turn the clip upright' : 'Your sound'}</h2>
         <button
           onClick={handleSave}
           disabled={isProcessing || (type === 'image' && !work)}
-          className="text-sm font-semibold text-theme-vivid disabled:opacity-50 hover:opacity-80 transition-opacity px-2 py-2"
+          className="min-h-[40px] px-5 rounded-full bg-white text-stone-900 text-sm font-semibold disabled:opacity-50 transition-opacity"
         >
           {isProcessing ? 'Saving…' : 'Done'}
         </button>
@@ -166,7 +166,7 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
                 const k: Record<string, [number, number]> = { ArrowLeft: [-0.05, 0], ArrowRight: [0.05, 0], ArrowUp: [0, -0.05], ArrowDown: [0, 0.05] };
                 if (k[e.key]) { e.preventDefault(); nudge(...k[e.key]); }
               }}
-              className="relative touch-none cursor-grab active:cursor-grabbing outline-none focus-visible:ring-2 focus-visible:ring-white/70 shadow-2xl"
+              className="relative touch-none cursor-grab active:cursor-grabbing outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               style={{ ...bgStyle, width: `min(88vw, ${(55 * crop!.ratio).toFixed(2)}vh)` }}
             >
               {/* A thirds grid, like the lines on a field sketching frame */}
@@ -175,20 +175,20 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
                 <div className="absolute inset-x-0 top-1/3 border-t border-white/25" /><div className="absolute inset-x-0 top-2/3 border-t border-white/25" />
               </div>
             </div>
-          ) : !error && <span className="text-white/60 inline-flex motion-safe:animate-pulse" aria-hidden="true"><Glyph name="lens" size={36} /></span>
+          ) : !error && <span className="text-white/60 inline-flex" aria-hidden="true"><Glyph name="lens" size={32} strokeWidth={1.3} /></span>
         )}
         {type === 'video' && (
-          <video src={source} controls className="max-w-full max-h-full rounded-lg shadow-2xl transition-transform duration-300" style={{ transform: `rotate(${rotation}deg)` }} />
+          <video src={source} controls className="max-w-full max-h-full rounded-md transition-transform duration-300" style={{ transform: `rotate(${rotation}deg)` }} />
         )}
         {type === 'audio' && (
-          <div className="bg-white/5 p-8 rounded-2xl w-full max-w-md border border-white/10 flex flex-col items-center gap-4">
-            <Glyph name="sound" size={40} className="text-theme-vivid" />
+          <div className="p-8 w-full max-w-md flex flex-col items-center gap-6">
+            <Glyph name="sound" size={40} strokeWidth={1.3} className="text-white/70" />
             <audio src={source} controls className="w-full" />
           </div>
         )}
       </div>
 
-      <div className="p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-4 border-t border-white/10">
+      <div className="px-6 pt-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-5">
         {error && <p role="alert" className="text-sm text-center text-red-200">{error}</p>}
         {type === 'image' && (
           <>
@@ -199,27 +199,27 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
                   role="radio"
                   aria-checked={frame.id === f.id}
                   onClick={() => { setFrame(f); setPos({ x: 0, y: 0 }); }}
-                  className={`px-4 py-2 rounded-full text-sm transition-colors ${frame.id === f.id ? 'bg-white text-stone-900 font-semibold' : 'bg-white/10 text-white/85 hover:bg-white/15'}`}
+                  className={`min-h-[44px] px-4 rounded-full text-sm border transition-colors ${frame.id === f.id ? 'border-white text-white font-medium' : 'border-white/20 text-white/75 hover:text-white'}`}
                 >
                   {f.label}
                 </button>
               ))}
             </div>
             <div className="flex items-center justify-center gap-4 max-w-sm mx-auto w-full">
-              <button onClick={() => setRotation(prev => (prev + 90) % 360)} aria-label="Turn a quarter" className="w-11 h-11 shrink-0 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center">
-                <span className="material-symbols-outlined" aria-hidden="true">rotate_right</span>
+              <button onClick={() => setRotation(prev => (prev + 90) % 360)} aria-label="Turn a quarter" className="ng-icon-button-dark border border-white/20">
+                <Glyph name="rotate" size={24} />
               </button>
               <label className="flex-1 flex items-center gap-3 text-sm text-white/80">
                 <span className="shrink-0">Closer</span>
-                <input type="range" min={1} max={3} step={0.01} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="flex-1 accent-[rgb(var(--theme-accent-rgb))]" />
+                <input type="range" min={1} max={3} step={0.01} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="flex-1 accent-white" />
               </label>
             </div>
           </>
         )}
         {type === 'video' && (
           <div className="flex justify-center">
-            <button onClick={() => setRotation(prev => (prev + 90) % 360)} className="px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/20 flex items-center gap-2 text-sm">
-              <span className="material-symbols-outlined text-xl" aria-hidden="true">rotate_right</span>Turn a quarter
+            <button onClick={() => setRotation(prev => (prev + 90) % 360)} className="min-h-[44px] px-5 rounded-full border border-white/25 hover:border-white/50 flex items-center gap-2 text-sm">
+              <Glyph name="rotate" size={20} />Turn a quarter
             </button>
           </div>
         )}

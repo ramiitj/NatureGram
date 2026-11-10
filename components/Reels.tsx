@@ -182,26 +182,26 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
 
   return (
     <div className="fixed inset-0 z-[45] bg-black text-white">
-      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-2 lg:pl-24 land:pl-20 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 bg-gradient-to-b from-black/30 to-transparent">
-        <button onClick={onBack} aria-label="Back to the wild" className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+      <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 md:px-8 lg:pl-28 land:pl-24 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-8 bg-gradient-to-b from-black/40 to-transparent">
+        <button onClick={onBack} aria-label="Back to the wild" className="ng-icon-button-dark -ml-2"><Glyph name="back" size={24} /></button>
         <h1 className="sr-only">Moments</h1>
-        <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="w-11 h-11 rounded-full flex items-center justify-center"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_off' : 'volume_up'}</span></button>
+        <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="ng-icon-button-dark -mr-2"><Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} /></button>
       </header>
-      <FirstHint id="moments" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
+      <FirstHint id="moments" tone="dark" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
 
-      {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold">{toast}</div>}
+      {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 ng-toast bg-white text-stone-900">{toast}</div>}
       {loading ? (
         <div className="h-full flex flex-col items-center justify-center gap-3" role="status">
-          <span className="material-symbols-outlined text-4xl text-white/70 animate-pulse" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">wb_twilight</span>
-          <span className="font-display text-white/80">Waiting quietly…</span>
+          <Glyph name="dawn" size={40} strokeWidth={1.2} className="text-white/60" />
+          <span className="font-display italic text-lg text-white/80">Waiting quietly…</span>
         </div>
       ) : error && items.length === 0 ? (
-        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="font-display text-lg">Moments didn't load.</p><p className="text-sm text-white/70 -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(16); }} className="px-6 py-3 rounded-full bg-white text-black font-bold">Try again</button></div>
+        <div className="h-full flex flex-col items-center justify-center gap-4 p-8 text-center"><p className="ng-dark-title text-[20px]">Moments didn't load.</p><p className="ng-dark-caption -mt-2">Check your connection and try again.</p><button onClick={() => { setError(false); setLoading(true); loadMore(16); }} className="ng-button-light mt-4">Try again</button></div>
       ) : items.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center">
-          <span className="material-symbols-outlined text-4xl text-white/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">videocam</span>
-          <p className="font-display text-xl">No moments captured yet</p>
-          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to capture one.</p>
+          <Glyph name="video" size={40} strokeWidth={1.2} className="text-white/50 mb-2" />
+          <p className="ng-dark-title text-[20px]">No moments captured yet</p>
+          <p className="ng-dark-caption max-w-xs">Hold the shutter in the Lens to capture one.</p>
         </div>
       ) : (
         <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading} aria-label={extended ? 'Moments' : `${evening ? "Tonight's" : "Today's"} moments: ${countWord} clips`}>
@@ -225,32 +225,33 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
                 </div>
                 {/* A soft shade where the words sit, instead of shadows on the letters */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/65 via-black/25 to-transparent" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 ng-scrim-bottom" aria-hidden="true" />
 
                 {/* The species and one brief line; tapping it opens the sighting, the one place for more */}
                 <button
                   type="button"
                   onClick={() => onOpenPost(p.id)}
                   aria-label={`${species}. ${line} Open the sighting`}
-                  className="absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-left text-white"
+                  className="absolute left-6 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-left text-white"
                 >
-                  <span className="block font-display italic text-lg leading-tight truncate">{species}</span>
-                  {line && <span className="block text-sm text-white/85 leading-snug mt-0.5 line-clamp-2">{line}</span>}
+                  <span className="flex items-center gap-3 text-sm text-white/80 mb-2"><span className="block w-8 h-px bg-theme-vivid" aria-hidden="true" />{place || p.userName}</span>
+                  <span className="block ng-dark-title truncate">{species}</span>
+                  {line && <span className="block ng-dark-caption mt-1.5 line-clamp-2">{line}</span>}
                 </button>
 
                 {/* The actions sit beside the clip on wide screens, at the edge on phones */}
                 <div className={`absolute right-2 md:right-auto md:left-[calc(50%_+_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`} className="flex flex-col items-center gap-0.5">
-                    <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-white text-theme-deep' : 'bg-black/25'}`}>
-                      <WonderIcon active={isLiked} className="text-[28px]" />
+                    <span className={`w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] transition-colors duration-300 ${isLiked ? 'text-theme-vivid' : 'text-white'}`}>
+                      <WonderIcon active={isLiked} className="text-[26px]" />
                     </span>
-                    <span className="text-[11px] text-white/90 tabular-nums">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
+                    <span className="text-xs text-white/90 tabular-nums">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
                   </button>
                   <button onClick={() => onOpenPost(p.id)} aria-label={`${species} by ${p.userName}: field notes${p.commentCount ? `, ${p.commentCount}` : ''}`} className="flex flex-col items-center gap-0.5">
-                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md">
+                    <span className="w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
                       <Glyph name="feather" size={24} />
                     </span>
-                    <span className="text-[11px] text-white/90 tabular-nums">{p.commentCount ? p.commentCount : 'Notes'}</span>
+                    <span className="text-xs text-white/90 tabular-nums">{p.commentCount ? p.commentCount : 'Notes'}</span>
                   </button>
                   <button onClick={async () => {
                     const url = `${window.location.origin}/post/${p.id}`;
@@ -260,10 +261,10 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                       track('share', { surface: 'moments' });
                     } catch { /* cancelled */ }
                   }} aria-label="Share this moment" className="flex flex-col items-center gap-0.5">
-                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md">
-                      <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
+                    <span className="w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+                      <Glyph name="share" size={24} />
                     </span>
-                    <span className="text-[11px] text-white/90">Share</span>
+                    <span className="text-xs text-white/90">Share</span>
                   </button>
                 </div>
               </article>
@@ -271,19 +272,19 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
           })}
           {showEndCard && (
             <article data-idx={visible.length} className="relative h-[100dvh] w-full snap-start snap-always flex flex-col items-center justify-center text-center px-8 bg-black" aria-label={`The end of ${when}'s moments`}>
-              <span className="material-symbols-outlined text-4xl text-white/50" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{moment.icon}</span>
-              <p className="font-display text-2xl sm:text-3xl leading-snug mt-5 max-w-sm">That's {when}'s moments.<br />Go and listen outside.</p>
-              <p className="text-sm text-white/60 mt-3 max-w-xs">{moment.name}: {moment.hint}.</p>
-              <div className="mt-8 flex flex-col sm:flex-row items-center gap-3">
-                <button onClick={onBack} className="px-6 py-3 rounded-full bg-white text-black font-semibold text-sm">{evening ? 'Close for tonight' : 'Close for now'}</button>
-                <button onClick={watchAgain} className="px-5 py-3 rounded-full text-white/80 hover:text-white text-sm font-semibold">Watch again</button>
+              <Glyph name={moment.icon} size={40} strokeWidth={1.2} className="text-white/50" />
+              <p className="font-display italic text-[28px] md:text-[40px] leading-[1.15] mt-6 max-w-md text-balance">That's {when}'s moments.<br />Go and listen outside.</p>
+              <p className="ng-dark-caption mt-4 max-w-xs">{moment.name}: {moment.hint}.</p>
+              <div className="mt-10 flex flex-col sm:flex-row items-center gap-x-6 gap-y-4">
+                <button onClick={onBack} className="ng-button-light">{evening ? 'Close for tonight' : 'Close for now'}</button>
+                <button onClick={watchAgain} className="ng-link-light min-h-[44px]">Watch again</button>
                 {(hasMore || items.length > programmeCount) && (
-                  <button onClick={keepWatching} className="px-5 py-3 rounded-full border border-white/30 text-white text-sm font-semibold">Keep watching</button>
+                  <button onClick={keepWatching} className="ng-link-light min-h-[44px]">Keep watching</button>
                 )}
               </div>
             </article>
           )}
-          {extended && hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-sm font-display">More moments coming…</div>}
+          {extended && hasMore && <div className="h-24 flex items-center justify-center text-white/60 text-base font-display italic">More moments coming…</div>}
         </div>
       )}
     </div>

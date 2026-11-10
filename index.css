@@ -64,8 +64,76 @@
   }
   /* The quiet component layer, after the landing: neutral paper surfaces, one ink primary button,
      hairline rules, and the theme only as a fine accent (a rule, an arrow, a focus ring) */
-  .ng-card { @apply bg-white border border-stone-200 rounded-2xl; }
-  .ng-paper { @apply bg-[#fbf7ef] border border-[#e8dfcd] rounded-2xl; }
+  /* ---- Type: two voices (Newsreader for names, titles and quotes; Inter for the interface) on one
+     scale, 12 / 14 / 16 / 20 / 28 / 40, with generous leading. 600 buttons, 500 labels, 400 body. */
+  .ng-display { @apply font-display font-normal text-[28px] leading-[1.18] md:text-[40px] md:leading-[1.12] text-stone-900 tracking-[-0.01em] text-balance; }
+  .ng-title { @apply font-display font-normal text-[28px] leading-[1.2] text-stone-900 tracking-[-0.01em] text-balance; }
+  .ng-subtitle { @apply font-display font-normal text-[20px] leading-[1.35] text-stone-900; }
+  .ng-body { @apply text-base leading-[1.65] text-stone-700; }
+  .ng-small { @apply text-sm leading-[1.6] text-stone-600; }
+  .ng-caption { @apply text-xs leading-[1.5] text-stone-500; }
+  .ng-label { @apply text-sm font-medium leading-[1.4] text-stone-700; }
+  .ng-species { @apply font-display italic; }
+  .ng-quote { @apply font-display italic text-[20px] leading-[1.45] text-stone-800; }
+  .ng-wordmark { @apply font-display italic text-xl md:text-2xl tracking-tight text-stone-900; }
+  .ng-measure { max-width: 65ch; }
+  /* The landing's kicker: a fine rule in the fortnight's colour, then a quiet line of Inter */
+  .ng-kicker { @apply flex items-center gap-3 text-sm leading-[1.4] text-stone-600; }
+  .ng-kicker::before { content: ''; @apply block w-8 h-px bg-theme-accent shrink-0; }
+
+  /* ---- Space: the landing's gutters (24 on phones, 48 on desktop) on an 8px rhythm */
+  .ng-page { @apply px-6 md:px-12; }
+  .ng-section { @apply py-8 md:py-12; }
+  .ng-divider { @apply border-t border-stone-200/80; }
+  .ng-row { @apply flex items-center gap-4 py-4 border-b border-stone-200/70 last:border-b-0; }
+
+  /* ---- Surfaces: fewer boxes. Paper is a hairline at most, never a tint */
+  .ng-card { @apply bg-white border border-stone-200/80 rounded-xl; }
+  .ng-paper { @apply bg-[#fbf7ef] border border-[#e8dfcd] rounded-xl; }
+  .ng-sheet { @apply bg-day-bg rounded-t-[20px] md:rounded-2xl shadow-[0_-16px_48px_-24px_rgba(28,25,23,0.35)]; }
+  .ng-scrim { @apply bg-stone-950/40; }
+  .ng-menu { @apply bg-white rounded-xl border border-stone-200/80 p-1.5 shadow-[0_18px_44px_-22px_rgba(28,25,23,0.4)]; }
+  .ng-menu-item {
+    @apply w-full flex items-center gap-3 min-h-[44px] px-3 rounded-lg text-left text-[15px] text-stone-800
+      transition-colors hover:bg-stone-900/[0.04] focus-visible:bg-stone-900/[0.04];
+  }
+  .ng-menu-item-danger { @apply text-red-800 hover:bg-red-50; }
+  .ng-toast { @apply bg-stone-900 text-white text-sm leading-snug rounded-full px-5 py-3 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.6)]; }
+  .ng-empty { @apply flex flex-col items-center text-center px-6 py-16; }
+  .ng-empty-glyph { @apply text-stone-400 mb-5; }
+  .ng-empty-title { @apply font-display italic text-[20px] leading-[1.35] text-stone-800; }
+  .ng-empty-body { @apply mt-2 text-sm leading-[1.6] text-stone-600 max-w-xs; }
+  .ng-dot { @apply block w-1.5 h-1.5 rounded-full bg-theme-accent; }
+  .ng-thumb { @apply rounded-md overflow-hidden bg-[#f3efe7]; }
+
+  /* ---- Controls */
+  .ng-icon-button {
+    @apply inline-flex items-center justify-center shrink-0 w-11 h-11 rounded-full text-stone-700
+      transition-colors hover:text-stone-900 hover:bg-stone-900/[0.04] disabled:opacity-40;
+  }
+  .ng-icon-button-dark { @apply inline-flex items-center justify-center shrink-0 w-11 h-11 rounded-full text-white transition-colors hover:bg-white/10 disabled:opacity-40; }
+  .ng-tab {
+    @apply relative inline-flex items-center min-h-[44px] text-[15px] leading-none text-stone-500 transition-colors hover:text-stone-900;
+  }
+  .ng-tab-on { @apply text-stone-900 font-medium; }
+  .ng-tab-on::after { content: ''; @apply absolute left-0 right-0 bottom-1 h-[2px] rounded-full bg-theme-accent; }
+  .ng-link-quiet { @apply text-sm text-stone-700 underline decoration-stone-300 underline-offset-[6px] transition-colors hover:text-stone-900 hover:decoration-stone-900; }
+  .ng-button-light {
+    @apply inline-flex items-center justify-center gap-3 min-h-[48px] rounded-full bg-white text-stone-900 pl-6 pr-5 text-base font-semibold
+      shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] transition-transform duration-200 hover:-translate-y-px;
+  }
+  .ng-link-light { @apply text-sm text-white/85 underline decoration-white/30 underline-offset-[6px] transition-colors hover:text-white hover:decoration-white; }
+  .ng-field-line {
+    @apply w-full bg-transparent border-0 border-b border-stone-300 rounded-none px-0 py-2.5 text-base text-stone-900 placeholder:text-stone-500
+      transition-colors focus:border-stone-900 focus:ring-0;
+  }
+  .ng-field-line:focus, .ng-field-line:focus-visible { outline: none !important; box-shadow: 0 1px 0 0 rgb(var(--theme-accent-rgb)); }
+
+  /* ---- Dark surfaces (Moments, Lens), as the landing: photograph first, a black scrim, white serif */
+  .ng-scrim-bottom { @apply bg-gradient-to-t from-black/80 via-black/25 to-transparent; }
+  .ng-dark-title { @apply font-display italic text-white text-[28px] leading-[1.18]; }
+  .ng-dark-caption { @apply text-sm leading-[1.5] text-white/75; }
+  .ng-dark-chip { @apply inline-flex items-center gap-2 min-h-[44px] px-4 rounded-full bg-black/40 backdrop-blur-md text-white text-sm; }
   .ng-button-primary {
     @apply inline-flex items-center justify-center gap-2 min-h-[48px] px-6 rounded-full bg-stone-900 text-white text-[15px] font-semibold
       transition-colors duration-200 hover:bg-stone-800 active:bg-stone-950 disabled:opacity-50 disabled:cursor-not-allowed;
@@ -75,43 +143,26 @@
     @apply inline-flex items-center justify-center gap-2 min-h-[48px] px-6 rounded-full bg-white border border-stone-300 text-stone-900 text-[15px] font-semibold
       transition-colors duration-200 hover:border-stone-400 hover:bg-stone-50 disabled:opacity-50;
   }
-  .ng-link { @apply text-theme-deep font-semibold underline decoration-theme-accent/40 underline-offset-[5px] hover:decoration-theme-accent; }
+  .ng-link { @apply text-stone-900 font-medium underline decoration-theme-accent/60 underline-offset-[5px] hover:decoration-theme-accent; }
   .ng-field {
-    @apply bg-white border border-stone-300/80 rounded-xl text-base text-stone-900 placeholder:text-stone-500
+    @apply bg-white border border-stone-200 rounded-lg text-base text-stone-900 placeholder:text-stone-500
       transition-colors focus:border-theme-accent focus:ring-[3px] focus:ring-theme-accent/25;
   }
   /* A field shows focus with its own accent border and soft ring, not a second heavy outline */
   .ng-field:focus, .ng-field:focus-visible { outline: none !important; }
+  /* Chips are very quiet pills: a hairline and Inter; the chosen one is outlined in ink */
   .ng-chip {
-    @apply inline-flex items-center gap-1.5 shrink-0 min-h-[40px] px-4 rounded-full border border-stone-200 bg-white text-sm text-stone-700
+    @apply inline-flex items-center gap-1.5 shrink-0 min-h-[44px] px-4 rounded-full border border-stone-200/90 text-sm text-stone-600
       transition-colors hover:border-stone-300 hover:text-stone-900;
   }
-  .ng-chip-on { @apply border-stone-900 bg-stone-900 text-white hover:border-stone-900 hover:text-white; }
+  .ng-chip-on { @apply border-stone-900 text-stone-900 font-medium hover:border-stone-900; }
   .ng-rule { @apply block w-8 h-px bg-theme-accent; }
-  .ng-heading { @apply font-display font-semibold text-stone-900 tracking-[-0.01em]; }
+  .ng-heading { @apply font-display font-medium text-stone-900 tracking-[-0.01em]; }
   .glass-panel {
     background: rgba(255, 255, 255, 0.82);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     border: 1px solid rgba(255, 255, 255, 0.5);
-  }
-  /* Material Symbols' own rules arrive with the async stylesheet; until then, keep each icon one square
-     wide so the ligature name ("arrow_back") never spills out as text and the layout doesn't jump */
-  .material-symbols-outlined {
-    font-family: 'Material Symbols Outlined';
-    font-weight: normal;
-    font-style: normal;
-    line-height: 1;
-    letter-spacing: normal;
-    text-transform: none;
-    display: inline-block;
-    white-space: nowrap;
-    word-wrap: normal;
-    direction: ltr;
-    font-feature-settings: 'liga';
-    -webkit-font-smoothing: antialiased;
-    width: 1em;
-    overflow: hidden;
   }
   .sr-only-focusable:not(:focus) {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -168,6 +219,10 @@
 @keyframes landingSettle { from { transform: scale(1.06); opacity: 0.6; } to { transform: none; opacity: 1; } }
 @keyframes landingRise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .landing-photo, .landing-rise { animation: none !important; } }
+/* The same two movements everywhere else: a page rises in once, a photograph settles once */
+.ng-rise { animation: landingRise 600ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.ng-settle { animation: landingSettle 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .ng-rise, .ng-settle { animation: none !important; } }
 
 /* Respect reduced-motion preferences (WCAG 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
@@ -178,9 +233,6 @@
     scroll-behavior: auto !important;
   }
 }
-
-/* Icon names never flash as words: hidden until the icon font has loaded (public/async-css.js adds .icons-ready) */
-html:not(.icons-ready) .material-symbols-outlined { color: transparent !important; }
 
 /* The pressing-leaf loader: a leaf outline drawn slowly, as if being pressed into the page */
 .press-leaf path { stroke-dasharray: 120; stroke-dashoffset: 120; animation: pressLeaf 2.4s ease-in-out infinite; }

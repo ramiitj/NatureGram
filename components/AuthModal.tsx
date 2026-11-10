@@ -178,13 +178,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const wide = !inline && !blocked && mode !== 'reset';
 
   const inputClass = 'ng-field w-full min-h-[48px] px-3.5 py-3';
-  const labelClass = 'block text-sm font-semibold text-stone-700 mb-1.5';
-  const linkBtn = 'inline-flex items-center min-h-[44px] px-1 font-semibold text-theme-accent underline-offset-4 hover:underline';
+  const labelClass = 'block ng-label mb-2';
+  const linkBtn = 'inline-flex items-center min-h-[44px] px-1 font-medium text-stone-800 underline decoration-theme-accent/60 underline-offset-[5px] hover:decoration-theme-accent';
 
   const epigraph = naturalist?.quote ? (
     <figure>
-      <blockquote className="font-display italic text-[15px] leading-snug text-stone-700">“{naturalist.quote}”</blockquote>
-      <figcaption className="mt-1.5 text-xs text-[#8a7a60]">{naturalist.naturalist}, naturalist of the fortnight</figcaption>
+      <blockquote className="font-display italic text-base leading-[1.45] text-stone-800">“{naturalist.quote}”</blockquote>
+      <figcaption className="mt-2 ng-caption">{naturalist.naturalist}, naturalist of the fortnight</figcaption>
     </figure>
   ) : null;
 
@@ -193,40 +193,40 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const threshold = wide ? (
     <aside
       aria-label={mode === 'signup' ? 'What you\'re joining' : 'This fortnight'}
-      className={`flex-col gap-4 md:flex-1 md:mt-7 ${mode === 'signup' && !teenStep ? 'flex mx-6 mt-5 p-4 bg-[#fbf7ef] border border-[#e8dfcd] rounded-[3px] md:m-0 md:mt-7 md:p-0 md:bg-transparent md:border-0' : 'hidden md:flex'}`}
+      className={`flex-col gap-4 md:flex-1 md:mt-7 ${mode === 'signup' && !teenStep ? 'flex mx-6 mt-5 py-4 border-y border-stone-200/80 md:m-0 md:mt-8 md:py-0 md:border-0' : 'hidden md:flex'}`}
     >
       {mode === 'signup' && (
         <div className="flex gap-4 items-center md:flex-col md:items-start md:gap-5">
-          <div className="w-[88px] md:w-[132px] shrink-0 -rotate-2 md:ml-1" aria-hidden="true">
+          <div className="w-[88px] md:w-[132px] shrink-0" aria-hidden="true">
             <SpecimenPlate ghost size="sm" data={{ name: 'Your first species', no: 1 }} />
           </div>
-          <ul className="flex flex-col gap-2 md:gap-3 text-[13px] md:text-sm text-stone-700 leading-snug" role="list">
-            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A journal for every outing</li>
-            <li className="flex items-center gap-2.5"><Glyph name="plate" size={20} className="text-theme-accent" />A life list, species by species</li>
-            <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-theme-accent" />Letters with other explorers</li>
+          <ul className="flex flex-col gap-2.5 md:gap-3 text-sm text-stone-700 leading-snug" role="list">
+            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-stone-500" />A journal for every outing</li>
+            <li className="flex items-center gap-2.5"><Glyph name="plate" size={20} className="text-stone-500" />A life list, species by species</li>
+            <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-stone-500" />Letters with other explorers</li>
           </ul>
         </div>
       )}
-      {mode === 'signup' && isGuest && <p className="text-[13px] text-stone-600 leading-snug">Everything you've found as a guest comes with you.</p>}
-      {epigraph && <div className="hidden md:block mt-auto pt-4 border-t border-[#e8dfcd]">{epigraph}</div>}
+      {mode === 'signup' && isGuest && <p className="ng-small">Everything you've found as a guest comes with you.</p>}
+      {epigraph && <div className="hidden md:block mt-auto pt-6"><span className="ng-rule mb-4" aria-hidden="true" />{epigraph}</div>}
     </aside>
   ) : null;
 
   const content = (
-    <div className={`w-full bg-[#fcfaf8] text-left ${inline ? 'rounded-2xl' : `rounded-[1.25rem] shadow-2xl relative max-h-[92dvh] overflow-y-auto overscroll-contain ${wide ? 'md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:max-h-[90dvh]' : ''}`}`}>
+    <div className={`w-full bg-day-bg text-left ${inline ? 'rounded-2xl' : `rounded-2xl shadow-[0_24px_60px_-24px_rgba(28,25,23,0.5)] relative max-h-[92dvh] overflow-y-auto overscroll-contain ${wide ? 'md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:max-h-[90dvh]' : ''}`}`}>
       {!inline && onClose && (
-        <button type="button" onClick={onClose} aria-label="Close" className="absolute top-2 right-2 z-10 w-11 h-11 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-900/5 hover:text-stone-800">
-          <span className="material-symbols-outlined" aria-hidden="true">close</span>
+        <button type="button" onClick={onClose} aria-label="Close" className="absolute top-3 right-3 z-10 ng-icon-button text-stone-500">
+          <Glyph name="close" size={24} />
         </button>
       )}
 
-      <div className={wide ? 'md:flex md:bg-[#fbf7ef] md:border-r md:border-[#e8dfcd] md:p-6' : ''}>
-        <div className={wide ? 'md:flex-1 md:flex md:flex-col md:border md:border-[#d8ccb6] md:outline md:outline-1 md:outline-offset-[3px] md:outline-[#e8dfcd] md:rounded-[2px] md:p-6' : ''}>
+      <div className={wide ? 'md:flex md:bg-[#fbf7ef] md:border-r md:border-[#e8dfcd] md:p-10' : ''}>
+        <div className={wide ? 'md:flex-1 md:flex md:flex-col' : ''}>
           <header className={`${inline ? 'px-1 pt-1' : 'px-6 pt-6 pr-14'} ${wide ? 'md:p-0' : ''}`}>
-            <Glyph name={headGlyph} size={28} className="text-theme-accent mb-3" />
-            <h2 id="auth-title" className="ng-heading text-[26px] md:text-[28px] leading-tight">{title}</h2>
+            <Glyph name={headGlyph} size={24} className="text-stone-500 mb-4" />
+            <h2 id="auth-title" className="ng-title">{title}</h2>
             {(mode === 'signup' || mode === 'login') && !blocked && !teenStep && (
-              <div role="tablist" aria-label="Sign up or log in" className="mt-3 inline-flex p-0.5 rounded-full bg-stone-900/5 border border-stone-900/10 text-sm">
+              <div role="tablist" aria-label="Sign up or log in" className="mt-4 flex gap-6 text-sm">
                 {([['signup', 'Start my field page'], ['login', 'Log in']] as const).map(([m, label]) => (
                   <button
                     key={m}
@@ -234,15 +234,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                     role="tab"
                     aria-selected={mode === m}
                     onClick={() => mode !== m && switchMode(m)}
-                    className={`min-h-[36px] px-3.5 rounded-full transition-colors ${mode === m ? 'bg-white text-text-main font-semibold shadow-sm' : 'text-stone-600 hover:text-stone-900'}`}
+                    className={`ng-tab text-sm ${mode === m ? 'ng-tab-on' : ''}`}
                   >
                     {label}
                   </button>
                 ))}
               </div>
             )}
-            {subtitle && <p className="text-stone-600 text-[15px] mt-2 leading-relaxed">{subtitle}</p>}
-            {mode === 'login' && !inline && epigraph && <div className="md:hidden mt-4 pl-3 border-l-2 border-theme-accent/40">{epigraph}</div>}
+            {subtitle && <p className="ng-small text-[15px] mt-3">{subtitle}</p>}
+            {mode === 'login' && !inline && epigraph && <div className="md:hidden mt-5 pl-4 border-l border-theme-accent">{epigraph}</div>}
           </header>
           {threshold}
         </div>
@@ -257,26 +257,26 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               <>
                 <p className="text-[15px] text-stone-700 leading-relaxed">Send this link to your parent or guardian. It explains NatureGram and what we keep, and takes them about two minutes. It works for 7 days.</p>
                 <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' /* glossary-ok: a text or email, not a letter */ : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="ng-button-primary w-full min-h-[52px] text-base">
-                  <Glyph name="sealed" size={20} />Send this to your parent
+                  <Glyph name="sealed" size={20} className="ng-arrow" />Send this to your parent
                 </button>
                 {shared && <p className="text-sm text-stone-600">{shared}</p>}
               </>
             ) : (
-              <p className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your field page.</p>
+              <p className="text-sm text-red-900 border-l-2 border-red-700 pl-3.5 py-1 leading-[1.6]">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your field page.</p>
             )}
-            <div className="rounded-[3px] bg-[#fbf7ef] border border-[#e8dfcd] p-4">
-              <p className="text-sm font-semibold text-stone-800">While you wait, you can</p>
+            <div className="py-4 border-y border-stone-200/80">
+              <p className="ng-label">While you wait, you can</p>
               <ul className="mt-2 flex flex-col gap-2 text-sm text-stone-700" role="list">
-                <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-theme-accent" />Browse the feed, Moments and Explore</li>
-                <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-theme-accent" />Use the Lens and ask the guide</li>
-                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Save sightings to your own journal</li>
+                <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-stone-500" />Browse the feed, Moments and Explore</li>
+                <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-stone-500" />Use the Lens and ask the guide</li>
+                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-stone-500" />Save sightings to your own journal</li>
               </ul>
             </div>
             <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] ${guardianSent?.link ? 'ng-button-quiet' : 'ng-button-primary'}`}>Go to my field page</button>
           </div>
         ) : blocked ? (
           <div role="status" className="space-y-3">
-            <p className="font-display text-lg text-text-main">Thank you for wanting to join.</p>
+            <p className="ng-subtitle italic">Thank you for wanting to join.</p>
             <p className="text-sm text-stone-600 leading-relaxed">NatureGram accounts are for explorers aged 13 and over, so we can't make one for you yet. You can still look at sightings shared by the community, and we'd love to welcome you when you're 13.</p>
             <p className="text-sm text-stone-600 leading-relaxed">Until then, a notebook and a pencil make a wonderful field journal. Ask a parent or teacher to explore with you.</p>
             {onClose && <button type="button" onClick={onClose} className="ng-button-quiet mt-2 w-full">Back to exploring</button>}
@@ -291,10 +291,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                   <input id="auth-parent-email" autoFocus type="email" inputMode="email" value={parentEmail} onChange={e => setParentEmail(e.target.value)} required autoComplete="off" placeholder="grown-up@example.com" className={inputClass} aria-describedby="auth-parent-hint" />
                   <p id="auth-parent-hint" className="text-xs mt-1.5 text-stone-500 leading-relaxed">We'll send them one letter explaining NatureGram and what we keep. Their address is used for nothing else.</p>
                 </div>
-                <ul className="flex flex-col gap-2 text-[13px] text-stone-700 leading-snug rounded-[3px] bg-[#fbf7ef] border border-[#e8dfcd] p-3.5" role="list" aria-label="Teen mode">
-                  <li className="flex items-center gap-2.5"><Glyph name="feather" size={18} className="text-theme-accent" />No ads, and nothing that tracks you</li>
-                  <li className="flex items-center gap-2.5"><Glyph name="leafCompass" size={18} className="text-theme-accent" />Where you found something is never shown</li>
-                  <li className="flex items-center gap-2.5"><Glyph name="sealed" size={18} className="text-theme-accent" />Letters only with explorers you both follow</li>
+                <ul className="flex flex-col gap-2.5 text-sm text-stone-700 leading-snug py-4 border-y border-stone-200/80" role="list" aria-label="Teen mode">
+                  <li className="flex items-center gap-2.5"><Glyph name="feather" size={18} className="text-stone-500" />No ads, and nothing that tracks you</li>
+                  <li className="flex items-center gap-2.5"><Glyph name="leafCompass" size={18} className="text-stone-500" />Where you found something is never shown</li>
+                  <li className="flex items-center gap-2.5"><Glyph name="sealed" size={18} className="text-stone-500" />Letters only with explorers you both follow</li>
                 </ul>
               </>
             )}
@@ -305,7 +305,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             {mode !== 'reset' && (
               <div className={teenStep ? 'hidden' : ''}>
                 <div className="flex items-center justify-between mb-1.5 min-h-[20px]">
-                  <label htmlFor="auth-password" className="block text-sm font-semibold text-stone-700">Password</label>
+                  <label htmlFor="auth-password" className="block ng-label">Password</label>
                   {mode === 'login' && (
                     <button type="button" onClick={() => switchMode('reset')} className={`${linkBtn} text-sm -my-3 -mr-1`}>Forgot password?</button>
                   )}
@@ -323,11 +323,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                     aria-describedby={mode === 'signup' ? 'pw-hint' : undefined}
                   />
                   <button type="button" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'} className="absolute right-0.5 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-stone-500 hover:text-stone-800">
-                    <span className="material-symbols-outlined" aria-hidden="true">{showPassword ? 'visibility_off' : 'visibility'}</span>
+                    <Glyph name={showPassword ? 'eyeOff' : 'eye'} size={20} />
                   </button>
                 </div>
                 {mode === 'signup' && (
-                  <p id="pw-hint" className={`text-xs mt-1.5 flex items-center gap-1 ${passwordOk ? 'text-theme-accent font-semibold' : 'text-stone-500'}`}>
+                  <p id="pw-hint" className={`text-xs mt-1.5 flex items-center gap-1 ${passwordOk ? 'text-stone-800 font-medium' : 'text-stone-500'}`}>
                     {passwordOk && <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>}
                     At least 8 characters
                   </p>
@@ -362,15 +362,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             )}
 
             {error && (
-              <div role="alert" className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">
+              <div role="alert" className="text-sm text-red-900 border-l-2 border-red-700 pl-3.5 py-1 leading-[1.6]">
                 <p>{error}</p>
                 {errorAction(errorCode) === 'login' && mode === 'signup' && <button type="button" onClick={() => switchMode('login')} className={`${linkBtn} -my-2 -ml-1`}>Log in instead</button>}
                 {errorAction(errorCode) === 'reset' && mode === 'login' && <button type="button" onClick={() => switchMode('reset')} className={`${linkBtn} -my-2 -ml-1`}>Reset my password</button>}
               </div>
             )}
             {notice && (
-              <p role="status" className="flex gap-2.5 items-start text-sm text-stone-800 bg-insight-bg border border-stone-300 rounded-lg px-3.5 py-3 leading-relaxed">
-                <Glyph name="sealed" size={20} className="text-theme-accent mt-px" />
+              <p role="status" className="flex gap-3 items-start text-sm text-stone-800 border-l border-theme-accent pl-3.5 py-1 leading-[1.6]">
+                <Glyph name="sealed" size={20} className="text-stone-500 mt-px shrink-0" />
                 <span>{notice}</span>
               </p>
             )}
@@ -404,7 +404,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <div className="absolute inset-0 bg-stone-950/60 backdrop-blur-sm" onClick={onClose} aria-hidden="true"></div>
+      <div className="absolute inset-0 ng-scrim backdrop-blur-[2px]" onClick={onClose} aria-hidden="true"></div>
       <div className={`relative z-10 w-full ${wide ? 'max-w-sm md:max-w-3xl' : 'max-w-sm'}`}>{content}</div>
     </div>
   );

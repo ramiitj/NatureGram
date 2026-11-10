@@ -193,19 +193,16 @@ const MountedPhoto: React.FC<{ c: Capture; tilt: number; pencil: boolean; onClic
       type="button"
       onClick={onClick}
       aria-label={`Open ${label}`}
-      style={{ transform: `rotate(${tilt}deg)` }}
-      className="relative shrink-0 bg-[#fffdf8] p-1 pb-1.5 shadow-[0_1px_2px_rgba(60,40,20,0.15),0_4px_10px_-6px_rgba(60,40,20,0.3)] border border-[#e8dfcd] hover:-translate-y-0.5 motion-reduce:hover:translate-y-0 transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-[rgb(var(--theme-accent-rgb))]"
+      data-tilt={tilt}
+      className="relative shrink-0 rounded-md overflow-hidden transition-opacity hover:opacity-90"
     >
-      {/* photo corners */}
-      <span aria-hidden="true" className="absolute -top-px -left-px w-2.5 h-2.5 border-t-[5px] border-l-[5px] border-[#d8ccb6]/80" />
-      <span aria-hidden="true" className="absolute -bottom-px -right-px w-2.5 h-2.5 border-b-[5px] border-r-[5px] border-[#d8ccb6]/80" />
-      <span className="block w-[84px] h-[84px] sm:w-[96px] sm:h-[96px] bg-[#efe7d6] overflow-hidden flex items-center justify-center text-[#b9a98a]">
+      <span className="block w-[84px] h-[84px] sm:w-[96px] sm:h-[96px] bg-[#f3efe7] overflow-hidden flex items-center justify-center text-stone-400/70">
         {c.thumb
-          ? <img src={c.thumb} alt="" loading="lazy" decoding="async" className={`w-full h-full object-cover ${pencil ? 'grayscale-[.35] opacity-90' : 'sepia-[.06]'}`} />
-          : <Glyph name={c.mediaType === 'audio' ? 'sound' : group} size={30} />}
+          ? <img src={c.thumb} alt="" loading="lazy" decoding="async" className={`w-full h-full object-cover ${pencil ? 'grayscale-[.35] opacity-90' : ''}`} />
+          : <Glyph name={c.mediaType === 'audio' ? 'sound' : group} size={24} strokeWidth={1.2} />}
       </span>
-      {c.mediaType === 'video' && <span className="absolute bottom-2.5 right-2.5 w-5 h-5 rounded-full bg-black/40 text-white flex items-center justify-center"><span className="material-symbols-outlined text-[13px]" aria-hidden="true">play_arrow</span></span>}
-      {c.mediaType === 'audio' && c.thumb && <span className="absolute bottom-2.5 right-2.5 w-5 h-5 rounded-full bg-black/40 text-white flex items-center justify-center"><Glyph name="sound" size={12} /></span>}
+      {c.mediaType === 'video' && <span className="absolute bottom-1.5 right-1.5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"><Glyph name="play" size={14} filled /></span>}
+      {c.mediaType === 'audio' && c.thumb && <span className="absolute bottom-1.5 right-1.5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"><Glyph name="sound" size={14} /></span>}
     </button>
   );
 };
@@ -213,34 +210,34 @@ const MountedPhoto: React.FC<{ c: Capture; tilt: number; pencil: boolean; onClic
 const EntryView: React.FC<{ e: Entry; onOpen: (p: CommunityPost) => void; index: number }> = ({ e, onOpen, index }) => {
   const label = e.species || 'this sighting';
   return (
-    <li className={`flex gap-4 py-4 ${e.isPrivate ? 'pl-3 border-l border-dashed border-stone-300' : ''}`}>
+    <li className={`flex gap-5 py-5 ${e.isPrivate ? 'pl-4 border-l border-dashed border-stone-300' : ''}`}>
       <div className="flex flex-wrap gap-2 items-start content-start self-start max-w-[45%] sm:max-w-[220px]">
         {e.captures.slice(0, 4).map((c, i) => (
           <MountedPhoto key={i} c={c} tilt={((index + i) % 3 - 1) * 1.2} pencil={e.isPrivate} onClick={() => onOpen(e.post)} label={c.label || label} />
         ))}
-        {e.captures.length > 4 && <button type="button" onClick={() => onOpen(e.post)} className="self-center text-xs text-stone-500 underline">+{e.captures.length - 4} more</button>}
+        {e.captures.length > 4 && <button type="button" onClick={() => onOpen(e.post)} className="self-center ng-caption underline underline-offset-4">+{e.captures.length - 4} more</button>}
       </div>
       <div className="flex-1 min-w-0">
         <button type="button" onClick={() => onOpen(e.post)} className="text-left">
-          <span className={`block font-display italic text-[19px] leading-snug ${e.isPrivate ? 'text-stone-600' : 'text-stone-900'} hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4`}>
+          <span className={`block font-display italic text-[20px] leading-[1.3] ${e.isPrivate ? 'text-stone-600' : 'text-stone-900'} hover:underline decoration-theme-accent/50 underline-offset-[6px]`}>
             {e.species || (e.captures.length > 1 ? `${e.captures.length} captures` : 'Untitled sighting')}
           </span>
         </button>
-        <p className="text-xs text-stone-500 mt-0.5">
+        <p className="ng-caption mt-1">
           {[clock(e.ms), e.captures.length > 1 ? `${e.captures.length} captures` : ''].filter(Boolean).join(' · ')}
         </p>
         {e.words && (
-          <p className={`mt-2 text-[15px] leading-relaxed whitespace-pre-line line-clamp-5 ${e.isPrivate ? 'text-stone-600 font-display italic' : 'text-stone-800'}`}>{e.words}</p>
+          <p className={`mt-3 text-[15px] leading-[1.65] ng-measure whitespace-pre-line line-clamp-5 ${e.isPrivate ? 'text-stone-600 font-display italic' : 'text-stone-800'}`}>{e.words}</p>
         )}
         {e.guide && (
-          <p className="mt-2 text-[13px] leading-snug text-stone-600 flex gap-1.5">
-            <Glyph name="guide" size={14} className="text-[rgb(var(--theme-accent-rgb))] mt-0.5" />
+          <p className="mt-3 ng-small flex gap-2">
+            <Glyph name="guide" size={14} className="text-stone-400 mt-1 shrink-0" />
             <span><span className="text-stone-500">The guide: </span>{e.guide}</span>
           </p>
         )}
         {e.isPrivate && (
-          <p className="mt-2 text-xs text-stone-500 font-display italic flex items-center gap-1">
-            <Glyph name="feather" size={13} />In pencil, only for you
+          <p className="mt-2 text-xs text-stone-500 font-display italic flex items-center gap-1.5">
+            <Glyph name="feather" size={14} />In pencil, only for you
           </p>
         )}
       </div>
@@ -262,47 +259,47 @@ export const JournalHeader: React.FC<{
   showSearch?: boolean;
   onTitleClick?: () => void;
 }> = ({ count, firstMs, view, onView, query, onQuery, showSearch = true, onTitleClick }) => (
-  <header className="px-4 md:px-12 pt-10 pb-5 border-b border-stone-200">
-    <div className="flex items-start justify-between gap-3">
+  <header className="ng-page pt-6 md:pt-8 pb-6">
+    <div className="flex items-start justify-between gap-4">
       <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
-        <h2 className="text-2xl md:text-3xl font-display font-semibold text-stone-900 flex items-center gap-2">
-          <Glyph name="rings" size={26} className="text-theme-accent" />
+        <h2 className="ng-title flex items-center gap-3">
+          <Glyph name="rings" size={24} className="text-stone-500" />
           My journal
         </h2>
         {count > 0 && (
-          <p className="text-sm text-stone-500 mt-1">
+          <p className="ng-small text-stone-500 mt-1.5">
             {count} {count === 1 ? 'sighting' : 'sightings'}{firstMs ? ` since ${monthTitle(firstMs)}` : ''}
           </p>
         )}
       </button>
       {count > 0 && (
-        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Journal view">
+        <div className="flex items-center gap-5 shrink-0" role="group" aria-label="Journal view">
           {(['notebook', 'grid'] as const).map(v => (
             <button
               key={v}
               type="button"
               onClick={() => onView(v)}
               aria-pressed={view === v}
-              className={`h-9 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 ${view === v ? 'bg-stone-900 text-white' : 'border border-stone-200 text-stone-900/80 hover:bg-stone-900/[0.03]'}`}
+              className={`ng-tab gap-2 ${view === v ? 'ng-tab-on' : ''}`}
             >
               {v === 'notebook'
-                ? <><Glyph name="notebook" size={16} />Notebook</>
-                : <><span className="material-symbols-outlined text-[17px]" aria-hidden="true">grid_view</span>Grid</>}
+                ? <><Glyph name="notebook" size={20} /><span className="hidden sm:inline">Notebook</span><span className="sr-only sm:hidden">Notebook</span></>
+                : <><Glyph name="grid" size={20} /><span className="hidden sm:inline">Grid</span><span className="sr-only sm:hidden">Grid</span></>}
             </button>
           ))}
         </div>
       )}
     </div>
     {showSearch && count > 0 && (
-      <label className="relative block mt-4 max-w-md">
+      <label className="relative block mt-6 max-w-md">
         <span className="sr-only">Search your journal</span>
-        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-lg" aria-hidden="true">search</span>
+        <Glyph name="search" size={20} className="absolute left-0 top-1/2 -translate-y-1/2 text-stone-500" />
         <input
           type="search"
           value={query}
           onChange={e => onQuery(e.target.value)}
           placeholder="Find a species, place or word"
-          className="w-full pl-10 pr-3 py-2.5 bg-white border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-500 focus:border-[rgb(var(--theme-accent-rgb))] outline-none"
+          className="ng-field-line pl-8"
         />
       </label>
     )}
@@ -356,16 +353,16 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
 
   return (
     <div className="w-full min-h-full bg-day-bg">
-      <div className="px-4 md:px-12 py-6 pb-40 lg:flex lg:gap-10">
+      <div className="ng-page pt-2 pb-40 lg:flex lg:gap-12">
         {/* Season spine (wide screens) */}
         {months.length > 1 && (
           <nav aria-label="Months in your journal" className="hidden lg:block w-44 shrink-0">
-            <ol className="sticky top-6 border-l border-[#d8ccb6] pl-4 space-y-2 max-h-[80vh] overflow-y-auto no-scrollbar">
+            <ol className="sticky top-6 border-l border-stone-200 pl-5 space-y-3 max-h-[80vh] overflow-y-auto no-scrollbar">
               {months.map((m, i) => (
                 <li key={m.key}>
                   <button type="button" onClick={() => jump(m.key, i)} className="text-left group">
-                    <span className="block text-sm font-display text-stone-900 group-hover:underline">{m.title}</span>
-                    <span className="block text-[11px] text-stone-500">{(() => { const n = m.days.reduce((t, d) => t + d.outings.reduce((k, o) => k + o.entries.length, 0), 0); return `${m.season} · ${n} ${n === 1 ? 'sighting' : 'sightings'}`; })()}</span>
+                    <span className="block text-base font-display text-stone-900 group-hover:underline underline-offset-4">{m.title}</span>
+                    <span className="block ng-caption">{(() => { const n = m.days.reduce((t, d) => t + d.outings.reduce((k, o) => k + o.entries.length, 0), 0); return `${m.season} · ${n} ${n === 1 ? 'sighting' : 'sightings'}`; })()}</span>
                   </button>
                 </li>
               ))}
@@ -380,45 +377,45 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
             <>
               {/* Unfinished pages */}
               {!q && pages.length > 0 && (
-                <section aria-labelledby="nb-unfinished" className="mb-8 rounded-[3px] border border-dashed border-[#cdbfa5] bg-[#fbf7ef] p-4">
-                  <h3 id="nb-unfinished" className="font-display text-lg text-stone-900 flex items-center gap-2">
-                    <Glyph name="satchel" size={18} className="text-[rgb(var(--theme-accent-rgb))]" />Unfinished pages
+                <section aria-labelledby="nb-unfinished" className="mb-12">
+                  <h3 id="nb-unfinished" className="ng-subtitle flex items-center gap-3">
+                    <span className="ng-rule" aria-hidden="true" />Unfinished pages
                   </h3>
-                  <ul className="mt-2 divide-y divide-[#e8dfcd]" role="list">
+                  <ul className="mt-3 border-t border-stone-200/80 divide-y divide-stone-200/80" role="list">
                     {pages.slice(0, 3).map(pg => (
                       <li key={pg.id}>
-                        <button type="button" onClick={onOpenDrafts} className="w-full flex items-center gap-3 py-2.5 text-left">
-                          <span className="w-12 h-12 shrink-0 bg-[#efe7d6] border border-[#e8dfcd] overflow-hidden flex items-center justify-center text-[#b9a98a]">
+                        <button type="button" onClick={onOpenDrafts} className="w-full flex items-center gap-4 py-3 text-left">
+                          <span className="w-12 h-12 shrink-0 rounded-md bg-[#f3efe7] overflow-hidden flex items-center justify-center text-stone-400">
                             {pg.thumbs[0] ? <img src={pg.thumbs[0]} alt="" className="w-full h-full object-cover" /> : <Glyph name="satchel" size={20} />}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block font-display italic text-stone-800 truncate">{pg.title}{pg.more ? ` and ${pg.more} more` : ''}</span>
-                            <span className="block text-xs text-stone-500 truncate">{[pg.ms ? notebookDate(pg.ms) : '', pg.place].filter(Boolean).join(' · ')}</span>
-                            {pg.fading && <span className="block text-xs text-[rgb(var(--theme-accent-rgb))] mt-0.5">Finish it before the details fade</span>}
+                            <span className="block font-display italic text-base text-stone-900 truncate">{pg.title}{pg.more ? ` and ${pg.more} more` : ''}</span>
+                            <span className="block ng-caption truncate">{[pg.ms ? notebookDate(pg.ms) : '', pg.place].filter(Boolean).join(' · ')}</span>
+                            {pg.fading && <span className="block text-xs text-stone-700 mt-0.5 flex items-center gap-1.5"><span className="ng-dot" aria-hidden="true" />Finish it before the details fade</span>}
                           </span>
-                          <span className="material-symbols-outlined text-stone-400" aria-hidden="true">chevron_right</span>
+                          <Glyph name="chevronRight" size={20} className="text-stone-400" />
                         </button>
                       </li>
                     ))}
                   </ul>
-                  {pages.length > 3 && <button type="button" onClick={onOpenDrafts} className="mt-1 text-sm text-theme-accent font-medium">All {pages.length} unfinished pages</button>}
+                  {pages.length > 3 && <button type="button" onClick={onOpenDrafts} className="mt-2 ng-link-quiet min-h-[44px]">All {pages.length} unfinished pages</button>}
                 </section>
               )}
 
               {/* On this day */}
               {!q && onThisDay && (
-                <section aria-labelledby="nb-otd" className="mb-8 rounded-[3px] bg-[#fbf7ef] p-4 shadow-[0_1px_2px_rgba(60,40,20,0.1)] border border-[#e8dfcd]">
-                  <h3 id="nb-otd" className="font-display text-lg text-stone-900 flex items-center gap-2">
-                    <Glyph name="sun" size={18} className="text-[rgb(var(--theme-accent-rgb))]" />{onThisDay.title}
+                <section aria-labelledby="nb-otd" className="mb-12">
+                  <h3 id="nb-otd" className="ng-subtitle flex items-center gap-3">
+                    <span className="ng-rule" aria-hidden="true" />{onThisDay.title}
                   </h3>
-                  <p className="text-xs text-stone-500 mt-0.5">{notebookDate(onThisDay.items[0].ms)}{onThisDay.items.length > 1 ? ` and ${onThisDay.items.length - 1} more` : ''}</p>
-                  <ul className="flex gap-3 overflow-x-auto no-scrollbar mt-3 pb-1" role="list">
+                  <p className="ng-caption mt-1 pl-11">{notebookDate(onThisDay.items[0].ms)}{onThisDay.items.length > 1 ? ` and ${onThisDay.items.length - 1} more` : ''}</p>
+                  <ul className="flex gap-4 overflow-x-auto no-scrollbar mt-4 pb-1" role="list">
                     {onThisDay.items.slice(0, 8).map(({ p }, i) => {
                       const e = toEntry(p);
                       return (
                         <li key={p.id} className="shrink-0 w-[100px]">
                           <MountedPhoto c={e.captures[0]} tilt={(i % 3 - 1) * 1.2} pencil={e.isPrivate} onClick={() => onOpenPost(p)} label={e.species || 'sighting'} />
-                          <p className="mt-1.5 text-xs font-display italic text-stone-700 truncate">{e.species || 'Sighting'}</p>
+                          <p className="mt-2 text-sm font-display italic text-stone-800 truncate">{e.species || 'Sighting'}</p>
                         </li>
                       );
                     })}
@@ -428,32 +425,32 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
 
               {months.length === 0 ? (
                 q ? (
-                  <div className="py-20 text-center">
-                    <p className="font-display text-xl text-stone-800">No sightings mention "{query.trim()}"</p>
-                    <button type="button" onClick={onClearQuery} className="mt-3 text-sm text-theme-accent font-medium">Clear the search</button>
+                  <div className="ng-empty">
+                    <p className="ng-empty-title">No sightings mention "{query.trim()}"</p>
+                    <button type="button" onClick={onClearQuery} className="mt-4 ng-link-quiet min-h-[44px]">Clear the search</button>
                   </div>
                 ) : emptyState
               ) : (
                 visible.map(m => (
-                  <section key={m.key} id={`nb-${m.key}`} aria-labelledby={`nbh-${m.key}`} className="mb-6 scroll-mt-4">
-                    <h3 id={`nbh-${m.key}`} className="sticky top-0 z-10 -mx-4 px-4 md:-mx-2 md:px-2 py-2 bg-day-bg/95 backdrop-blur-sm border-b border-[#e8dfcd] flex items-baseline gap-2">
-                      <span className="font-display text-xl text-stone-900">{m.title}</span>
-                      <span className="text-sm text-stone-500">{m.season}</span>
+                  <section key={m.key} id={`nb-${m.key}`} aria-labelledby={`nbh-${m.key}`} className="mb-12 scroll-mt-4">
+                    <h3 id={`nbh-${m.key}`} className="sticky top-0 z-10 -mx-6 px-6 md:-mx-2 md:px-2 py-3 bg-day-bg/95 backdrop-blur-sm border-b border-stone-200/80 flex items-baseline gap-3">
+                      <span className="font-display text-[28px] leading-[1.2] text-stone-900">{m.title}</span>
+                      <span className="ng-small text-stone-500">{m.season}</span>
                     </h3>
                     {m.days.map(d => (
-                      <article key={d.key} className="mt-5" aria-label={notebookDate(d.ms)}>
-                        <h4 className="font-display text-[17px] text-stone-800">
+                      <article key={d.key} className="mt-8" aria-label={notebookDate(d.ms)}>
+                        <h4 className="font-display italic text-[20px] text-stone-800">
                           {notebookDate(d.ms)} <span className="text-stone-500">· {d.season}</span>
                         </h4>
                         {d.outings.map(o => (
-                          <div key={o.key} className="mt-2 rounded-[3px] bg-white/70 border border-[#ece4d4] px-4 pt-3 pb-1 bg-[linear-gradient(transparent_27px,rgba(140,120,90,0.07)_28px)] bg-[length:100%_28px]">
-                            <p className="text-sm text-stone-600 flex items-center gap-1.5 flex-wrap">
-                              <Glyph name="tracks" size={15} className="text-[rgb(var(--theme-accent-rgb))]" />
+                          <div key={o.key} className="mt-3">
+                            <p className="ng-small flex items-center gap-2 flex-wrap pb-1">
+                              <Glyph name="tracks" size={16} className="text-stone-400" />
                               <span className="tabular">{timeSpan(o.start, o.end)}</span>
                               {o.place && <><span aria-hidden="true">·</span><span>{o.place}</span></>}
                               {o.entries.length > 1 && <><span aria-hidden="true">·</span><span>{o.entries.length} sightings</span></>}
                             </p>
-                            <ul className="divide-y divide-[#efe7d6]" role="list">
+                            <ul className="divide-y divide-stone-200/70" role="list">
                               {o.entries.map((e, i) => <EntryView key={e.post.id} e={e} index={i} onOpen={onOpenPost} />)}
                             </ul>
                           </div>
@@ -466,7 +463,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
 
               {!q && months.length > shownMonths && (
                 <div className="flex justify-center pt-4">
-                  <button type="button" onClick={() => setShownMonths(n => n + 3)} className="px-5 py-2.5 rounded-full border border-stone-200 text-sm font-medium text-stone-900 hover:bg-stone-900/[0.03]">
+                  <button type="button" onClick={() => setShownMonths(n => n + 3)} className="ng-button-quiet">
                     Turn back to earlier pages
                   </button>
                 </div>

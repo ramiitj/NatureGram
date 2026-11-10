@@ -77,17 +77,17 @@ const Journal: React.FC<JournalProps> = ({
   const gridHasFilters = view === 'grid' && count > GRID_FILTERS_FROM;
 
   const emptyState = (
-    <div className="py-20 flex flex-col items-center text-center px-6">
-      <Glyph name="rings" size={44} strokeWidth={1} className="text-stone-400 mb-6" />
-      <h3 className="ng-heading text-2xl mb-2">Your journal starts outside</h3>
-      <p className="text-base text-stone-600 max-w-xs">Each outing becomes a page here, dated, placed and in your own words.</p>
+    <div className="ng-empty py-20">
+      <Glyph name="rings" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+      <h3 className="ng-empty-title text-[28px] leading-[1.2] not-italic">Your journal starts outside</h3>
+      <p className="ng-empty-body text-base">Each outing becomes a page here, dated, placed and in your own words.</p>
       {onOpenLens && (
         <button type="button" onClick={onOpenLens} className="ng-button-primary mt-8">
-          <Glyph name="lens" size={19} className="text-theme-vivid" />Open the Lens
+          <Glyph name="lens" size={20} className="ng-arrow" />Open the Lens
         </button>
       )}
       {onImportFromRoll && (
-        <button type="button" onClick={onImportFromRoll} className="ng-link mt-4 min-h-[44px] px-4 text-sm">
+        <button type="button" onClick={onImportFromRoll} className="ng-link-quiet mt-4 min-h-[44px]">
           Bring in from your camera roll
         </button>
       )}

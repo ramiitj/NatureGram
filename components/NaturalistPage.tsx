@@ -82,24 +82,26 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
 
   return (
     <div className="fixed inset-0 z-[120] bg-day-bg overflow-y-auto overscroll-contain animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="naturalist-name">
-      <div className="relative h-[42vh] min-h-[260px] max-h-[420px] bg-stone-900 overflow-hidden">
-        {theme.imageUrl && <img src={theme.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-        <div className="absolute inset-0 bg-gradient-to-t from-day-bg via-day-bg/10 to-black/30" aria-hidden="true" />
-        <button onClick={onClose} autoFocus aria-label="Close" className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.75rem)] w-11 h-11 rounded-full bg-black/30 backdrop-blur text-white flex items-center justify-center">
-          <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
+      <div className="relative h-[52vh] min-h-[320px] max-h-[520px] bg-stone-950 overflow-hidden text-white">
+        {theme.imageUrl && <img src={theme.imageUrl} alt="" className="ng-settle absolute inset-0 w-full h-full object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/35" aria-hidden="true" />
+        <button onClick={onClose} autoFocus aria-label="Close" className="ng-icon-button-dark absolute left-4 md:left-10 top-[calc(env(safe-area-inset-top)+1rem)]">
+          <Glyph name="back" size={24} />
         </button>
+        <header className="absolute inset-x-0 bottom-0 max-w-2xl mx-auto px-6 pb-8 md:pb-10 ng-rise">
+          <p className="flex items-center gap-3 text-sm text-white/80"><span className="block w-8 h-px bg-theme-vivid" aria-hidden="true" />Naturalist of the fortnight · {periodLabel(span)}</p>
+          <h1 id="naturalist-name" className="font-display text-[40px] md:text-5xl leading-[1.08] mt-3 text-white text-balance">{theme.naturalist}</h1>
+          {extra.lifespan && <p className="font-display italic text-lg text-white/75 mt-1">{extra.lifespan}</p>}
+        </header>
       </div>
 
-      <article className="relative -mt-24 max-w-2xl mx-auto px-4 sm:px-6 pb-20">
-        <header className="bg-[#fbf7ef] rounded-[3px] p-6 shadow-[0_1px_2px_rgba(60,40,20,0.12),0_10px_30px_-12px_rgba(60,40,20,0.3)]">
-          <div className="border border-[#d8ccb6] outline outline-1 outline-offset-[3px] outline-[#e8dfcd] rounded-[2px] p-5">
-            <p className="text-sm text-[#8a7a60]">Naturalist of the fortnight · {periodLabel(span)}</p>
-            <h1 id="naturalist-name" className="font-display text-4xl font-semibold text-stone-900 mt-1 leading-tight">{theme.naturalist}</h1>
-            {extra.lifespan && <p className="font-display italic text-lg text-[#8a7a60] mt-0.5">{extra.lifespan}</p>}
-            {extra.bio && <p className="text-[15px] text-stone-800 leading-relaxed mt-4">{extra.bio}</p>}
-            {theme.locationCaption && <p className="text-sm text-stone-600 mt-2">{theme.locationName ? `${theme.locationName}: ` : ''}{theme.locationCaption}</p>}
+      <article className="relative max-w-2xl mx-auto px-6 pt-10 pb-24">
+        <header>
+          <div>
+            {extra.bio && <p className="ng-body text-stone-800">{extra.bio}</p>}
+            {theme.locationCaption && <p className="ng-small mt-3">{theme.locationName ? `${theme.locationName}: ` : ''}{theme.locationCaption}</p>}
             {theme.imageUrl && theme.imageCredit?.author && (
-              <p className="text-xs text-stone-500 mt-3">
+              <p className="ng-caption mt-3">
                 Photograph:{' '}
                 <a href={theme.imageCredit.source} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">
                   {theme.imageCredit.author}
@@ -111,50 +113,49 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
         </header>
 
         {theme.quote && (
-          <figure className="mt-12 px-2">
-            <span className="ng-rule mb-4" aria-hidden="true" />
-            <blockquote className="font-display italic text-2xl md:text-[28px] text-stone-900 leading-snug text-balance">“{theme.quote}”</blockquote>
+          <figure className="mt-14">
+            <span className="ng-rule mb-5" aria-hidden="true" />
+            <blockquote className="font-display italic text-[28px] md:text-[40px] text-stone-900 leading-[1.15] text-balance">“{theme.quote}”</blockquote>
           </figure>
         )}
 
-        <section className="mt-10" aria-labelledby="way-of-seeing">
-          <h2 id="way-of-seeing" className="font-display text-xl font-semibold text-stone-900">A way of seeing</h2>
-          <p className="text-[17px] text-stone-800 leading-relaxed mt-2">{extra.philosophy}</p>
+        <section className="mt-14" aria-labelledby="way-of-seeing">
+          <h2 id="way-of-seeing" className="ng-subtitle">A way of seeing</h2>
+          <p className="ng-body text-stone-800 mt-3">{extra.philosophy}</p>
         </section>
 
-        <section className="ng-paper mt-10 p-5" aria-labelledby="fortnight-challenge">
+        <section className="mt-14 py-8 border-y border-stone-200/80" aria-labelledby="fortnight-challenge">
           <div className="flex items-start gap-3">
-            <Glyph name="stamp" size={28} strokeWidth={1.2} className="text-theme-accent mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <h2 id="fortnight-challenge" className="font-display text-xl font-semibold text-stone-900">This fortnight's challenge</h2>
-              <p className="text-[16px] text-stone-900 leading-relaxed mt-1.5">{extra.challenge}</p>
-              <p className="text-sm text-stone-600 mt-2">
+              <h2 id="fortnight-challenge" className="ng-kicker">This fortnight's challenge</h2>
+              <p className="font-display italic text-[20px] md:text-[28px] leading-[1.3] text-stone-900 mt-4 text-pretty">{extra.challenge}</p>
+              <p className="ng-small mt-3">
                 Tag your sighting {extra.challengeTag}
               </p>
               {onOpenLens && (
-                <button onClick={onOpenLens} className="ng-button-primary mt-5 min-h-[44px] px-5 text-sm">
-                  <Glyph name="eyeEar" size={18} className="text-theme-vivid" /> Go and look
+                <button onClick={onOpenLens} className="ng-button-primary group mt-6">
+                  Go and look<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" />
                 </button>
               )}
             </div>
           </div>
         </section>
 
-        <section className="mt-10" aria-labelledby="answers-title">
-          <h2 id="answers-title" className="font-display text-xl font-semibold text-stone-900">What explorers found</h2>
-          <p className="text-sm text-stone-600 mt-1">A small exhibition of answers to {theme.naturalist.split(' ').slice(-1)[0]}'s challenge.</p>
+        <section className="mt-14" aria-labelledby="answers-title">
+          <h2 id="answers-title" className="ng-subtitle">What explorers found</h2>
+          <p className="ng-small mt-1">A small exhibition of answers to {theme.naturalist.split(' ').slice(-1)[0]}'s challenge.</p>
           {answers === null ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5" aria-hidden="true">
               {[0, 1, 2].map(i => <SpecimenPlate key={i} ghost size="sm" data={{ name: ' ' }} />)}
             </div>
           ) : answers.length === 0 ? (
-            <p className="mt-5 text-stone-600 font-display text-lg">No answers yet. The first one could be yours.</p>
+            <p className="mt-6 text-stone-600 font-display italic text-lg">No answers yet. The first one could be yours.</p>
           ) : (
             <>
               {thisFortnight.length > 0 && <Exhibit list={thisFortnight} onOpenPost={onOpenPost} />}
               {earlier.length > 0 && (
                 <>
-                  <h3 className="font-display text-lg text-stone-700 mt-8">From an earlier fortnight</h3>
+                  <h3 className="ng-subtitle text-stone-700 mt-12">From an earlier fortnight</h3>
                   <Exhibit list={earlier} onOpenPost={onOpenPost} />
                 </>
               )}
@@ -163,7 +164,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
         </section>
 
         {period.next?.naturalist && (
-          <p className="mt-12 text-sm text-stone-500 text-center">In {period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'}, {theme.naturalist.split(' ').slice(-1)[0]} hands the notebook to {period.next.naturalist}.</p>
+          <p className="mt-16 font-display italic text-base text-stone-500 text-center">In {period.daysRemaining} day{period.daysRemaining === 1 ? '' : 's'}, {theme.naturalist.split(' ').slice(-1)[0]} hands the notebook to {period.next.naturalist}.</p>
         )}
       </article>
     </div>
@@ -171,7 +172,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
 };
 
 const Exhibit: React.FC<{ list: Answer[]; onOpenPost?: (id: string) => void }> = ({ list, onOpenPost }) => (
-  <ul className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5" role="list">
+  <ul className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6 mt-6" role="list">
     {list.map(a => (
       <li key={a.id}>
         <SpecimenPlate
@@ -179,7 +180,7 @@ const Exhibit: React.FC<{ list: Answer[]; onOpenPost?: (id: string) => void }> =
           data={{ name: a.name, thumb: a.thumb, firstMs: a.ms, place: a.place, season: a.season, group: a.group }}
           onClick={onOpenPost ? () => onOpenPost(a.id) : undefined}
         />
-        {a.userName && <p className="text-xs text-stone-500 mt-1.5 truncate">— {a.userName}</p>}
+        {a.userName && <p className="ng-caption mt-2 truncate">— {a.userName}</p>}
       </li>
     ))}
   </ul>

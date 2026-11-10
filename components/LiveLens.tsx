@@ -75,23 +75,22 @@ type AgentState = 'BOOTING' | 'IDLE' | 'HEARING_USER' | 'THINKING' | 'SPEAKING' 
 export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; onClose: () => void }> = ({ card, reduceMotion, onClose }) => (
   <motion.div
       key={card.id}
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 48 }}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 32 }}
-      transition={{ type: 'spring', damping: 26, stiffness: 260 }}
-      className="absolute bottom-40 inset-x-0 mx-auto w-[calc(100%-2.5rem)] max-w-sm z-[85] pointer-events-auto"
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+      transition={{ duration: 0.6, ease: [0.2, 0.7, 0.2, 1] }}
+      className="absolute bottom-40 inset-x-0 mx-auto w-[calc(100%-3rem)] max-w-sm z-[85] pointer-events-auto"
   >
-      <div className="relative bg-[#fbf7ef] text-[#2f2a22] rounded-[3px] pl-9 pr-12 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.25),0_24px_50px_-18px_rgba(0,0,0,0.75)]">
-          {/* The tag's eyelet and a fine double rule, like a museum label */}
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-[#b9a98a] bg-stone-900/80" aria-hidden="true" />
-          <span className="absolute inset-1.5 border border-[#d8ccb6] rounded-[2px] pointer-events-none" aria-hidden="true" />
+      {/* The sighting, as the landing names things: a fine rule, then the name in white serif italic */}
+      <div className="relative bg-black/55 backdrop-blur-xl text-white rounded-2xl pl-6 pr-12 py-5">
           <div role="status" aria-live="polite" aria-atomic="true">
-              <p className="font-display italic text-[1.6rem] leading-tight">{card.name}</p>
-              {card.scientific && <p className="font-display italic text-sm text-[#8a7a60] mt-0.5">{card.scientific}</p>}
-              {card.line && <p className="font-display text-[15px] leading-snug text-[#4a4134] mt-2">{card.line}</p>}
+              <span className="block w-8 h-px bg-theme-vivid mb-3" aria-hidden="true" />
+              <p className="ng-dark-title">{card.name}</p>
+              {card.scientific && <p className="font-display italic text-base text-white/70 mt-0.5">{card.scientific}</p>}
+              {card.line && <p className="ng-dark-caption text-white/85 mt-2">{card.line}</p>}
               {card.challenge && (
-                  <p className="mt-2.5 flex items-center gap-1.5 text-sm text-[rgb(var(--theme-accent-rgb))]">
-                      <Glyph name="stamp" size={16} />Answers {card.challenge}'s challenge
+                  <p className="mt-3 flex items-center gap-2 text-sm text-white/85">
+                      <Glyph name="stamp" size={16} className="text-white/70" />Answers {card.challenge}'s challenge
                   </p>
               )}
               {card.firstForList && <span className="sr-only">First for your list.</span>}
@@ -99,16 +98,16 @@ export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; 
           <button
               onClick={onClose}
               aria-label="Put this sighting away"
-              className="absolute top-1.5 right-1.5 w-11 h-11 rounded-full text-[#8a7a60] hover:text-[#2f2a22] hover:bg-black/5 flex items-center justify-center transition-colors"
+              className="absolute top-2 right-2 ng-icon-button-dark text-white/80"
           >
-              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
+              <Glyph name="close" size={20} />
           </button>
           {card.firstForList && (
               <motion.div
                   className="absolute -top-[3.75rem] right-12"
-                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 1.4, rotate: 0 }}
-                  animate={{ opacity: 1, scale: 1, rotate: 8 }}
-                  transition={{ delay: reduceMotion ? 0 : 0.35, type: 'spring', damping: 14, stiffness: 220 }}
+                  initial={{ opacity: 0, rotate: 8 }}
+                  animate={{ opacity: 1, rotate: 8 }}
+                  transition={{ delay: reduceMotion ? 0 : 0.35, duration: 0.6 }}
                   aria-hidden="true"
               >
                   <PlateStamp>First for your list</PlateStamp>
@@ -123,8 +122,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [isCameraActive, setIsCameraActive] = useState(true);
-  const isCameraActiveRef = useRef(true); 
-  
+  const isCameraActiveRef = useRef(true);
+
   const [zoom, setZoom] = useState(1);
   const [torch, setTorch] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
@@ -151,7 +150,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [agentState, setAgentState] = useState<AgentState>('BOOTING');
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
-  const [liveCaption, setLiveCaption] = useState(""); 
+  const [liveCaption, setLiveCaption] = useState("");
   // The Lens no longer holds a tour back: the session starts at once and the first visit gets one line
   const isTourActive = false;
   const [firstLine, setFirstLine] = useState<boolean>(() => {
@@ -300,7 +299,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const recordingIntervalRef = useRef<number | null>(null);
   const holdTimeoutRef = useRef<number | null>(null);
   const micHoldTimeoutRef = useRef<number | null>(null);
-  
+
   // Audio routing nodes
   const agentGainNodeRef = useRef<GainNode | null>(null);
   const recordingGainNodeRef = useRef<GainNode | null>(null);
@@ -322,21 +321,21 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', optimize ? 0.95 : 0.5);
-    
+
     if (optimize) {
         setIsFlashing(true);
         setTimeout(() => setIsFlashing(false), 150);
     }
 
-    return { 
-        dataUrl, 
-        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined 
+    return {
+        dataUrl,
+        blobPromise: optimize ? compressImageToBlob(dataUrl, 1600, 0.85) : undefined
     };
   }, []);
 
   const startRecording = useCallback((type: 'audio' | 'video') => {
     if (!activeStreamRef.current) return;
-    
+
     let streamToRecord: MediaStream;
     if (type === 'audio') {
         if (recordingDestinationRef.current) {
@@ -375,10 +374,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
       const recordedType = (recorder.mimeType || (type === 'video' ? 'video/webm' : 'audio/webm')).split(';')[0];
       const mediaBlob = new Blob(mediaChunksRef.current, { type: recordedType });
-      
+
       let dataUrl: string | undefined;
       let blobPromise: Promise<Blob> | undefined;
-      
+
       if (isCameraActiveRef.current) {
          const res = captureFrame(true);
          if (res) {
@@ -392,19 +391,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           pendingSnapshotIdRef.current = snapId;
           setPendingAnalyses(n => n + 1);
           showStatus('processing', 'Analysing your capture…');
-          
+
           if (type === 'audio') {
               setLastAudioSnapshotId(snapId);
               setLastAudioImages(pendingAssociatedImagesRef.current.length > 0 ? pendingAssociatedImagesRef.current : []);
           }
-          
+
           const isAudioOnly = type === 'audio' && !imgBlob;
-          const prompt = isAudioOnly 
+          const prompt = isAudioOnly
             ? "I just captured an audio snippet. The system is analyzing it in the background. Please acknowledge this and wait for the results."
             : `I just captured ${type === 'audio' ? 'an audio recording' : `a ${type}`}. The system is analyzing it in the background. Please acknowledge this and wait for the results.`;
 
           const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
-          
+
           retakesCountRef.current += 1;
 
           recordCapture({
@@ -432,12 +431,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           // Trigger background high-fidelity multimodal analysis
           const associatedBlobs = pendingAssociatedImagesRef.current.map(i => i.blob);
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
-          
+
           track('capture', { type, keyframes: allImageBlobs.length });
           const t0 = performance.now();
           GenAiService.analyzeMultimodal(
-              (type === 'audio' || type === 'video') ? mediaBlob : null, 
-              allImageBlobs, 
+              (type === 'audio' || type === 'video') ? mediaBlob : null,
+              allImageBlobs,
               location
           ).then(result => {
               track('ai_result', { ok: true, type, ms: Math.round(performance.now() - t0), confidence: result.confidence });
@@ -475,7 +474,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       } else {
           finishCapture();
       }
-      
+
       setIsRecordingAudio(false);
       setIsRecordingVideo(false);
       setRecordingTime(0);
@@ -517,7 +516,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           setIsCameraActive(true);
           return;
       }
-      
+
       holdTimeoutRef.current = window.setTimeout(() => {
           holdTimeoutRef.current = null;
           startRecording('video');
@@ -532,7 +531,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       } else {
           wasHold = true;
       }
-      
+
       if (isRecordingVideo && wasHold) {
           stopRecording();
       } else if (isCameraActive && !wasHold) {
@@ -541,7 +540,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           if (res && res.blobPromise) {
               res.blobPromise.then(compressedBlob => {
                   const objUrl = URL.createObjectURL(compressedBlob);
-                  
+
                   if (isRecordingVideo || isRecordingAudio) {
                       // Associate with ongoing recording
                       pendingAssociatedImagesRef.current.push({ url: objUrl, blob: compressedBlob });
@@ -573,9 +572,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   setPendingAnalyses(n => n + 1);
                   showStatus('processing', 'Analysing your photo…');
                   const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
-                  
+
                   retakesCountRef.current += 1;
-                  
+
                   recordCapture({
                       id: snapId,
                       url: objUrl,
@@ -656,11 +655,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (isVideo || isAudio) {
           const media = isVideo ? document.createElement('video') : document.createElement('audio');
           media.src = URL.createObjectURL(file);
-          
+
           await new Promise((resolve) => {
               media.onloadedmetadata = resolve;
           });
-          
+
           if (media.duration > 30) {
               showStatus('error', 'Please choose a clip of 30 seconds or less.');
               URL.revokeObjectURL(media.src);
@@ -837,7 +836,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
         return [...prev, { id: Date.now().toString(), role, text, timestamp: new Date(), groundingLinks: links }];
     });
-    if (role === 'assistant') { setLiveCaption(text); setAgentState('SPEAKING'); } 
+    if (role === 'assistant') { setLiveCaption(text); setAgentState('SPEAKING'); }
     else if (role === 'user') { setAgentState('HEARING_USER'); }
   }, []);
 
@@ -853,13 +852,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     try {
         const supported = supportedConstraintsRef.current;
         const advanced: any = {};
-        
+
         if (settings.zoom !== undefined && (supported as any).zoom) {
             const clampedZoom = Math.max(zoomRange.min, Math.min(zoomRange.max, settings.zoom));
             advanced.zoom = clampedZoom;
             setZoom(clampedZoom);
         }
-        
+
         if (settings.torch !== undefined && (supported as any).torch) {
             advanced.torch = settings.torch;
             setTorch(settings.torch);
@@ -889,7 +888,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     if (activeStreamRef.current) {
         activeStreamRef.current.getTracks().forEach(t => t.stop());
     }
-    
+
     try {
         // Helper to try getting media with specific constraints
         const getMedia = async (c: MediaStreamConstraints) => {
@@ -906,16 +905,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         // 1. Try preferred settings (Requested Mode + Audio Processing)
         // Note: Removed sampleRate constraint as it causes failures on some hardware.
         // Web Audio API will handle resampling later.
-        let stream = await getMedia({ 
-            video: { facingMode: mode }, 
-            audio: { echoCancellation: true, noiseSuppression: true } 
+        let stream = await getMedia({
+            video: { facingMode: mode },
+            audio: { echoCancellation: true, noiseSuppression: true }
         });
 
         // 2. Fallback: Any Camera + Audio Processing (Fixes desktop/device specific facingMode issues)
         if (!stream) {
-            stream = await getMedia({ 
-                video: true, 
-                audio: { echoCancellation: true, noiseSuppression: true } 
+            stream = await getMedia({
+                video: true,
+                audio: { echoCancellation: true, noiseSuppression: true }
             });
         }
 
@@ -929,8 +928,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         }
 
         activeStreamRef.current = stream;
-        if (videoRef.current) { 
-            videoRef.current.srcObject = stream; 
+        if (videoRef.current) {
+            videoRef.current.srcObject = stream;
             stream.getVideoTracks().forEach(t => t.enabled = isCameraActiveRef.current);
         }
 
@@ -946,15 +945,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 setZoomRange({ min: caps.zoom.min, max: caps.zoom.max, step: caps.zoom.step || 0.1 });
                 setZoom(caps.zoom.min);
             }
-            
+
             setHasTorch(!!caps.torch || (supportedConstraintsRef.current as any).torch);
-            
+
             setCanPan(!!caps.pan);
             if (caps.pan) {
                 setPanRange({ min: caps.pan.min, max: caps.pan.max, step: caps.pan.step || 1 });
                 setPan(caps.pan.min);
             }
-            
+
             setCanTilt(!!caps.tilt);
             if (caps.tilt) {
                 setTiltRange({ min: caps.tilt.min, max: caps.tilt.max, step: caps.tilt.step || 1 });
@@ -974,7 +973,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       await startMediaStream(mode);
   }, [startMediaStream]);
 
-  useEffect(() => { 
+  useEffect(() => {
     isCameraActiveRef.current = isCameraActive;
     if (activeStreamRef.current) {
         activeStreamRef.current.getVideoTracks().forEach(track => { track.enabled = isCameraActive; });
@@ -987,7 +986,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const handleToolCall = async (name: string, args: any) => {
     if (name === 'get_session_status') {
-        return { 
+        return {
             camera_active: isCameraActiveRef.current,
             facing_mode: facingMode,
             recording_audio: isRecordingAudio,
@@ -1023,21 +1022,21 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            const resolvedBehavior = args.behavior || "Manual observation captured by explorer.";
            // glossary-ok: a stored placeholder that PostSessionView recognises and hides
            const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
-           
+
            retakesCountRef.current += 1;
            const snapId = Date.now().toString();
            const liveConfidence = ['high', 'medium', 'low'].includes(args.confidence) ? args.confidence : 'low';
 
-           recordCapture({ 
-               id: snapId, 
-               url: objUrl, 
-               blob: compressedBlob, 
-               timestamp: new Date().toLocaleTimeString(), 
+           recordCapture({
+               id: snapId,
+               url: objUrl,
+               blob: compressedBlob,
+               timestamp: new Date().toLocaleTimeString(),
                labels: resolvedLabels,
-               behavior: resolvedBehavior, 
+               behavior: resolvedBehavior,
                aiInsight: resolvedAiInsight,
-               type: 'image', 
-               userId: userMode.userId, 
+               type: 'image',
+               userId: userMode.userId,
                isHybrid: args.is_hybrid,
                location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
                rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
@@ -1115,7 +1114,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 } catch (e) {
                     console.warn("Geocoding failed, falling back to coordinates", e);
                 }
-                
+
                 const coords = { lat: position.coords.latitude, lng: position.coords.longitude, name: locationString };
                 lastLocationRef.current = coords;
                 if (geminiServiceRef.current) geminiServiceRef.current.setLocation(coords.lat, coords.lng);
@@ -1136,7 +1135,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           console.debug("initSession skipped:", { hasAudioContext: !!audioContext, isTourActive, hasSelectedMode });
           return;
       }
-      
+
       if (geminiServiceRef.current) {
           geminiServiceRef.current.disconnect();
           geminiServiceRef.current = null;
@@ -1156,7 +1155,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         const nId = userIdValue && userIdValue !== 'explorer_guest' ? userIdValue : "";
         setNaturalistId(nId);
         const memory = nId ? await FirebaseService.getNaturalistMemory(nId) : null;
-        
+
         console.debug("Starting media stream...");
         const stream = await startMediaStream('environment');
         console.debug("Media stream started.");
@@ -1173,7 +1172,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             onTranscript: (text, isUser, links) => addToChat(isUser ? 'user' : 'assistant', text, links),
             onTurnComplete: () => { setLiveCaption(""); },
             onToolCall: handleToolCall,
-            onConnectionStateChange: (state) => { 
+            onConnectionStateChange: (state) => {
                 console.debug("Connection state changed:", state);
                 if (agentState === 'FINALIZING') return;
                 switch (state) {
@@ -1208,7 +1207,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
         // glossary-ok: prompt text for the model, not shown to people
         const memoryContext = memory ? `[NATURALIST PROFILE: ${memory.preferredStyle}. Last summary: ${memory.lastSessionSummary}]` : '';
-        
+
         const modeInstruction = "\n[MODE: CONVERSATION. You are an active field companion. Engage in real-time dialogue, ask questions, and be highly interactive. Your goal is to be a conversational partner in this exploration.]";
 
         // The fortnight's naturalist shapes what the guide gently encourages explorers to notice
@@ -1218,7 +1217,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         service.setSystemInstruction(memoryContext + "\n" + modeInstruction + fortnight);
         // Only coarse (~1 km) coordinates leave the device for the live guide
         if (lastLocationRef.current) service.setLocation(coarsenCoordinate(lastLocationRef.current.lat), coarsenCoordinate(lastLocationRef.current.lng));
-        
+
         console.debug("Connecting service...");
         service.connect(); // Do not await to avoid blocking initialization if connection hangs
         geminiServiceRef.current = service;
@@ -1229,9 +1228,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             console.debug("Resuming inputCtx...");
             await inputCtx.resume();
         }
-        
+
         const sourceNode = inputCtx.createMediaStreamSource(stream);
-        
+
         // --- Dual-Path Audio Routing Setup ---
         // Path A: To Agent (always on)
         const agentGainNode = inputCtx.createGain();
@@ -1244,20 +1243,20 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         recordingGainNode.gain.value = 1; // Default to unmuted
         recordingGainNodeRef.current = recordingGainNode;
         sourceNode.connect(recordingGainNode);
-        
+
         const recordingDestination = inputCtx.createMediaStreamDestination();
         recordingDestinationRef.current = recordingDestination;
         recordingGainNode.connect(recordingDestination);
         // -------------------------------------
 
         processor = inputCtx.createScriptProcessor(4096, 1, 1);
-        processor.onaudioprocess = (e) => { 
+        processor.onaudioprocess = (e) => {
             if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
-                service.sendAudioChunk(e.inputBuffer.getChannelData(0)); 
+                service.sendAudioChunk(e.inputBuffer.getChannelData(0));
             }
         };
         agentGainNode.connect(processor);
-        processor.connect(inputCtx.destination); 
+        processor.connect(inputCtx.destination);
 
         // Stream frames to the guide at <=768px (the model's working resolution) and skip
         // near-identical frames: same accuracy, far less bandwidth and cost.
@@ -1286,7 +1285,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
              sctx.drawImage(v, 0, 0, streamCanvas.width, streamCanvas.height);
              service.sendVideoFrame(streamCanvas.toDataURL('image/jpeg', 0.6));
              lastSent = Date.now();
-        }, 1000); 
+        }, 1000);
 
         console.debug("initSession complete.");
         return () => {
@@ -1295,14 +1294,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 geminiServiceRef.current.disconnect();
                 geminiServiceRef.current = null;
             }
-            if (videoInterval) clearInterval(videoInterval); 
-            if (processor) processor.disconnect(); 
+            if (videoInterval) clearInterval(videoInterval);
+            if (processor) processor.disconnect();
             if (inputCtx) inputCtx.close();
-            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()); 
+            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop());
         };
-      } catch (err: any) { 
+      } catch (err: any) {
           console.error("Session init failed:", err);
-          setAgentState('DISCONNECTED'); 
+          setAgentState('DISCONNECTED');
           const name = err?.name || '';
           track('lens_error', { name: name || 'unknown' });
           if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -1378,20 +1377,20 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       <div className={`absolute inset-0 bg-white z-[100] transition-opacity duration-150 pointer-events-none ${isFlashing ? 'opacity-100' : 'opacity-0'}`} />
 
       {/* Top bar: close where people look for it, the guide switch and Done on the right */}
-      <div className="absolute safe-top inset-x-4 z-[120] flex items-center justify-between gap-2 pointer-events-none">
+      <div className="absolute safe-top inset-x-4 md:inset-x-8 z-[120] flex items-center justify-between gap-2 pointer-events-none">
           <button
               onClick={() => (captureCount > 0 ? finalizeSession() : onExit())}
               aria-label={captureCount > 0 ? 'Close the Lens and review your captures' : 'Close the Lens'}
-              className="pointer-events-auto w-11 h-11 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center justify-center active:scale-95 transition-transform shadow-lg"
+              className="pointer-events-auto w-11 h-11 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center transition-colors hover:bg-black/55"
           >
-              <span className="material-symbols-outlined text-xl" aria-hidden="true">close</span>
+              <Glyph name="close" size={20} />
           </button>
           <div className="flex items-center gap-2 pointer-events-auto">
               <button
                   role="switch"
                   aria-checked={selectedMode === 'conversation'}
                   onClick={() => setTalkative(selectedMode !== 'conversation')}
-                  className="h-11 pl-3 pr-2 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center gap-2 active:scale-95 transition-transform shadow-lg text-sm font-semibold"
+                  className="h-11 pl-4 pr-2.5 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center gap-2.5 transition-colors hover:bg-black/55 text-sm font-medium"
               >
                   <span className="whitespace-nowrap">Talk with me</span>
                   <span aria-hidden="true" className={`relative w-9 h-5 rounded-full transition-colors ${selectedMode === 'conversation' ? 'bg-theme-vivid' : 'bg-white/25'}`}>
@@ -1404,28 +1403,28 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       aria-expanded={menuOpen}
                       aria-haspopup="menu"
                       aria-label="More Lens options"
-                      className="w-11 h-11 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center justify-center active:scale-95 transition-transform shadow-lg"
+                      className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center transition-colors hover:bg-black/55"
                   >
-                      <span className="material-symbols-outlined text-xl" aria-hidden="true">more_horiz</span>
+                      <Glyph name="more" size={20} />
                   </button>
                   {menuOpen && (
                       <>
                           <div className="fixed inset-0" onClick={() => setMenuOpen(false)} aria-hidden="true" />
-                          <div role="menu" className="absolute right-0 top-12 w-64 bg-stone-950/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl">
+                          <div role="menu" className="absolute right-0 top-12 w-64 bg-black/80 backdrop-blur-xl rounded-xl p-1.5 shadow-[0_18px_44px_-18px_rgba(0,0,0,0.8)]">
                               <button
                                   role="menuitemcheckbox"
                                   aria-checked={!isCameraActive}
                                   onClick={() => { setIsCameraActive(!isCameraActive); setMenuOpen(false); }}
-                                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm text-white hover:bg-white/10"
+                                  className="w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-left text-[15px] text-white hover:bg-white/10"
                               >
-                                  <span className="material-symbols-outlined text-xl" aria-hidden="true">{isCameraActive ? 'hearing' : 'videocam'}</span>
+                                  <Glyph name={isCameraActive ? 'ear' : 'video'} size={20} />
                                   <span className="flex-1">{isCameraActive ? 'Listen only' : 'Use the camera again'}</span>
                               </button>
                               {onImportFromRoll && captureCount === 0 && (
                                   <button
                                       role="menuitem"
                                       onClick={() => { setMenuOpen(false); onImportFromRoll(); }}
-                                      className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm text-white hover:bg-white/10"
+                                      className="w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-left text-[15px] text-white hover:bg-white/10"
                                   >
                                       <Glyph name="plate" size={20} />
                                       <span className="flex-1">Bring in from your camera roll</span>
@@ -1438,44 +1437,44 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               <button
                   onClick={() => finalizeSession()}
                   aria-label="Finish session and review captures"
-                  className="h-11 px-4 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-white flex items-center gap-1.5 active:scale-95 transition-transform shadow-lg text-sm font-bold"
+                  className="h-11 px-5 rounded-full bg-white text-stone-900 flex items-center gap-1.5 transition-colors hover:bg-white/90 text-sm font-semibold"
               >
-                  <span className="material-symbols-outlined text-xl hidden sm:inline" aria-hidden="true">check</span>Done
+                  <Glyph name="check" size={20} className="hidden sm:inline" />Done
               </button>
           </div>
       </div>
       {showTranscript && (
-          <div className="absolute top-20 left-4 right-4 max-w-md z-[125] max-h-[50vh] overflow-y-auto no-scrollbar bg-stone-950/90 backdrop-blur-xl rounded-3xl border border-white/10 p-4 space-y-3" role="log" aria-label="Guide transcript" aria-live="polite">
+          <div className="absolute top-20 left-4 right-4 md:left-8 max-w-md z-[125] max-h-[50vh] overflow-y-auto no-scrollbar bg-black/75 backdrop-blur-xl rounded-2xl p-5 space-y-4" role="log" aria-label="Guide transcript" aria-live="polite">
               {chatHistory.filter(m => m.role !== 'system' && m.text).length === 0
-                  ? <p className="text-sm text-white/70">Nothing said yet. Point the camera at something alive.</p>
+                  ? <p className="font-display italic text-base text-white/70">Nothing said yet. Point the camera at something alive.</p>
                   : chatHistory.filter(m => m.role !== 'system' && m.text).map(m => (
                       <p key={m.id} className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-white/70 text-right' : 'text-white'}`}>
-                          <span className="block text-xs font-semibold text-white/55 mb-0.5">{m.role === 'user' ? 'You' : 'Your guide'}</span>{m.text}
+                          <span className="block text-xs font-medium text-white/55 mb-1">{m.role === 'user' ? 'You' : 'Your guide'}</span>{m.text}
                       </p>
                   ))}
           </div>
       )}
       {secondsLeft !== null && selectedMode === 'conversation' && agentState !== 'FINALIZING' && (
-          <div className="absolute top-[calc(var(--sat)+9.5rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1 tabular" role="timer" aria-live="off">
+          <div className="absolute top-[calc(var(--sat)+9.5rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-medium text-white/90 bg-black/40 backdrop-blur-md rounded-full px-3 py-1 tabular" role="timer" aria-live="off">
               {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')} of live time left today
           </div>
       )}
       {idleWarning !== null && agentState !== 'FINALIZING' && (
-          <div className="absolute inset-x-4 top-1/3 z-[130] mx-auto max-w-xs bg-white rounded-2xl p-5 text-center shadow-2xl" role="alertdialog" aria-labelledby="idle-title">
-              <p id="idle-title" className="font-display text-lg text-stone-900">Still with me?</p>
-              <p className="text-sm text-stone-600 mt-1">I'll rest in {idleWarning}s.</p>
-              <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="mt-4 w-full py-3 rounded-xl bg-theme-primary text-white font-bold">Keep going</button>
+          <div className="absolute inset-x-6 top-1/3 z-[130] mx-auto max-w-xs bg-black/70 backdrop-blur-xl text-white rounded-2xl p-6 text-center" role="alertdialog" aria-labelledby="idle-title">
+              <p id="idle-title" className="ng-dark-title text-[20px]">Still with me?</p>
+              <p className="ng-dark-caption mt-1">I'll rest in {idleWarning}s.</p>
+              <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="ng-button-light mt-5 w-full justify-center px-6">Keep going</button>
           </div>
       )}
       {pendingAnalyses > 0 && (
-          <div className="absolute top-[calc(var(--sat)+7rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-semibold text-white bg-black/50 rounded-full px-3 py-1" role="status">
+          <div className="absolute top-[calc(var(--sat)+7rem)] left-1/2 -translate-x-1/2 z-[119] text-xs font-medium text-white/90 bg-black/40 backdrop-blur-md rounded-full px-3 py-1" role="status">
               Analysing {pendingAnalyses} capture{pendingAnalyses === 1 ? '' : 's'}…
           </div>
       )}
 
       <div className="absolute top-[calc(var(--sat)+4.25rem)] left-1/2 -translate-x-1/2 z-[118] pointer-events-auto flex items-center gap-2 max-w-[92vw]">
           {!analysisStatus && (
-              <button 
+              <button
                   disabled={agentState !== 'DISCONNECTED'}
                   onClick={() => {
                       if (agentState === 'DISCONNECTED' && cleanupRef.current) {
@@ -1485,23 +1484,23 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           initSession().then(c => { if (c) cleanupRef.current = c; });
                       }
                   }}
-                  className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${agentState === 'DISCONNECTED' ? 'active:scale-95 cursor-pointer border-red-400/50' : 'cursor-default'}`}
+                  className={`bg-black/45 backdrop-blur-md px-4 min-h-[36px] rounded-full flex items-center gap-2 transition-all duration-300 animate-in fade-in ${agentState === 'DISCONNECTED' ? 'cursor-pointer ring-1 ring-red-300/50' : 'cursor-default'}`}
               >
                   {getPebbleStyle().guide
                       ? <BreathingGuide size={14} still={getPebbleStyle().guide === 'still'} className={agentState === 'DISCONNECTED' ? 'text-red-300' : 'text-white/90'} />
-                      : <span className="material-symbols-outlined text-[14px] text-white/90" aria-hidden="true">{getPebbleStyle().icon}</span>}
-                  <span className={`text-xs font-semibold truncate ${agentState === 'DISCONNECTED' ? 'text-red-100' : 'text-white/90'}`}>
+                      : <Glyph name="eye" size={14} className="text-white/90" />}
+                  <span className={`text-xs font-medium truncate ${agentState === 'DISCONNECTED' ? 'text-red-100' : 'text-white/90'}`}>
                       {getStatusText()}
                   </span>
               </button>
           )}
 
           {analysisStatus && (
-              <div className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${analysisStatus.type === 'error' ? 'border-red-400/50' : analysisStatus.type === 'success' ? 'border-theme-vivid/40' : 'border-white/10'}`}>
+              <div className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in ${analysisStatus.type === 'error' ? 'ring-1 ring-red-300/50' : ''}`}>
                   {analysisStatus.type === 'processing'
                       ? <BreathingGuide size={14} className="text-white/90" />
-                      : <span className={`material-symbols-outlined text-[14px] ${analysisStatus.type === 'success' ? 'text-theme-vivid' : 'text-red-300'}`} aria-hidden="true">{analysisStatus.type === 'success' ? 'check' : 'error'}</span>}
-                  <span role="status" className={`text-xs font-semibold ${analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
+                      : <Glyph name={analysisStatus.type === 'success' ? 'check' : 'alert'} size={14} className={analysisStatus.type === 'success' ? 'text-theme-vivid' : 'text-red-300'} />}
+                  <span role="status" className={`text-xs font-medium ${analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
                       {analysisStatus.text}
                   </span>
               </div>
@@ -1510,19 +1509,19 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               onClick={() => setShowTranscript(v => !v)}
               aria-expanded={showTranscript}
               aria-label="Transcript: what your guide said"
-              className={`shrink-0 h-9 px-3 rounded-full backdrop-blur-md border border-white/10 text-white flex items-center gap-1.5 active:scale-95 shadow-xl text-xs font-semibold ${showTranscript ? 'bg-white/25' : 'bg-black/60'}`}
+              className={`shrink-0 min-h-[36px] px-3 rounded-full backdrop-blur-md text-white flex items-center gap-1.5 text-xs font-medium ${showTranscript ? 'bg-white/25' : 'bg-black/45'}`}
           >
-              <span className="material-symbols-outlined text-[16px]" aria-hidden="true">subject</span>
+              <Glyph name="lines" size={16} />
               <span className="hidden sm:inline">Transcript</span>
           </button>
       </div>
       {firstLine && agentState !== 'FINALIZING' && !sessionError && (
           <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+14.5rem)] inset-x-4 z-[117] flex justify-center pointer-events-none">
-              <p className="pointer-events-auto max-w-sm bg-[#fbf7ef] text-[#2f2a22] rounded-full pl-4 pr-1 py-1 shadow-xl flex items-center gap-2 text-sm">
-                  <Glyph name="guide" size={15} className="text-[rgb(var(--theme-accent-rgb))] shrink-0" />
+              <p className="pointer-events-auto max-w-sm bg-black/50 backdrop-blur-md text-white/90 rounded-full pl-4 pr-1 py-1 flex items-center gap-3 text-sm leading-snug">
+                  <span className="block w-6 h-px bg-theme-vivid shrink-0" aria-hidden="true" />
                   <span>Point at anything alive. Tap to capture; your guide looks with you.</span>
-                  <button onClick={dismissFirstLine} aria-label="Dismiss" className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[#8a7a60] hover:bg-black/5">
-                      <span className="material-symbols-outlined text-[16px]" aria-hidden="true">close</span>
+                  <button onClick={dismissFirstLine} aria-label="Dismiss" className="ng-icon-button-dark text-white/75">
+                      <Glyph name="close" size={20} />
                   </button>
               </p>
           </div>
@@ -1530,11 +1529,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {sessionError && (
           <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
-              <BreathingGuide size={40} still className="text-white/50 mb-5" />
-              <h2 className="text-2xl font-display font-semibold text-white mb-4">{sessionError.title}</h2>
-              <p className="text-base text-white/85 mb-8 max-w-md leading-relaxed">{sessionError.message}</p>
-               <div className="flex gap-4">
-                  <button 
+              <BreathingGuide size={40} still className="text-white/50 mb-6" />
+              <h2 className="ng-dark-title mb-4 max-w-md">{sessionError.title}</h2>
+              <p className="text-base text-white/80 mb-10 max-w-md leading-[1.65]">{sessionError.message}</p>
+               <div className="flex items-center gap-6">
+                  <button
                       onClick={() => {
                           setSessionError(null);
                           if (cleanupRef.current) {
@@ -1545,13 +1544,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               if (c) cleanupRef.current = c;
                           });
                       }}
-                      className="px-6 py-3 bg-theme-primary text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
+                      className="ng-button-light"
                   >
                       Try again
                   </button>
-                  <button 
+                  <button
                       onClick={() => setSessionError(null)}
-                      className="px-6 py-3 bg-white/10 text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
+                      className="ng-link-light min-h-[44px]"
                   >
                       Not now
                   </button>
@@ -1560,7 +1559,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
 
       {agentState === 'FINALIZING' && (
-          <div className="absolute inset-0 z-[100] bg-stone-950/95 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center" role="status" aria-live="polite">
+          <div className="absolute inset-0 z-[100] bg-black/95 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center" role="status" aria-live="polite">
               {closing && closing.items.length > 0 ? (
                   <>
                       <div className="relative h-40 w-full max-w-xs mb-8" aria-hidden="true">
@@ -1571,28 +1570,28 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               return (
                                   <div
                                       key={i}
-                                      className="ng-pin absolute left-1/2 top-2 w-24 bg-[#fbf7ef] p-1.5 pb-2 rounded-[2px] shadow-[0_6px_18px_-6px_rgba(0,0,0,0.6)]"
+                                      className="ng-pin absolute left-1/2 top-2 w-24 rounded-md overflow-hidden shadow-[0_10px_24px_-10px_rgba(0,0,0,0.8)]"
                                       style={{ transform: `translateX(calc(-50% + ${x}px)) translateY(${Math.abs(i - mid) * 6}px) rotate(${angle}deg)`, animationDelay: `${i * 140}ms`, zIndex: 10 - Math.abs(Math.round(i - mid)) }}
                                   >
-                                      <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#b8892b] shadow" />
-                                      <div className="aspect-square bg-[#efe7d6] overflow-hidden flex items-center justify-center">
-                                          {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" /> : <Glyph name={it.type === 'audio' ? 'sound' : 'leaf'} size={26} className="text-[#b9a98a]" />}
+                                      <div className="aspect-square bg-stone-800 overflow-hidden flex items-center justify-center">
+                                          {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" /> : <Glyph name={it.type === 'audio' ? 'sound' : 'leaf'} size={24} strokeWidth={1.2} className="text-white/50" />}
                                       </div>
-                                      {it.name && <p className="mt-1 font-display italic text-[11px] leading-tight text-[#2f2a22] truncate">{it.name}</p>}
+                                      {it.name && <p className="absolute inset-x-0 bottom-0 px-1.5 pb-1 pt-4 bg-gradient-to-t from-black/70 to-transparent font-display italic text-[12px] leading-tight text-white truncate">{it.name}</p>}
                                   </div>
                               );
                           })}
                       </div>
-                      <h2 className="text-2xl font-display text-white mb-2">Closing the notebook</h2>
-                      <p className="text-sm text-white/75">
+                      <p className="flex items-center justify-center gap-3 text-sm text-white/70 mb-4"><span className="block w-8 h-px bg-theme-vivid" aria-hidden="true" />The guide</p>
+                      <h2 className="ng-dark-title mb-2">Closing the notebook</h2>
+                      <p className="ng-dark-caption">
                           {closing.minutes === 1 ? 'A minute' : `${closing.minutes} minutes`} outside{closing.place ? `, near ${closing.place}` : ''} · {closing.items.length} {closing.items.length === 1 ? 'capture' : 'captures'}
                       </p>
                   </>
               ) : (
                   <>
                       <BreathingGuide size={36} className="text-white/70 mb-6" />
-                      <h2 className="text-2xl font-display text-white mb-2">Closing the notebook</h2>
-                      {closing && <p className="text-sm text-white/70">{closing.minutes === 1 ? 'A minute' : `${closing.minutes} minutes`} outside{closing.place ? `, near ${closing.place}` : ''}.</p>}
+                      <h2 className="ng-dark-title mb-2">Closing the notebook</h2>
+                      {closing && <p className="ng-dark-caption">{closing.minutes === 1 ? 'A minute' : `${closing.minutes} minutes`} outside{closing.place ? `, near ${closing.place}` : ''}.</p>}
                   </>
               )}
           </div>
@@ -1611,41 +1610,40 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {aiOpticActive && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60]" role="status">
-              <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2">
+              <div className="bg-black/45 backdrop-blur-md px-4 min-h-[36px] rounded-full flex items-center gap-2">
                   <BreathingGuide size={14} className="text-white/90" />
-                  <span className="text-xs font-semibold text-white/90">Your guide is adjusting the camera</span>
+                  <span className="text-xs font-medium text-white/90">Your guide is adjusting the camera</span>
               </div>
           </div>
       )}
 
       {isCameraActive && canZoom && (
-          <div className="absolute right-6 top-1/2 -translate-y-1/2 z-[50] flex flex-col items-center gap-4 bg-black/30 backdrop-blur-2xl p-4 rounded-full border border-white/20 shadow-2xl">
-              <button onClick={() => applyOpticalSettings({ zoom: zoom + 0.5 })} aria-label="Zoom in" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">add</span></button>
-              <div className="relative h-48 w-2 bg-white/10 rounded-full overflow-hidden group cursor-pointer flex flex-col justify-end">
+          <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-[50] flex flex-col items-center gap-3 bg-black/35 backdrop-blur-xl py-3 px-1 rounded-full">
+              <button onClick={() => applyOpticalSettings({ zoom: zoom + 0.5 })} aria-label="Zoom in" className="ng-icon-button-dark"><Glyph name="plus" size={20} /></button>
+              <div className="relative h-40 w-[3px] bg-white/20 rounded-full overflow-hidden group cursor-pointer flex flex-col justify-end">
                   <input type="range" aria-label="Zoom level" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoom} onChange={(e) => applyOpticalSettings({ zoom: parseFloat(e.target.value) })} className="absolute inset-0 w-48 h-2 opacity-0 cursor-pointer origin-center -rotate-90 translate-y-24" style={{ transform: 'rotate(-90deg) translateX(-96px)' }} />
-                  <div className="w-full bg-theme-accent transition-all duration-300" style={{ height: `${((zoom - zoomRange.min) / (zoomRange.max - zoomRange.min)) * 100}%` }} />
+                  <div className="w-full bg-white transition-all duration-300" style={{ height: `${((zoom - zoomRange.min) / (zoomRange.max - zoomRange.min)) * 100}%` }} />
               </div>
-              <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} aria-label="Zoom out" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">remove</span></button>
-              <div className="text-center">
-                  <span className="text-[11px] text-white/60 block">Zoom</span>
-                  <span className="text-xs font-semibold text-white/90 block tabular">{zoom.toFixed(1)}×</span>
+              <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} aria-label="Zoom out" className="ng-icon-button-dark"><Glyph name="minus" size={20} /></button>
+              <div className="text-center pb-1">
+                  <span className="text-xs font-medium text-white/90 block tabular">{zoom.toFixed(1)}×</span>
               </div>
           </div>
       )}
 
       {isCameraActive && (
-          <div className="absolute left-4 top-[calc(var(--sat)+9rem)] z-50 flex flex-col gap-4">
+          <div className="absolute left-4 md:left-8 top-[calc(var(--sat)+9rem)] z-50 flex flex-col gap-4">
               {hasTorch && (
-                <button onClick={() => applyOpticalSettings({ torch: !torch })} aria-pressed={torch} aria-label="Torch" className={`w-14 h-14 rounded-full backdrop-blur-xl border transition-all flex flex-col items-center justify-center gap-1 shadow-2xl ${torch ? 'bg-theme-accent border-theme-vivid/50 text-white scale-110' : 'bg-black/30 border-white/10 text-white/60'}`}>
-                    <span className="material-symbols-outlined text-xl">{torch ? 'flashlight_on' : 'flashlight_off'}</span>
-                    <span className="text-[11px] font-semibold">Torch</span>
+                <button onClick={() => applyOpticalSettings({ torch: !torch })} aria-pressed={torch} aria-label="Torch" className={`w-14 h-14 rounded-full backdrop-blur-xl transition-colors flex flex-col items-center justify-center gap-0.5 ${torch ? 'bg-white text-stone-900' : 'bg-black/40 text-white/85'}`}>
+                    <Glyph name={torch ? 'torch' : 'torchOff'} size={20} />
+                    <span className="text-[11px] font-medium">Torch</span>
                 </button>
               )}
-              <button onClick={() => switchCameraMode(facingMode === 'environment' ? 'user' : 'environment')} aria-label="Switch camera" className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/60 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl">
-                  <span className="material-symbols-outlined text-xl">cached</span>
-                  <span className="text-[11px] font-semibold">Flip</span>
+              <button onClick={() => switchCameraMode(facingMode === 'environment' ? 'user' : 'environment')} aria-label="Switch camera" className="w-14 h-14 rounded-full backdrop-blur-xl text-white/85 flex flex-col items-center justify-center gap-0.5 bg-black/40 transition-colors hover:bg-black/55">
+                  <Glyph name="rotate" size={20} />
+                  <span className="text-[11px] font-medium">Flip</span>
               </button>
-              
+
 
           </div>
       )}
@@ -1656,9 +1654,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           <AudioVisualizer isActive={agentState === 'SPEAKING'} color="bg-theme-vivid" />
           <div className="mt-8 px-10 text-center">
               {liveCaption && (
-                  <div className="animate-fade-in bg-black/40 backdrop-blur-2xl px-8 py-5 rounded-[2.5rem] border border-white/10 max-w-sm mx-auto shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-                      <p className="text-xs font-semibold mb-2 text-theme-vivid flex items-center justify-center gap-1.5"><Glyph name="guide" size={13} />Your guide</p>
-                      <p className="text-xl font-display font-medium text-white leading-tight">"{liveCaption}"</p>
+                  <div className="animate-fade-in bg-black/45 backdrop-blur-xl px-7 py-5 rounded-2xl max-w-sm mx-auto">
+                      <p className="text-xs font-medium mb-3 text-white/70 flex items-center justify-center gap-3"><span className="block w-6 h-px bg-theme-vivid" aria-hidden="true" />Your guide</p>
+                      <p className="font-display italic text-[20px] text-white leading-[1.35]">"{liveCaption}"</p>
                   </div>
               )}
           </div>
@@ -1671,37 +1669,36 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       onClick={() => setIsMuted(m => !m)}
                       aria-pressed={isMuted}
                       aria-label={isMuted ? 'Unmute: let your guide hear you' : 'Mute: your guide stops listening'}
-                      className={`w-14 h-14 rounded-full backdrop-blur-xl border flex items-center justify-center transition-all shadow-2xl active:scale-95 ${isMuted ? 'bg-white text-stone-900 border-white' : 'bg-black/40 border-white/20 text-white'}`}
+                      className={`w-14 h-14 rounded-full backdrop-blur-xl flex items-center justify-center transition-colors ${isMuted ? 'bg-white text-stone-900' : 'bg-black/40 text-white hover:bg-black/55'}`}
                   >
-                      <span className="material-symbols-outlined" aria-hidden="true">{isMuted ? 'mic_off' : 'mic'}</span>
+                      <Glyph name={isMuted ? 'micOff' : 'mic'} size={24} />
                   </button>
-                  <span className="text-[11px] font-semibold text-white/80">{isMuted ? 'Muted' : 'Talk'}</span>
+                  <span className="text-xs font-medium text-white/85">{isMuted ? 'Muted' : 'Talk'}</span>
               </div>
 
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (
                           <div className="absolute -top-16 left-1/2 -translate-x-1/2 z-[60] w-48 pointer-events-none animate-fade-in">
-                              <div className="bg-[#fbf7ef] text-[#2f2a22] p-3 rounded-2xl shadow-xl relative text-center">
-                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-3 h-3 bg-[#fbf7ef] rotate-45" />
-                                  <p className="text-sm font-semibold leading-tight">
+                              <div className="bg-black/60 backdrop-blur-md text-white px-4 py-2.5 rounded-xl relative text-center">
+                                  <p className="text-sm font-medium leading-snug">
                                       Pair a photo with that sound
                                   </p>
                               </div>
                           </div>
                       )}
-                      <span className="text-xs font-semibold text-white/90 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap">
+                      <span className="text-xs font-medium text-white/90 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap">
                           {isRecordingVideo ? 'Release to stop' : isCameraActive ? "Tap to capture · hold for a clip" : "Tap to turn camera on"}
                       </span>
-                      <button 
+                      <button
                           onPointerDown={handleShutterPress}
                           onPointerUp={handleShutterRelease}
                           onPointerLeave={() => { if (holdTimeoutRef.current || isRecordingVideo) handleShutterRelease(); }}
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleShutterPress(); window.setTimeout(handleShutterRelease, 50); } }}
                           aria-label={isRecordingVideo ? 'Stop video' : isCameraActive ? 'Capture a photo. Hold to capture a clip' : 'Turn camera on'}
-                          className="group relative w-24 h-24 flex items-center justify-center active:scale-90 transition-all touch-none"
+                          className="group relative w-24 h-24 flex items-center justify-center active:scale-95 transition-transform touch-none"
                       >
-                          <div className={`absolute inset-0 rounded-full border-4 transition-all duration-500 ${isCameraActive ? 'border-theme-vivid scale-110 opacity-60' : 'border-white/10'} ${isRecordingVideo ? 'border-red-500 animate-pulse' : ''}`} />
-                          
+                          <div className={`absolute inset-0 rounded-full border-2 transition-colors duration-500 ${isCameraActive ? 'border-white/85' : 'border-white/25'} ${isRecordingVideo ? 'border-red-500' : ''}`} />
+
                           {isRecordingVideo && (
                               <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
                                   <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(239, 68, 68, 0.2)" strokeWidth="8" />
@@ -1709,10 +1706,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               </svg>
                           )}
 
-                          <div className={`w-20 h-20 rounded-full shadow-[0_0_30px_rgb(var(--theme-vivid-rgb)/0.4)] flex items-center justify-center transition-all ${isCameraActive ? 'bg-white' : 'bg-white/10 border border-white/20'} ${isRecordingVideo ? 'bg-red-500' : ''}`}>
-                              <span className={`material-symbols-outlined text-4xl transition-colors ${isCameraActive ? 'text-theme-vivid' : 'text-theme-vivid/60'} ${isRecordingVideo ? 'text-white' : ''}`}>
-                                  {isRecordingVideo ? 'videocam' : (isCameraActive ? 'photo_camera' : 'sensors')}
-                              </span>
+                          <div className={`w-[76px] h-[76px] rounded-full flex items-center justify-center transition-colors ${isRecordingVideo ? 'bg-red-600 text-white' : isCameraActive ? 'bg-white text-stone-900' : 'bg-white/10 text-white/70'}`}>
+                              <Glyph name={isRecordingVideo ? 'video' : isCameraActive ? 'camera' : 'eye'} size={28} />
                           </div>
                       </button>
                   </div>
@@ -1722,12 +1717,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       disabled={isRecordingVideo}
                       aria-pressed={isRecordingAudio}
                       aria-label={isRecordingAudio ? `Stop sound recording, ${recordingTime} seconds left` : 'Capture a sound (up to 30 seconds)'}
-                      className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl active:scale-95 disabled:opacity-40 ${isRecordingAudio ? 'bg-red-600 border-red-400 text-white animate-pulse' : 'bg-black/40 border-white/20 text-white'}`}
+                      className={`w-14 h-14 rounded-full backdrop-blur-xl flex flex-col items-center justify-center transition-colors disabled:opacity-40 ${isRecordingAudio ? 'bg-red-600 text-white' : 'bg-black/40 text-white hover:bg-black/55'}`}
                   >
-                      <span className="material-symbols-outlined" aria-hidden="true">{isRecordingAudio ? 'stop' : 'graphic_eq'}</span>
-                      {isRecordingAudio && <span className="text-[11px] font-bold tabular">{recordingTime}s</span>}
+                      <Glyph name={isRecordingAudio ? 'stop' : 'sound'} size={24} />
+                      {isRecordingAudio && <span className="text-[11px] font-semibold tabular">{recordingTime}s</span>}
                   </button>
-                  <span className="text-[11px] font-semibold text-white/80">{isRecordingAudio ? 'Stop' : 'Sound'}</span>
+                  <span className="text-xs font-medium text-white/85">{isRecordingAudio ? 'Stop' : 'Sound'}</span>
               </div>
 
           </div>

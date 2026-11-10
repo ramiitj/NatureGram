@@ -28,19 +28,28 @@ export async function renderPlate(d: PlateData & { line?: string; accent?: strin
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const ctx = c.getContext('2d'); if (!ctx) return null;
   try { await (document as any).fonts?.ready; } catch { /* ignore */ }
-  const ink = '#2f2a22', muted = '#8a7a60', accent = d.accent || '#8a6418';
+  // The landing's hand: cream paper, stone ink, Newsreader for names, Inter for the small print,
+  // and the fortnight's colour only as one fine rule.
+  const ink = '#1c1917', muted = '#78716c', accent = d.accent || '#57534e';
 
-  ctx.fillStyle = '#fbf7ef'; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = '#d8ccb6'; ctx.lineWidth = 3; ctx.strokeRect(48, 48, W - 96, H - 96);
-  ctx.strokeStyle = '#e8dfcd'; ctx.lineWidth = 2; ctx.strokeRect(64, 64, W - 128, H - 128);
+  ctx.fillStyle = '#fcfaf8'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#e7e5e4'; ctx.lineWidth = 2; ctx.strokeRect(56, 56, W - 112, H - 112);
 
-  ctx.fillStyle = muted; ctx.font = '600 26px Inter, system-ui, sans-serif';
   ctx.textBaseline = 'top';
-  if (d.no) ctx.fillText(`NO. ${d.no}`, 110, 104);
-  const brand = 'NATUREGRAM'; ctx.fillText(brand, W - 110 - ctx.measureText(brand).width, 104);
+  // NatureGram's mark (the landing's sun) and the wordmark, top left; the plate number top right
+  const mx = 128, my = 120;
+  ctx.fillStyle = ink; ctx.strokeStyle = ink; ctx.lineCap = 'round'; ctx.lineWidth = 3.4;
+  ctx.beginPath(); ctx.arc(mx, my, 9, 0, Math.PI * 2); ctx.fill();
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4, r1 = 15, r2 = 21;
+    ctx.beginPath(); ctx.moveTo(mx + Math.cos(a) * r1, my + Math.sin(a) * r1); ctx.lineTo(mx + Math.cos(a) * r2, my + Math.sin(a) * r2); ctx.stroke();
+  }
+  ctx.font = 'italic 400 38px Newsreader, Georgia, serif';
+  ctx.fillText('NatureGram', mx + 36, my - 22);
+  if (d.no) { ctx.fillStyle = muted; const no = `No. ${d.no}`; ctx.fillText(no, W - 110 - ctx.measureText(no).width, my - 22); }
 
-  const ix = 110, iy = 160, iw = W - 220, ih = 680;
-  ctx.fillStyle = '#efe7d6'; ctx.fillRect(ix, iy, iw, ih);
+  const ix = 110, iy = 184, iw = W - 220, ih = 680;
+  ctx.fillStyle = '#f3efe7'; ctx.fillRect(ix, iy, iw, ih);
   if (d.thumb) {
     try {
       const img = await loadImage(d.thumb);
@@ -50,15 +59,18 @@ export async function renderPlate(d: PlateData & { line?: string; accent?: strin
     } catch { /* plate without the photo */ }
   }
 
-  let y = iy + ih + 60;
-  ctx.fillStyle = ink; ctx.font = 'italic 500 76px Newsreader, Georgia, serif';
+  let y = iy + ih + 56;
+  ctx.fillStyle = ink; ctx.font = 'italic 400 76px Newsreader, Georgia, serif';
   for (const l of wrap(ctx, d.name, iw).slice(0, 2)) { ctx.fillText(l, ix, y); y += 86; }
   if (d.scientific) { ctx.fillStyle = muted; ctx.font = 'italic 38px Newsreader, Georgia, serif'; ctx.fillText(d.scientific, ix, y); y += 56; }
   const foot = plateFoot(d);
-  if (foot) { ctx.fillStyle = muted; ctx.font = '30px Inter, system-ui, sans-serif'; ctx.fillText(foot, ix, y + 6); y += 56; }
+  if (foot) { ctx.fillStyle = muted; ctx.font = '28px Inter, system-ui, sans-serif'; ctx.fillText(foot, ix, y + 6); y += 56; }
   if (d.line) {
-    ctx.fillStyle = accent; ctx.font = 'italic 32px Newsreader, Georgia, serif';
-    for (const l of wrap(ctx, d.line, iw).slice(0, 2)) { ctx.fillText(l, ix, Math.min(y + 10, H - 150)); y += 42; }
+    const ly = Math.min(y + 14, H - 160);
+    ctx.fillStyle = accent; ctx.fillRect(ix, ly + 18, 64, 2);
+    ctx.fillStyle = '#44403c'; ctx.font = 'italic 32px Newsreader, Georgia, serif';
+    let yy = ly;
+    for (const l of wrap(ctx, d.line, iw - 88).slice(0, 2)) { ctx.fillText(l, ix + 88, yy); yy += 42; }
   }
   return await new Promise(res => c.toBlob(b => res(b), 'image/png'));
 }

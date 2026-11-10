@@ -94,14 +94,14 @@ const n = (v: any) => (typeof v === 'number' ? v.toLocaleString() : '–');
 // ---------------------------------------------------------------------------- the office's stationery
 
 const INPUT = 'mt-1 w-full bg-white border border-stone-300 rounded-lg px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:border-stone-500';
-const RULE = 'border-[#e8dfcd]';
-const DIVIDE = 'divide-[#e8dfcd]';
+const RULE = 'border-stone-200/80';
+const DIVIDE = 'divide-stone-200/80';
 
 const Card: React.FC<{ title?: React.ReactNode; children: React.ReactNode; className?: string; actions?: React.ReactNode }> = ({ title, children, className = '', actions }) => (
-  <section className={`bg-[#fffdf8] border border-[#e3d8c4] rounded-md p-4 sm:p-5 shadow-[0_1px_2px_rgba(60,40,20,0.06)] min-w-0 ${className}`}>
+  <section className={`bg-white border border-stone-200/80 rounded-xl p-5 sm:p-6 min-w-0 ${className}`}>
     {(title || actions) && (
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
-        {title && <h3 className="font-display text-lg leading-snug text-stone-900 min-w-0 break-words">{title}</h3>}
+        {title && <h3 className="ng-subtitle text-lg min-w-0 break-words">{title}</h3>}
         {actions}
       </div>
     )}
@@ -110,11 +110,11 @@ const Card: React.FC<{ title?: React.ReactNode; children: React.ReactNode; class
 );
 
 const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'warn'; onClick?: () => void; hint?: string }> = ({ label, value, tone, onClick, hint }) => {
-  const cls = `text-left w-full rounded-md border p-3.5 sm:p-4 ${tone === 'warn' ? 'border-amber-300 bg-amber-50' : 'border-[#e3d8c4] bg-[#fffdf8]'}`;
+  const cls = `text-left w-full rounded-md border p-3.5 sm:p-4 ${tone === 'warn' ? 'border-amber-300 bg-amber-50' : 'border-stone-200/80 bg-white'}`;
   const body = (<>
     <p className="text-[13px] text-stone-600 leading-snug">{label}</p>
     <p className="mt-1 flex items-baseline gap-1 text-2xl font-semibold text-stone-900 tabular-nums break-words">{value}</p>
-    {(hint || onClick) && <p className={`mt-0.5 text-xs ${tone === 'warn' ? 'text-amber-900' : 'text-stone-500'} flex items-center gap-0.5`}>{hint || 'Open'}{onClick && <span className="material-symbols-outlined text-sm" aria-hidden="true">chevron_right</span>}</p>}
+    {(hint || onClick) && <p className={`mt-0.5 text-xs ${tone === 'warn' ? 'text-amber-900' : 'text-stone-500'} flex items-center gap-0.5`}>{hint || 'Open'}{onClick && <Glyph name="chevronRight" size={16} />}</p>}
   </>);
   return onClick
     ? <button onClick={onClick} className={`${cls} hover:border-stone-400 transition-colors`}>{body}</button>
@@ -123,12 +123,12 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'warn'; onC
 
 type Tone = 'primary' | 'danger' | 'plain';
 const Btn: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: Tone }> = ({ tone = 'plain', className = '', ...p }) => (
-  <button {...p} className={`inline-flex items-center justify-center gap-1.5 min-h-[38px] px-4 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-40 ${tone === 'primary' ? 'bg-stone-900 text-[#fbf7ef] hover:bg-stone-800' : tone === 'danger' ? 'bg-red-700 text-white hover:bg-red-800' : 'border border-stone-300 bg-white/70 text-stone-800 hover:bg-white hover:border-stone-400'} ${className}`} />
+  <button {...p} className={`inline-flex items-center justify-center gap-1.5 min-h-[40px] px-4 py-1.5 rounded-full text-sm font-medium transition-colors disabled:opacity-40 ${tone === 'primary' ? 'bg-stone-900 text-white hover:bg-stone-800' : tone === 'danger' ? 'bg-red-700 text-white hover:bg-red-800' : 'border border-stone-300 bg-white/70 text-stone-800 hover:bg-white hover:border-stone-400'} ${className}`} />
 );
 
 /** A quiet line for results, and an amber one for anything that needs attention. */
 const Notice: React.FC<{ children: React.ReactNode; tone?: 'info' | 'warn'; alert?: boolean }> = ({ children, tone = 'info', alert }) => (
-  <p role={alert ? 'alert' : 'status'} className={`text-sm rounded-md px-3.5 py-2.5 border ${tone === 'warn' ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-[#f4eee2] border-[#e3d8c4] text-stone-800'}`}>{children}</p>
+  <p role={alert ? 'alert' : 'status'} className={`text-sm rounded-md px-3.5 py-2.5 border ${tone === 'warn' ? 'bg-amber-50 border-amber-300 text-amber-950' : 'bg-stone-50 border-stone-200/80 text-stone-800'}`}>{children}</p>
 );
 
 const Loading: React.FC<{ label?: string }> = ({ label = 'Fetching the records' }) => <PressingLoader label={label} className="py-10" />;
@@ -136,7 +136,7 @@ const Loading: React.FC<{ label?: string }> = ({ label = 'Fetching the records' 
 /** A warm empty state: the glyph of the place, and one line of reassurance. */
 const Quiet: React.FC<{ glyph: GlyphName; children: React.ReactNode; sub?: string }> = ({ glyph, children, sub }) => (
   <div className="py-8 flex flex-col items-center text-center">
-    <Glyph name={glyph} size={36} strokeWidth={1.2} className="text-[#b9a98a] mb-2" />
+    <Glyph name={glyph} size={36} strokeWidth={1.2} className="text-stone-400 mb-2" />
     <p className="font-display italic text-[17px] text-stone-700">{children}</p>
     {sub && <p className="text-sm text-stone-500 mt-1 max-w-sm">{sub}</p>}
   </div>
@@ -148,7 +148,7 @@ const Ask: React.FC<{
   onYes: () => void; onNo: () => void;
   field?: { label: string; placeholder?: string; value: string; set: (v: string) => void };
 }> = ({ question, yes, no = 'Cancel', tone = 'primary', busy, onYes, onNo, field }) => (
-  <div role="alertdialog" aria-label={typeof question === 'string' ? question : yes} className="basis-full w-full mt-2 rounded-md border border-[#e3d8c4] bg-[#f6f0e3] p-3 flex flex-wrap items-center gap-2">
+  <div role="alertdialog" aria-label={typeof question === 'string' ? question : yes} className="basis-full w-full mt-2 rounded-md border border-stone-200/80 bg-stone-50 p-3 flex flex-wrap items-center gap-2">
     <p className="text-sm text-stone-800 flex-1 min-w-[12rem]">{question}</p>
     {field && (
       <label className="basis-full text-sm text-stone-700">{field.label}
@@ -177,20 +177,20 @@ const AskButton: React.FC<{
   );
 };
 
-/** A row of tabs drawn as index tabs on a drawer. */
+/** A row of quiet text tabs with the active underline, as everywhere else. */
 function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: [T, string][]; label: string }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 pb-0.5">
+    <div role="tablist" aria-label={label} className="flex gap-6 overflow-x-auto no-scrollbar border-b border-stone-200/80">
       {items.map(([id, text]) => (
         <button key={id} role="tab" aria-selected={value === id} onClick={() => onChange(id)}
-          className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm transition-colors ${value === id ? 'bg-stone-900 text-[#fbf7ef] font-medium' : 'bg-[#f1e9d9] text-stone-700 hover:bg-[#e9dfcb]'}`}>{text}</button>
+          className={`ng-tab shrink-0 text-sm ${value === id ? 'ng-tab-on after:!bottom-0' : ''}`}>{text}</button>
       ))}
     </div>
   );
 }
 
 const Json: React.FC<{ value: any }> = ({ value }) => (
-  <pre className="text-xs bg-[#f8f4ea] border border-[#e8dfcd] rounded-md p-3 overflow-auto max-h-96 whitespace-pre-wrap break-all text-stone-800">{JSON.stringify(value, null, 2)}</pre>
+  <pre className="text-xs bg-stone-50 border border-stone-200/80 rounded-md p-3 overflow-auto max-h-96 whitespace-pre-wrap break-all text-stone-800">{JSON.stringify(value, null, 2)}</pre>
 );
 const Bars: React.FC<{ values: number[]; label: string }> = ({ values, label }) => {
   const max = Math.max(1, ...values);
@@ -246,8 +246,8 @@ const Overview: React.FC<{ go: (p: Pane) => void }> = ({ go }) => {
               <span aria-hidden="true" className={`w-2 h-2 rounded-full ${d.flags[k] ? 'bg-stone-700' : 'border border-amber-700'}`} />{label}: {d.flags[k] ? 'on' : 'off'}
             </span>
           ))}
-          <span className="px-2.5 py-1 rounded-full bg-[#f1e9d9] text-stone-800 tabular-nums">Daily: {d.flags.allowances.postsPerDay} sightings · {d.flags.allowances.liveMinutesPerDay} live min · {d.flags.allowances.identificationsPerDay} identifications</span>
-          <span className="px-2.5 py-1 rounded-full bg-[#f1e9d9] text-stone-800 tabular-nums">Policy v{d.policy}</span>
+          <span className="px-2.5 py-1 rounded-full bg-stone-100 text-stone-800 tabular-nums">Daily: {d.flags.allowances.postsPerDay} sightings · {d.flags.allowances.liveMinutesPerDay} live min · {d.flags.allowances.identificationsPerDay} identifications</span>
+          <span className="px-2.5 py-1 rounded-full bg-stone-100 text-stone-800 tabular-nums">Policy v{d.policy}</span>
         </div>
       </Card>
     </div>
@@ -363,7 +363,7 @@ const AiGovernance: React.FC = () => {
     try { await api(`/history/settings/${id}/rollback`, { method: 'POST' }); await load(); setMsg('Restored.'); setTab('prompts'); } catch (e: any) { setMsg(e.message); }
   };
   const confirmBar = pending && <Ask question={`Save the ${pending.what}? It applies to every AI call within 30 seconds.`} yes="Save" onNo={() => setPending(null)} onYes={save} />;
-  const editor = 'w-full font-mono text-xs leading-relaxed bg-[#f8f4ea] border border-[#e3d8c4] rounded-md p-3 text-stone-900';
+  const editor = 'w-full font-mono text-xs leading-relaxed bg-stone-50 border border-stone-200/80 rounded-md p-3 text-stone-900';
 
   return (
     <div className="space-y-4">
@@ -376,7 +376,7 @@ const AiGovernance: React.FC = () => {
             <select value={which} onChange={e => setWhich(e.target.value)} className={INPUT}>{Object.keys(s.prompts).map(k => <option key={k} value={k}>{PROMPT_LABELS[k] || k}</option>)}</select>
           </label>
           <div className="hidden sm:flex gap-2 flex-wrap mb-3">
-            {Object.keys(s.prompts).map(k => <button key={k} onClick={() => setWhich(k)} aria-pressed={which === k} className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${which === k ? 'bg-[#f1e9d9] border-stone-500 text-stone-900 font-medium' : 'border-stone-300 text-stone-700 hover:bg-white'}`}>{PROMPT_LABELS[k] || k}</button>)}
+            {Object.keys(s.prompts).map(k => <button key={k} onClick={() => setWhich(k)} aria-pressed={which === k} className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${which === k ? 'bg-stone-100 border-stone-500 text-stone-900 font-medium' : 'border-stone-300 text-stone-700 hover:bg-white'}`}>{PROMPT_LABELS[k] || k}</button>)}
           </div>
           <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={18} aria-label={`${PROMPT_LABELS[which]} prompt`} className={editor} />
           <div className="flex gap-2 mt-3 flex-wrap items-center">
@@ -535,13 +535,13 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
             {queue.map(q => {
               const [yes, no] = q.kind === 'comment' ? ['Show the note', 'Keep it hidden'] : q.kind === 'unchecked' ? ['Looks fine', 'Hide it from the feed'] : ['Approve', 'Keep it in their journal'];
               return (
-                <li key={q.id} className="rounded-[3px] p-2 bg-[#fbf7ef] shadow-[0_1px_2px_rgba(60,40,20,0.12),0_6px_18px_-10px_rgba(60,40,20,0.25)] min-w-0">
-                  <div className="h-full rounded-[2px] border border-[#d8ccb6] flex flex-col">
-                    {q.thumb && <img src={q.thumb} alt="" className="m-2 mb-0 aspect-[4/3] object-cover bg-[#efe7d6]" />}
+                <li key={q.id} className="rounded-[3px] p-2 bg-day-bg shadow-[0_1px_2px_rgba(60,40,20,0.12),0_6px_18px_-10px_rgba(60,40,20,0.25)] min-w-0">
+                  <div className="h-full rounded-[2px] border border-stone-200 flex flex-col">
+                    {q.thumb && <img src={q.thumb} alt="" className="m-2 mb-0 aspect-[4/3] object-cover bg-[#f3efe7]" />}
                     <div className="p-3 space-y-2 text-sm text-stone-800 flex-1 flex flex-col">
                       <p className="font-display text-[17px] leading-snug text-stone-900">{KIND_LABEL[q.kind || 'privacy'] || 'Review'}</p>
                       <p><span className="text-stone-500">Why:</span> {(q.reasons || []).map((r: string) => REASON_LABEL[r] || r).join(', ') || 'not checked'}{q.requestedByExplorer ? ' · explorer asked for review' : ''}</p>
-                      {q.kind === 'comment' && q.text && <p className="bg-white/70 border border-[#e8dfcd] rounded p-2 break-words font-display italic">“{q.text}”</p>}
+                      {q.kind === 'comment' && q.text && <p className="bg-white/70 border border-stone-200/80 rounded p-2 break-words font-display italic">“{q.text}”</p>}
                       {q.note && <p className="text-stone-600 font-display italic">“{q.note}”</p>}
                       <p className="text-xs text-stone-500 tabular-nums">{when(q.createdAt)} · {q.userId ? <button onClick={() => openUser(q.userId)} className={linkCls}>explorer</button> : 'explorer'}{q.kind !== 'comment' ? ` · ${q.published ? 'already in the feed' : `wants ${q.requestedFeed ? 'feed' : 'journal'}`}` : ''}</p>
                       <div className="flex gap-2 flex-wrap mt-auto pt-1">
@@ -561,8 +561,8 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
         {!reported ? <Loading label="Gathering reports" /> : reported.length === 0 ? <Quiet glyph="binoculars">No reports from explorers. All is well in the feed.</Quiet> : (
           <ul className="space-y-3">
             {reported.map(p => (
-              <li key={p.id} className="border border-[#e3d8c4] bg-white/60 rounded-md p-3 flex gap-3 min-w-0">
-                {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) && <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded object-cover bg-[#efe7d6]" />}
+              <li key={p.id} className="border border-stone-200/80 bg-white/60 rounded-md p-3 flex gap-3 min-w-0">
+                {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) && <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="w-20 h-20 sm:w-24 sm:h-24 shrink-0 rounded object-cover bg-[#f3efe7]" />}
                 <div className="flex-1 min-w-0 text-sm text-stone-800 space-y-1 flex flex-wrap content-start">
                   <p className="basis-full"><span className="font-display italic text-[17px] text-stone-900">{p.labels?.[0] || 'Sighting'}</span> <span className="text-stone-500">by</span> <button onClick={() => openUser(p.userId)} className={linkCls}>{p.userName}</button></p>
                   {p.caption && <p className="basis-full text-stone-700 break-words">{p.caption}</p>}
@@ -628,7 +628,7 @@ const Experiments: React.FC = () => {
         {Object.keys(flags).length === 0 && <Quiet glyph="compass" sub="Every flag is off until it is added here.">No flags yet.</Quiet>}
         <ul className="space-y-3">
           {Object.entries(flags).map(([k, f]) => (
-            <li key={k} className="border border-[#e3d8c4] bg-white/60 rounded-md p-3 flex flex-wrap gap-2 items-start">
+            <li key={k} className="border border-stone-200/80 bg-white/60 rounded-md p-3 flex flex-wrap gap-2 items-start">
               <div className="space-y-2 flex-1 min-w-0">
                 <p className="font-mono text-sm font-semibold text-stone-900 break-all">{k}</p>
                 <input value={f.description || ''} onChange={e => set(k, { description: e.target.value || undefined })} placeholder="What it changes" aria-label={`Description of ${k}`} className={`${INPUT} mt-0`} />
@@ -688,7 +688,7 @@ const Branding: React.FC = () => {
   };
   const fixed = b.fixed || { ground: '#2d4a22', ground2: '#3e6330', ink: '#ffffff' };
   const Choice: React.FC<{ on: boolean; onClick: () => void; title: string; sub: string; children?: React.ReactNode }> = ({ on, onClick, title, sub, children }) => (
-    <button type="button" onClick={onClick} aria-pressed={on} className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] ${on ? 'border-theme-accent bg-theme-accent/5' : 'border-[#e3d8c4] bg-white/60 hover:bg-white'}`}>
+    <button type="button" onClick={onClick} aria-pressed={on} className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] ${on ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200/80 bg-white/60 hover:bg-white'}`}>
       {children}<span><span className="block font-semibold text-stone-900 text-sm">{title}</span><span className="block text-xs text-stone-600">{sub}</span></span>
     </button>
   );
@@ -700,7 +700,7 @@ const Branding: React.FC = () => {
         <div className="grid sm:grid-cols-3 gap-2">
           <Choice on={b.style !== 'lens' && b.style !== 'custom'} onClick={() => set({ style: 'sun' })} title="The landing sun" sub="The sun from the welcome screen. Recommended."><img src={sample('sun')} alt="" className="w-10 h-10" /></Choice>
           <Choice on={b.style === 'lens'} onClick={() => set({ style: 'lens' })} title="Hand lens and fern" sub="A lens over an uncurling fiddlehead."><img src={sample('lens')} alt="" className="w-10 h-10" /></Choice>
-          <label className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] cursor-pointer ${b.style === 'custom' ? 'border-theme-accent bg-theme-accent/5' : 'border-[#e3d8c4] bg-white/60 hover:bg-white'}`}>
+          <label className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] cursor-pointer ${b.style === 'custom' ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200/80 bg-white/60 hover:bg-white'}`}>
             {b.style === 'custom' && isSafeIcon(b.customIcon) ? <img src={b.customIcon!} alt="" className="w-10 h-10 rounded-lg" /> : <Glyph name="plate" size={36} className="text-stone-400" />}
             <span><span className="block font-semibold text-stone-900 text-sm">Your own image</span><span className="block text-xs text-stone-600">PNG, WebP or JPEG, square works best. It does not change colour.</span></span>
             <input type="file" accept="image/png,image/webp,image/jpeg" className="sr-only" onChange={e => upload(e.target.files?.[0])} />
@@ -838,7 +838,7 @@ const People: React.FC<{ uid: string | null; setUid: (u: string | null) => void 
     );
     return (
       <div className="space-y-4">
-        <button onClick={() => setUid(null)} className="inline-flex items-center gap-1 text-sm text-stone-700 hover:text-stone-900 -ml-1 px-1 py-1"><span className="material-symbols-outlined text-lg" aria-hidden="true">arrow_back</span>All people</button>
+        <button onClick={() => setUid(null)} className="inline-flex items-center gap-1 text-sm text-stone-700 hover:text-stone-900 -ml-1 px-1 py-1"><Glyph name="back" size={20} />All people</button>
         {msg && <Notice>{msg}</Notice>}
         {!detail ? <Loading label="Opening their field page" /> : (
           <>
@@ -867,9 +867,9 @@ const People: React.FC<{ uid: string | null; setUid: (u: string | null) => void 
             <Card title="Recent sightings">
               {detail.posts.length === 0 ? <Quiet glyph="plate">No sightings yet.</Quiet> : (
                 <ul className="grid grid-cols-3 sm:grid-cols-6 gap-2">{detail.posts.map((p: any) => (
-                  <li key={p.id} title={`${p.labels?.[0] || ''} · ${p.isPublic ? 'feed' : 'journal'} · ${p.moderation?.status || ''}`} className="relative bg-[#fbf7ef] p-1 rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12)]">
-                    {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="aspect-square w-full object-cover bg-[#efe7d6]" /> : <div className="aspect-square bg-[#efe7d6] flex items-center justify-center text-xs text-stone-600">{p.mediaType}</div>}
-                    {!p.isPublic && <span className="absolute top-1.5 left-1.5 text-[10px] bg-[#fbf7ef]/95 text-stone-700 rounded px-1">journal</span>}
+                  <li key={p.id} title={`${p.labels?.[0] || ''} · ${p.isPublic ? 'feed' : 'journal'} · ${p.moderation?.status || ''}`} className="relative bg-day-bg p-1 rounded-[3px] shadow-[0_1px_2px_rgba(60,40,20,0.12)]">
+                    {(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl) ? <img src={p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl} alt="" className="aspect-square w-full object-cover bg-[#f3efe7]" /> : <div className="aspect-square bg-[#f3efe7] flex items-center justify-center text-xs text-stone-600">{p.mediaType}</div>}
+                    {!p.isPublic && <span className="absolute top-1.5 left-1.5 text-[10px] bg-day-bg/95 text-stone-700 rounded px-1">journal</span>}
                   </li>
                 ))}</ul>
               )}
@@ -880,13 +880,13 @@ const People: React.FC<{ uid: string | null; setUid: (u: string | null) => void 
     );
   }
   return (
-    <Card title="Explorers" actions={<form onSubmit={e => { e.preventDefault(); search(false); }} className="flex gap-2 w-full sm:w-auto"><div className="relative flex-1 min-w-0"><span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 text-lg" aria-hidden="true">search</span><input value={q} onChange={e => setQ(e.target.value)} placeholder="Username or email" aria-label="Search people" className="w-full sm:w-64 bg-white border border-stone-300 rounded-full pl-9 pr-3 py-2 text-sm" /></div><Btn type="submit">Search</Btn></form>}>
+    <Card title="Explorers" actions={<form onSubmit={e => { e.preventDefault(); search(false); }} className="flex gap-2 w-full sm:w-auto"><div className="relative flex-1 min-w-0"><Glyph name="search" size={20} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Username or email" aria-label="Search people" className="w-full sm:w-64 bg-white border border-stone-300 rounded-full pl-9 pr-3 py-2 text-sm" /></div><Btn type="submit">Search</Btn></form>}>
       {msg && <Notice tone="warn">{msg}</Notice>}
       {!loaded ? <Loading label="Looking through the register" /> : list.length === 0 ? <Quiet glyph="binoculars">No explorers match that.</Quiet> : (
         <ul className={`divide-y ${DIVIDE}`}>{list.map(u => (
-          <li key={u.id}><button onClick={() => setUid(u.id)} className="w-full text-left py-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 hover:bg-[#f6f0e3] px-2 rounded min-w-0">
+          <li key={u.id}><button onClick={() => setUid(u.id)} className="w-full text-left py-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 hover:bg-stone-50 px-2 rounded min-w-0">
             <span className="font-medium text-sm text-stone-900 truncate max-w-full">{u.username || u.email || u.id}</span>
-            <span className="text-xs text-stone-500 tabular-nums flex items-center">{u.stats ? `${u.stats.observations || 0} sightings` : ''} {u.joinedAt ? `· joined ${new Date(u.joinedAt).toLocaleDateString()}` : ''}<span className="material-symbols-outlined text-base text-stone-400" aria-hidden="true">chevron_right</span></span>
+            <span className="text-xs text-stone-500 tabular-nums flex items-center">{u.stats ? `${u.stats.observations || 0} sightings` : ''} {u.joinedAt ? `· joined ${new Date(u.joinedAt).toLocaleDateString()}` : ''}<Glyph name="chevronRight" size={20} className="text-stone-400" /></span>
           </button></li>
         ))}</ul>
       )}
@@ -919,8 +919,8 @@ const Letters: React.FC = () => {
         )}
       </Card>
       {open && (
-        <Card title="The conversation" actions={<button onClick={() => setOpen(null)} aria-label="Close the conversation" className="w-9 h-9 rounded-full hover:bg-[#f1e9d9] flex items-center justify-center text-stone-600"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>}>
-          <ul className="space-y-3 text-sm">{open.msgs.map(m => <li key={m.id} className="border-l-2 border-[#d8ccb6] pl-3"><span className="font-mono text-xs text-stone-500">{String(m.senderId).slice(0, 8)} · <span className="tabular-nums">{when(m.createdAt)}</span></span><p className="text-stone-900 break-words">{m.text}</p></li>)}</ul>
+        <Card title="The conversation" actions={<button onClick={() => setOpen(null)} aria-label="Close the conversation" className="w-9 h-9 rounded-full hover:bg-stone-900/[0.04] flex items-center justify-center text-stone-600"><Glyph name="close" size={24} /></button>}>
+          <ul className="space-y-3 text-sm">{open.msgs.map(m => <li key={m.id} className="border-l-2 border-stone-200 pl-3"><span className="font-mono text-xs text-stone-500">{String(m.senderId).slice(0, 8)} · <span className="tabular-nums">{when(m.createdAt)}</span></span><p className="text-stone-900 break-words">{m.text}</p></li>)}</ul>
         </Card>
       )}
     </div>
@@ -975,7 +975,7 @@ const DataExplorer: React.FC = () => {
               <table className="w-full text-xs text-stone-800">
                 <thead><tr className="text-left"><th className={TH}>id</th>{columns.map(c => <th key={c} className={TH}>{c}</th>)}</tr></thead>
                 <tbody>{items.map(it => (
-                  <tr key={it.id} onClick={() => setSel(it)} className={`border-t ${RULE} cursor-pointer hover:bg-[#f6f0e3] ${sel?.id === it.id ? 'bg-[#efe5d1]' : ''}`}>
+                  <tr key={it.id} onClick={() => setSel(it)} className={`border-t ${RULE} cursor-pointer hover:bg-stone-50 ${sel?.id === it.id ? 'bg-stone-900/[0.04]' : ''}`}>
                     <td className="py-1.5 pr-3 font-mono whitespace-nowrap">{it.id.slice(0, 12)}</td>{columns.map(c => <td key={c} className="pr-3 whitespace-nowrap">{cell(it[c])}</td>)}
                   </tr>
                 ))}</tbody>
@@ -1089,14 +1089,14 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       : why ? ["We couldn't check your access", why]
       : ["The curator's office", 'This area is for the NatureGram admin.'];
     return (
-      <div className="flex-1 min-h-0 h-full overflow-y-auto bg-[#f6f1e6] flex items-center justify-center p-6">
+      <div className="flex-1 min-h-0 h-full overflow-y-auto bg-day-bg flex items-center justify-center p-6">
         {state === 'checking' ? <PressingLoader label="Checking access…" /> : (
-          <div className="w-full max-w-sm rounded-[3px] p-2.5 bg-[#fbf7ef] shadow-[0_1px_2px_rgba(60,40,20,0.12),0_10px_30px_-12px_rgba(60,40,20,0.3)]">
-            <div className="rounded-[2px] border border-[#d8ccb6] outline outline-1 outline-offset-[3px] outline-[#e8dfcd] px-6 py-8 text-center flex flex-col items-center">
-              <Glyph name="seal" size={44} strokeWidth={1.2} className="text-[#a8957a]" />
-              <h1 className="mt-3 font-display text-2xl text-stone-900">{title}</h1>
-              <p role={state === 'denied' && why ? 'alert' : undefined} className="mt-2 text-sm text-stone-700 break-words">{body}</p>
-              <Btn className="mt-6" onClick={onBack}><span className="material-symbols-outlined text-lg" aria-hidden="true">arrow_back</span>Back to the app</Btn>
+          <div className="w-full max-w-sm ng-rise">
+            <div className="px-6 py-8 text-center flex flex-col items-center">
+              <Glyph name="seal" size={40} strokeWidth={1.2} className="text-stone-400" />
+              <h1 className="mt-5 ng-title">{title}</h1>
+              <p role={state === 'denied' && why ? 'alert' : undefined} className="mt-3 ng-small break-words">{body}</p>
+              <Btn className="mt-6" onClick={onBack}><Glyph name="back" size={20} />Back to the app</Btn>
             </div>
           </div>
         )}
@@ -1107,44 +1107,44 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const current = SECTIONS.find(s => s.id === section)!;
   const info = PANES[pane];
   return (
-    <div className="flex-1 min-h-0 h-full overflow-y-auto bg-[#f6f1e6] text-stone-900">
-      <header className="sticky top-0 z-20 bg-[#fbf7ef]/95 backdrop-blur border-b border-[#e3d8c4] safe-pt">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={onBack} aria-label="Back to the app" className="w-10 h-10 -ml-2 rounded-full hover:bg-[#f1e9d9] flex items-center justify-center text-stone-700"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+    <div className="flex-1 min-h-0 h-full overflow-y-auto bg-day-bg text-stone-900">
+      <header className="sticky top-0 z-20 bg-day-bg/95 backdrop-blur border-b border-stone-200/80 safe-pt">
+        <div className="max-w-7xl mx-auto px-6 md:px-12 h-16 flex items-center gap-3">
+          <button onClick={onBack} aria-label="Back to the app" className="ng-icon-button -ml-2"><Glyph name="back" size={24} /></button>
           <div className="min-w-0">
-            <h1 className="font-display text-lg leading-tight text-stone-900">Curator's office</h1>
-            <p className="text-[11px] text-stone-500 leading-tight">NatureGram admin</p>
+            <h1 className="font-display italic text-lg leading-tight text-stone-900">Curator's office</h1>
+            <p className="ng-caption leading-tight">NatureGram admin</p>
           </div>
           <span className="ml-auto text-xs text-stone-500 truncate max-w-[40%]">{me?.email}</span>
         </div>
-        <nav aria-label="Admin sections" className="lg:hidden flex gap-1.5 overflow-x-auto no-scrollbar px-4 pb-2.5">
+        <nav aria-label="Admin sections" className="lg:hidden flex gap-2 overflow-x-auto no-scrollbar px-6 pb-3">
           {SECTIONS.map(s => (
             <button key={s.id} onClick={e => { pick(s.id); e.currentTarget.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }} aria-current={section === s.id ? 'page' : undefined}
-              className={`shrink-0 inline-flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full text-sm border transition-colors ${section === s.id ? 'bg-stone-900 border-stone-900 text-[#fbf7ef]' : 'bg-white/60 border-[#e3d8c4] text-stone-700'}`}>
-              <Glyph name={s.glyph} size={16} />{s.label}
+              className={`ng-chip ${section === s.id ? 'ng-chip-on' : ''}`}>
+              <Glyph name={s.glyph} size={16} className={section === s.id ? 'text-stone-900' : 'text-stone-400'} />{s.label}
             </button>
           ))}
         </nav>
       </header>
-      <div className="max-w-7xl mx-auto lg:grid lg:grid-cols-[14rem_1fr] lg:gap-8 px-4">
+      <div className="max-w-7xl mx-auto lg:grid lg:grid-cols-[14rem_1fr] lg:gap-12 px-6 md:px-12">
         <nav aria-label="Admin sections" className="hidden lg:block">
           <ul className="sticky top-20 py-6 space-y-0.5">
             {SECTIONS.map(s => (
               <li key={s.id}>
                 <button onClick={() => pick(s.id)} aria-current={section === s.id ? 'page' : undefined}
-                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors border-l-2 ${section === s.id ? 'bg-[#efe5d1] border-theme-accent text-stone-900 font-medium' : 'border-transparent text-stone-600 hover:bg-[#f1e9d9] hover:text-stone-900'}`}>
-                  <Glyph name={s.glyph} size={18} className={section === s.id ? 'text-theme-accent' : 'text-stone-500'} />{s.label}
+                  className={`w-full text-left flex items-center gap-3 px-3 min-h-[44px] text-sm transition-colors border-l-2 ${section === s.id ? 'border-theme-accent text-stone-900 font-medium' : 'border-transparent text-stone-600 hover:text-stone-900'}`}>
+                  <Glyph name={s.glyph} size={20} className={section === s.id ? 'text-stone-900' : 'text-stone-400'} />{s.label}
                 </button>
               </li>
             ))}
           </ul>
         </nav>
-        <main className="min-w-0 py-5 lg:py-6 pb-16">
-          <div className="flex items-start gap-3 mb-5">
-            <span className="mt-0.5 w-10 h-10 shrink-0 rounded-full bg-[#fbf7ef] border border-[#e3d8c4] flex items-center justify-center text-theme-accent"><Glyph name={current.glyph} size={22} /></span>
+        <main className="min-w-0 py-6 lg:py-8 pb-16">
+          <div className="flex items-start gap-3 mb-8">
             <div className="min-w-0">
-              <h2 className="font-display text-2xl leading-tight text-stone-900">{current.label}</h2>
-              <p className="text-sm text-stone-600 mt-0.5">{info.blurb}</p>
+              <p className="ng-kicker"><Glyph name={current.glyph} size={16} className="text-stone-400" />NatureGram admin</p>
+              <h2 className="ng-title mt-3">{current.label}</h2>
+              <p className="ng-small mt-1">{info.blurb}</p>
             </div>
           </div>
           {current.panes.length > 1 && (

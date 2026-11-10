@@ -39,12 +39,12 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
     return { total, corrected, byConf, byMedia, confusions: [...confusions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10), review, sensitive, people, fungi };
   }, [rows]);
 
-  const card = 'bg-[#fffdf8] border border-[#e3d8c4] rounded-md p-4 sm:p-5 shadow-[0_1px_2px_rgba(60,40,20,0.06)] min-w-0';
+  const card = 'bg-white border border-stone-200/80 rounded-xl p-5 sm:p-6 min-w-0';
   const th = 'py-1.5 pr-3 font-medium text-stone-500 whitespace-nowrap';
   return (
     <div className="flex flex-col gap-4">
       <div className={`${card} flex items-start gap-3`}>
-        <Glyph name="guide" size={26} className="text-theme-accent mt-0.5" />
+        <Glyph name="guide" size={26} className="text-stone-500 mt-0.5" />
         <div className="min-w-0">
           <h3 className="font-display text-xl text-stone-900">Identification quality</h3>
           <p className="text-sm text-stone-600 mt-1">Accuracy is measured by what explorers change before publishing (human-in-the-loop). A well-calibrated guide is corrected rarely at "high" confidence and often at "low".</p>
@@ -54,7 +54,7 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
       {error && <p role="alert" className="text-sm rounded-md px-3.5 py-2.5 border bg-amber-50 border-amber-300 text-amber-950">{error}</p>}
       {!stats ? (!error && <PressingLoader label="Reading what explorers corrected" className="py-10" />) : stats.total === 0 ? (
         <div className={`${card} py-8 flex flex-col items-center text-center`}>
-          <Glyph name="guide" size={36} strokeWidth={1.2} className="text-[#b9a98a] mb-2" />
+          <Glyph name="guide" size={36} strokeWidth={1.2} className="text-stone-400 mb-2" />
           <p className="font-display italic text-[17px] text-stone-700">No reviewed identifications yet.</p>
           <p className="text-sm text-stone-500 mt-1 max-w-sm">Figures appear once explorers publish sightings the guide named.</p>
         </div>
@@ -67,7 +67,7 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
               ['Flagged for expert review', pct(stats.review, stats.total)],
               ['Sensitive species (locations hidden)', String(stats.sensitive)],
             ].map(([k, v]) => (
-              <div key={k} className="bg-[#fffdf8] border border-[#e3d8c4] rounded-md p-3.5 sm:p-4">
+              <div key={k} className="bg-white border border-stone-200/80 rounded-xl p-4 sm:p-5">
                 <p className="text-[13px] text-stone-600 leading-snug">{k}</p>
                 <p className="text-2xl font-semibold text-stone-900 mt-1 tabular-nums">{v}</p>
               </div>
@@ -82,7 +82,7 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
                   <thead><tr className="text-left"><th className={th}>Confidence</th><th className={`${th} text-right`}>Reviewed</th><th className={`${th} text-right`}>Corrected</th><th className={`${th} text-right`}>Correction rate</th></tr></thead>
                   <tbody>
                     {['high', 'medium', 'low', 'unknown'].filter(c => stats.byConf[c]).map(c => (
-                      <tr key={c} className="border-t border-[#e8dfcd] tabular-nums"><td className="py-1.5 pr-3 font-medium capitalize">{c}</td><td className="pr-3 text-right">{stats.byConf[c].n}</td><td className="pr-3 text-right">{stats.byConf[c].c}</td><td className="pr-3 text-right">{pct(stats.byConf[c].c, stats.byConf[c].n)}</td></tr>
+                      <tr key={c} className="border-t border-stone-200/80 tabular-nums"><td className="py-1.5 pr-3 font-medium capitalize">{c}</td><td className="pr-3 text-right">{stats.byConf[c].n}</td><td className="pr-3 text-right">{stats.byConf[c].c}</td><td className="pr-3 text-right">{pct(stats.byConf[c].c, stats.byConf[c].n)}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -96,7 +96,7 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
                   <thead><tr className="text-left"><th className={th}>Media</th><th className={`${th} text-right`}>Reviewed</th><th className={`${th} text-right`}>Correction rate</th></tr></thead>
                   <tbody>
                     {Object.entries(stats.byMedia).map(([m, v]) => (
-                      <tr key={m} className="border-t border-[#e8dfcd] tabular-nums"><td className="py-1.5 pr-3 font-medium capitalize">{m}</td><td className="pr-3 text-right">{v.n}</td><td className="pr-3 text-right">{pct(v.c, v.n)}</td></tr>
+                      <tr key={m} className="border-t border-stone-200/80 tabular-nums"><td className="py-1.5 pr-3 font-medium capitalize">{m}</td><td className="pr-3 text-right">{v.n}</td><td className="pr-3 text-right">{pct(v.c, v.n)}</td></tr>
                     ))}
                   </tbody>
                 </table>
@@ -108,7 +108,7 @@ const AiQualityPanel: React.FC<{ load: () => Promise<any[]> }> = ({ load }) => {
           <div className={card}>
             <h3 className="font-display text-lg text-stone-900 mb-3">Most common corrections (guide → explorer)</h3>
             {stats.confusions.length === 0 ? <p className="text-sm font-display italic text-stone-500">No corrections yet. The guide and the explorers agree.</p> : (
-              <ol className="text-sm divide-y divide-[#e8dfcd]">
+              <ol className="text-sm divide-y divide-stone-200/80">
                 {stats.confusions.map(([k, n], i) => <li key={k} className="py-1.5 flex items-baseline gap-3"><span className="w-5 text-right text-stone-400 tabular-nums">{i + 1}</span><span className="flex-1 min-w-0 break-words text-stone-900">{k}</span><span className="text-stone-500 tabular-nums">×{n}</span></li>)}
               </ol>
             )}

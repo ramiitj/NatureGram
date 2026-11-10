@@ -37,60 +37,60 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
   };
 
   return (
-    <div className="min-h-full bg-day-bg px-4 py-6 animate-fade-in motion-reduce:animate-none safe-pt">
-      <div className="flex items-center gap-3 mb-6 max-w-2xl">
-        <button onClick={onBack} aria-label="Back to feed" className="w-11 h-11 rounded-full bg-white flex items-center justify-center text-stone-800 shadow-sm hover:bg-stone-50 shrink-0">
-          <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
-        </button>
+    <div className="min-h-full bg-day-bg ng-page pt-4 pb-10 ng-rise safe-pt">
+      <button onClick={onBack} aria-label="Back to feed" className="ng-icon-button -ml-3">
+        <Glyph name="back" size={24} />
+      </button>
+      <div className="mt-4 mb-8 max-w-2xl">
         <div>
-          <h1 className="text-2xl font-display font-semibold text-stone-900">Unfinished pages</h1>
-          <p className="text-sm text-stone-500">Outings you started writing up. Only you can see these.</p>
+          <h1 className="ng-title">Unfinished pages</h1>
+          <p className="ng-small mt-1.5">Outings you started writing up. Only you can see these.</p>
         </div>
       </div>
 
       {loading ? (
         <PressingLoader label="Gathering your drafts" className="py-20" />
       ) : drafts.length === 0 ? (
-        <div className="text-center py-20 text-stone-500 flex flex-col items-center">
-          <Glyph name="satchel" size={52} strokeWidth={1.2} className="text-stone-400 mb-3" />
-          <p className="font-display text-lg text-stone-700">Nothing left unfinished</p>
-          <p className="text-sm mt-1 max-w-xs">Tap "Save draft" while reviewing captures to finish the sighting later.</p>
+        <div className="ng-empty">
+          <Glyph name="satchel" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+          <p className="ng-empty-title">Nothing left unfinished</p>
+          <p className="ng-empty-body">Tap "Save draft" while reviewing captures to finish the sighting later.</p>
         </div>
       ) : (
-        <ul className="grid gap-3 max-w-2xl" role="list">
+        <ul className="max-w-2xl border-t border-stone-200/80" role="list">
           {drafts.map(draft => {
             const pg = unfinishedPage(draft);
             const asking = confirmId === draft.id;
             return (
-              <li key={draft.id} className="bg-[#fbf7ef] p-3 rounded-[3px] border border-dashed border-[#cdbfa5]">
-                <div className="flex items-center gap-3">
-                  <button onClick={() => onResume(draft)} className="flex-1 flex items-center gap-3 text-left min-w-0">
+              <li key={draft.id} className="py-4 border-b border-stone-200/80">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => onResume(draft)} className="group flex-1 flex items-center gap-4 text-left min-w-0">
                     <span className="relative w-16 h-16 shrink-0">
                       {pg.thumbs.length ? pg.thumbs.map((t, i) => (
-                        <img key={i} src={t} alt="" className="absolute w-14 h-14 object-cover border-2 border-[#fffdf8] shadow-[0_1px_3px_rgba(60,40,20,0.25)]" style={{ left: i * 4, top: i * 4, zIndex: 3 - i, transform: `rotate(${(i - 1) * 2}deg)` }} />
-                      )) : <span className="w-16 h-16 bg-[#efe7d6] flex items-center justify-center text-[#b9a98a]"><Glyph name="satchel" size={26} /></span>}
+                        <img key={i} src={t} alt="" className="absolute w-14 h-14 object-cover rounded-md ring-2 ring-day-bg" style={{ left: i * 4, top: i * 4, zIndex: 3 - i }} />
+                      )) : <span className="w-16 h-16 rounded-md bg-[#f3efe7] flex items-center justify-center text-stone-400"><Glyph name="satchel" size={24} strokeWidth={1.2} /></span>}
                     </span>
                     <span className="min-w-0">
-                      <span className="block font-display italic text-[17px] text-stone-900 truncate">{pg.title}{pg.more ? ` and ${pg.more} more` : ''}</span>
-                      <span className="block text-sm text-stone-500 truncate">
+                      <span className="block font-display italic text-[20px] leading-snug text-stone-900 truncate">{pg.title}{pg.more ? ` and ${pg.more} more` : ''}</span>
+                      <span className="block ng-caption truncate mt-0.5">
                         {[pg.ms ? notebookDate(pg.ms) : '', pg.place, `${pg.count} capture${pg.count === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
                       </span>
                       {pg.fading
-                        ? <span className="block text-sm text-theme-accent mt-0.5">Finish it before the details fade</span>
-                        : <span className="block text-sm font-medium text-theme-accent mt-0.5">Carry on writing</span>}
+                        ? <span className="mt-1 text-sm text-stone-800 flex items-center gap-2"><span className="ng-dot" aria-hidden="true" />Finish it before the details fade</span>
+                        : <span className="mt-1 text-sm font-medium text-stone-800 flex items-center gap-1.5">Carry on writing<Glyph name="forward" size={16} className="text-theme-accent transition-transform group-hover:translate-x-0.5" /></span>}
                     </span>
                   </button>
                   {!asking && (
-                    <button onClick={() => setConfirmId(draft.id)} aria-label={`Discard ${pg.title}`} className="w-11 h-11 rounded-full hover:bg-stone-100 text-stone-500 hover:text-stone-800 transition-colors flex items-center justify-center shrink-0">
-                      <span className="material-symbols-outlined" aria-hidden="true">delete</span>
+                    <button onClick={() => setConfirmId(draft.id)} aria-label={`Discard ${pg.title}`} className="ng-icon-button text-stone-500">
+                      <Glyph name="trash" size={20} />
                     </button>
                   )}
                 </div>
                 {asking && (
-                  <div role="alertdialog" aria-label="Discard this draft?" className="mt-3 pt-3 border-t border-[#e3d8c4] flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-stone-700 flex-1 min-w-[12rem]">Discard this draft? Its captures will be deleted too.</p>
-                    <button onClick={() => setConfirmId(null)} className="h-9 px-4 rounded-full border border-stone-300 text-sm font-medium text-stone-700 hover:bg-white">Keep it</button>
-                    <button onClick={() => discard(draft.id)} disabled={discarding} className="h-9 px-4 rounded-full bg-red-700 text-white text-sm font-medium disabled:opacity-50">{discarding ? 'Discarding…' : 'Discard'}</button>
+                  <div role="alertdialog" aria-label="Discard this draft?" className="mt-4 flex flex-wrap items-center gap-3">
+                    <p className="ng-small text-stone-700 flex-1 min-w-[12rem]">Discard this draft? Its captures will be deleted too.</p>
+                    <button onClick={() => setConfirmId(null)} className="ng-button-quiet min-h-[44px] px-5 text-sm">Keep it</button>
+                    <button onClick={() => discard(draft.id)} disabled={discarding} className="min-h-[44px] px-5 rounded-full bg-red-700 hover:bg-red-800 text-white text-sm font-semibold disabled:opacity-50">{discarding ? 'Discarding…' : 'Discard'}</button>
                   </div>
                 )}
               </li>

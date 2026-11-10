@@ -7,10 +7,10 @@ const RichText: React.FC<{ text: string; onMention?: (username: string) => void;
     <span className={className}>
       {parts.map((p, i) => {
         if (p.startsWith('@') && p.length > 2 && onMention) {
-          return <button key={i} type="button" onClick={(e) => { e.stopPropagation(); onMention(p.slice(1)); }} className="font-semibold text-theme-accent hover:underline">{p}</button>;
+          return <button key={i} type="button" onClick={(e) => { e.stopPropagation(); onMention(p.slice(1)); }} className="font-medium text-stone-900 underline decoration-theme-accent/60 underline-offset-4 hover:decoration-theme-accent">{p}</button>;
         }
         if (p.startsWith('#') && p.length > 2 && onTag) {
-          return <button key={i} type="button" onClick={(e) => { e.stopPropagation(); onTag(p); }} className="font-semibold text-theme-accent hover:underline">{p}</button>;
+          return <button key={i} type="button" onClick={(e) => { e.stopPropagation(); onTag(p); }} className="font-medium text-stone-900 underline decoration-theme-accent/60 underline-offset-4 hover:decoration-theme-accent">{p}</button>;
         }
         return <React.Fragment key={i}>{p}</React.Fragment>;
       })}

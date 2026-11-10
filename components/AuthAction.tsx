@@ -113,37 +113,37 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
   const last = theme.naturalist.split(' ').slice(-1)[0];
 
   return (
-    <div className="fixed inset-0 z-[150] overflow-y-auto bg-[#f3eee4] text-stone-800" style={{ backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0 31px, rgb(120 100 70 / 0.07) 31px 32px)' }}>
-      <div className="min-h-full flex flex-col items-center justify-center px-4 py-6 sm:py-14 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
-        <header className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} flex items-center gap-2.5 mb-5 sm:mb-7 px-1`}>
+    <div className="fixed inset-0 z-[150] overflow-y-auto bg-day-bg text-stone-800">
+      <div className="min-h-full flex flex-col items-center justify-center px-6 py-8 sm:py-14 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
+        <header className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} flex items-center gap-2.5 mb-8 sm:mb-12`}>
           <Glyph name="mark" size={22} className="text-stone-900" />
-          <span className="font-display italic text-xl text-stone-900 tracking-tight">NatureGram</span>
+          <span className="ng-wordmark">NatureGram</span>
         </header>
 
-        <main className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} bg-[#fbf7ef] rounded-[3px] p-2 shadow-[0_1px_2px_rgba(60,40,20,0.12),0_18px_40px_-18px_rgba(60,40,20,0.35)] animate-slide-up`}>
-          <div className="border border-[#d8ccb6] outline outline-1 outline-offset-[3px] outline-[#e8dfcd] rounded-[2px] px-5 py-6 sm:px-10 sm:py-10">
+        <main className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} ng-rise`}>
+          <div>
             {stage.k === 'working' && <Working mode={mode} />}
 
             {stage.k === 'verified' && (
               <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:gap-12 items-center">
                 <div>
-                  <p className="text-[15px] text-stone-500">Email confirmed</p>
-                  <h1 className="font-display text-[32px] sm:text-[44px] leading-[1.1] font-medium text-stone-900 mt-1.5">Your field page is ready</h1>
-                  <p className="text-[17px] leading-relaxed text-stone-700 mt-4 max-w-[34ch]">
+                  <p className="ng-kicker">Email confirmed</p>
+                  <h1 className="ng-display mt-3">Your field page is ready</h1>
+                  <p className="ng-body mt-4 max-w-[34ch]">
                     It starts blank on purpose. Go outside, look closely at one living thing, and it becomes No. 1 on your life list.
                   </p>
                   <NaturalistLine quote={theme.quote} by={theme.naturalist} />
-                  <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <div className="mt-10 flex flex-col sm:flex-row sm:items-center gap-x-6 gap-y-4">
                     <button onClick={() => onDone('lens')} className="ng-button-primary px-7">
-                      <Glyph name="eyeEar" size={20} strokeWidth={1.7} />Open the Lens
+                      Open the Lens<Glyph name="forward" size={20} className="ng-arrow" />
                     </button>
-                    <button onClick={() => parsed.cont ? window.location.assign(parsed.cont) : onDone('feed')} className="px-4 py-3 text-[15px] font-semibold text-stone-600 hover:text-stone-900">
+                    <button onClick={() => parsed.cont ? window.location.assign(parsed.cont) : onDone('feed')} className="ng-link-quiet min-h-[44px] px-1">
                       {parsed.cont ? 'Back to where you were' : 'Look around the feed first'}
                     </button>
                   </div>
                 </div>
                 <div className="flex justify-center lg:justify-end order-first lg:order-none">
-                  <div className="w-[148px] sm:w-[230px] lg:w-[290px] -rotate-[2.5deg] mt-2 lg:mt-0">
+                  <div className="w-[148px] sm:w-[230px] lg:w-[290px] mt-2 lg:mt-0">
                     <SpecimenPlate size="lg" data={{ name: 'Your first species', no: 1 }} stamp={<PlateStamp tone="accent">Waiting for you</PlateStamp>} />
                   </div>
                 </div>
@@ -175,7 +175,7 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
           </div>
         </main>
 
-        <p className="mt-5 text-[13px] text-stone-500 text-center max-w-[64ch] px-2">
+        <p className="mt-12 ng-caption text-center max-w-[64ch] px-2">
           {last}'s fortnight on NatureGram · a field notebook for the living world
         </p>
       </div>
@@ -186,9 +186,10 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
 // ---- Pieces --------------------------------------------------------------------------------------
 
 const NaturalistLine: React.FC<{ quote: string; by: string }> = ({ quote, by }) => (
-  <figure className="mt-6 border-l-2 border-theme-accent pl-4 max-w-[46ch]">
-    <blockquote className="font-display italic text-[17px] leading-snug text-stone-700">“{quote}”</blockquote>
-    <figcaption className="mt-1.5 text-[13px] text-stone-500">{by}, naturalist of the fortnight</figcaption>
+  <figure className="mt-8 max-w-[46ch]">
+    <span className="ng-rule mb-4" aria-hidden="true" />
+    <blockquote className="font-display italic text-[20px] leading-[1.4] text-stone-800">“{quote}”</blockquote>
+    <figcaption className="mt-2 ng-caption">{by}, naturalist of the fortnight</figcaption>
   </figure>
 );
 
@@ -198,10 +199,10 @@ const Primary: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ clas
 
 const Moment: React.FC<{ glyph: React.ComponentProps<typeof Glyph>['name']; kicker: string; title: string; body: React.ReactNode; children?: React.ReactNode }> = ({ glyph, kicker, title, body, children }) => (
   <div className="max-w-[560px] mx-auto text-center sm:text-left sm:mx-0">
-    <Glyph name={glyph} size={38} className="text-theme-accent mx-auto sm:mx-0" />
-    <p className="text-[15px] text-stone-500 mt-4">{kicker}</p>
-    <h1 className="font-display text-[30px] sm:text-[38px] leading-[1.15] font-medium text-stone-900 mt-1">{title}</h1>
-    <div className="text-[17px] leading-relaxed text-stone-700 mt-3">{body}</div>
+    <Glyph name={glyph} size={32} strokeWidth={1.3} className="text-stone-500 mx-auto sm:mx-0" />
+    <p className="ng-kicker justify-center sm:justify-start mt-5">{kicker}</p>
+    <h1 className="ng-display mt-2">{title}</h1>
+    <div className="ng-body mt-4">{body}</div>
     <div className="mt-7 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 [&>figure]:basis-full [&>figure]:text-left">{children}</div>
   </div>
 );
@@ -240,17 +241,17 @@ const ResetForm: React.FC<{ email: string; code: string; onSaved: (signedIn: boo
   };
   return (
     <form onSubmit={submit} className="max-w-[460px]" noValidate>
-      <Glyph name="feather" size={38} className="text-theme-accent" />
-      <p className="text-[15px] text-stone-500 mt-4">Reset your password</p>
-      <h1 className="font-display text-[30px] sm:text-[38px] leading-[1.15] font-medium text-stone-900 mt-1">Choose a new password</h1>
-      <p className="text-[16px] text-stone-700 mt-3">For <span className="font-semibold text-stone-900 break-all">{email}</span></p>
-      <label htmlFor="new-pw" className="block text-[14px] font-semibold text-stone-700 mt-6">New password</label>
-      <div className="mt-1.5 relative">
+      <Glyph name="feather" size={32} strokeWidth={1.3} className="text-stone-500" />
+      <p className="ng-kicker mt-5">Reset your password</p>
+      <h1 className="ng-display mt-2">Choose a new password</h1>
+      <p className="ng-body mt-3">For <span className="font-medium text-stone-900 break-all">{email}</span></p>
+      <label htmlFor="new-pw" className="block ng-label mt-8">New password</label>
+      <div className="mt-2 relative">
         <input id="new-pw" autoFocus type={show ? 'text' : 'password'} autoComplete="new-password" value={pw} onChange={e => { setPw(e.target.value); setError(''); }}
           className="ng-field w-full pl-4 pr-20 py-3.5" aria-invalid={!!error} aria-describedby="pw-help" />
-        <button type="button" onClick={() => setShow(s => !s)} className="absolute right-1 top-1/2 -translate-y-1/2 px-3 py-2 text-[14px] font-semibold text-stone-500 hover:text-stone-800" aria-pressed={show}>{show ? 'Hide' : 'Show'}</button>
+        <button type="button" onClick={() => setShow(s => !s)} className="absolute right-1 top-1/2 -translate-y-1/2 px-3 min-h-[44px] text-sm font-medium text-stone-500 hover:text-stone-800" aria-pressed={show}>{show ? 'Hide' : 'Show'}</button>
       </div>
-      <p id="pw-help" className={`text-[14px] mt-2 ${error ? 'text-[rgb(var(--theme-accent-rgb))]' : 'text-stone-500'}`} role={error ? 'alert' : undefined}>
+      <p id="pw-help" className={`text-[14px] mt-2 ${error ? 'text-red-800' : 'text-stone-500'}`} role={error ? 'alert' : undefined}>
         {error || 'At least 6 characters. You will be signed in straight after.'}
       </p>
       <Primary type="submit" disabled={busy} className="mt-6 w-full sm:w-auto">{busy ? 'Saving…' : 'Save and carry on'}</Primary>
@@ -268,10 +269,10 @@ const Recovered: React.FC<{ email: string; onDone: () => void }> = ({ email, onD
     <Moment glyph="compass" kicker="Email restored" title="Your email is back as it was"
       body={<>Letters will go to <span className="font-semibold text-stone-900 break-all">{email || 'your original address'}</span> again. If you didn't ask for the change, someone may know your password. Choosing a new one keeps your field page safe.</>}>
       {sent === 'sent'
-        ? <p className="text-[16px] text-stone-700" role="status">A reset letter is on its way. It can take a minute or two.</p>
+        ? <p className="ng-body" role="status">A reset letter is on its way. It can take a minute or two.</p>
         : <Primary onClick={reset} disabled={sent === 'busy' || !email}>{sent === 'busy' ? 'Sending…' : 'Reset my password'}</Primary>}
-      {sent === 'failed' && <p className="text-[14px] text-[rgb(var(--theme-accent-rgb))]" role="alert">That didn't go through. Please try again in a moment.</p>}
-      <button onClick={onDone} className="px-4 py-3 text-[15px] font-semibold text-stone-600 hover:text-stone-900">Go to the feed</button>
+      {sent === 'failed' && <p className="text-[14px] text-red-800" role="alert">That didn't go through. Please try again in a moment.</p>}
+      <button onClick={onDone} className="ng-link-quiet min-h-[44px] px-1">Go to the feed</button>
     </Moment>
   );
 };
@@ -304,22 +305,22 @@ const ProblemView: React.FC<{ problem: Problem; mode: Mode; onSignIn: () => void
 
   return (
     <div className="max-w-[540px]">
-      <Glyph name="sealed" size={38} className="text-theme-accent" />
-      <h1 className="font-display text-[30px] sm:text-[38px] leading-[1.15] font-medium text-stone-900 mt-4">{copy.title}</h1>
-      <p className="text-[17px] leading-relaxed text-stone-700 mt-3">{copy.body}</p>
+      <Glyph name="sealed" size={32} strokeWidth={1.3} className="text-stone-500" />
+      <h1 className="ng-display mt-5">{copy.title}</h1>
+      <p className="ng-body mt-4">{copy.body}</p>
 
       {state === 'sent' ? (
-        <div className="mt-7 rounded-xl bg-white/70 border border-[#e3d9c6] p-4" role="status">
-          <p className="font-display text-lg text-stone-900">A new letter is on its way</p>
-          <p className="text-[15px] text-stone-600 mt-1">{isReset ? `If there's an account for ${email.trim()}, it will be there in a minute or two.` : `Look for it at ${user?.email}. It can take a minute or two, and sometimes lands in spam.`}</p>
+        <div className="mt-8 py-4 border-y border-stone-200/80" role="status">
+          <p className="ng-subtitle">A new letter is on its way</p>
+          <p className="ng-small mt-1">{isReset ? `If there's an account for ${email.trim()}, it will be there in a minute or two.` : `Look for it at ${user?.email}. It can take a minute or two, and sometimes lands in spam.`}</p>
         </div>
       ) : canResend ? (
         <div className="mt-7">
           {isReset && (
             <>
-              <label htmlFor="reset-email" className="block text-[14px] font-semibold text-stone-700">Your email</label>
+              <label htmlFor="reset-email" className="block ng-label">Your email</label>
               <input id="reset-email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)}
-                className="mt-1.5 mb-4 w-full rounded-xl border border-[#d8ccb6] bg-white px-4 py-3.5 text-[16px] outline-none focus:border-theme-accent" />
+                className="mt-2 mb-5 ng-field w-full px-4 py-3.5" />
             </>
           )}
           {isReset || signedInUnverified
@@ -327,12 +328,12 @@ const ProblemView: React.FC<{ problem: Problem; mode: Mode; onSignIn: () => void
             : user && !user.isAnonymous && user.emailVerified
               ? <Primary onClick={onDone}>Your email is already confirmed. Open the feed</Primary>
               : <Primary onClick={onSignIn}>Sign in to get a new link</Primary>}
-          {state === 'limited' && <p className="text-[14px] text-stone-600 mt-3" role="alert">We've sent a few already. Give the last one a little while to arrive, then try again.</p>}
-          {state === 'failed' && <p className="text-[14px] text-[rgb(var(--theme-accent-rgb))] mt-3" role="alert">That didn't go through. Please try again in a moment.</p>}
+          {state === 'limited' && <p className="ng-small mt-3" role="alert">We've sent a few already. Give the last one a little while to arrive, then try again.</p>}
+          {state === 'failed' && <p className="text-[14px] text-red-800 mt-3" role="alert">That didn't go through. Please try again in a moment.</p>}
         </div>
       ) : null}
 
-      <button onClick={onDone} className="mt-4 px-0 py-2 text-[15px] font-semibold text-stone-600 hover:text-stone-900 underline decoration-stone-300 underline-offset-4">Go to the feed</button>
+      <button onClick={onDone} className="mt-6 ng-link-quiet min-h-[44px]">Go to the feed</button>
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { PressingLoader } from './SkeletonPost';
 import PlayableVideo, { PlayableAudio } from './PlayableVideo';
 import { CommunityPost, UserMode } from '../types.ts';
 import { FirebaseService } from '../services/firebaseService.ts';
@@ -79,8 +80,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   if (loading) {
       return (
           <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] px-6 text-center" role="status" aria-live="polite">
-              <Glyph name="press" size={40} className="text-theme-accent/70 animate-pulse" />
-              <p className="mt-4 font-display text-lg text-stone-700">Opening this sighting…</p>
+              <PressingLoader size={40} />
+              <p className="mt-4 font-display italic text-lg text-stone-600">Opening this sighting…</p>
           </div>
       );
   }
@@ -88,13 +89,13 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   if (error || !post) {
       return (
         <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] p-6 text-center">
-            <Glyph name="leafCompass" size={48} className="text-theme-accent/60 mb-5" />
-            <h1 className="font-display text-2xl text-stone-900 mb-2">This sighting has gone back to the wild</h1>
-            <p className="text-stone-600 mb-8 max-w-sm leading-relaxed">The explorer may have removed it, or made it visible only to themselves. There is plenty more alive out there.</p>
-            <button onClick={onOpenLens || onGoToApp} className="bg-stone-900 text-white px-7 py-3.5 rounded-2xl font-semibold active:scale-95 transition-transform">
-                Open the Lens
+            <Glyph name="leafCompass" size={40} strokeWidth={1.2} className="text-stone-400 mb-6" />
+            <h1 className="ng-title italic mb-3 max-w-md">This sighting has gone back to the wild</h1>
+            <p className="ng-body text-stone-600 mb-10 max-w-sm">The explorer may have removed it, or made it visible only to themselves. There is plenty more alive out there.</p>
+            <button onClick={onOpenLens || onGoToApp} className="ng-button-primary group">
+                Open the Lens<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" />
             </button>
-            <button onClick={onGoToApp} className="mt-3 text-sm text-theme-accent font-semibold py-2">See what others found</button>
+            <button onClick={onGoToApp} className="mt-4 ng-link-quiet min-h-[44px]">See what others found</button>
         </div>
       );
   }
@@ -122,14 +123,14 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
 
   return (
       <div className="fixed inset-0 bg-day-bg flex flex-col md:flex-row overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-4 py-3 md:px-6 md:py-5 z-50 flex items-center bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
-              <span className="flex items-center gap-2 text-white"><Glyph name="mark" size={20} /><span className="font-display italic text-xl tracking-tight">NatureGram</span></span>
+          <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-6 pt-6 pb-8 md:px-12 md:pt-8 z-50 flex items-center bg-gradient-to-b from-black/50 to-transparent pointer-events-none safe-pt">
+              <span className="flex items-center gap-2.5 text-white"><Glyph name="mark" size={22} /><span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span></span>
           </div>
 
           <div className="flex-1 relative bg-stone-950 flex flex-col justify-center min-h-[48dvh] md:min-h-screen group/media overflow-hidden">
               {post.items && post.items.length > 1 ? (
                   <>
-                      <div 
+                      <div
                           ref={mediaScrollRef}
                           onScroll={handleMediaScroll}
                           className="flex flex-row overflow-x-auto snap-x snap-mandatory scroll-smooth no-scrollbar w-full h-full relative"
@@ -137,31 +138,31 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                           {post.items.map((item, index) => (
                               <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                   {item.mediaType === 'video' ? (
-                                       <PlayableVideo 
-                                           src={item.videoUrl!} 
+                                       <PlayableVideo
+                                           src={item.videoUrl!}
                                            streamUrl={(item as any).streamUrl}
-                                           preload="metadata" 
-                                           controls 
+                                           preload="metadata"
+                                           controls
                                            controlsList={!canDownload ? "nodownload" : undefined}
                                            onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
-                                           autoPlay={index === 0} 
-                                           className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
+                                           autoPlay={index === 0}
+                                           className="max-w-full max-h-full object-contain rounded-md"
                                            style={{ transform: `rotate(${item.rotation || 0}deg)` }}
                                        />
                                   ) : item.mediaType === 'audio' ? (
-                                       <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-stone-900/[0.045] shadow-2xl rounded-sm">
-                                            <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
+                                       <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 rounded-md">
+                                            <Glyph name="sound" size={44} strokeWidth={1.2} className="text-white/60 mb-10" />
                                             {item.audioUrl && (
                                                  <PlayableAudio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                             )}
                                        </div>
                                   ) : (
-                                      <img 
-                                          src={item.originalImageUrl || item.imageUrl || item.thumbnailUrl!} 
-                                          alt={post?.labels?.[0] || "Nature sighting"} 
+                                      <img
+                                          src={item.originalImageUrl || item.imageUrl || item.thumbnailUrl!}
+                                          alt={post?.labels?.[0] || "Nature sighting"}
                                           draggable={canDownload}
                                           onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
-                                          className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
+                                          className="max-w-full max-h-full object-contain rounded-md"
                                       />
                                   )}
                               </div>
@@ -170,20 +171,20 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
 
                       {/* Hover Arrow Controllers */}
                       {activeItemIndex > 0 && (
-                          <button 
+                          <button
                               onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex - 1); }} aria-label="Previous"
-                              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                              className="absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                           >
-                              <span className="material-symbols-outlined text-xl">chevron_left</span>
+                              <Glyph name="chevronLeft" size={20} />
                           </button>
                       )}
 
                       {activeItemIndex < post.items.length - 1 && (
-                          <button 
+                          <button
                               onClick={(e) => { e.stopPropagation(); scrollToItem(activeItemIndex + 1); }} aria-label="Next"
-                              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
+                              className="absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center opacity-0 group-hover/media:opacity-100 transition-opacity z-[175] active:scale-95 pointer-events-auto"
                           >
-                              <span className="material-symbols-outlined text-xl">chevron_right</span>
+                              <Glyph name="chevronRight" size={20} />
                           </button>
                       )}
 
@@ -201,81 +202,81 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
               ) : (
                   <div className="w-full h-full flex items-center justify-center p-4">
                       {currentItem.mediaType === 'video' ? (
-                           <PlayableVideo 
-                               src={currentItem.videoUrl!} 
+                           <PlayableVideo
+                               src={currentItem.videoUrl!}
                                streamUrl={(currentItem as any).streamUrl}
-                               preload="metadata" 
-                               controls 
+                               preload="metadata"
+                               controls
                                controlsList={!canDownload ? "nodownload" : undefined}
                                onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
-                               autoPlay 
-                               className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
+                               autoPlay
+                               className="max-w-full max-h-full object-contain rounded-md"
                                style={{ transform: `rotate(${currentItem.rotation || 0}deg)` }}
                            />
                       ) : currentItem.mediaType === 'audio' ? (
                            <div className="flex flex-col items-center justify-center w-full h-full bg-stone-900/[0.045] p-8 shadow-2xl rounded-sm">
-                                <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
+                                <Glyph name="sound" size={44} strokeWidth={1.2} className="text-white/60 mb-10" />
                                 {currentItem.audioUrl && (
                                      <PlayableAudio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
                                 )}
                            </div>
                       ) : (
-                          <img 
-                              src={currentItem.originalImageUrl || currentItem.imageUrl || currentItem.thumbnailUrl!} 
-                              alt={post?.labels?.[0] || "Nature sighting"} 
+                          <img
+                              src={currentItem.originalImageUrl || currentItem.imageUrl || currentItem.thumbnailUrl!}
+                              alt={post?.labels?.[0] || "Nature sighting"}
                               draggable={canDownload}
                               onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
-                              className="max-w-full max-h-full object-contain shadow-2xl rounded-sm" 
+                              className="max-w-full max-h-full object-contain rounded-md"
                           />
                       )}
                   </div>
               )}
           </div>
 
-          <div className="w-full md:w-[400px] lg:w-[450px] bg-day-bg text-stone-800 flex flex-col h-[52dvh] md:h-full overflow-y-auto z-10 shrink-0 border-t md:border-t-0 md:border-l border-stone-200">
-             <article className="px-6 pt-6 pb-4 md:px-9 md:pt-10 space-y-6 flex-1">
+          <div className="w-full md:w-[400px] lg:w-[450px] bg-day-bg text-stone-800 flex flex-col h-[52dvh] md:h-full overflow-y-auto z-10 shrink-0 border-t md:border-t-0 md:border-l border-stone-200/80">
+             <article className="px-6 pt-8 pb-4 md:px-10 md:pt-12 space-y-8 flex-1 ng-rise">
                  <header>
-                     <h1 className={`text-[30px] font-display font-medium text-stone-900 leading-tight ${hasSpecies ? 'italic' : ''}`}>{species}</h1>
-                     {scientific && <p className="font-display italic text-stone-500 mt-0.5">{scientific}</p>}
-                     {behaviour && <p className="text-base text-stone-700 mt-2 leading-snug">{behaviour}</p>}
-                     {alsoSeen.length > 0 && <p className="text-sm text-stone-600 mt-1">Also in view: <span className="italic">{alsoSeen.join(', ')}</span></p>}
-                     <p className="text-sm text-stone-500 mt-3">{[explorer, area ? `near ${area}` : '', when].filter(Boolean).join(' · ')}</p>
+                     <h1 className={`ng-title ${hasSpecies ? 'italic' : ''}`}>{species}</h1>
+                     {scientific && <p className="font-display italic text-base text-stone-500 mt-1">{scientific}</p>}
+                     {behaviour && <p className="ng-body mt-3">{behaviour}</p>}
+                     {alsoSeen.length > 0 && <p className="ng-small mt-2">Also in view: <span className="italic">{alsoSeen.join(', ')}</span></p>}
+                     <p className="ng-caption mt-4">{[explorer, area ? `near ${area}` : '', when].filter(Boolean).join(' · ')}</p>
                  </header>
 
                  {fungi && <FungiWarning />}
 
                  {words && (
-                     <figure className="border-l-2 border-theme-accent/40 pl-4">
-                         <blockquote className="text-[15px] text-stone-800 leading-relaxed whitespace-pre-line">{words}</blockquote>
-                         <figcaption className="text-xs text-stone-500 mt-1.5">{explorer}, in the field</figcaption>
+                     <figure className="border-l border-theme-accent pl-5">
+                         <blockquote className="ng-body text-stone-800 whitespace-pre-line">{words}</blockquote>
+                         <figcaption className="ng-caption mt-2">{explorer}, in the field</figcaption>
                      </figure>
                  )}
 
                  {insight.length > 0 && (
-                     <section aria-labelledby="why-it-does-this" className="pt-5 border-t border-stone-200">
-                         <h2 id="why-it-does-this" className="text-sm font-semibold font-sans text-theme-accent mb-2">Why it does this</h2>
+                     <section aria-labelledby="why-it-does-this">
+                         <h2 id="why-it-does-this" className="ng-subtitle mb-3 flex items-center gap-3"><span className="ng-rule" aria-hidden="true" />Why it does this</h2>
                          <div className="space-y-3">
-                             {insight.map((para, i) => <p key={i} className="text-[17px] font-display text-stone-800 leading-[1.6]">{para}</p>)}
+                             {insight.map((para, i) => <p key={i} className="font-display text-[18px] text-stone-800 leading-[1.6]">{para}</p>)}
                          </div>
                      </section>
                  )}
 
                  {tags.length > 0 && (
-                     <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-theme-accent">{tags.map(t => <span key={t}>#{t}</span>)}</p>
+                     <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">{tags.map(t => <span key={t}>#{t}</span>)}</p>
                  )}
              </article>
 
-             <aside className="mx-4 mb-4 md:mx-6 md:mb-6 p-5 rounded-2xl bg-white border border-stone-200 shadow-sm" aria-label={`An invitation in the spirit of ${naturalist}`}>
-                 <p className="text-xs text-stone-500 flex items-center gap-1.5"><Glyph name="feather" size={14} className="text-theme-accent" />A note in the spirit of {naturalist}</p>
-                 <p className="mt-2 font-display text-[19px] leading-snug text-stone-900">
+             <aside className="mx-6 mb-6 md:mx-10 md:mb-10 pt-8 border-t border-stone-200/80" aria-label={`An invitation in the spirit of ${naturalist}`}>
+                 <p className="ng-kicker">A note in the spirit of {naturalist}</p>
+                 <p className="mt-4 font-display italic text-[20px] leading-[1.4] text-stone-900">
                      {explorer} found this {hasSpecies ? <em>{species}</em> : 'sighting'}{area ? ` near ${area}` : ''}. What's alive near you?
                  </p>
-                 {extra.philosophy && <p className="mt-2 text-sm text-stone-600 font-display italic">{extra.philosophy}</p>}
-                 <button onClick={onOpenLens || onGoToApp} className="mt-4 w-full bg-stone-900 text-white px-6 py-3.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center justify-center gap-2">
-                     <Glyph name="eyeEar" size={20} />
+                 {extra.philosophy && <p className="mt-3 ng-small">{extra.philosophy}</p>}
+                 <button onClick={onOpenLens || onGoToApp} className="mt-6 ng-button-primary group w-full sm:w-auto">
                      Open the Lens
+                     <Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" />
                  </button>
-                 <button onClick={onGoToApp} className="mt-2 w-full text-sm text-theme-accent font-semibold py-2">See what others found</button>
+                 <button onClick={onGoToApp} className="mt-3 block ng-link-quiet min-h-[44px]">See what others found</button>
              </aside>
           </div>
       </div>
