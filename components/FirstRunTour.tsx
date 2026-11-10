@@ -212,7 +212,7 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
             <button
               ref={nextRef}
               onClick={next}
-              className="min-h-[44px] flex items-center gap-1.5 bg-theme-primary text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-semibold shadow-lg hover:opacity-90 active:scale-95 transition-transform shrink-0"
+              className="min-h-[44px] flex items-center gap-1.5 bg-stone-900 text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 active:scale-95 transition-transform shrink-0"
             >
               <span>{isLast ? 'Start exploring' : 'Next'}</span>
               <span className="material-symbols-outlined text-[18px]" aria-hidden="true">{isLast ? 'check' : 'arrow_forward'}</span>

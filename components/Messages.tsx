@@ -62,7 +62,7 @@ const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 
 
 const Avatar: React.FC<{ name?: string; url?: string | null; size?: number }> = ({ name, url, size = 48 }) => url
   ? <img src={url} alt="" className="rounded-full object-cover bg-stone-100 shrink-0" style={{ width: size, height: size }} />
-  : <span className="rounded-full bg-theme-accent/10 text-theme-deep font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
+  : <span className="rounded-full bg-stone-900/[0.045] text-theme-deep font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
 
 /** Letters: private correspondence between explorers (inbox + 1:1 threads, realtime), written like notes between naturalists. */
 const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfile, onOpenPost }) => {
@@ -84,10 +84,10 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-theme-primary/10 shrink-0 safe-pt box-content">
+      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-200 shrink-0 safe-pt box-content">
         <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <h1 className="flex-1 text-xl font-display font-semibold text-theme-primary">Letters</h1>
-        <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-theme-primary/5 text-theme-primary"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
+        <h1 className="flex-1 text-xl font-display font-semibold text-stone-900">Letters</h1>
+        <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-900/[0.03] text-stone-900"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
         <FirstHint id="letters" text="Letters are slow notes between explorers. Ask about a find, or plan a walk." />
@@ -98,7 +98,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
             <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">mail</span>
             <p className="font-display text-xl text-stone-800">No letters yet</p>
             <p className="text-sm mt-1 max-w-xs mx-auto">Write to an explorer: ask what they saw, where to look, or plan a walk together.</p>
-            <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-theme-primary text-white font-bold text-sm">Write a letter</button>
+            <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-stone-900 text-white font-bold text-sm">Write a letter</button>
           </div>
         ) : (
           <ul role="list">
@@ -195,7 +195,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
       <p className="font-display text-lg text-stone-900 mt-3">Letters with {theirName}</p>
       <p className="text-sm text-stone-500 mt-0.5">Private between the two of you.</p>
       {common && (common.species.length > 0 || common.region) && (
-        <div className="mt-4 mx-auto max-w-sm text-left rounded-xl bg-white border border-theme-primary/10 px-4 py-3">
+        <div className="mt-4 mx-auto max-w-sm text-left rounded-xl bg-white border border-stone-200 px-4 py-3">
           <p className="text-sm text-stone-700">Common ground</p>
           {common.species.length > 0 && (
             <p className="text-[15px] text-stone-900 mt-1 leading-snug">
@@ -207,7 +207,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           {common.region && <p className="text-[15px] text-stone-900 mt-1">You both explore around {common.region}.</p>}
         </div>
       )}
-      <button onClick={askWhere} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-theme-accent/40 text-theme-accent text-sm font-semibold hover:bg-theme-accent/5">
+      <button onClick={askWhere} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-theme-accent/40 text-theme-accent text-sm font-semibold hover:bg-stone-900/[0.03]">
         <Glyph name="leafCompass" size={16} /> Ask where to look
       </button>
     </section>
@@ -215,7 +215,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-theme-primary/10 shrink-0 safe-pt box-content">
+      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-200 shrink-0 safe-pt box-content">
         <button onClick={onBack} aria-label="Back to letters" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
         <button onClick={() => other && onViewProfile(other)} className="flex items-center gap-2 min-w-0">
           <Avatar name={info?.username} url={info?.avatarUrl} size={36} />
@@ -224,7 +224,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
         <button onClick={() => setReporting(true)} disabled={reported} aria-label="Report this conversation" className="ml-auto w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100 text-stone-600 disabled:opacity-40"><span className="material-symbols-outlined" aria-hidden="true">flag</span></button>
       </header>
       {reporting && (
-        <div className="px-4 py-3 border-b border-theme-primary/10 bg-white text-sm space-y-2" role="dialog" aria-label="Report this conversation">
+        <div className="px-4 py-3 border-b border-stone-200 bg-white text-sm space-y-2" role="dialog" aria-label="Report this conversation">
           <p className="text-stone-800">Reporting lets NatureGram read this conversation to look into it. Nobody else can read letters.</p>
           <div className="flex flex-wrap gap-2">
             {[['spam', 'Spam or selling'], ['harassment', 'Harassment'], ['unsafe', 'Something unsafe'], ['other', 'Something else']].map(([k, label]) => (
@@ -264,7 +264,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
         </div>
       </main>
       {error && <p role="alert" className="px-4 pb-2 text-sm text-red-700">{error}</p>}
-      <form onSubmit={send} className="shrink-0 p-3 border-t border-theme-primary/10 bg-day-bg pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <form onSubmit={send} className="shrink-0 p-3 border-t border-stone-200 bg-day-bg pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <div className="max-w-xl mx-auto">
           <label htmlFor="dm-input" className="sr-only">Your letter to {theirName}</label>
           <textarea
@@ -280,7 +280,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           />
           <div className="mt-2 flex items-center justify-between gap-3">
             <p id="dm-hint" className="text-xs text-stone-500 hidden sm:block">Ctrl or ⌘ + Enter also sends</p>
-            <button type="submit" disabled={!text.trim() || sending} className="ml-auto px-5 py-2.5 rounded-full bg-theme-primary text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40">
+            <button type="submit" disabled={!text.trim() || sending} className="ml-auto px-5 py-2.5 rounded-full bg-stone-900 text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40">
               <Glyph name="sealed" size={17} />{sending ? 'Sending…' : 'Send'}
             </button>
           </div>
@@ -301,7 +301,7 @@ const NewChatSheet: React.FC<{ onClose: () => void; onPick: (uid: string) => voi
     <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Write a letter">
       <div className="w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 max-h-[80dvh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-display font-semibold text-theme-primary">Write a letter</h2>
+          <h2 className="text-xl font-display font-semibold text-stone-900">Write a letter</h2>
           <button onClick={onClose} aria-label="Close" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
         </div>
         <label className="block">

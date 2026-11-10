@@ -63,13 +63,13 @@ const GuardianCare: React.FC<{ uids: string[]; me: string; onToast?: (m: string)
                   : `This closes ${c.username}'s account now and deletes it, with every sighting, photo and letter. It can't be undone.`}</p>
                 {error && <p role="alert" className="mt-2 text-red-800">{error}</p>}
                 <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={act} disabled={busy} className={`flex-1 min-h-[44px] rounded-xl text-white text-sm font-semibold disabled:opacity-60 ${confirm.kind === 'delete' ? 'bg-red-800' : 'bg-theme-primary'}`}>{busy ? 'One moment…' : confirm.kind === 'withdraw' ? 'Withdraw consent' : 'Delete their account'}</button>
+                  <button type="button" onClick={act} disabled={busy} className={`flex-1 min-h-[44px] rounded-xl text-white text-sm font-semibold disabled:opacity-60 ${confirm.kind === 'delete' ? 'bg-red-800' : 'bg-stone-900'}`}>{busy ? 'One moment…' : confirm.kind === 'withdraw' ? 'Withdraw consent' : 'Delete their account'}</button>
                   <button type="button" onClick={() => { setConfirm(null); setError(''); }} className="min-h-[44px] px-4 rounded-xl border border-stone-300 bg-white text-sm font-semibold text-stone-800">Keep as is</button>
                 </div>
               </div>
             ) : (
               <div className="mt-3 flex gap-2">
-                {c.status === 'approved' && <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'withdraw' })} className="flex-1 min-h-[44px] rounded-xl border border-theme-primary/40 bg-white text-theme-primary text-sm font-semibold">Withdraw consent</button>}
+                {c.status === 'approved' && <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'withdraw' })} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold">Withdraw consent</button>}
                 <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'delete' })} className="flex-1 min-h-[44px] rounded-xl border border-red-200 bg-white text-red-800 text-sm font-semibold">Delete account</button>
               </div>
             ))}

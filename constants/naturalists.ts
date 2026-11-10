@@ -12,6 +12,15 @@ export interface NaturalistTones {
   vivid: string;
 }
 
+export interface ImageCredit {
+  /** The photographer, as the file page credits them */
+  author: string;
+  /** Licence short name, e.g. "CC BY-SA 4.0", "CC0", "Public domain" */
+  license: string;
+  /** The Commons file page (attribution link) */
+  source: string;
+}
+
 export interface NaturalistTheme {
   id: string;
   naturalist: string;
@@ -19,6 +28,8 @@ export interface NaturalistTheme {
   locationName: string;
   locationCaption: string;
   imageUrl?: string;
+  /** Who made the photograph and under what licence (Wikimedia Commons); CC BY / BY-SA need it shown */
+  imageCredit?: ImageCredit;
   colors: {
     primary: string;
     /** Gradient end of the landing disc and the favicon */
@@ -53,7 +64,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Nature holds the key to our aesthetic, intellectual, cognitive and even spiritual satisfaction.",
     locationName: "Mobile, Alabama",
     locationCaption: "Where his childhood passion for ants inspired a lifetime of evolutionary biology.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Tensaw_at_Blakeley.jpg/1280px-Tensaw_at_Blakeley.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Tensaw_at_Blakeley.jpg/1920px-Tensaw_at_Blakeley.jpg",
+    imageCredit: { author: "JodyB", license: "CC BY-SA 3.0", source: "https://commons.wikimedia.org/wiki/File:Tensaw_at_Blakeley.jpg" },
     colors: colorsOf('wilson')
   },
   {
@@ -62,7 +74,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Nature seems to have taken every precaution that these, her choicest treasures, may not lose their value by being too easily obtained.",
     locationName: "Malay Archipelago",
     locationCaption: "Where he independently conceived the theory of evolution through natural selection.",
-    imageUrl: "https://images.unsplash.com/photo-1542332213-9b5a5a3fad35?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Raja_Ampat_by_Max_Mossler.jpg/1920px-Raja_Ampat_by_Max_Mossler.jpg",
+    imageCredit: { author: "Max Mossler", license: "CC BY 2.0", source: "https://commons.wikimedia.org/wiki/File:Raja_Ampat_by_Max_Mossler.jpg" },
     colors: colorsOf('wallace')
   },
   {
@@ -71,7 +84,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "A true conservationist is a man who knows that the world is not given by his fathers, but borrowed from his children.",
     locationName: "Mississippi River",
     locationCaption: "Where he painted the comprehensive Birds of America.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Efmo_View_from_Fire_Point.jpg/1280px-Efmo_View_from_Fire_Point.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Mississippi_River_from_Great_River_Bluffs_State_Park%2C_Minnesota_%2837021472150%29.jpg/1920px-Mississippi_River_from_Great_River_Bluffs_State_Park%2C_Minnesota_%2837021472150%29.jpg",
+    imageCredit: { author: "Tony Webster", license: "CC BY-SA 2.0", source: "https://commons.wikimedia.org/wiki/File:Mississippi_River_from_Great_River_Bluffs_State_Park,_Minnesota_(37021472150).jpg" },
     colors: colorsOf('audubon')
   },
   {
@@ -80,7 +94,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Only if we understand, will we care. Only if we care, will we help.",
     locationName: "Gombe Stream, Tanzania",
     locationCaption: "Where she revolutionized our understanding of primates.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Gombe_Stream_NP_Mutter_und_Kind.jpg/1280px-Gombe_Stream_NP_Mutter_und_Kind.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Lake_Tanganyika_at_Gombe_Stream_National_Park.jpg/1920px-Lake_Tanganyika_at_Gombe_Stream_National_Park.jpg",
+    imageCredit: { author: "fabulousfabs", license: "CC BY 2.0", source: "https://commons.wikimedia.org/wiki/File:Lake_Tanganyika_at_Gombe_Stream_National_Park.jpg" },
     colors: colorsOf('goodall')
   },
   {
@@ -89,7 +104,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Nature is a living whole, not a dead mass.",
     locationName: "Andes Mountains, South America",
     locationCaption: "Where he pioneered the field of biogeography.",
-    imageUrl: "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Vicu%C3%B1a_-_Chimborazo%2C_Ecuador.jpg/1920px-Vicu%C3%B1a_-_Chimborazo%2C_Ecuador.jpg",
+    imageCredit: { author: "David Torres Costales", license: "CC BY-SA 3.0", source: "https://commons.wikimedia.org/wiki/File:Vicu%C3%B1a_-_Chimborazo,_Ecuador.jpg" },
     colors: colorsOf('humboldt')
   },
   {
@@ -98,7 +114,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "When we plant trees, we plant the seeds of peace and seeds of hope.",
     locationName: "Nairobi, Kenya",
     locationCaption: "Where she founded the Green Belt Movement.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Karura_Forest_Nairobi_05.JPG/1280px-Karura_Forest_Nairobi_05.JPG",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Karura_Forest_Nairobi_05.JPG/1920px-Karura_Forest_Nairobi_05.JPG",
+    imageCredit: { author: "Ninaras", license: "CC BY 4.0", source: "https://commons.wikimedia.org/wiki/File:Karura_Forest_Nairobi_05.JPG" },
     colors: colorsOf('maathai')
   },
   {
@@ -107,7 +124,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "In every walk with nature one receives far more than he seeks.",
     locationName: "Yosemite Valley, California",
     locationCaption: "Where his activism helped preserve the wilderness.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Tunnel_View%2C_Yosemite_Valley%2C_Yosemite_NP_-_Diliff.jpg/1280px-Tunnel_View%2C_Yosemite_Valley%2C_Yosemite_NP_-_Diliff.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Tunnel_View%2C_Yosemite_Valley%2C_Yosemite_NP_-_Diliff.jpg/1920px-Tunnel_View%2C_Yosemite_Valley%2C_Yosemite_NP_-_Diliff.jpg",
+    imageCredit: { author: "David Iliff", license: "CC BY-SA 3.0", source: "https://commons.wikimedia.org/wiki/File:Tunnel_View,_Yosemite_Valley,_Yosemite_NP_-_Diliff.jpg" },
     colors: colorsOf('muir')
   },
   {
@@ -116,7 +134,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Adopt the pace of nature: her secret is patience.",
     locationName: "Concord, Massachusetts",
     locationCaption: "Where he led the Transcendentalist movement.",
-    imageUrl: "https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/20250726-_DSC0706.jpg/1920px-20250726-_DSC0706.jpg",
+    imageCredit: { author: "Jmeola2025", license: "CC BY 4.0", source: "https://commons.wikimedia.org/wiki/File:20250726-_DSC0706.jpg" },
     colors: colorsOf('emerson')
   },
   {
@@ -125,7 +144,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "It is not the strongest of the species that survives, nor the most intelligent, but the one most responsive to change.",
     locationName: "Galápagos Islands, Ecuador",
     locationCaption: "Where his observations led to the theory of evolution.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG/1280px-Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG/1920px-Lobo_marino_%28Zalophus_californianus_wollebaeki%29%2C_Punta_Pitt%2C_isla_de_San_Crist%C3%B3bal%2C_islas_Gal%C3%A1pagos%2C_Ecuador%2C_2015-07-24%2C_DD_11.JPG",
+    imageCredit: { author: "Diego Delso", license: "CC BY-SA 4.0", source: "https://commons.wikimedia.org/wiki/File:Lobo_marino_(Zalophus_californianus_wollebaeki),_Punta_Pitt,_isla_de_San_Crist%C3%B3bal,_islas_Gal%C3%A1pagos,_Ecuador,_2015-07-24,_DD_11.JPG" },
     colors: colorsOf('darwin')
   },
   {
@@ -134,7 +154,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "The earth has music for those who listen.",
     locationName: "Jurassic Coast, England",
     locationCaption: "Where her fossil discoveries reshaped our understanding of Earth's history.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Durdle_Door_Overview.jpg/1280px-Durdle_Door_Overview.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Durdle_Door_Overview.jpg/1920px-Durdle_Door_Overview.jpg",
+    imageCredit: { author: "Saffron Blaze", license: "CC BY-SA 3.0", source: "https://commons.wikimedia.org/wiki/File:Durdle_Door_Overview.jpg" },
     colors: colorsOf('anning')
   },
   {
@@ -143,7 +164,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Those who contemplate the beauty of the earth find reserves of strength that will endure as long as life lasts.",
     locationName: "Southport Island, Maine",
     locationCaption: "Where she studied the rocky Atlantic coast.",
-    imageUrl: "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Pemaquid_Point_Light%2C_Bristol%2C_Maine_%2868723039%29.jpg/1920px-Pemaquid_Point_Light%2C_Bristol%2C_Maine_%2868723039%29.jpg",
+    imageCredit: { author: "Ken Lund", license: "CC BY-SA 2.0", source: "https://commons.wikimedia.org/wiki/File:Pemaquid_Point_Light,_Bristol,_Maine_(68723039).jpg" },
     colors: colorsOf('carson')
   },
   {
@@ -152,7 +174,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "It seems to me that the natural world is the greatest source of excitement; the greatest source of visual beauty.",
     locationName: "Serengeti, Tanzania",
     locationCaption: "Where his documentaries brought the wild to the world.",
-    imageUrl: "https://images.unsplash.com/photo-1516426122078-c23e76319801?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Serengeti_landscape_%286%29_%2828551999591%29.jpg/1920px-Serengeti_landscape_%286%29_%2828551999591%29.jpg",
+    imageCredit: { author: "Richard Mortel", license: "CC BY 2.0", source: "https://commons.wikimedia.org/wiki/File:Serengeti_landscape_(6)_(28551999591).jpg" },
     colors: colorsOf('attenborough')
   },
   {
@@ -161,7 +184,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "When you realize the value of all life, you dwell less on what is past and concentrate more on the preservation of the future.",
     locationName: "Virunga Mountains, Rwanda",
     locationCaption: "Where she dedicated her life to mountain gorillas.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Virunga_National_Park_Landscape.jpg/1280px-Virunga_National_Park_Landscape.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/Mount_Mikeno_%28DR_Congo%29_and_Mount_Karisimbi_%28Rwanda%29%2C_two_extinct_volcanoes_in_the_Virunga_mountain_range._%2819556231290%29.jpg/1920px-Mount_Mikeno_%28DR_Congo%29_and_Mount_Karisimbi_%28Rwanda%29%2C_two_extinct_volcanoes_in_the_Virunga_mountain_range._%2819556231290%29.jpg",
+    imageCredit: { author: "MONUSCO Photos", license: "CC BY-SA 2.0", source: "https://commons.wikimedia.org/wiki/File:Mount_Mikeno_(DR_Congo)_and_Mount_Karisimbi_(Rwanda),_two_extinct_volcanoes_in_the_Virunga_mountain_range._(19556231290).jpg" },
     colors: colorsOf('fossey')
   },
   {
@@ -170,7 +194,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "I love to think of nature as an unlimited broadcasting station, through which God speaks to us every hour.",
     locationName: "Tuskegee, Alabama",
     locationCaption: "Where he transformed agricultural science and sustainable farming.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/George_Washington_Carver_Museum.jpg/1280px-George_Washington_Carver_Museum.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/4/40/20230521-FS-DF-021_%2853125961003%29.jpg",
+    imageCredit: { author: "US Forest Service, Southern Region", license: "Public domain", source: "https://commons.wikimedia.org/wiki/File:20230521-FS-DF-021_(53125961003).jpg" },
     colors: colorsOf('carver')
   },
   {
@@ -179,7 +204,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "No water, no life. No blue, no green.",
     locationName: "Gulf of Mexico",
     locationCaption: "Where she led countless expeditions to protect the oceans.",
-    imageUrl: "https://images.unsplash.com/photo-1582967788606-a171c1080cb0?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/FGBNMS_-_diver_fish_circle_-_Emma_Hickerson_NOAA_%2827026785561%29.jpg/1920px-FGBNMS_-_diver_fish_circle_-_Emma_Hickerson_NOAA_%2827026785561%29.jpg",
+    imageCredit: { author: "Emma Hickerson, NOAA", license: "Public domain", source: "https://commons.wikimedia.org/wiki/File:FGBNMS_-_diver_fish_circle_-_Emma_Hickerson_NOAA_(27026785561).jpg" },
     colors: colorsOf('earle')
   },
   {
@@ -188,7 +214,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "If we can teach people about wildlife, they will be touched. Share my wildlife with me.",
     locationName: "Queensland, Australia",
     locationCaption: "Where his infectious enthusiasm made wildlife conservation accessible to the world.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Part_of_Great_Barrier_Reef_from_Helicopter.jpg/1280px-Part_of_Great_Barrier_Reef_from_Helicopter.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Sunset_over_the_Glasshouse_Mountains.jpg/1920px-Sunset_over_the_Glasshouse_Mountains.jpg",
+    imageCredit: { author: "Lucbruna", license: "CC BY-SA 4.0", source: "https://commons.wikimedia.org/wiki/File:Sunset_over_the_Glasshouse_Mountains.jpg" },
     colors: colorsOf('irwin')
   },
   {
@@ -197,7 +224,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "The sea, once it casts its spell, holds one in its net of wonder forever.",
     locationName: "The Red Sea",
     locationCaption: "Where he explored the silent world beneath the waves.",
-    imageUrl: "https://images.unsplash.com/photo-1546026423-cc4642628d2b?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Ras_Mohammed_coral_reefs.jpg/1920px-Ras_Mohammed_coral_reefs.jpg",
+    imageCredit: { author: "Sovernigo", license: "CC BY-SA 4.0", source: "https://commons.wikimedia.org/wiki/File:Ras_Mohammed_coral_reefs.jpg" },
     colors: colorsOf('cousteau')
   },
   {
@@ -206,7 +234,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "There is something delicious about writing the first words of a story. You never quite know where they'll take you.",
     locationName: "Lake District, England",
     locationCaption: "Where her keen illustrations and mycology studies captured nature's intricate details.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/Derwent_Water%2C_Lake_District%2C_Cumbria_-_June_2009.jpg/1280px-Derwent_Water%2C_Lake_District%2C_Cumbria_-_June_2009.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/Derwent_Water%2C_Lake_District%2C_Cumbria_-_June_2009.jpg/1920px-Derwent_Water%2C_Lake_District%2C_Cumbria_-_June_2009.jpg",
+    imageCredit: { author: "David Iliff", license: "CC BY-SA 3.0", source: "https://commons.wikimedia.org/wiki/File:Derwent_Water,_Lake_District,_Cumbria_-_June_2009.jpg" },
     colors: colorsOf('potter')
   },
   {
@@ -215,7 +244,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "If you do not know the names of things, the knowledge of them is lost too.",
     locationName: "Småland, Sweden",
     locationCaption: "Where the father of modern taxonomy began his botanical journey.",
-    imageUrl: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/R%C3%A5shult_5.jpg/1920px-R%C3%A5shult_5.jpg",
+    imageCredit: { author: "Zejo", license: "Public domain", source: "https://commons.wikimedia.org/wiki/File:R%C3%A5shult_5.jpg" },
     colors: colorsOf('linnaeus')
   },
   {
@@ -224,7 +254,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "Knowing that you love the earth changes you, activates you to defend and protect and celebrate.",
     locationName: "Upstate New York",
     locationCaption: "Where she bridges traditional ecological knowledge and environmental botany.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Adirondacks_2016_Cascade_mountain_hike.jpg/1280px-Adirondacks_2016_Cascade_mountain_hike.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/c/cb/Adirondacks_2016_Cascade_mountain_hike.jpg",
+    imageCredit: { author: "stillwellmike", license: "CC BY-SA 2.0", source: "https://commons.wikimedia.org/wiki/File:Adirondacks_2016_Cascade_mountain_hike.jpg" },
     colors: colorsOf('kimmerer')
   },
   {
@@ -233,7 +264,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "In my youth, I spent my time investigating insects.",
     locationName: "Suriname",
     locationCaption: "Where her detailed illustrations documented the metamorphosis of insects.",
-    imageUrl: "https://images.unsplash.com/photo-1516026672322-bc52d61a55d5?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Brownsberg_jungle_%2833153964880%29.jpg/1920px-Brownsberg_jungle_%2833153964880%29.jpg",
+    imageCredit: { author: "JvL", license: "CC BY 2.0", source: "https://commons.wikimedia.org/wiki/File:Brownsberg_jungle_(33153964880).jpg" },
     colors: colorsOf('merian')
   },
   {
@@ -242,7 +274,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "I suppose I have always been a watcher of birds.",
     locationName: "Bombay, India",
     locationCaption: "Where the 'Birdman of India' popularized ornithology across the subcontinent.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/4/4b/SGNP-Bombay.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/View_of_Tulsi_Lake_%287202325106%29.jpg/1920px-View_of_Tulsi_Lake_%287202325106%29.jpg",
+    imageCredit: { author: "Dinesh Valke", license: "CC BY-SA 2.0", source: "https://commons.wikimedia.org/wiki/File:View_of_Tulsi_Lake_(7202325106).jpg" },
     colors: colorsOf('ali')
   },
   {
@@ -251,7 +284,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "A thing is right when it tends to preserve the integrity, stability and beauty of the biotic community.",
     locationName: "Sauk County, Wisconsin",
     locationCaption: "Where he wrote 'A Sand County Almanac'.",
-    imageUrl: "https://images.unsplash.com/photo-1465146344425-f00d5f5c8f07?auto=format&fit=crop&q=80&w=1280",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Wisconsin_River_from_Ferry_Bluff_Hill.JPG/1920px-Wisconsin_River_from_Ferry_Bluff_Hill.JPG",
+    imageCredit: { author: "Gripper", license: "CC BY-SA 4.0", source: "https://commons.wikimedia.org/wiki/File:Wisconsin_River_from_Ferry_Bluff_Hill.JPG" },
     colors: colorsOf('leopold')
   },
   {
@@ -260,7 +294,8 @@ export const NATURALIST_THEMES: NaturalistTheme[] = [
     quote: "All good things are wild and free.",
     locationName: "Walden Pond, Massachusetts",
     locationCaption: "Where he lived in a cabin for two years in simple living.",
-    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Walden_Pond_outlook.jpg/1280px-Walden_Pond_outlook.jpg",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Walden_Pond%2C_2010.jpg/1920px-Walden_Pond%2C_2010.jpg",
+    imageCredit: { author: "ptwo", license: "CC BY 2.0", source: "https://commons.wikimedia.org/wiki/File:Walden_Pond,_2010.jpg" },
     colors: colorsOf('thoreau')
   }
 ];

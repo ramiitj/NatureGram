@@ -224,13 +224,15 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                   ) : null}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
                 </div>
+                {/* A soft shade where the words sit, instead of shadows on the letters */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/65 via-black/25 to-transparent" aria-hidden="true" />
 
                 {/* The species and one brief line; tapping it opens the sighting, the one place for more */}
                 <button
                   type="button"
                   onClick={() => onOpenPost(p.id)}
                   aria-label={`${species}. ${line} Open the sighting`}
-                  className="absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-left text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]"
+                  className="absolute left-4 right-20 md:right-auto md:left-[calc(50%_-_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] md:max-w-[calc(2_*_min(50%_-_4.5rem,_100dvh*9/32)_-_1.5rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 z-10 text-left text-white"
                 >
                   <span className="block font-display italic text-lg leading-tight truncate">{species}</span>
                   {line && <span className="block text-sm text-white/85 leading-snug mt-0.5 line-clamp-2">{line}</span>}
@@ -239,16 +241,16 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                 {/* The actions sit beside the clip on wide screens, at the edge on phones */}
                 <div className={`absolute right-2 md:right-auto md:left-[calc(50%_+_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-3 z-10 flex flex-col items-center gap-5 transition-opacity duration-700 ${titleFor === p.id ? 'opacity-0' : 'opacity-100'}`}>
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`} className="flex flex-col items-center gap-0.5">
-                    <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-theme-primary text-white ring-2 ring-theme-vivid/70 shadow-lg shadow-theme-vivid/40' : 'bg-white/10'}`}>
-                      <WonderIcon active={isLiked} className="text-[28px] drop-shadow" />
+                    <span className={`w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-colors duration-300 ${isLiked ? 'bg-white text-theme-deep' : 'bg-black/25'}`}>
+                      <WonderIcon active={isLiked} className="text-[28px]" />
                     </span>
-                    <span className="text-[11px] text-white/90 drop-shadow tabular-nums">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
+                    <span className="text-[11px] text-white/90 tabular-nums">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
                   </button>
                   <button onClick={() => onOpenPost(p.id)} aria-label={`${species} by ${p.userName}: field notes${p.commentCount ? `, ${p.commentCount}` : ''}`} className="flex flex-col items-center gap-0.5">
-                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
-                      <Glyph name="feather" size={24} className="drop-shadow" />
+                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md">
+                      <Glyph name="feather" size={24} />
                     </span>
-                    <span className="text-[11px] text-white/90 drop-shadow tabular-nums">{p.commentCount ? p.commentCount : 'Notes'}</span>
+                    <span className="text-[11px] text-white/90 tabular-nums">{p.commentCount ? p.commentCount : 'Notes'}</span>
                   </button>
                   <button onClick={async () => {
                     const url = `${window.location.origin}/post/${p.id}`;
@@ -258,10 +260,10 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                       track('share', { surface: 'moments' });
                     } catch { /* cancelled */ }
                   }} aria-label="Share this moment" className="flex flex-col items-center gap-0.5">
-                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md">
-                      <span className="material-symbols-outlined text-[24px] drop-shadow" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
+                    <span className="w-12 h-12 rounded-full flex items-center justify-center bg-black/25 backdrop-blur-md">
+                      <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">share</span>
                     </span>
-                    <span className="text-[11px] text-white/90 drop-shadow">Share</span>
+                    <span className="text-[11px] text-white/90">Share</span>
                   </button>
                 </div>
               </article>

@@ -398,7 +398,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              className="border-2 border-dashed border-stone-200 hover:border-theme-accent bg-stone-50/50 hover:bg-theme-accent/5 rounded-3xl text-center transition-all group"
+              className="border-2 border-dashed border-stone-200 hover:border-theme-accent bg-stone-50/50 hover:bg-stone-900/[0.03] rounded-3xl text-center transition-all group"
             >
               <input
                 ref={fileInputRef}
@@ -495,7 +495,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
           )}
 
           {isProcessing && (
-            <div className="p-6 bg-theme-accent/5 border border-theme-accent/20 rounded-3xl text-center space-y-3" role="status" aria-live="polite">
+            <div className="p-6 bg-stone-900/[0.03] border border-stone-200 rounded-3xl text-center space-y-3" role="status" aria-live="polite">
               <span className="text-theme-accent inline-flex motion-safe:animate-pulse" aria-hidden="true"><Glyph name="guide" size={32} /></span>
               <p className="text-sm text-stone-800">{processingStatus}</p>
             </div>
@@ -515,7 +515,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
           <button
             disabled={items.length === 0 || isProcessing}
             onClick={handleProcess}
-            className="flex-1 py-4 px-6 rounded-full bg-theme-accent text-white font-bold text-sm shadow-lg shadow-theme-shadow hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+            className="flex-1 py-4 px-6 rounded-full bg-theme-accent text-white font-bold text-sm shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
           >
             <Glyph name="guide" size={18} />
             <span>{items.length > 1 ? `Show your guide (${items.length})` : 'Show your guide'}</span>

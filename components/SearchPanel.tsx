@@ -62,7 +62,7 @@ interface SearchPanelProps {
 }
 
 const Heading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h3 className="font-display text-base text-theme-deep mb-2">{children}</h3>
+  <h3 className="font-display text-lg text-stone-900 mb-2">{children}</h3>
 );
 
 const SearchPanel: React.FC<SearchPanelProps> = ({
@@ -140,7 +140,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
             placeholder={SEARCH_PLACEHOLDER}
             enterKeyHint="search"
             autoComplete="off"
-            className={`w-full bg-white border border-theme-primary/25 rounded-xl pl-11 ${query ? 'pr-10' : 'pr-3'} py-3 text-base text-text-main placeholder:text-stone-600 outline-none focus:border-theme-accent focus:ring-2 focus:ring-theme-accent/20 [&::-webkit-search-cancel-button]:hidden`}
+            className={`ng-field w-full pl-11 ${query ? 'pr-10' : 'pr-3'} py-3 [&::-webkit-search-cancel-button]:hidden`}
           />
           {query && (
             <button type="button" onClick={() => onQueryChange('')} aria-label="Clear search" className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-stone-500 hover:text-stone-800">
@@ -161,7 +161,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                 <p className="text-sm text-stone-600 mb-2">Try a species, a place, a #tag or an explorer's name.</p>
                 <div className="flex flex-wrap gap-2">
                   {suggestions.slice(0, 8).map(s => (
-                    <button key={s} type="button" onClick={() => onQueryChange(s)} className="px-3 py-1.5 rounded-full border border-theme-primary/15 text-sm text-stone-700 hover:bg-theme-primary/5">{s}</button>
+                    <button key={s} type="button" onClick={() => onQueryChange(s)} className="px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">{s}</button>
                   ))}
                 </div>
               </section>
@@ -179,7 +179,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                   <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" role="list">
                     {species.map(s => (
                       <li key={s.name} className="min-w-0">
-                        <button type="button" onClick={() => onOpenSpecies ? onOpenSpecies(s.name) : onQueryChange(s.name)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-theme-primary/10 bg-white/70 hover:bg-white text-left">
+                        <button type="button" onClick={() => onOpenSpecies ? onOpenSpecies(s.name) : onQueryChange(s.name)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-stone-200 bg-white hover:border-stone-300 text-left transition-colors">
                           <Glyph name={GROUP_GLYPH[s.group]} size={20} className="text-theme-accent shrink-0" />
                           <span className="min-w-0 flex-1">
                             <span className="block font-display italic text-[15px] text-text-main truncate">{s.name}</span>
@@ -207,12 +207,12 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                   <Heading>Places and tags</Heading>
                   <div className="flex flex-wrap gap-2">
                     {placesAndTags.places.map(pl => (
-                      <button key={`p-${pl}`} type="button" onClick={() => onQueryChange(pl)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-theme-primary/15 text-sm text-stone-700 hover:bg-theme-primary/5">
+                      <button key={`p-${pl}`} type="button" onClick={() => onQueryChange(pl)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">
                         <Glyph name="tracks" size={15} className="text-theme-accent" />{pl}
                       </button>
                     ))}
                     {placesAndTags.tags.map(tg => (
-                      <button key={`t-${tg}`} type="button" onClick={() => onQueryChange(`#${tg}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-theme-primary/15 text-sm text-stone-700 hover:bg-theme-primary/5">
+                      <button key={`t-${tg}`} type="button" onClick={() => onQueryChange(`#${tg}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">
                         <Glyph name="tag" size={15} className="text-theme-accent" />#{tg}
                       </button>
                     ))}
@@ -230,7 +230,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                           <button type="button" onClick={() => onOpenProfile(u.uid)} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white text-left">
                             {u.avatarUrl
                               ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
-                              : <span className="w-10 h-10 rounded-full bg-theme-primary/10 flex items-center justify-center font-semibold text-theme-primary shrink-0" aria-hidden="true">{(u.username || '?').charAt(0).toUpperCase()}</span>}
+                              : <span className="w-10 h-10 rounded-full bg-stone-900/[0.045] flex items-center justify-center font-semibold text-stone-900 shrink-0" aria-hidden="true">{(u.username || '?').charAt(0).toUpperCase()}</span>}
                             <span className="min-w-0">
                               <span className="block font-semibold text-stone-900 truncate">{u.username}</span>
                               {line && <span className="block text-xs text-stone-500 truncate">{line}</span>}

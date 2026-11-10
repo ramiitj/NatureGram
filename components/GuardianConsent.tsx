@@ -12,8 +12,8 @@ type Phase = 'loading' | 'open' | 'approved' | 'declined' | 'expired' | 'used' |
 
 const Mark: React.FC = () => (
   <a href="/" className="inline-flex items-center gap-2.5" aria-label="NatureGram home">
-    <img src="/icon-192.png" width={36} height={36} alt="" className="rounded-[9px]" />
-    <span className="font-display italic font-semibold text-xl text-text-main">NatureGram</span>
+    <Glyph name="mark" size={22} className="text-stone-900" />
+    <span className="font-display italic text-xl text-stone-900 tracking-tight">NatureGram</span>
   </a>
 );
 
@@ -57,7 +57,9 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
     guardianSummary(token).then(r => {
       const teen = r.data?.teen;
       if (teen) setTeenName(teen.firstName || teen.username);
-      if (r.ok && r.data) { setSummary(r.data); setPhase('open'); return; }
+      if (r.ok && r.data?.teen && r.data?.facts) { setSummary(r.data); setPhase('open'); return; }
+      // A 200 that isn't the summary (an HTML fallback from a proxy, say) reads as unreachable, never a crash
+      if (r.ok) { setPhase('offline'); return; }
       setPhase(r.code === 'offline' ? 'offline' : (['expired', 'used', 'replaced'].includes(String(r.code)) ? r.code : 'invalid') as Phase);
     });
   }, [token]);
@@ -82,15 +84,14 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
     setVerifyNote(v ? 'Thank you, your email is verified.' : 'Not verified yet. Open the link in the email we sent, then try again.');
   };
 
-  const card = 'bg-[#fcfaf8] border border-[#e8dfcd] rounded-[4px] shadow-[0_1px_2px_rgba(60,40,20,0.06)]';
-  const btn = 'min-h-[52px] px-6 rounded-full font-semibold text-base transition-opacity disabled:opacity-60';
+  const card = 'ng-paper';
 
   const done = (heading: string, paras: React.ReactNode[], glyph: 'stamp' | 'feather' | 'compass' = 'stamp') => (
     <section className={`${card} p-6 sm:p-8`} role="status">
       <Glyph name={glyph} size={32} className="text-theme-accent" />
-      <h1 className="mt-3 font-display text-[28px] sm:text-[32px] leading-tight text-text-main">{heading}</h1>
+      <h1 className="mt-3 ng-heading text-[28px] sm:text-[32px] leading-tight">{heading}</h1>
       <div className="mt-3 flex flex-col gap-3 text-[15px] text-stone-700 leading-relaxed">{paras.map((p, i) => <p key={i}>{p}</p>)}</div>
-      <a href="/feed" className={`${btn} mt-6 inline-flex items-center justify-center bg-theme-primary text-white hover:opacity-90`}>Go to NatureGram</a>
+      <a href="/feed" className="ng-button-primary mt-6">Go to NatureGram</a>
     </section>
   );
 
@@ -156,7 +157,7 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
           <div className="mt-3"><List items={f.controls} glyph="stamp" /></div>
         </section>
 
-        <section className={`${card} p-5 sm:p-7 border-theme-accent/40`} aria-labelledby="g-decide">
+        <section className={`${card} p-5 sm:p-7 !border-theme-accent/40`} aria-labelledby="g-decide">
           <h2 id="g-decide" className="font-display text-2xl text-text-main">Your answer</h2>
           {!signedIn ? (
             <>
@@ -169,7 +170,7 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
             <>
               <p className="mt-2 text-sm text-stone-600">Signed in as <span className="font-semibold text-stone-800">{user!.email || 'your account'}</span>. <button type="button" onClick={() => FirebaseService.logout()} className="underline underline-offset-2 hover:text-stone-900 min-h-[44px]">Not you?</button></p>
               {!user!.verified && (
-                <div className="mt-3 rounded-lg bg-insight-bg border border-theme-accent/25 p-3.5 text-sm text-stone-800 leading-relaxed">
+                <div className="mt-3 rounded-lg bg-insight-bg border border-stone-300 p-3.5 text-sm text-stone-800 leading-relaxed">
                   <p>Please verify your email address before approving. We've sent a link to your inbox.</p>
                   <div className="mt-2 flex flex-wrap gap-x-4">
                     <button type="button" onClick={async () => { await FirebaseService.sendVerificationEmail().catch(() => {}); setVerifyNote('Sent. It can take a minute or two.'); }} className="font-semibold text-theme-accent min-h-[44px]">Send the link again</button>
@@ -181,11 +182,11 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
               <fieldset className="mt-4 flex flex-col gap-1">
                 <legend className="sr-only">Please confirm</legend>
                 <label className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer">
-                  <input type="checkbox" checked={adult} onChange={e => setAdult(e.target.checked)} className="mt-0.5 w-5 h-5 accent-[rgb(var(--theme-primary-rgb))]" />
+                  <input type="checkbox" checked={adult} onChange={e => setAdult(e.target.checked)} className="mt-0.5 w-5 h-5 accent-stone-900" />
                   <span className="text-[15px] text-stone-800">I'm 18 or older</span>
                 </label>
                 <label className="flex items-start gap-3 min-h-[44px] py-2 cursor-pointer">
-                  <input type="checkbox" checked={guardian} onChange={e => setGuardian(e.target.checked)} className="mt-0.5 w-5 h-5 accent-[rgb(var(--theme-primary-rgb))]" />
+                  <input type="checkbox" checked={guardian} onChange={e => setGuardian(e.target.checked)} className="mt-0.5 w-5 h-5 accent-stone-900" />
                   <span className="text-[15px] text-stone-800">I'm {teenName}'s parent or guardian</span>
                 </label>
               </fieldset>
@@ -196,8 +197,8 @@ const GuardianConsent: React.FC<{ token?: string }> = ({ token: given }) => {
                 </div>
               )}
               <div className="mt-4 flex flex-col sm:flex-row gap-3">
-                <button type="button" onClick={() => decide('approve')} disabled={!!busy} className={`${btn} bg-theme-primary text-white hover:opacity-90 sm:flex-1`}>{busy === 'approve' ? 'Approving…' : 'Approve'}</button>
-                <button type="button" onClick={() => decide('decline')} disabled={!!busy} className={`${btn} border border-stone-300 bg-white text-stone-800 hover:bg-stone-50`}>{busy === 'decline' ? 'One moment…' : 'Not now'}</button>
+                <button type="button" onClick={() => decide('approve')} disabled={!!busy} className="ng-button-primary min-h-[52px] sm:flex-1">{busy === 'approve' ? 'Approving…' : 'Approve'}</button>
+                <button type="button" onClick={() => decide('decline')} disabled={!!busy} className="ng-button-quiet min-h-[52px]">{busy === 'decline' ? 'One moment…' : 'Not now'}</button>
               </div>
               {/* glossary-ok: record as a verb */}
               <p className="mt-3 text-xs text-stone-500 leading-relaxed">We record that you approved, when, and from which account, so we can show consent was given. You can withdraw it at any time. <a href="/privacy.html" target="_blank" rel="noopener" className="underline underline-offset-2">Privacy policy</a></p>

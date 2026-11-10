@@ -41,7 +41,7 @@ export const SpecimenPlate: React.FC<{
       className={`relative text-left w-full rounded-[3px] ${pad} ${ghost ? 'bg-transparent border border-dashed border-stone-300' : 'bg-[#fbf7ef] shadow-[0_1px_2px_rgba(60,40,20,0.12),0_6px_18px_-8px_rgba(60,40,20,0.25)]'} ${onClick ? 'active:scale-[0.98] transition-transform' : ''} ${className}`}
     >
       <div className={`h-full rounded-[2px] ${ghost ? '' : 'border border-[#d8ccb6] outline outline-1 outline-offset-[3px] outline-[#e8dfcd]'} flex flex-col`}>
-        <div className="flex items-center justify-between px-2 pt-1.5 text-[10px] tracking-[0.14em] uppercase text-[#8a7a60] font-semibold">
+        <div className="flex items-center justify-between px-2 pt-1.5 font-display italic text-[12px] text-[#8a7a60]">
           <span>{data.no ? `No. ${data.no}` : ' '}</span>
           {data.group && <Glyph name={GROUP_GLYPH[data.group]} size={13} />}
         </div>

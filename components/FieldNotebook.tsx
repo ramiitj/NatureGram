@@ -222,7 +222,7 @@ const EntryView: React.FC<{ e: Entry; onOpen: (p: CommunityPost) => void; index:
       </div>
       <div className="flex-1 min-w-0">
         <button type="button" onClick={() => onOpen(e.post)} className="text-left">
-          <span className={`block font-display italic text-[19px] leading-snug ${e.isPrivate ? 'text-stone-600' : 'text-theme-primary'} hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4`}>
+          <span className={`block font-display italic text-[19px] leading-snug ${e.isPrivate ? 'text-stone-600' : 'text-stone-900'} hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4`}>
             {e.species || (e.captures.length > 1 ? `${e.captures.length} captures` : 'Untitled sighting')}
           </span>
         </button>
@@ -262,10 +262,10 @@ export const JournalHeader: React.FC<{
   showSearch?: boolean;
   onTitleClick?: () => void;
 }> = ({ count, firstMs, view, onView, query, onQuery, showSearch = true, onTitleClick }) => (
-  <header className="px-4 md:px-12 pt-10 pb-5 border-b border-theme-primary/10">
+  <header className="px-4 md:px-12 pt-10 pb-5 border-b border-stone-200">
     <div className="flex items-start justify-between gap-3">
       <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
-        <h2 className="text-2xl md:text-3xl font-display font-semibold text-theme-primary flex items-center gap-2">
+        <h2 className="text-2xl md:text-3xl font-display font-semibold text-stone-900 flex items-center gap-2">
           <Glyph name="rings" size={26} className="text-theme-accent" />
           My journal
         </h2>
@@ -283,7 +283,7 @@ export const JournalHeader: React.FC<{
               type="button"
               onClick={() => onView(v)}
               aria-pressed={view === v}
-              className={`h-9 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 ${view === v ? 'bg-theme-primary text-white' : 'border border-theme-primary/15 text-theme-primary/80 hover:bg-theme-primary/5'}`}
+              className={`h-9 px-3 rounded-full text-sm font-medium flex items-center gap-1.5 ${view === v ? 'bg-stone-900 text-white' : 'border border-stone-200 text-stone-900/80 hover:bg-stone-900/[0.03]'}`}
             >
               {v === 'notebook'
                 ? <><Glyph name="notebook" size={16} />Notebook</>
@@ -364,7 +364,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
               {months.map((m, i) => (
                 <li key={m.key}>
                   <button type="button" onClick={() => jump(m.key, i)} className="text-left group">
-                    <span className="block text-sm font-display text-theme-primary group-hover:underline">{m.title}</span>
+                    <span className="block text-sm font-display text-stone-900 group-hover:underline">{m.title}</span>
                     <span className="block text-[11px] text-stone-500">{(() => { const n = m.days.reduce((t, d) => t + d.outings.reduce((k, o) => k + o.entries.length, 0), 0); return `${m.season} · ${n} ${n === 1 ? 'sighting' : 'sightings'}`; })()}</span>
                   </button>
                 </li>
@@ -381,7 +381,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
               {/* Unfinished pages */}
               {!q && pages.length > 0 && (
                 <section aria-labelledby="nb-unfinished" className="mb-8 rounded-[3px] border border-dashed border-[#cdbfa5] bg-[#fbf7ef] p-4">
-                  <h3 id="nb-unfinished" className="font-display text-lg text-theme-primary flex items-center gap-2">
+                  <h3 id="nb-unfinished" className="font-display text-lg text-stone-900 flex items-center gap-2">
                     <Glyph name="satchel" size={18} className="text-[rgb(var(--theme-accent-rgb))]" />Unfinished pages
                   </h3>
                   <ul className="mt-2 divide-y divide-[#e8dfcd]" role="list">
@@ -408,7 +408,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
               {/* On this day */}
               {!q && onThisDay && (
                 <section aria-labelledby="nb-otd" className="mb-8 rounded-[3px] bg-[#fbf7ef] p-4 shadow-[0_1px_2px_rgba(60,40,20,0.1)] border border-[#e8dfcd]">
-                  <h3 id="nb-otd" className="font-display text-lg text-theme-primary flex items-center gap-2">
+                  <h3 id="nb-otd" className="font-display text-lg text-stone-900 flex items-center gap-2">
                     <Glyph name="sun" size={18} className="text-[rgb(var(--theme-accent-rgb))]" />{onThisDay.title}
                   </h3>
                   <p className="text-xs text-stone-500 mt-0.5">{notebookDate(onThisDay.items[0].ms)}{onThisDay.items.length > 1 ? ` and ${onThisDay.items.length - 1} more` : ''}</p>
@@ -437,7 +437,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
                 visible.map(m => (
                   <section key={m.key} id={`nb-${m.key}`} aria-labelledby={`nbh-${m.key}`} className="mb-6 scroll-mt-4">
                     <h3 id={`nbh-${m.key}`} className="sticky top-0 z-10 -mx-4 px-4 md:-mx-2 md:px-2 py-2 bg-day-bg/95 backdrop-blur-sm border-b border-[#e8dfcd] flex items-baseline gap-2">
-                      <span className="font-display text-xl text-theme-primary">{m.title}</span>
+                      <span className="font-display text-xl text-stone-900">{m.title}</span>
                       <span className="text-sm text-stone-500">{m.season}</span>
                     </h3>
                     {m.days.map(d => (
@@ -466,7 +466,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
 
               {!q && months.length > shownMonths && (
                 <div className="flex justify-center pt-4">
-                  <button type="button" onClick={() => setShownMonths(n => n + 3)} className="px-5 py-2.5 rounded-full border border-theme-primary/15 text-sm font-medium text-theme-primary hover:bg-theme-primary/5">
+                  <button type="button" onClick={() => setShownMonths(n => n + 3)} className="px-5 py-2.5 rounded-full border border-stone-200 text-sm font-medium text-stone-900 hover:bg-stone-900/[0.03]">
                     Turn back to earlier pages
                   </button>
                 </div>

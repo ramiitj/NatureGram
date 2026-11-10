@@ -131,10 +131,10 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
   const shown = showAll ? slips : slips.slice(0, 4);
 
   return (
-    <section aria-labelledby={`cid-${postId}`} className="relative rounded-[3px] border border-theme-primary/15 p-4 space-y-3">
+    <section aria-labelledby={`cid-${postId}`} className="relative rounded-[3px] border border-stone-200 p-4 space-y-3">
       <div className="flex items-start justify-between gap-2 pr-16">
         <div>
-          <h3 id={`cid-${postId}`} className="text-[17px] font-display text-theme-primary">{canDetermine ? 'Is this right?' : 'Determinations'}</h3>
+          <h3 id={`cid-${postId}`} className="text-[17px] font-display text-stone-900">{canDetermine ? 'Is this right?' : 'Determinations'}</h3>
           {tally.length > 0 && (
             <p className="text-xs text-stone-500 mt-0.5">
               {ids.length} {ids.length === 1 ? 'explorer has' : 'explorers have'} weighed in{disputed ? ', and they disagree' : ''}
@@ -175,7 +175,7 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
                     type="button"
                     onClick={() => thank(d)}
                     disabled={thanked.includes(d.id)}
-                    className="absolute top-2.5 right-2.5 h-8 px-3 rounded-full border border-theme-primary/15 text-xs font-medium text-theme-primary hover:bg-white disabled:text-stone-500 disabled:hover:bg-transparent"
+                    className="absolute top-2.5 right-2.5 h-8 px-3 rounded-full border border-stone-200 text-xs font-medium text-stone-900 hover:bg-white disabled:text-stone-500 disabled:hover:bg-transparent"
                   >
                     {thanked.includes(d.id) ? 'Thanked' : 'Thank'}
                   </button>
@@ -208,19 +208,19 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
               <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="For example: white eye-ring, two wing bars" maxLength={280} rows={2} className="mt-1 w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-base resize-none" />
             </label>
             <div className="flex gap-2">
-              <button type="submit" disabled={busy || !name.trim()} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold disabled:opacity-40">Suggest this</button>
-              <button type="button" onClick={() => setSuggesting(false)} className="px-4 py-2.5 rounded-xl border border-theme-primary/15 text-theme-primary text-sm font-bold">Cancel</button>
+              <button type="submit" disabled={busy || !name.trim()} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold disabled:opacity-40">Suggest this</button>
+              <button type="button" onClick={() => setSuggesting(false)} className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-900 text-sm font-bold">Cancel</button>
             </div>
           </form>
         ) : (
           <div className="flex gap-2">
             {primaryLabel && (
-              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-theme-primary text-white text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-1.5">
+              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-1.5">
                 <Glyph name="tag" size={16} />
                 Yes, it's {primaryLabel.length > 22 ? primaryLabel.slice(0, 20) + '…' : primaryLabel}
               </button>
             )}
-            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-theme-primary text-sm font-bold">I think it's…</button>
+            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-900 text-sm font-bold">I think it's…</button>
           </div>
         )
       )}

@@ -455,7 +455,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    </div>
                )}
                {plate?.no && <p className="font-display italic text-lg text-theme-accent mb-1">No. {plate.no} in your collection</p>}
-               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
+               <h2 className="text-3xl font-display text-stone-900 mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
                <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with everyone any time.')}</p>
                {isNew && lifeListTotal > 0 && <p className="text-sm text-stone-700 mb-4 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                {answeredChallenge && (
@@ -469,14 +469,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                )}
                <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
-                       <button onClick={share} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+                       <button onClick={share} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2">
                            <span className="material-symbols-outlined" aria-hidden="true">share</span>{/* glossary-ok: the life-list plate */}
                            {copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
                    {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
-                   <button onClick={onViewFeed} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
-                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="eyeEar" size={20} />Keep looking</button>}
+                   <button onClick={onViewFeed} className="w-full bg-stone-900 text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
+                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-stone-200 text-stone-900 px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="eyeEar" size={20} />Keep looking</button>}
                </div>
           </div>
       );
@@ -496,7 +496,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="fixed inset-0 bg-day-bg flex flex-col z-[70] overflow-hidden"
     >
-      <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-theme-primary/10 shrink-0 z-20 safe-pt box-content">
+      <header className="h-16 px-4 flex justify-between items-center bg-white border-b border-stone-200 shrink-0 z-20 safe-pt box-content">
           <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="w-11 h-11 -ml-2 rounded-full flex items-center justify-center text-stone-700 hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
           <div className="text-center">
               <h2 className="text-base font-display text-stone-900">{selectedIndices.size > 1 && !combine ? 'Your sightings' : 'Your sighting'}</h2>
@@ -535,13 +535,13 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       />
                                   ))}
                                   {[currentSnapshot.url, ...(currentSnapshot.associatedImages?.map(i => i.url) || [])].filter(Boolean).length === 0 && (
-                                      <div className="col-span-2 row-span-2 bg-theme-primary flex items-center justify-center">
+                                      <div className="col-span-2 row-span-2 bg-stone-900 flex items-center justify-center">
                                           <Glyph name="sound" size={56} className="text-white/60" />
                                       </div>
                                   )}
                               </div>
                               <div className="relative z-10 flex flex-col items-center gap-6 p-8 bg-black/40 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl">
-                                  <div className="w-16 h-16 rounded-full bg-theme-primary flex items-center justify-center text-white shadow-lg shadow-theme-accent/40">
+                                  <div className="w-16 h-16 rounded-full bg-stone-900 flex items-center justify-center text-white">
                                       <Glyph name="sound" size={30} />
                                   </div>
                                   <audio 
@@ -651,13 +651,13 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <button
                                       key={snap.id}
                                       onClick={() => setCurrentSnapIndex(i)}
-                                      className={`relative shrink-0 w-20 aspect-square rounded-xl overflow-hidden border-2 transition-all ${currentSnapIndex === i ? 'border-theme-accent scale-105 shadow-lg' : 'border-theme-primary/10 opacity-60 hover:opacity-100'}`}
+                                      className={`relative shrink-0 w-20 aspect-square rounded-xl overflow-hidden border-2 transition-all ${currentSnapIndex === i ? 'border-theme-accent scale-105 shadow-lg' : 'border-stone-200 opacity-60 hover:opacity-100'}`}
                                   >
                                       {snap.type === 'audio' ? (
                                           snap.associatedImages && snap.associatedImages.length > 0 ? (
                                               <img src={snap.associatedImages[0].url} className="w-full h-full object-cover" alt="" />
                                           ) : (
-                                              <div className="w-full h-full bg-theme-primary flex items-center justify-center">
+                                              <div className="w-full h-full bg-stone-900 flex items-center justify-center">
                                                   <Glyph name="sound" size={24} className="text-white/80" />
                                               </div>
                                           )
@@ -670,7 +670,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                           />
                                       )}
                                       {!selectedIndices.has(i) && (
-                                          <div className="absolute inset-0 bg-theme-primary/60 flex items-center justify-center">
+                                          <div className="absolute inset-0 bg-stone-900/60 flex items-center justify-center">
                                               <span className="material-symbols-outlined text-white text-xs">close</span>
                                           </div>
                                       )}
@@ -747,7 +747,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       { v: true, icon: 'public', title: 'Share with everyone', desc: 'Everyone on NatureGram, and your journal' },
                                       { v: false, icon: 'fingerprint', title: 'Only me', desc: 'Just in your journal' },
                                   ]).map(opt => (
-                                      <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
+                                      <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-stone-900/[0.03]' : 'border-stone-200 bg-white'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
                                           <span className="flex items-center gap-2 font-bold text-stone-900">{opt.icon === 'fingerprint' ? <Glyph name="rings" size={20} /> : <span className="material-symbols-outlined text-xl" aria-hidden="true">{opt.icon}</span>}{opt.title}</span>
                                           <span className="block text-xs text-stone-600 mt-1">{opt.desc}</span>
@@ -777,7 +777,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               </summary>
                               <div className="px-4 pb-5 pt-1 space-y-6">
                                   <section>
-                                      <label htmlFor="post-scientific" className="block text-xs font-bold text-theme-primary/70 mb-2">Scientific name</label>
+                                      <label htmlFor="post-scientific" className="block text-xs font-bold text-stone-900/70 mb-2">Scientific name</label>
                                       <input
                                           id="post-scientific"
                                           type="text"
@@ -801,14 +801,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   )}
 
                                   <section>
-                                      <label htmlFor="post-insight" className="block text-xs font-bold text-theme-primary/70 mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
+                                      <label htmlFor="post-insight" className="block text-xs font-bold text-stone-900/70 mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
                                       <div className="relative">
                                           <textarea
                                               id="post-insight"
                                               value={aiInsight}
                                               onChange={(e) => editInsight(e.target.value)}
                                               placeholder="What it was doing, and why"
-                                              className={`w-full p-4 bg-theme-accent/5 border rounded-2xl text-base font-display text-stone-900 leading-relaxed resize-none h-36 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-theme-accent/30 animate-pulse' : 'border-theme-accent/20 focus:border-theme-accent/50'}`}
+                                              className={`w-full p-4 bg-stone-900/[0.03] border rounded-2xl text-base font-display text-stone-900 leading-relaxed resize-none h-36 transition-all ${isAnalyzing && aiInsight === "Processing..." ? 'border-stone-300 animate-pulse' : 'border-stone-200 focus:border-theme-accent/50'}`}
                                           />
                                           {isAnalyzing && aiInsight === "Processing..." && (
                                               <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px] rounded-2xl pointer-events-none" role="status">
@@ -823,8 +823,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
                                   <section>
                                       <div className="flex items-center justify-between mb-2">
-                                          <label htmlFor="post-location" className="text-xs font-bold text-theme-primary/70">Location</label>
-                                          <label className="flex items-center gap-2 text-xs font-semibold text-theme-primary/70 cursor-pointer">
+                                          <label htmlFor="post-location" className="text-xs font-bold text-stone-900/70">Location</label>
+                                          <label className="flex items-center gap-2 text-xs font-semibold text-stone-900/70 cursor-pointer">
                                               <input
                                                   type="checkbox"
                                                   checked={showLocation}
@@ -835,14 +835,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                           </label>
                                       </div>
                                       <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
-                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">location_on</span>
+                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-stone-900/60 text-sm" aria-hidden="true">location_on</span>
                                           <input
                                               id="post-location"
                                               type="text"
                                               value={resolvedArea}
                                               disabled={!showLocation}
                                               onChange={(e) => setResolvedArea(e.target.value)}
-                                              className="w-full pl-11 pr-4 py-3.5 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
+                                              className="w-full pl-11 pr-4 py-3.5 bg-stone-900/[0.03] border border-stone-200 rounded-2xl text-sm font-display text-stone-900/90 outline-none focus:border-theme-accent/30"
                                           />
                                       </div>
                                       <p className="text-xs text-stone-500 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
@@ -850,16 +850,16 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   </section>
 
                                   <section>
-                                      <label htmlFor="post-tags" className="block text-xs font-bold text-theme-primary/70 mb-2">Hashtags</label>
+                                      <label htmlFor="post-tags" className="block text-xs font-bold text-stone-900/70 mb-2">Hashtags</label>
                                       <div className="relative">
-                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-theme-primary/60 text-sm" aria-hidden="true">tag</span>
+                                          <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-stone-900/60 text-sm" aria-hidden="true">tag</span>
                                           <input
                                               id="post-tags"
                                               type="text"
                                               value={tags.join(' ')}
                                               onChange={(e) => { tagsTouchedRef.current = true; setTags(e.target.value.split(/\s+/).map(t => t && !t.startsWith('#') ? `#${t}` : t)); }}
                                               placeholder="#birding #monsoon"
-                                              className="w-full pl-11 p-3.5 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
+                                              className="w-full pl-11 p-3.5 bg-stone-900/[0.03] border border-stone-200 rounded-2xl text-sm font-semibold text-stone-800 focus:border-theme-accent/30 transition-colors"
                                           />
                                       </div>
                                   </section>
@@ -871,7 +871,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           </div>
 
           {/* Static Finalize Button at Bottom */}
-          <div className="shrink-0 p-4 bg-white border-t border-theme-primary/10 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="shrink-0 p-4 bg-white border-t border-stone-200 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               {sharesLeft !== null && !publishError && (
                   <p className="mb-2 text-xs text-stone-600 text-center">
                       {sharesLeft === 0 ? "You've shared today's sightings. Save this one as a draft and share it tomorrow." : `You can share ${sharesLeft} more sighting${sharesLeft === 1 ? '' : 's'} today.`}
@@ -891,7 +891,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   onClick={handleFinalizeClick}
                   disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
                   aria-busy={isProcessing}
-                  className="w-full py-4 bg-theme-primary text-white font-bold text-base rounded-2xl shadow-xl shadow-theme-primary/20 disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
+                  className="w-full py-4 bg-stone-900 text-white font-bold text-base rounded-2xl disabled:opacity-40 transition-all active:scale-[0.98] flex items-center justify-center gap-3"
               >
                   {isProcessing ? (
                       <>
@@ -919,7 +919,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   <h3 id="leave-title" className="text-xl font-bold text-stone-900">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
                   <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
                   <div className="flex flex-col gap-2">
-                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold">Save draft</button>
+                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-stone-900 text-white font-bold">Save draft</button>
                       <button onClick={() => { setConfirmLeave(false); onClose(); }} className="w-full py-3.5 rounded-xl bg-red-50 text-red-700 font-bold">Discard</button>
                       <button onClick={() => setConfirmLeave(false)} className="w-full py-3.5 rounded-xl bg-stone-100 text-stone-800 font-bold">Keep editing</button>
                   </div>

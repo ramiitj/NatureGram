@@ -99,7 +99,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
           <div className="p-8 text-center" role="status">
             <Glyph name="feather" size={34} className="text-theme-accent mx-auto" />
             <p className="font-display text-xl text-stone-900 mt-4">Noted on your field page.</p>
-            <p className="font-display italic text-lg text-theme-primary mt-4 leading-snug">“{extra.philosophy}”</p>
+            <p className="font-display italic text-lg text-stone-900 mt-4 leading-snug">“{extra.philosophy}”</p>
             <p className="text-sm text-stone-500 mt-2">{theme.naturalist}</p>
           </div>
         ) : (
@@ -124,9 +124,9 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                         type="button"
                         onClick={() => toggle(v.id)}
                         aria-pressed={on}
-                        className={`relative w-full h-full text-left rounded-2xl p-3.5 border transition-all active:scale-[0.98] bg-gradient-to-br ${v.bg} ${on ? 'border-theme-accent ring-2 ring-theme-accent/40' : 'border-stone-200 hover:border-theme-primary/30'}`}
+                        className={`relative w-full h-full text-left rounded-2xl p-3.5 border transition-all active:scale-[0.98] bg-gradient-to-br ${v.bg} ${on ? 'border-theme-accent ring-2 ring-theme-accent/40' : 'border-stone-200 hover:border-stone-300'}`}
                       >
-                        <span className={`block ${on ? 'text-theme-accent' : 'text-theme-primary/80'}`}><Glyph name={v.glyph} size={36} strokeWidth={1.3} /></span>
+                        <span className={`block ${on ? 'text-theme-accent' : 'text-stone-900/80'}`}><Glyph name={v.glyph} size={36} strokeWidth={1.3} /></span>
                         <span className="block font-display text-[17px] leading-tight text-stone-900 mt-3">{v.title}</span>
                         <span className="block text-xs text-stone-600 mt-1 leading-snug">{v.line}</span>
                         {on && (
@@ -156,7 +156,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                 type="button"
                 onClick={handleSave}
                 disabled={state === 'saving' || (picked.length === 0 && !note.trim())}
-                className="px-6 py-3 rounded-full text-sm font-semibold bg-theme-primary text-white disabled:opacity-40"
+                className="px-6 py-3 rounded-full text-sm font-semibold bg-stone-900 text-white disabled:opacity-40"
               >
                 {state === 'saving' ? 'Noting it down…' : 'Keep these'}
               </button>

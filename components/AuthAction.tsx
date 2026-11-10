@@ -116,8 +116,8 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
     <div className="fixed inset-0 z-[150] overflow-y-auto bg-[#f3eee4] text-stone-800" style={{ backgroundImage: 'repeating-linear-gradient(to bottom, transparent 0 31px, rgb(120 100 70 / 0.07) 31px 32px)' }}>
       <div className="min-h-full flex flex-col items-center justify-center px-4 py-6 sm:py-14 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
         <header className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} flex items-center gap-2.5 mb-5 sm:mb-7 px-1`}>
-          <span className="w-9 h-9 rounded-[10px] bg-theme-primary text-white flex items-center justify-center shadow-sm"><Glyph name="mark" size={24} strokeWidth={1.7} /></span>
-          <span className="font-display italic font-semibold text-xl text-stone-900">NatureGram</span>
+          <Glyph name="mark" size={22} className="text-stone-900" />
+          <span className="font-display italic text-xl text-stone-900 tracking-tight">NatureGram</span>
         </header>
 
         <main className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} bg-[#fbf7ef] rounded-[3px] p-2 shadow-[0_1px_2px_rgba(60,40,20,0.12),0_18px_40px_-18px_rgba(60,40,20,0.35)] animate-slide-up`}>
@@ -134,7 +134,7 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
                   </p>
                   <NaturalistLine quote={theme.quote} by={theme.naturalist} />
                   <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-3">
-                    <button onClick={() => onDone('lens')} className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-theme-primary text-white text-[15px] font-semibold shadow-sm hover:opacity-95 active:scale-[0.98] transition">
+                    <button onClick={() => onDone('lens')} className="ng-button-primary px-7">
                       <Glyph name="eyeEar" size={20} strokeWidth={1.7} />Open the Lens
                     </button>
                     <button onClick={() => parsed.cont ? window.location.assign(parsed.cont) : onDone('feed')} className="px-4 py-3 text-[15px] font-semibold text-stone-600 hover:text-stone-900">
@@ -193,7 +193,7 @@ const NaturalistLine: React.FC<{ quote: string; by: string }> = ({ quote, by }) 
 );
 
 const Primary: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement>> = ({ className = '', children, ...rest }) => (
-  <button {...rest} className={`inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-theme-primary text-white text-[15px] font-semibold shadow-sm hover:opacity-95 active:scale-[0.98] transition disabled:opacity-60 ${className}`}>{children}</button>
+  <button {...rest} className={`ng-button-primary px-7 ${className}`}>{children}</button>
 );
 
 const Moment: React.FC<{ glyph: React.ComponentProps<typeof Glyph>['name']; kicker: string; title: string; body: React.ReactNode; children?: React.ReactNode }> = ({ glyph, kicker, title, body, children }) => (
@@ -208,7 +208,7 @@ const Moment: React.FC<{ glyph: React.ComponentProps<typeof Glyph>['name']; kick
 
 const Working: React.FC<{ mode: Mode }> = ({ mode }) => (
   <div className="py-14 flex flex-col items-center text-center" role="status" aria-live="polite">
-    <svg viewBox="0 0 48 48" width={44} height={44} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="press-leaf text-theme-primary/50" aria-hidden="true">
+    <svg viewBox="0 0 48 48" width={44} height={44} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" className="press-leaf text-stone-900/50" aria-hidden="true">
       <path d="M24 42C12 36 9 24 14 13c6 1 17 5 20 15 2 7-3 12-10 14z" /><path d="M24 42c-1-9-4-17-9-26M20 30l-6-1M22 24l6-3" />
     </svg>
     <p className="font-display italic text-xl text-stone-600 mt-4">{mode === 'resetPassword' ? 'Checking your link…' : mode === 'welcome' ? 'Opening your field page…' : 'Opening your letter…'}</p>
@@ -247,7 +247,7 @@ const ResetForm: React.FC<{ email: string; code: string; onSaved: (signedIn: boo
       <label htmlFor="new-pw" className="block text-[14px] font-semibold text-stone-700 mt-6">New password</label>
       <div className="mt-1.5 relative">
         <input id="new-pw" autoFocus type={show ? 'text' : 'password'} autoComplete="new-password" value={pw} onChange={e => { setPw(e.target.value); setError(''); }}
-          className="w-full rounded-xl border border-[#d8ccb6] bg-white pl-4 pr-20 py-3.5 text-[16px] focus:border-theme-accent" aria-invalid={!!error} aria-describedby="pw-help" />
+          className="ng-field w-full pl-4 pr-20 py-3.5" aria-invalid={!!error} aria-describedby="pw-help" />
         <button type="button" onClick={() => setShow(s => !s)} className="absolute right-1 top-1/2 -translate-y-1/2 px-3 py-2 text-[14px] font-semibold text-stone-500 hover:text-stone-800" aria-pressed={show}>{show ? 'Hide' : 'Show'}</button>
       </div>
       <p id="pw-help" className={`text-[14px] mt-2 ${error ? 'text-[rgb(var(--theme-accent-rgb))]' : 'text-stone-500'}`} role={error ? 'alert' : undefined}>

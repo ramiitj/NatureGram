@@ -21,8 +21,8 @@ const ConsentBanner: React.FC = () => {
       </div>
       {/* Both answers carry equal weight: same size, same style, side by side */}
       <div className="flex gap-2 mt-3">
-        <button onClick={() => choose('granted')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-theme-primary/40 bg-white text-theme-primary text-sm font-semibold hover:bg-stone-50">Allow</button>
-        <button onClick={() => choose('denied')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-theme-primary/40 bg-white text-theme-primary text-sm font-semibold hover:bg-stone-50">No thanks</button>
+        <button onClick={() => choose('granted')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold hover:bg-stone-50">Allow</button>
+        <button onClick={() => choose('denied')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold hover:bg-stone-50">No thanks</button>
       </div>
     </div>
   );

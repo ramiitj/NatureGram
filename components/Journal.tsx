@@ -78,16 +78,16 @@ const Journal: React.FC<JournalProps> = ({
 
   const emptyState = (
     <div className="py-20 flex flex-col items-center text-center px-6">
-      <Glyph name="rings" size={48} strokeWidth={1.1} className="text-theme-primary/25 mb-5" />
-      <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">Your journal starts outside</h3>
+      <Glyph name="rings" size={44} strokeWidth={1} className="text-stone-400 mb-6" />
+      <h3 className="ng-heading text-2xl mb-2">Your journal starts outside</h3>
       <p className="text-base text-stone-600 max-w-xs">Each outing becomes a page here, dated, placed and in your own words.</p>
       {onOpenLens && (
-        <button type="button" onClick={onOpenLens} className="mt-7 min-h-[48px] px-7 rounded-full bg-theme-primary text-white font-semibold text-base flex items-center gap-2 shadow-lg active:scale-95 transition-transform">
-          <Glyph name="lens" size={20} />Open the Lens
+        <button type="button" onClick={onOpenLens} className="ng-button-primary mt-8">
+          <Glyph name="lens" size={19} className="text-theme-vivid" />Open the Lens
         </button>
       )}
       {onImportFromRoll && (
-        <button type="button" onClick={onImportFromRoll} className="mt-3 min-h-[44px] px-4 text-sm font-semibold text-theme-primary underline decoration-theme-primary/30 underline-offset-4 hover:decoration-theme-primary">
+        <button type="button" onClick={onImportFromRoll} className="ng-link mt-4 min-h-[44px] px-4 text-sm">
           Bring in from your camera roll
         </button>
       )}

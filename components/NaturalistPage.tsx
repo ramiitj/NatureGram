@@ -16,6 +16,7 @@ interface ThemeLike {
   naturalist: string;
   quote?: string;
   imageUrl?: string;
+  imageCredit?: { author: string; license: string; source: string };
   locationName?: string;
   locationCaption?: string;
 }
@@ -82,7 +83,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
   return (
     <div className="fixed inset-0 z-[120] bg-day-bg overflow-y-auto overscroll-contain animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="naturalist-name">
       <div className="relative h-[42vh] min-h-[260px] max-h-[420px] bg-stone-900 overflow-hidden">
-        {theme.imageUrl && <img src={theme.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-80" />}
+        {theme.imageUrl && <img src={theme.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-t from-day-bg via-day-bg/10 to-black/30" aria-hidden="true" />
         <button onClick={onClose} autoFocus aria-label="Close" className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.75rem)] w-11 h-11 rounded-full bg-black/30 backdrop-blur text-white flex items-center justify-center">
           <span className="material-symbols-outlined" aria-hidden="true">arrow_back</span>
@@ -97,12 +98,22 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
             {extra.lifespan && <p className="font-display italic text-lg text-[#8a7a60] mt-0.5">{extra.lifespan}</p>}
             {extra.bio && <p className="text-[15px] text-stone-800 leading-relaxed mt-4">{extra.bio}</p>}
             {theme.locationCaption && <p className="text-sm text-stone-600 mt-2">{theme.locationName ? `${theme.locationName}: ` : ''}{theme.locationCaption}</p>}
+            {theme.imageUrl && theme.imageCredit?.author && (
+              <p className="text-xs text-stone-500 mt-3">
+                Photograph:{' '}
+                <a href={theme.imageCredit.source} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">
+                  {theme.imageCredit.author}
+                </a>
+                , {theme.imageCredit.license}, via Wikimedia Commons
+              </p>
+            )}
           </div>
         </header>
 
         {theme.quote && (
-          <figure className="mt-10 px-2">
-            <blockquote className="font-display italic text-2xl text-theme-primary leading-snug">“{theme.quote}”</blockquote>
+          <figure className="mt-12 px-2">
+            <span className="ng-rule mb-4" aria-hidden="true" />
+            <blockquote className="font-display italic text-2xl md:text-[28px] text-stone-900 leading-snug text-balance">“{theme.quote}”</blockquote>
           </figure>
         )}
 
@@ -111,18 +122,18 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
           <p className="text-[17px] text-stone-800 leading-relaxed mt-2">{extra.philosophy}</p>
         </section>
 
-        <section className="mt-8 rounded-2xl border border-theme-accent/30 bg-insight-bg p-5" aria-labelledby="fortnight-challenge">
+        <section className="ng-paper mt-10 p-5" aria-labelledby="fortnight-challenge">
           <div className="flex items-start gap-3">
-            <Glyph name="stamp" size={30} className="text-theme-accent mt-0.5" />
+            <Glyph name="stamp" size={28} strokeWidth={1.2} className="text-theme-accent mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <h2 id="fortnight-challenge" className="font-display text-xl font-semibold text-stone-900">This fortnight's challenge</h2>
-              <p className="text-[16px] text-theme-primary leading-relaxed mt-1.5">{extra.challenge}</p>
+              <p className="text-[16px] text-stone-900 leading-relaxed mt-1.5">{extra.challenge}</p>
               <p className="text-sm text-stone-600 mt-2">
                 Tag your sighting {extra.challengeTag}
               </p>
               {onOpenLens && (
-                <button onClick={onOpenLens} className="mt-4 px-5 py-2.5 rounded-full bg-theme-primary text-white text-sm font-semibold inline-flex items-center gap-2">
-                  <Glyph name="eyeEar" size={18} /> Go and look
+                <button onClick={onOpenLens} className="ng-button-primary mt-5 min-h-[44px] px-5 text-sm">
+                  <Glyph name="eyeEar" size={18} className="text-theme-vivid" /> Go and look
                 </button>
               )}
             </div>

@@ -89,9 +89,9 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
       return (
         <div className="flex-1 bg-day-bg flex flex-col items-center justify-center min-h-[100dvh] p-6 text-center">
             <Glyph name="leafCompass" size={48} className="text-theme-accent/60 mb-5" />
-            <h1 className="font-display text-2xl text-theme-primary mb-2">This sighting has gone back to the wild</h1>
+            <h1 className="font-display text-2xl text-stone-900 mb-2">This sighting has gone back to the wild</h1>
             <p className="text-stone-600 mb-8 max-w-sm leading-relaxed">The explorer may have removed it, or made it visible only to themselves. There is plenty more alive out there.</p>
-            <button onClick={onOpenLens || onGoToApp} className="bg-theme-primary text-white px-7 py-3.5 rounded-2xl font-semibold shadow-sm active:scale-95 transition-transform">
+            <button onClick={onOpenLens || onGoToApp} className="bg-stone-900 text-white px-7 py-3.5 rounded-2xl font-semibold active:scale-95 transition-transform">
                 Open the Lens
             </button>
             <button onClick={onGoToApp} className="mt-3 text-sm text-theme-accent font-semibold py-2">See what others found</button>
@@ -123,7 +123,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   return (
       <div className="fixed inset-0 bg-day-bg flex flex-col md:flex-row overflow-hidden">
           <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-4 py-3 md:px-6 md:py-5 z-50 flex items-center bg-gradient-to-b from-black/60 to-transparent pointer-events-none">
-              <span className="font-display text-xl text-white drop-shadow">NatureGram</span>
+              <span className="flex items-center gap-2 text-white"><Glyph name="mark" size={20} /><span className="font-display italic text-xl tracking-tight">NatureGram</span></span>
           </div>
 
           <div className="flex-1 relative bg-stone-950 flex flex-col justify-center min-h-[48dvh] md:min-h-screen group/media overflow-hidden">
@@ -149,7 +149,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                                            style={{ transform: `rotate(${item.rotation || 0}deg)` }}
                                        />
                                   ) : item.mediaType === 'audio' ? (
-                                       <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-theme-primary/10 shadow-2xl rounded-sm">
+                                       <div className="flex flex-col items-center justify-center w-[90%] md:w-auto p-8 bg-stone-900/[0.045] shadow-2xl rounded-sm">
                                             <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
                                             {item.audioUrl && (
                                                  <PlayableAudio src={item.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
@@ -213,7 +213,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                                style={{ transform: `rotate(${currentItem.rotation || 0}deg)` }}
                            />
                       ) : currentItem.mediaType === 'audio' ? (
-                           <div className="flex flex-col items-center justify-center w-full h-full bg-theme-primary/10 p-8 shadow-2xl rounded-sm">
+                           <div className="flex flex-col items-center justify-center w-full h-full bg-stone-900/[0.045] p-8 shadow-2xl rounded-sm">
                                 <Glyph name="sound" size={56} className="text-theme-accent mb-10" />
                                 {currentItem.audioUrl && (
                                      <PlayableAudio src={currentItem.audioUrl} controls controlsList={!canDownload ? "nodownload" : undefined} onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }} className="w-full max-w-xs" />
@@ -232,10 +232,10 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
               )}
           </div>
 
-          <div className="w-full md:w-[400px] lg:w-[450px] bg-day-bg text-stone-800 flex flex-col h-[52dvh] md:h-full overflow-y-auto z-10 shrink-0 border-t md:border-t-0 md:border-l border-theme-primary/10">
+          <div className="w-full md:w-[400px] lg:w-[450px] bg-day-bg text-stone-800 flex flex-col h-[52dvh] md:h-full overflow-y-auto z-10 shrink-0 border-t md:border-t-0 md:border-l border-stone-200">
              <article className="px-6 pt-6 pb-4 md:px-9 md:pt-10 space-y-6 flex-1">
                  <header>
-                     <h1 className={`text-[30px] font-display font-medium text-theme-primary leading-tight ${hasSpecies ? 'italic' : ''}`}>{species}</h1>
+                     <h1 className={`text-[30px] font-display font-medium text-stone-900 leading-tight ${hasSpecies ? 'italic' : ''}`}>{species}</h1>
                      {scientific && <p className="font-display italic text-stone-500 mt-0.5">{scientific}</p>}
                      {behaviour && <p className="text-base text-stone-700 mt-2 leading-snug">{behaviour}</p>}
                      {alsoSeen.length > 0 && <p className="text-sm text-stone-600 mt-1">Also in view: <span className="italic">{alsoSeen.join(', ')}</span></p>}
@@ -252,7 +252,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                  )}
 
                  {insight.length > 0 && (
-                     <section aria-labelledby="why-it-does-this" className="pt-5 border-t border-theme-primary/10">
+                     <section aria-labelledby="why-it-does-this" className="pt-5 border-t border-stone-200">
                          <h2 id="why-it-does-this" className="text-sm font-semibold font-sans text-theme-accent mb-2">Why it does this</h2>
                          <div className="space-y-3">
                              {insight.map((para, i) => <p key={i} className="text-[17px] font-display text-stone-800 leading-[1.6]">{para}</p>)}
@@ -265,13 +265,13 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                  )}
              </article>
 
-             <aside className="mx-4 mb-4 md:mx-6 md:mb-6 p-5 rounded-2xl bg-white border border-theme-primary/10 shadow-sm" aria-label={`An invitation in the spirit of ${naturalist}`}>
+             <aside className="mx-4 mb-4 md:mx-6 md:mb-6 p-5 rounded-2xl bg-white border border-stone-200 shadow-sm" aria-label={`An invitation in the spirit of ${naturalist}`}>
                  <p className="text-xs text-stone-500 flex items-center gap-1.5"><Glyph name="feather" size={14} className="text-theme-accent" />A note in the spirit of {naturalist}</p>
-                 <p className="mt-2 font-display text-[19px] leading-snug text-theme-primary">
+                 <p className="mt-2 font-display text-[19px] leading-snug text-stone-900">
                      {explorer} found this {hasSpecies ? <em>{species}</em> : 'sighting'}{area ? ` near ${area}` : ''}. What's alive near you?
                  </p>
                  {extra.philosophy && <p className="mt-2 text-sm text-stone-600 font-display italic">{extra.philosophy}</p>}
-                 <button onClick={onOpenLens || onGoToApp} className="mt-4 w-full bg-theme-primary text-white px-6 py-3.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center justify-center gap-2">
+                 <button onClick={onOpenLens || onGoToApp} className="mt-4 w-full bg-stone-900 text-white px-6 py-3.5 rounded-xl font-semibold active:scale-95 transition-transform flex items-center justify-center gap-2">
                      <Glyph name="eyeEar" size={20} />
                      Open the Lens
                  </button>

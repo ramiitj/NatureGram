@@ -50,7 +50,7 @@ const PressingLeaf: React.FC<{ className?: string; size?: number }> = ({ classNa
 
 const ViewLoader: React.FC<{ dark?: boolean }> = ({ dark }) => (
   <div className={`flex-1 flex items-center justify-center ${dark ? 'bg-black' : ''}`} role="status" aria-live="polite">
-    <PressingLeaf className={dark ? 'text-white/60' : 'text-theme-primary/50'} />
+    <PressingLeaf className={dark ? 'text-white/60' : 'text-stone-900/50'} />
     <span className="sr-only">Loading…</span>
   </div>
 );
@@ -688,8 +688,8 @@ const App: React.FC = () => {
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
               {/* Your week outside: one short line, the week's new plates and a way to share them */}
-              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-theme-accent/25">
-                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-theme-primary">Your week outside</h3>
+              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-stone-300">
+                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-stone-900">Your week outside</h3>
                 <p className="text-sm text-stone-700 mt-1 leading-relaxed">
                   {userMode?.isAnonymous ? seasonNote()
                     : !myWeek ? 'Counting your week…'
@@ -706,7 +706,7 @@ const App: React.FC = () => {
                   </ul>
                 )}
                 {!userMode?.isAnonymous && !!myWeek?.sightings && (
-                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
+                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-stone-900/[0.03]">
                     <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
                     {/* glossary-ok: the life-list plate itself */}
                     {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
@@ -724,7 +724,7 @@ const App: React.FC = () => {
                 const { who, what } = groupLine(group);
                 const glyph = NOTE_GLYPH[alert.type];
                 return (
-                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-theme-accent/5 hover:bg-theme-accent/10' : 'bg-white hover:bg-stone-50'}`}>
+                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-stone-900/[0.03] hover:bg-stone-900/[0.045]' : 'bg-white hover:bg-stone-50'}`}>
                     <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
                       {glyph ? <Glyph name={glyph} size={22} /> : <WonderIcon active className="text-xl" />}
                     </div>
@@ -743,58 +743,67 @@ const App: React.FC = () => {
 
       <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24 land:pl-20' : ''}`}>
         {currentView === AppView.LANDING && (
-          <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center p-6 z-[60] overflow-y-auto no-scrollbar">
-            <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')`, opacity: 0.6 }} aria-hidden="true"></div>
-            <div className="absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply" aria-hidden="true"></div>
-            <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent" aria-hidden="true"></div>
+          <div className="landing absolute inset-0 z-[60] overflow-hidden bg-stone-950 text-white">
+            {/* The photograph is the hero, in its own colours: no theme wash, only shade where words sit */}
+            <div className="landing-photo absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('${dailyTheme.imageUrl}')` }} aria-hidden="true" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/35" aria-hidden="true" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent md:bg-gradient-to-tr md:from-black/65 md:via-black/10 md:to-transparent" aria-hidden="true" />
 
-            <div className="max-w-xl w-full flex flex-col items-center relative z-10 min-h-full justify-between py-12 [@media(max-height:700px)]:py-6 safe-pt">
-              <div className="text-center pb-[50px] [@media(max-height:700px)]:pb-6">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float" aria-hidden="true">
-                  <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
-                </div>
-                <h1 className="text-4xl md:text-6xl font-display font-black tracking-tighter text-white italic drop-shadow-lg">NatureGram</h1>
-                <p className="text-white/90 font-bold uppercase tracking-[0.4em] text-[11px] mt-2 drop-shadow-md">The Living Field Guide</p>
-              </div>
+            <div className="relative h-full w-full flex flex-col safe-pt">
+              <header className="flex items-center justify-between px-6 md:px-12 pt-6 md:pt-8">
+                <span className="flex items-center gap-2.5">
+                  <Glyph name="mark" size={22} className="text-white/95" />
+                  <span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span>
+                </span>
+                <span className="hidden md:block text-sm text-white/75">A field notebook for the living world</span>
+              </header>
 
-              <div className="w-full flex justify-center py-4 [@media(max-height:700px)]:py-1">
-                <button onClick={enterApp} aria-label="Explore the wild" className="wild-orb group flex flex-col items-center gap-4 rounded-full px-6 py-2 text-center">
-                  <span className="relative block w-[104px] h-[104px] md:w-[120px] md:h-[120px]" aria-hidden="true">
-                    <span className="orb-halo" />
-                    <span className="orb-ring" />
-                    <span className="orb-ring" />
-                    <span className="orb-ring" />
-                    <span className="orb-core w-full h-full rounded-full flex items-center justify-center text-white">
-                      <Glyph name="leafCompass" size={44} strokeWidth={1.5} className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" />
-                    </span>
-                  </span>
-                  <span className="block">
-                    <span className="block font-display italic font-semibold text-2xl md:text-[28px] leading-tight text-white drop-shadow-md">Explore the wild</span>
-                  </span>
-                </button>
-              </div>
+              <main className="mt-auto px-6 md:px-12 pb-10 md:pb-16 safe-pb max-w-3xl landing-rise">
+                <p className="flex items-center gap-3 text-sm text-white/80">
+                  <span className="block w-8 h-px bg-theme-vivid" aria-hidden="true" />
+                  Naturalist of the fortnight
+                </p>
+                <figure className="mt-4">
+                  <blockquote className="font-display italic text-[28px] leading-[1.18] md:text-5xl md:leading-[1.12] text-white text-balance">
+                    &ldquo;{dailyTheme.quote}&rdquo;
+                  </blockquote>
+                  <figcaption className="mt-4 text-base text-white/90">
+                    {dailyTheme.naturalist}
+                    {dailyTheme.locationName && <span className="text-white/60"> &middot; {dailyTheme.locationName}</span>}
+                  </figcaption>
+                </figure>
 
-              <figure
-                className="text-center px-6 max-w-md mx-auto cursor-pointer rounded-2xl"
-                onClick={openNaturalist}
-              >
-                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px] [@media(max-height:700px)]:pt-6">"{dailyTheme.quote}"</blockquote>
-                <figcaption className="mt-6 flex flex-col items-center gap-1">
-                  <span className="text-white font-bold tracking-widest uppercase text-[11px]">{dailyTheme.naturalist}</span>
-                  <span className="flex items-center gap-1 text-white/70 mt-1">
-                    <span className="material-symbols-outlined text-[13px]" aria-hidden="true">location_on</span>
-                    <span className="text-[11px] tracking-wider uppercase">{dailyTheme.locationName}</span>
-                  </span>
+                <div className="mt-8 md:mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
                   <button
                     type="button"
-                    onClick={e => { e.stopPropagation(); openNaturalist(); }}
-                    className="mt-3 px-3 py-2 rounded-full text-sm text-white/90 hover:text-white underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/70"
+                    onClick={enterApp}
+                    className="group inline-flex items-center gap-3 rounded-full bg-white text-stone-900 pl-6 pr-5 py-3.5 text-base font-semibold shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] transition-transform duration-200 hover:-translate-y-px active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
                   >
-                    Meet {dailyTheme.naturalist} →
+                    Explore the wild
+                    <span className="material-symbols-outlined text-[20px] text-theme-deep transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true">arrow_forward</span>
                   </button>
-                </figcaption>
-              </figure>
+                  <button
+                    type="button"
+                    onClick={openNaturalist}
+                    className="text-sm text-white/85 hover:text-white underline decoration-white/30 hover:decoration-white underline-offset-[6px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white/80 rounded"
+                  >
+                    Meet {dailyTheme.naturalist}
+                  </button>
+                </div>
+              </main>
             </div>
+
+            {/* CC BY / BY-SA ask for attribution: the photographer, quietly, in the corner */}
+            {dailyTheme.imageCredit?.author && (
+              <a
+                href={dailyTheme.imageCredit.source}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute right-6 top-[calc(env(safe-area-inset-top)+1.9rem)] md:top-auto md:right-5 md:bottom-4 max-w-[52vw] md:max-w-[40vw] text-right leading-snug md:truncate text-[10px] md:text-[11px] text-white/70 md:text-white/50 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)] hover:text-white/80 transition-colors"
+              >
+                Photo: {dailyTheme.imageCredit.author}, {dailyTheme.imageCredit.license}
+              </a>
+            )}
           </div>
         )}
 
@@ -843,7 +852,7 @@ const App: React.FC = () => {
         />
 
         {limitNotice && (
-          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 shadow-2xl flex items-start gap-3 animate-slide-up">
+          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 flex items-start gap-3 animate-slide-up">
             <span className="material-symbols-outlined" aria-hidden="true">schedule</span>
             <p className="text-sm flex-1">{limitNotice}</p>
             <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="w-8 h-8 flex items-center justify-center"><span className="material-symbols-outlined text-lg" aria-hidden="true">close</span></button>
@@ -1077,10 +1086,10 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 bg-theme-primary text-white hover:brightness-110 shadow-[0_6px_18px_-8px_rgb(var(--theme-primary-rgb)/0.7)]`}>
                 <Glyph name="eyeEar" size={28} strokeWidth={1.6} />
               </button>
             ) : (
@@ -1090,7 +1099,7 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
+                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
               >
                 <Glyph name={item.icon} size={25} strokeWidth={item.active ? 2 : 1.5} className={`transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} />
                 <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
