@@ -36,6 +36,8 @@ interface UserProfileProps {
   onViewProfile?: (uid: string) => void;
   onRequireAccount?: (reason: string, then?: () => void) => void;
   onMessage?: (uid: string) => void | Promise<void>;
+  /** Clears the first-run tour flag and walks the explorer round the app again, from the feed */
+  onRetakeTour?: () => void;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -378,7 +380,7 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
   );
 };
 
-const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -804,6 +806,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
             {isAdmin && onAdminConsole && (
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
+            )}
+            {onRetakeTour && (
+              <button onClick={() => { setSheet(null); onRetakeTour(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="compass" size={24} />Take the tour again</button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">shield</span>Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">description</span>Terms & community guidelines</a>

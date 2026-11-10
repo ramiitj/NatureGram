@@ -135,6 +135,46 @@
   50% { transform: scale(1.06); opacity: 0.9; }
 }
 
+/* The landing invitation: a living orb in the theme gradient that breathes, ripples and squishes when pressed */
+.wild-orb { position: relative; isolation: isolate; -webkit-tap-highlight-color: transparent; }
+.wild-orb .orb-core {
+  position: relative; z-index: 2;
+  background: radial-gradient(circle at 32% 28%, rgb(255 255 255 / 0.38), transparent 46%),
+              linear-gradient(140deg, rgb(var(--theme-primary-rgb)), var(--theme-primary-gradient));
+  box-shadow: inset 0 -10px 22px rgb(0 0 0 / 0.22), inset 0 2px 0 rgb(255 255 255 / 0.25),
+              0 14px 40px -8px rgb(var(--theme-primary-rgb) / 0.75);
+  transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1), filter 200ms ease, box-shadow 260ms ease;
+  animation: orbBreath 4.8s ease-in-out infinite;
+}
+.wild-orb .orb-halo {
+  position: absolute; z-index: 0; inset: -28%; border-radius: 9999px; pointer-events: none;
+  background: radial-gradient(circle, var(--theme-primary-gradient) 0%, rgb(var(--theme-primary-rgb) / 0.5) 38%, transparent 68%);
+  filter: blur(14px); opacity: 0.55;
+  animation: orbHalo 4.8s ease-in-out infinite;
+}
+.wild-orb .orb-ring {
+  position: absolute; z-index: 1; inset: 0; border-radius: 9999px; pointer-events: none;
+  border: 1.5px solid rgb(255 255 255 / 0.55);
+  opacity: 0; animation: orbRipple 4.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+}
+.wild-orb .orb-ring:nth-of-type(2) { animation-delay: 1.6s; }
+.wild-orb .orb-ring:nth-of-type(3) { animation-delay: 3.2s; }
+.wild-orb:hover .orb-core { transform: scale(1.04); filter: brightness(1.08); }
+.wild-orb:active .orb-core { transform: scale(0.9, 0.86); filter: brightness(1.22) saturate(1.1); transition-duration: 90ms; }
+.wild-orb:focus-visible { outline: none; }
+.wild-orb:focus-visible .orb-core { box-shadow: 0 0 0 3px rgb(255 255 255 / 0.95), 0 0 0 7px rgb(var(--theme-primary-rgb) / 0.6), 0 14px 40px -8px rgb(var(--theme-primary-rgb) / 0.75); }
+.wild-orb .orb-hint { opacity: 0; animation: orbHint 900ms ease 2.2s forwards; }
+@keyframes orbBreath { 0%, 100% { scale: 1; } 50% { scale: 1.045; } }
+@keyframes orbHalo { 0%, 100% { opacity: 0.4; transform: scale(0.92); } 50% { opacity: 0.75; transform: scale(1.08); } }
+@keyframes orbRipple { 0% { opacity: 0; transform: scale(1); } 12% { opacity: 0.7; } 100% { opacity: 0; transform: scale(1.9); } }
+@keyframes orbHint { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .wild-orb .orb-core, .wild-orb .orb-halo { animation: none !important; }
+  .wild-orb .orb-halo { opacity: 0.6; }
+  .wild-orb .orb-ring { display: none; }
+  .wild-orb .orb-hint { animation: none !important; opacity: 1; }
+}
+
 /* Respect reduced-motion preferences (WCAG 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
