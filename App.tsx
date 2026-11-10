@@ -792,6 +792,18 @@ const App: React.FC = () => {
                 </div>
               </main>
             </div>
+
+            {/* CC BY / BY-SA ask for attribution: the photographer, quietly, in the corner */}
+            {dailyTheme.imageCredit?.author && (
+              <a
+                href={dailyTheme.imageCredit.source}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="absolute right-6 top-[calc(env(safe-area-inset-top)+1.9rem)] md:top-auto md:right-5 md:bottom-4 max-w-[52vw] md:max-w-[40vw] text-right leading-snug md:truncate text-[10px] md:text-[11px] text-white/70 md:text-white/50 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)] hover:text-white/80 transition-colors"
+              >
+                Photo: {dailyTheme.imageCredit.author}, {dailyTheme.imageCredit.license}
+              </a>
+            )}
           </div>
         )}
 
