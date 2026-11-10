@@ -6,6 +6,11 @@ RUN npm ci --no-audit --no-fund
 COPY . .
 ARG VITE_FCM_VAPID_KEY=""
 ENV VITE_FCM_VAPID_KEY=$VITE_FCM_VAPID_KEY
+# Optional; App Check can also be switched on at runtime with APPCHECK_SITE_KEY on the server
+ARG VITE_APPCHECK_SITE_KEY=""
+ENV VITE_APPCHECK_SITE_KEY=$VITE_APPCHECK_SITE_KEY
+ARG VITE_SENTRY_DSN=""
+ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
 RUN npm run build
 
 # Stage 2: production runtime

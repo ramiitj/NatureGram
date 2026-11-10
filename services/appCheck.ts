@@ -1,6 +1,8 @@
 /**
  * Firebase App Check (web): proves to the NatureGram server that AI and publishing calls come
- * from the real app. Switched on only when VITE_APPCHECK_SITE_KEY is set at build time.
+ * from the real app. Switched on when a site key is available: VITE_APPCHECK_SITE_KEY at build
+ * time, or APPCHECK_SITE_KEY on the server (read at runtime from /api/client-config, so the key
+ * can be set on Cloud Run without rebuilding).
  *
  *   VITE_APPCHECK_SITE_KEY   reCAPTCHA Enterprise site key (or a reCAPTCHA v3 key, see below)
  *   VITE_APPCHECK_PROVIDER   'enterprise' (default) or 'v3'
@@ -12,22 +14,37 @@
  */
 import { getApp } from 'firebase/app';
 import '../firebaseConfig';
+import { apiUrl } from './apiOrigin';
 
 const env = (import.meta as any).env || {};
-const SITE_KEY: string = env.VITE_APPCHECK_SITE_KEY || '';
-const PROVIDER: string = env.VITE_APPCHECK_PROVIDER || 'enterprise';
+const BUILD_KEY: string = env.VITE_APPCHECK_SITE_KEY || '';
+const BUILD_PROVIDER: string = env.VITE_APPCHECK_PROVIDER || 'enterprise';
 const isNative = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+const canRun = !isNative && typeof window !== 'undefined';
 
-export const appCheckEnabled = Boolean(SITE_KEY) && !isNative && typeof window !== 'undefined';
+/** True when a key was baked in at build time (the runtime key is discovered lazily). */
+export const appCheckEnabled = Boolean(BUILD_KEY) && canRun;
+
+let keyPromise: Promise<{ key: string; provider: string }> | null = null;
+const siteKey = () => {
+  if (!keyPromise) {
+    keyPromise = BUILD_KEY
+      ? Promise.resolve({ key: BUILD_KEY, provider: BUILD_PROVIDER })
+      : fetch(apiUrl('/api/client-config')).then(r => r.ok ? r.json() : {}).then((c: any) => ({ key: String(c?.appCheckSiteKey || ''), provider: c?.appCheckProvider === 'v3' ? 'v3' : 'enterprise' })).catch(() => ({ key: '', provider: 'enterprise' }));
+  }
+  return keyPromise;
+};
 
 let ready: Promise<any> | null = null;
 function instance(): Promise<any> {
-  if (!appCheckEnabled) return Promise.resolve(null);
+  if (!canRun) return Promise.resolve(null);
   if (!ready) {
     ready = (async () => {
+      const { key, provider: kind } = await siteKey();
+      if (!key) return null;
       if (env.VITE_APPCHECK_DEBUG_TOKEN) (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = env.VITE_APPCHECK_DEBUG_TOKEN;
       const m = await import('firebase/app-check');
-      const provider = PROVIDER === 'v3' ? new m.ReCaptchaV3Provider(SITE_KEY) : new m.ReCaptchaEnterpriseProvider(SITE_KEY);
+      const provider = kind === 'v3' ? new m.ReCaptchaV3Provider(key) : new m.ReCaptchaEnterpriseProvider(key);
       return { m, ac: m.initializeAppCheck(getApp(), { provider, isTokenAutoRefreshEnabled: true }) };
     })().catch(() => null);
   }
@@ -57,4 +74,4 @@ export async function appCheckHeaders(): Promise<Record<string, string>> {
 export const initAppCheck = () => { instance(); };
 
 // Warm up shortly after start (off the critical path) so the first protected call doesn't wait
-if (appCheckEnabled) setTimeout(() => { instance(); }, 2500);
+if (canRun) setTimeout(() => { instance(); }, 2500);
