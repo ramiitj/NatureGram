@@ -1154,7 +1154,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && !(tourPending && currentView === AppView.COMMUNITY) && <ConsentBanner />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (
