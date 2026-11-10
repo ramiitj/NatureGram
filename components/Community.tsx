@@ -14,7 +14,10 @@ import { CommunityPost, UserMode, Comment } from '../types';
 const ShareStudio = React.lazy(() => import('./ShareStudio'));
 const PublisherStudio = React.lazy(() => import('./PublisherStudio'));
 import MediaEditor from './MediaEditor';
-import SkeletonPost from './SkeletonPost';
+import SkeletonPost, { PressingLoader } from './SkeletonPost';
+import Glyph from './Glyph';
+import { PlateStamp } from './SpecimenPlate';
+import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs } from '../services/lifeList';
 import AuthModal from './AuthModal';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
@@ -224,6 +227,12 @@ interface CommunityProps {
   onOpenMessages?: () => void;
   unreadActivity?: number;
   unreadMessages?: number;
+  /** Render only the post view and its sheets (used by the field notebook to open an entry) */
+  detailOnly?: boolean;
+  /** A post to open as soon as this mounts */
+  initialPost?: CommunityPost | null;
+  /** Extra controls placed beside the header actions */
+  headerActions?: React.ReactNode;
 }
 
 const Community: React.FC<CommunityProps> = ({ 
@@ -242,7 +251,10 @@ const Community: React.FC<CommunityProps> = ({
     onOpenActivity,
     onOpenMessages,
     unreadActivity = 0,
-    unreadMessages = 0
+    unreadMessages = 0,
+    detailOnly = false,
+    initialPost = null,
+    headerActions
 }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -273,6 +285,20 @@ const Community: React.FC<CommunityProps> = ({
   };
   const themeExtra = getNaturalistExtra(dailyTheme?.id);
   const themePeriod = getThemePeriod();
+  /** Start of the current naturalist's fortnight (same arithmetic as getThemePeriod) */
+  const fortnightStartMs = React.useMemo(() => {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now.getTime() - yearStart.getTime()) / 86_400_000);
+    const startDay = Math.ceil(Math.floor(dayOfYear / 15.21) * 15.21);
+    return new Date(now.getFullYear(), 0, startDay).getTime();
+  }, []);
+  /** Kinds of life present in what's loaded, so the filter never offers an empty choice */
+  const groupsPresent = React.useMemo(() => {
+    const seen = new Map<LifeGroup, number>();
+    posts.forEach(p => { const g = groupOf(p); seen.set(g, (seen.get(g) || 0) + 1); });
+    return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+  }, [posts]);
   // Re-read the hour each time the feed mounts; no need to tick live.
   const moment = React.useMemo(() => fieldMoment(), []);
   const [challenge, setChallenge] = useState<{ explorers: number; mine: boolean; capped: boolean } | null>(null);
@@ -323,7 +349,8 @@ const Community: React.FC<CommunityProps> = ({
   // Rich Search Feature States
   const [searchQuery, setSearchQuery] = useState("");
   const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video' | 'audio'>('all');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'fortnight' | 'month' | 'season'>('all');
+  const [selectedGroups, setSelectedGroups] = useState<LifeGroup[]>([]);
   const [sortOrder, setSortOrder] = useState<'newest' | 'likes' | 'title'>('newest');
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
@@ -345,7 +372,7 @@ const Community: React.FC<CommunityProps> = ({
     else showToast(`@${username} isn't on NatureGram yet`);
   };
 
-  // Dynamically generated Instagram-style search suggestions
+  // Search suggestions drawn from the sightings already loaded
   const dynamicSuggestions = React.useMemo(() => {
     const popularTags = new Set<string>();
     const activeCreators = new Set<string>();
@@ -394,7 +421,7 @@ const Community: React.FC<CommunityProps> = ({
           }
         }
 
-        // 2. Dynamic Instagram Explore Category Tab Filters
+        // 2. Category pills
         if (activeExploreTab === 'flora') {
           const floraKeywords = ['plant', 'flower', 'flora', 'tree', 'vegetation', 'leaf', 'shrub', 'moss', 'clover', 'botany', 'fern', 'bloom', 'rose', 'grass', 'oak', 'maple', 'pine', 'nature'];
           const matchesFlora = post.labels?.some(lbl => floraKeywords.some(kw => lbl.toLowerCase().includes(kw))) ||
@@ -426,19 +453,25 @@ const Community: React.FC<CommunityProps> = ({
           }
         }
 
-        // 4. Date Sighting Filter
+        // 4. When it was seen: today, this naturalist's fortnight, this month or this season
         if (dateFilter !== 'all') {
-          const postDate = post.timestamp?.toDate ? post.timestamp.toDate() : (post.timestamp ? new Date(post.timestamp) : new Date());
+          const ms = toMs(post.timestamp) || (post.timestamp ? new Date(post.timestamp).getTime() : 0);
+          if (!ms) return false;
           const now = new Date();
-          const diffTime = Math.abs(now.getTime() - postDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          if (dateFilter === 'today' && diffDays > 1) return false;
-          if (dateFilter === 'week' && diffDays > 7) return false;
-          if (dateFilter === 'month' && diffDays > 30) return false;
+          if (dateFilter === 'today' && ms < new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) return false;
+          if (dateFilter === 'fortnight' && ms < fortnightStartMs) return false;
+          if (dateFilter === 'month' && ms < Date.now() - 30 * 86_400_000) return false;
+          if (dateFilter === 'season') {
+            const lat = post.rawLocation?.lat;
+            const bare = (t: number) => seasonOf(t, lat).replace(/^early /, '');
+            if (bare(ms) !== bare(Date.now()) || ms < Date.now() - 120 * 86_400_000) return false;
+          }
         }
 
-        // 5. Taxonomic Species Label Filters
+        // 5. Kind of life
+        if (selectedGroups.length > 0 && !selectedGroups.includes(groupOf(post))) return false;
+
+        // 6. Particular species
         if (selectedLabels.length > 0) {
           const hasLabel = post.labels?.some(lbl => selectedLabels.includes(lbl));
           if (!hasLabel) return false;
@@ -464,18 +497,18 @@ const Community: React.FC<CommunityProps> = ({
         }
         return 0;
       });
-  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, blockedIds]);
+  }, [posts, searchQuery, activeExploreTab, mediaFilter, dateFilter, sortOrder, selectedLabels, selectedGroups, blockedIds]);
 
   // "For you" is ranked when no search/filter/sort override is active; otherwise explicit ordering wins
   const displayPosts = React.useMemo(() => {
     const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !searchQuery.trim()
-      && activeExploreTab === 'all' && sortOrder === 'newest' && mediaFilter === 'all' && dateFilter === 'all' && selectedLabels.length === 0;
+      && activeExploreTab === 'all' && sortOrder === 'newest' && mediaFilter === 'all' && dateFilter === 'all' && selectedLabels.length === 0 && selectedGroups.length === 0;
     if (!ranked) return filteredAndSortedPosts;
     // AI-curated picks (persona) stay first; the rest is ranked transparently
     const curated = filteredAndSortedPosts.filter(p => p.curatorNote);
     const rest = filteredAndSortedPosts.filter(p => !p.curatorNote);
     return [...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
-  }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, searchQuery, activeExploreTab, sortOrder, mediaFilter, dateFilter, selectedLabels, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
+  }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, searchQuery, activeExploreTab, sortOrder, mediaFilter, dateFilter, selectedLabels, selectedGroups, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
 
   // Extract all categories / species labels currently present in observations for selection
   const allAvailableLabels = React.useMemo(() => {
@@ -500,6 +533,7 @@ const Community: React.FC<CommunityProps> = ({
     setDateFilter('all');
     setSortOrder('newest');
     setSelectedLabels([]);
+    setSelectedGroups([]);
     setSearchTag(null);
     setActiveExploreTab('all');
     setIsSearchFocused(false);
@@ -627,12 +661,53 @@ const Community: React.FC<CommunityProps> = ({
   const sheetRef = useRef<HTMLDivElement>(null);
   const sheetDrag = useRef<{ y: number; t: number; on: boolean }>({ y: 0, t: 0, on: false });
   
-  // Advanced Species Intelligence
+  // Species field-guide page
   const [selectedSpecies, setSelectedSpecies] = useState<{name: string, location: string, id: string} | null>(null);
   const [speciesData, setSpeciesData] = useState<{extract: string, thumbnail: string, loading: boolean, url?: string} | null>(null);
 
+  /** What the loaded sightings say about the open species: who has seen it, when, and what it is confused with. */
+  const speciesPage = React.useMemo(() => {
+    const name = (selectedSpecies?.name || '').trim();
+    const key = name.toLowerCase();
+    const empty = { explorers: 0, mine: 0, months: '', scientific: '', lookAlikes: [] as { name: string; scientific?: string; evidence?: string }[], group: 'Other life' as LifeGroup };
+    if (!key) return empty;
+    const pool = new Map<string, CommunityPost>();
+    [...posts, ...(activePost ? [activePost] : [])].forEach(p => pool.set(p.id, p));
+    const labelsOf = (p: CommunityPost) => [...(p.labels || []), ...((p.items || []).flatMap(i => i.labels || []))].map(l => (l || '').trim().toLowerCase());
+    const matching = [...pool.values()].filter(p => labelsOf(p).includes(key));
+    const idsOf = (p: CommunityPost) => [...(((p as any).aiIdentifications || []) as any[]), ...((p.items || []).flatMap(i => i.aiIdentifications || []))].filter(Boolean);
+    const users = new Set(matching.map(p => p.userId).filter(Boolean));
+    const mine = matching.filter(p => p.userId && p.userId === currentUserMode.userId).length;
+    // Months it was recorded, as the shortest run around the calendar that covers them ("Oct–Mar")
+    const monthsSet = new Set(matching.map(p => toMs(p.timestamp)).filter(Boolean).map(ms => new Date(ms).getMonth()));
+    const mName = (m: number) => new Date(2020, m, 1).toLocaleDateString(undefined, { month: 'short' });
+    let months = '';
+    const ms = [...monthsSet].sort((a, b) => a - b);
+    if (ms.length === 1) months = mName(ms[0]);
+    else if (ms.length > 1) {
+      let gapAt = 0, gap = -1;
+      ms.forEach((m, i) => { const next = ms[(i + 1) % ms.length]; const d = (next - m + 12) % 12; if (d > gap) { gap = d; gapAt = i; } });
+      const start = ms[(gapAt + 1) % ms.length], end = ms[gapAt];
+      const span = ((end - start + 12) % 12) + 1;
+      months = span <= ms.length + 2 ? `${mName(start)}–${mName(end)}` : ms.map(mName).join(', ');
+    }
+    let scientific = '';
+    const look = new Map<string, { name: string; scientific?: string; evidence?: string }>();
+    matching.forEach(p => idsOf(p).forEach((i: any) => {
+      const cn = (i.commonName || '').trim();
+      if (!cn) return;
+      if (cn.toLowerCase() === key) { if (!scientific && i.scientificName) scientific = i.scientificName; return; }
+      if (!look.has(cn.toLowerCase())) look.set(cn.toLowerCase(), { name: cn, scientific: i.scientificName || undefined, evidence: i.evidence || undefined });
+    }));
+    if (!scientific) {
+      const binomial = matching.map(p => p.labels?.[1]).find(l => l && /^[A-Z][a-z]+ [a-z]+/.test(l));
+      if (binomial) scientific = binomial;
+    }
+    return { explorers: users.size, mine, months, scientific, lookAlikes: [...look.values()].slice(0, 3), group: groupOf(matching[0] || { labels: [name] }) };
+  }, [selectedSpecies?.name, posts, activePost, currentUserMode.userId]);
+
   const handleSpeciesClick = async (label: string, locationArea?: string) => {
-    setSelectedSpecies({name: label, location: locationArea || "Unknown Habitat", id: label});
+    setSelectedSpecies({name: label, location: locationArea || '', id: label});
     setSpeciesData({extract: "", thumbnail: "", loading: true});
     try {
         const clean = label.replace(/\(.*?\)/g, '').trim();
@@ -646,13 +721,13 @@ const Community: React.FC<CommunityProps> = ({
             }
         }
         setSpeciesData({
-            extract: found?.extract || `We couldn't find an encyclopedia entry for "${clean}". The name may be a general group rather than a single species.`,
+            extract: found?.extract || `No encyclopedia entry for "${clean}" yet. The name may cover a group rather than a single species.`,
             thumbnail: found?.thumbnail?.source || "",
             loading: false,
             url: found?.content_urls?.desktop?.page || '',
-        } as any);
+        });
     } catch(e) {
-        setSpeciesData({extract: "We couldn't reach the encyclopedia right now. Please try again later.", thumbnail: "", loading: false});
+        setSpeciesData({extract: "The encyclopedia can't be reached right now. Try again in a little while.", thumbnail: "", loading: false});
     }
   };
 
@@ -881,6 +956,12 @@ const Community: React.FC<CommunityProps> = ({
     }
   };
 
+  // Opened from elsewhere (the field notebook): show that post straight away
+  useEffect(() => {
+    if (initialPost) handlePostClick(initialPost);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Likes I made via scalable like documents (legacy likes live in post.likes)
   const [myLikes, setMyLikes] = useState<Set<string>>(new Set());
   useEffect(() => {
@@ -1010,22 +1091,68 @@ const Community: React.FC<CommunityProps> = ({
       }
   };
 
-  // Reputation beside names: how many sightings each field-note author (and the poster) has shared
-  const [sightingCounts, setSightingCounts] = useState<Record<string, number>>({});
+  // Standing beside names: how many species each field-note author (and the poster) has on their list.
+  // Shown for everyone once every author's count has loaded, so no name looks more or less trusted by accident.
+  const [speciesCounts, setSpeciesCounts] = useState<Record<string, number | null>>({});
   useEffect(() => {
-      const ids = [...new Set([...(comments || []).map(c => c.userId), activePost?.userId].filter(Boolean) as string[])].filter(id => !(id in sightingCounts));
+      const ids = [...new Set([...(comments || []).map(c => c.userId), activePost?.userId].filter(Boolean) as string[])].filter(id => !(id in speciesCounts));
       if (!ids.length) return;
       let alive = true;
-      Promise.all(ids.slice(0, 20).map(id => FirebaseService.getUserProfile(id).then(p => [id, Number((p as any)?.stats?.observations || 0)] as const).catch(() => [id, 0] as const)))
-          .then(rows => { if (alive) setSightingCounts(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
+      Promise.all(ids.slice(0, 30).map(id => FirebaseService.getUserProfile(id).then(p => {
+          const st: any = (p as any)?.stats;
+          const n = st && typeof st.species === 'number' ? st.species : null;
+          return [id, n] as const;
+      }).catch(() => [id, null] as const)))
+          .then(rows => { if (alive) setSpeciesCounts(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
       return () => { alive = false; };
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comments, activePost?.userId]);
-  const sightingsLine = (uid?: string) => { const n = uid ? sightingCounts[uid] : 0; return n ? `${n} sighting${n === 1 ? '' : 's'}` : ''; };
+  const countsReady = (uids: string[]) => uids.every(u => typeof speciesCounts[u] === 'number');
+  const speciesLine = (uid?: string) => { const n = uid ? speciesCounts[uid] : null; return typeof n === 'number' ? `${n} species` : ''; };
+
+  // Who has put a name to this sighting: their notes count as observations
+  const [identifierIds, setIdentifierIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+      if (!isCommentsOpen || !activePost?.isPublic) { setIdentifierIds(new Set()); return; }
+      let alive = true;
+      FirebaseService.getIdentifications(activePost.id).then(ids => { if (alive) setIdentifierIds(new Set(ids.map(i => i.id))); }).catch(() => {});
+      return () => { alive = false; };
+  }, [isCommentsOpen, activePost?.id, activePost?.isPublic]);
 
   /** Field notes readers see: blocked authors and promotional spam are hidden. The post's author still sees spam, flagged, so they can delete it. */
   const isPostOwner = !!activePost && activePost.userId === currentUserMode.userId;
   const visibleComments = comments.filter(c => !blockedIds.includes(c.userId) && (!looksLikeSpam(c.text) || isPostOwner || c.userId === currentUserMode.userId));
+  /** A note that adds to the record (field marks, behaviour, a longer description, or from the poster or an identifier) rather than chatter. */
+  const FIELD_MARK = /\b(wing|wings|tail|beak|bill|crest|crown|throat|breast|belly|eye|eyes|ring|stripe|stripes|striped|bar|barred|spot|spots|spotted|patch|band|banded|plumage|feather|legs?|antenna|antennae|thorax|abdomen|leaf|leaves|petal|petals|stem|bark|cap|gills?|stipe|spore|spores|ridges?|veins?|call|song|calls|sings|nest|nesting|perched|feeding|foraging|juvenile|female|male|adult|immature|instar|larva|size|cm|mm|length|habitat|flowering|fruiting|underside|upperside|margin|lobed|serrated|compare|distinguish|differs?|rather than|not a)\b/i;
+  const isObservation = (c: Comment) => !looksLikeSpam(c.text) && (
+      (!!activePost && c.userId === activePost.userId && c.text.trim().length >= 25)
+      || identifierIds.has(c.userId)
+      || c.text.trim().length >= 140
+      || (c.text.trim().length >= 30 && FIELD_MARK.test(c.text)));
+  const observationNotes = visibleComments.filter(isObservation);
+  const chatterNotes = visibleComments.filter(c => !isObservation(c));
+  const showSpeciesCounts = countsReady([...new Set(visibleComments.map(c => c.userId))]);
+
+  const renderNote = (c: Comment) => activePost && (
+                                <div key={c.id} className="flex gap-3 group animate-fade-in motion-reduce:animate-none">
+                                    <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
+                                        {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(c.userName || '?').charAt(0).toUpperCase()}</span>}
+                                    </button>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
+                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500 flex-wrap">
+                                            <span>{[showSpeciesCounts ? speciesLine(c.userId) : '', timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
+                                            {looksLikeSpam(c.text) && isPostOwner && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">Looks like spam, hidden from others</span>}
+                                            {isMember && c.userId !== currentUserMode.userId && (
+                                                <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-semibold hover:text-stone-800">Reply</button>
+                                            )}
+                                            {(c.userId === currentUserMode.userId || activePost.userId === currentUserMode.userId) && (
+                                                <button onClick={() => handleDeleteComment(c.id)} className="font-semibold hover:text-red-700">Delete</button>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+  );
 
   const handleDeleteComment = async (commentId: string) => {
       if (!activePost || !window.confirm('Delete this field note?')) return;
@@ -1142,60 +1269,91 @@ const Community: React.FC<CommunityProps> = ({
 
   return (
     <div id="community-scroll-container" className="w-full relative">
-        {/* Advanced Species Intelligence Modal */}
-        {selectedSpecies && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 bg-theme-shadow/80 backdrop-blur-sm" onClick={() => setSelectedSpecies(null)}></div>
-                <div className="relative w-full max-w-lg bg-day-bg rounded-3xl overflow-hidden shadow-2xl animate-slide-up border border-theme-primary/10 flex flex-col max-h-[80vh]">
-                    <div className="p-6 md:p-8 shrink-0 flex items-center justify-between border-b border-theme-primary/10">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-2xl">pest_control</span>
-                            </div>
-                            <div>
-                                <h3 className="text-xl font-display font-black italic text-theme-primary tracking-tight">{selectedSpecies.name}</h3>
-                                <p className="text-xs font-semibold text-theme-primary/50 flex items-center gap-1 mt-0.5">
-                                    <span className="material-symbols-outlined text-xs">public</span>
-                                    {selectedSpecies.location}
-                                </p>
-                            </div>
-                        </div>
-                        <button onClick={() => setSelectedSpecies(null)} className="text-theme-primary/60 hover:text-theme-primary transition-colors">
-                            <span className="material-symbols-outlined text-2xl">close</span>
-                        </button>
-                    </div>
-                    
-                    <div className="p-6 md:p-8 overflow-y-auto hidden-scrollbar flex-1">
-                        {speciesData?.loading ? (
-                            <div className="flex flex-col items-center justify-center py-12 gap-4">
-                                <span className="material-symbols-outlined text-4xl text-theme-accent animate-spin">sync</span>
-                                <p className="text-stone-600 text-sm" role="status">Looking up {selectedSpecies.name}…</p>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-6">
-                                {speciesData?.thumbnail && (
-                                    <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden shadow-inner border border-theme-primary/10 shrink-0">
-                                        <img src={speciesData.thumbnail} className="w-full h-full object-cover" alt={selectedSpecies.name} />
-                                    </div>
-                                )}
-                                <div className="space-y-4">
-                                    <p className="text-xs font-semibold tracking-[0.2em] text-theme-primary flex items-center gap-1.5 opacity-60">
-                                        <span className="material-symbols-outlined text-xs">science</span>
-                                        Encyclopedia Data
-                                    </p>
-                                    <p className="text-theme-primary/80 font-serif leading-relaxed text-sm text-justify">
-                                        {speciesData?.extract}
-                                    </p>
+        {/* Field-guide page for a species */}
+        {selectedSpecies && (() => {
+            const g = speciesPage.group;
+            return (
+            <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center sm:p-6 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="species-title">
+                <div className="absolute inset-0 bg-theme-shadow/70 backdrop-blur-sm" onClick={() => setSelectedSpecies(null)} aria-hidden="true"></div>
+                <div className="relative w-full max-w-lg bg-[#fbf7ef] rounded-t-[1.5rem] sm:rounded-[4px] overflow-hidden shadow-2xl animate-slide-up flex flex-col max-h-[88vh] sm:max-h-[82vh]">
+                    <div className="m-2 sm:m-3 border border-[#d8ccb6] outline outline-1 outline-offset-[3px] outline-[#e8dfcd] flex flex-col min-h-0 flex-1">
+                        <div className="px-5 pt-5 pb-4 flex items-start justify-between gap-3 border-b border-[#e3d8c4]">
+                            <div className="flex items-start gap-3 min-w-0">
+                                <span className="w-10 h-10 rounded-full border border-[#d8ccb6] text-theme-accent flex items-center justify-center shrink-0">
+                                    <Glyph name={GROUP_GLYPH[g]} size={22} />
+                                </span>
+                                <div className="min-w-0">
+                                    <h3 id="species-title" className="text-2xl font-display italic font-medium text-[#2f2a22] leading-tight">{selectedSpecies.name}</h3>
+                                    {speciesPage.scientific && <p className="font-display italic text-sm text-[#8a7a60] mt-0.5">{speciesPage.scientific}</p>}
+                                    <p className="text-xs text-stone-500 mt-1">{g}</p>
                                 </div>
-                                <p className="text-xs text-stone-500">
-                                    Source: Wikipedia{(speciesData as any)?.url && <> · <a href={(speciesData as any).url} target="_blank" rel="noopener noreferrer" className="underline">Read more</a></>}. Sighted near {selectedSpecies.location}.
-                                </p>
                             </div>
-                        )}
+                            <button onClick={() => setSelectedSpecies(null)} aria-label="Close" className="w-10 h-10 -mr-2 -mt-1 rounded-full flex items-center justify-center text-stone-500 hover:text-stone-800 hover:bg-[#efe7d6] transition-colors shrink-0">
+                                <span className="material-symbols-outlined text-2xl" aria-hidden="true">close</span>
+                            </button>
+                        </div>
+
+                        <div className="px-5 py-5 overflow-y-auto hidden-scrollbar flex-1 space-y-5">
+                            <dl className="grid grid-cols-2 gap-3">
+                                <div className="rounded-[3px] bg-white/70 border border-[#e8dfcd] px-3 py-2.5">
+                                    <dt className="text-xs text-stone-500">Seen by</dt>
+                                    <dd className="font-display text-lg text-[#2f2a22]">{speciesPage.explorers} {speciesPage.explorers === 1 ? 'explorer' : 'explorers'}</dd>
+                                </div>
+                                <div className="rounded-[3px] bg-white/70 border border-[#e8dfcd] px-3 py-2.5">
+                                    <dt className="text-xs text-stone-500">Your sightings</dt>
+                                    <dd className="font-display text-lg text-[#2f2a22]">{isMember ? speciesPage.mine : '–'}</dd>
+                                </div>
+                            </dl>
+                            {speciesPage.months && (
+                                <p className="text-sm text-stone-700 flex items-center gap-2">
+                                    <Glyph name="sun" size={16} className="text-theme-accent" />
+                                    Recorded here in {speciesPage.months}
+                                </p>
+                            )}
+
+                            {speciesData?.loading ? (
+                                <PressingLoader label={`Looking up ${selectedSpecies.name}`} className="py-8" />
+                            ) : (
+                                <>
+                                    {speciesData?.thumbnail && (
+                                        <figure className="bg-white p-1.5 border border-[#e8dfcd] shadow-[0_1px_2px_rgba(60,40,20,0.12)]">
+                                            <img src={speciesData.thumbnail} className="w-full aspect-[16/10] object-cover sepia-[.06]" alt={selectedSpecies.name} />
+                                        </figure>
+                                    )}
+                                    {speciesData?.extract && (
+                                        <p className="text-[16px] font-display text-stone-800 leading-relaxed">{speciesData.extract}</p>
+                                    )}
+                                    <p className="text-[11px] text-stone-500 leading-snug">
+                                        {speciesData?.url
+                                            ? <>From Wikipedia, under CC BY-SA. <a href={speciesData.url} target="_blank" rel="noopener noreferrer" className="underline">Read the full article</a>.</>
+                                            : 'Encyclopedia text from Wikipedia when available.'}
+                                    </p>
+                                </>
+                            )}
+
+                            {speciesPage.lookAlikes.length > 0 && (
+                                <section aria-labelledby="lookalikes" className="pt-4 border-t border-[#e3d8c4]">
+                                    <h4 id="lookalikes" className="font-display text-base text-[#2f2a22]">Look-alikes</h4>
+                                    <p className="text-xs text-stone-500 mb-2">Other names the guide weighed for this sighting</p>
+                                    <ul className="space-y-1.5" role="list">
+                                        {speciesPage.lookAlikes.map(l => (
+                                            <li key={l.name}>
+                                                <button onClick={() => handleSpeciesClick(l.name, selectedSpecies.location)} className="text-left w-full">
+                                                    <span className="font-display italic text-theme-primary hover:underline">{l.name}</span>
+                                                    {l.scientific && <span className="font-display italic text-xs text-stone-500"> {l.scientific}</span>}
+                                                    {l.evidence && <span className="block text-xs text-stone-600 leading-snug">{l.evidence}</span>}
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </section>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
-        )}
+            );
+        })()}
 
         {/* Custom Confirmation Modal */}
         {confirmDeleteId && (
@@ -1227,6 +1385,7 @@ const Community: React.FC<CommunityProps> = ({
             </div>
         )}
 
+        {!detailOnly && (<>
         {/* Field guide header */}
         <div className="w-full px-4 md:px-12 pt-10 pb-6 flex flex-col gap-5 animate-fade-in border-b border-theme-primary/10 select-none relative z-50">
             <div className="flex items-start justify-between gap-4">
@@ -1248,9 +1407,10 @@ const Community: React.FC<CommunityProps> = ({
                 </button>
 
                 <div className="flex items-center gap-0.5 shrink-0">
+                    {headerActions}
                     {!isJournalOnly && onOpenActivity && (
                         <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
-                            <WonderIcon className="text-[24px]" />
+                            <Glyph name="tracks" size={24} />
                             {unreadActivity > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
@@ -1264,9 +1424,9 @@ const Community: React.FC<CommunityProps> = ({
                         <button 
                             onClick={onViewDrafts} 
                             className="relative w-11 h-11 rounded-full hover:bg-theme-primary/5 flex items-center justify-center text-theme-primary active:scale-95 transition-all"
-                            aria-label={activeDraftsCount > 0 ? `Drafts, ${activeDraftsCount} unfinished` : 'Drafts'}
+                            aria-label={activeDraftsCount > 0 ? `Unfinished pages, ${activeDraftsCount}` : 'Unfinished pages'}
                         >
-                            <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">inventory_2</span>
+                            <Glyph name="satchel" size={24} />
                             {activeDraftsCount > 0 ? (
                                 <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-theme-accent rounded-full ring-2 ring-day-bg flex items-center justify-center text-[11px] font-bold text-white">
                                     {activeDraftsCount}
@@ -1336,7 +1496,7 @@ const Community: React.FC<CommunityProps> = ({
                 </button>
             )}
 
-            {/* Instagram Search Input with Cancel State transition */}
+            {/* Search, with a cancel state while focused */}
             <div className="relative flex flex-col gap-3">
                 {/* Backdrop overlay for focus state to make UX clean, elegant and focused */}
                 {isSearchFocused && (
@@ -1373,7 +1533,7 @@ const Community: React.FC<CommunityProps> = ({
                         )}
                     </div>
 
-                    {/* Instagram native focused Cancel CTA button */}
+                    {/* Cancel while focused */}
                     {isSearchFocused && (
                         <button 
                             onClick={() => {
@@ -1393,7 +1553,7 @@ const Community: React.FC<CommunityProps> = ({
                             setIsSearchFocused(false);
                         }}
                         className={`p-3 px-4 rounded-2xl border border-none transition-all flex items-center gap-1.5 font-medium text-sm cursor-pointer ${
-                            showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag
+                            showFilters || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag
                                 ? 'bg-theme-accent/15 text-theme-accent' 
                                 : 'bg-stone-100 text-theme-primary/60 hover:bg-stone-200/50'
                         }`}
@@ -1403,7 +1563,7 @@ const Community: React.FC<CommunityProps> = ({
                     </button>
                 </div>
 
-                {/* Instagram Search Suggestions dropdown menu overlay */}
+                {/* Search suggestions */}
                 {isSearchFocused && (
                     <div className="absolute top-[105%] left-0 right-0 bg-white border border-theme-primary/10 rounded-2xl p-5 shadow-2xl animate-slide-up flex flex-col gap-5 max-h-[380px] overflow-y-auto no-scrollbar z-[160]">
                         <div className="flex items-center justify-between border-b border-theme-primary/5 pb-2">
@@ -1463,7 +1623,7 @@ const Community: React.FC<CommunityProps> = ({
                             </div>
                         )}
 
-                        {/* Creators & Observers list like IG find accounts */}
+                        {/* Explorers seen in loaded sightings */}
                         {dynamicSuggestions.creators.length > 0 && !isJournalOnly && (
                             <div className="space-y-2.5">
                                 <span className="text-sm font-medium text-theme-primary/70 flex items-center gap-1">
@@ -1480,7 +1640,7 @@ const Community: React.FC<CommunityProps> = ({
                                             }}
                                             className="flex items-center gap-2 p-2 rounded-xl bg-stone-50 hover:bg-stone-100 transition-all text-left text-xs text-theme-primary font-semibold"
                                         >
-                                            <div className="w-6 h-6 rounded-full bg-theme-primary/10 flex items-center justify-center text-xs font-black text-theme-primary">
+                                            <div className="w-6 h-6 rounded-full bg-theme-primary/10 flex items-center justify-center text-xs font-semibold text-theme-primary">
                                                 {name.slice(0, 2).toUpperCase()}
                                             </div>
                                             <span className="truncate">@{name}</span>
@@ -1517,100 +1677,86 @@ const Community: React.FC<CommunityProps> = ({
                     </div>
                 )}
 
-                {/* Dynamic Collapsible Advanced Filters Drawer */}
-                {showFilters && (
-                    <div className="p-6 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                            {/* Format Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-sm font-medium text-theme-primary/70">Kind of media</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'image', 'video', 'audio'] as const).map((media) => (
-                                        <button
-                                            key={media}
-                                            onClick={() => setMediaFilter(media)}
-                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
-                                                mediaFilter === media 
-                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {media === 'all' ? 'All' : media}
-                                        </button>
-                                    ))}
+                {/* Filters drawer */}
+                {showFilters && (() => {
+                    const seg = (on: boolean) => `px-3 py-1.5 text-sm rounded-full border transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-theme-primary/75 hover:bg-theme-primary/5'}`;
+                    const naturalistShort = (themePeriod.theme?.naturalist || '').split(' ').slice(-1)[0];
+                    return (
+                    <div className="p-5 bg-white border border-theme-primary/10 rounded-2xl flex flex-col gap-5 animate-slide-up shadow-md">
+                        {groupsPresent.length > 0 && (
+                            <fieldset className="space-y-2">
+                                <legend className="text-sm font-display text-theme-primary mb-2">Kind of life</legend>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {groupsPresent.map(g => {
+                                        const on = selectedGroups.includes(g);
+                                        return (
+                                            <button key={g} type="button" aria-pressed={on} onClick={() => setSelectedGroups(prev => on ? prev.filter(x => x !== g) : [...prev, g])} className={`${seg(on)} flex items-center gap-1.5`}>
+                                                <Glyph name={GROUP_GLYPH[g]} size={15} />{g}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                            </div>
+                            </fieldset>
+                        )}
 
-                            {/* Timeline Filter */}
-                            <div className="space-y-2.5">
-                                <label className="block text-sm font-medium text-theme-primary/70">When</label>
-                                <div className="grid grid-cols-4 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['all', 'today', 'week', 'month'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setDateFilter(opt)}
-                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
-                                                dateFilter === opt 
-                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'all' ? 'All' : opt === 'today' ? 'Today' : opt === 'week' ? '1Wk' : '1Mo'}
-                                        </button>
-                                    ))}
-                                </div>
+                        <fieldset className="space-y-2">
+                            <legend className="text-sm font-display text-theme-primary mb-2">Season</legend>
+                            <div className="flex flex-wrap gap-1.5">
+                                {([
+                                    ['all', 'Any time', ''],
+                                    ['today', 'Today', ''],
+                                    ['fortnight', 'This fortnight', naturalistShort ? `Since ${naturalistShort}'s fortnight began` : ''],
+                                    ['month', 'This month', ''],
+                                    ['season', 'This season', ''],
+                                ] as const).map(([key, label, hint]) => (
+                                    <button key={key} type="button" aria-pressed={dateFilter === key} title={hint || undefined} onClick={() => setDateFilter(key)} className={seg(dateFilter === key)}>
+                                        {label}
+                                    </button>
+                                ))}
                             </div>
+                            {dateFilter === 'fortnight' && naturalistShort && <p className="text-xs text-stone-500">Since {themePeriod.theme.naturalist}'s fortnight began, {themePeriod.daysRemaining} days left.</p>}
+                        </fieldset>
 
-                            {/* Ordering Selection */}
-                            <div className="space-y-2.5">
-                                <label className="block text-sm font-medium text-theme-primary/70">Sort Sequence</label>
-                                <div className="grid grid-cols-3 gap-1 bg-stone-100 p-1 rounded-xl">
-                                    {(['newest', 'likes', 'title'] as const).map((opt) => (
-                                        <button
-                                            key={opt}
-                                            onClick={() => setSortOrder(opt)}
-                                            className={`py-1.5 text-sm font-semibold rounded-lg transition-all ${
-                                                sortOrder === opt 
-                                                    ? 'bg-theme-primary text-white font-semibold shadow-sm' 
-                                                    : 'text-theme-primary/50 hover:text-theme-primary'
-                                            }`}
-                                        >
-                                            {opt === 'newest' ? 'Newest' : opt === 'likes' ? 'Most marvelled' : 'A-Z'}
-                                        </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            <fieldset className="space-y-2">
+                                <legend className="text-sm font-display text-theme-primary mb-2">Kind of record</legend>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {([['all', 'Any'], ['image', 'Photos'], ['video', 'Videos'], ['audio', 'Sounds']] as const).map(([media, label]) => (
+                                        <button key={media} type="button" aria-pressed={mediaFilter === media} onClick={() => setMediaFilter(media)} className={seg(mediaFilter === media)}>{label}</button>
                                     ))}
                                 </div>
-                            </div>
+                            </fieldset>
+                            <fieldset className="space-y-2">
+                                <legend className="text-sm font-display text-theme-primary mb-2">Order</legend>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {([['newest', 'Newest first'], ['likes', 'Most marvelled'], ['title', 'A to Z']] as const).map(([opt, label]) => (
+                                        <button key={opt} type="button" aria-pressed={sortOrder === opt} onClick={() => setSortOrder(opt)} className={seg(sortOrder === opt)}>{label}</button>
+                                    ))}
+                                </div>
+                            </fieldset>
                         </div>
 
-                        {/* Species taxonomic selection */}
                         {allAvailableLabels.length > 0 && (
-                            <div className="space-y-2 pt-2 border-t border-theme-primary/5">
-                                <label className="block text-sm font-medium text-theme-primary/70">Filter Specific Taxons Native</label>
-                                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-2 no-scrollbar">
+                            <fieldset className="space-y-2 pt-4 border-t border-theme-primary/5">
+                                <legend className="text-sm font-display text-theme-primary mb-2">A particular species</legend>
+                                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-2 no-scrollbar">
                                     {allAvailableLabels.map((lbl) => {
                                         const isSelected = selectedLabels.includes(lbl);
                                         return (
-                                            <button
-                                                key={lbl}
-                                                onClick={() => toggleLabelFilter(lbl)}
-                                                className={`px-2.5 py-1 text-sm font-semibold rounded-full border transition-all ${
-                                                    isSelected 
-                                                        ? 'bg-theme-accent border-theme-accent text-white font-bold' 
-                                                        : 'bg-white border-theme-primary/10 text-theme-primary/60 hover:bg-stone-50'
-                                                }`}
-                                            >
+                                            <button key={lbl} type="button" aria-pressed={isSelected} onClick={() => toggleLabelFilter(lbl)} className={`${seg(isSelected)} italic`}>
                                                 {lbl}
                                             </button>
                                         );
                                     })}
                                 </div>
-                            </div>
+                            </fieldset>
                         )}
                     </div>
-                )}
+                    );
+                })()}
             </div>
 
-            {/* Instagram Horizontal Sticky Category Stories/Reels Navigation Pills */}
+            {/* Category pills */}
             <div className="w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 scroll-smooth">
                 {[
                     { id: 'all', label: 'All' },
@@ -1643,14 +1789,14 @@ const Community: React.FC<CommunityProps> = ({
             </div>
 
             {searchTag && (
-                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-sky-50 border border-sky-100 rounded-2xl">
-                    <p className="text-sm text-sky-900">Showing all posts tagged <strong>#{searchTag}</strong></p>
-                    <button onClick={() => setSearchTag(null)} className="text-sm font-bold text-sky-900">Clear</button>
+                <div className="flex items-center justify-between gap-3 px-4 py-3 bg-stone-50 border border-theme-primary/10 rounded-2xl">
+                    <p className="text-sm text-stone-700 flex items-center gap-2"><Glyph name="tag" size={16} className="text-theme-accent" />Every sighting tagged <strong className="text-theme-primary">#{searchTag}</strong></p>
+                    <button onClick={() => setSearchTag(null)} className="text-sm font-semibold text-theme-accent">Clear</button>
                 </div>
             )}
 
             {/* Reset status bar if any dynamic filter keyword is active */}
-            {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || searchTag) && (
+            {(searchQuery.trim() || activeExploreTab !== 'all' || mediaFilter !== 'all' || dateFilter !== 'all' || selectedLabels.length > 0 || selectedGroups.length > 0 || searchTag) && (
                 <div className="flex items-center justify-between gap-3 p-3 bg-stone-50 border border-theme-primary/5 rounded-2xl">
                     <div className="text-xs font-semibold text-theme-primary/60 flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 bg-theme-accent rounded-full animate-pulse"></span>
@@ -1670,7 +1816,7 @@ const Community: React.FC<CommunityProps> = ({
         <div className="w-full px-4 md:px-12 py-8">
             {isLoading ? (
                 <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 pb-56 space-y-2 md:space-y-4">
-                    {[...Array(10)].map((_, i) => <SkeletonPost key={i} />)}
+                    {[...Array(10)].map((_, i) => <SkeletonPost key={i} tall={i % 3 === 0} />)}
                 </div>
             ) : error ? (
                 <div role="alert" className="py-20 flex flex-col items-center justify-center text-center px-8 max-w-xl mx-auto my-12 animate-fade-in">
@@ -1726,7 +1872,7 @@ const Community: React.FC<CommunityProps> = ({
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
                 <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
                     {loadMoreState === 'loading' ? (
-                        <span className="flex items-center gap-2"><span className="material-symbols-outlined animate-spin" aria-hidden="true">progress_activity</span>Finding more sightings…</span>
+                        <PressingLoader size={28} label="Finding more sightings" />
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="font-semibold text-theme-accent">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
@@ -1735,6 +1881,7 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             )}
         </div>
+        </>)}
 
         <>
         {activePost && (
@@ -1753,19 +1900,19 @@ const Community: React.FC<CommunityProps> = ({
                     {activePostIndex > 0 && (
                         <button 
                             onClick={() => navigateSequential('prev')}
-                            className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
+                            className="fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl md:flex hidden"
                             aria-label="Previous post"
                         >
-                            <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_left</span>
+                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_left</span>
                         </button>
                     )}
                     {activePostIndex !== -1 && activePostIndex < displayPosts.length - 1 && (
                         <button 
                             onClick={() => navigateSequential('next')}
-                            className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl font-black md:flex hidden"
+                            className="fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/90 hover:bg-white text-stone-800 flex items-center justify-center shadow-lg border border-stone-100 z-[180] active:scale-95 transition-all text-xl md:flex hidden"
                             aria-label="Next post"
                         >
-                            <span className="material-symbols-outlined text-3xl font-extrabold text-stone-700">chevron_right</span>
+                            <span className="material-symbols-outlined text-3xl text-stone-700" aria-hidden="true">chevron_right</span>
                         </button>
                     )}
 
@@ -1894,7 +2041,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover border border-theme-primary/15" />
                                                 : <span className="w-10 h-10 rounded-full bg-theme-primary/10 border border-theme-primary/15 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(activePost.userName || '?').charAt(0).toUpperCase()}</span>}
                                             <span className="min-w-0">
-                                                <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}{sightingsLine(activePost.userId) && <span className="font-normal text-stone-500"> · {sightingsLine(activePost.userId)}</span>}</span>
+                                                <span className="block font-bold text-sm text-theme-primary truncate group-hover:text-theme-accent transition-colors">{activePost.userName}{speciesLine(activePost.userId) && <span className="font-normal text-stone-500"> · {speciesLine(activePost.userId)}</span>}</span>
                                                 <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
                                             </span>
                                         </button>
@@ -1912,7 +2059,7 @@ const Community: React.FC<CommunityProps> = ({
                                     </div>
                                     <div className="p-4 md:p-6 flex-1 overflow-y-auto hidden-scrollbar flex flex-col space-y-6">
                                         {activePost.curatorNote && (
-                                            <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><span className="material-symbols-outlined text-base text-theme-accent" aria-hidden="true">psychology</span><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
+                                            <p className="text-sm text-stone-600 bg-stone-50 rounded-xl px-3 py-2 flex gap-2"><Glyph name="guide" size={16} className="text-theme-accent mt-0.5" /><span><strong className="text-stone-800">Why you're seeing this:</strong> {activePost.curatorNote}</span></p>
                                         )}
                                         {(() => {
                                             const species = currentItem.labels?.[0];
@@ -2045,26 +2192,20 @@ const Community: React.FC<CommunityProps> = ({
                                 <p className="font-display text-lg text-stone-800">No field notes yet</p>
                             </div>
                         ) : (
-                            visibleComments.map(c => (
-                                <div key={c.id} className="flex gap-3 group animate-fade-in">
-                                    <button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} aria-label={`View ${c.userName}`} className="shrink-0">
-                                        {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-theme-primary/10 flex items-center justify-center text-theme-primary font-bold text-sm" aria-hidden="true">{(c.userName || '?').charAt(0).toUpperCase()}</span>}
-                                    </button>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm text-stone-900 leading-snug"><button onClick={() => { setIsCommentsOpen(false); handleProfileClick(c.userId); }} className="font-bold mr-1.5">{c.userName}</button><RichText className="whitespace-pre-line break-words" text={c.text} onMention={openMention} onTag={handleTagClick} /></p>
-                                        <div className="flex items-center gap-3 mt-1 text-xs text-stone-500 flex-wrap">
-                                            <span>{[sightingsLine(c.userId), timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
-                                            {looksLikeSpam(c.text) && isPostOwner && <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-semibold">Looks like spam, hidden from others</span>}
-                                            {isMember && c.userId !== currentUserMode.userId && (
-                                                <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-semibold hover:text-stone-800">Reply</button>
-                                            )}
-                                            {(c.userId === currentUserMode.userId || activePost.userId === currentUserMode.userId) && (
-                                                <button onClick={() => handleDeleteComment(c.id)} className="font-semibold hover:text-red-700">Delete</button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
+                            <>
+                                {observationNotes.length > 0 && (
+                                    <section aria-labelledby="notes-obs" className="space-y-5">
+                                        <h4 id="notes-obs" className="text-sm font-display text-theme-primary flex items-center gap-1.5"><Glyph name="feather" size={15} className="text-theme-accent" />Observations</h4>
+                                        {observationNotes.map(c => renderNote(c))}
+                                    </section>
+                                )}
+                                {chatterNotes.length > 0 && (
+                                    <section aria-label="Conversation" className={`space-y-5 ${observationNotes.length ? 'pt-5 border-t border-theme-primary/10' : ''}`}>
+                                        {observationNotes.length > 0 && <h4 className="text-sm font-display text-stone-500">Conversation</h4>}
+                                        {chatterNotes.map(c => renderNote(c))}
+                                    </section>
+                                )}
+                            </>
                         )}
                     </div>
 
