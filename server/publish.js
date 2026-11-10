@@ -23,6 +23,7 @@ import { moderationBody, policyText, findPolicyBreach } from './aiGovernance.js'
 import { textFlags } from './moderationText.js';
 import { searchTokensFor } from './searchTokens.js';
 import { appCheckMiddleware } from './appCheck.js';
+import { teenPolicy, graduateIfDue } from './guardian.js';
 
 // When the image check cannot run (model error, timeout), publish normally and queue the sighting
 // for an after-the-fact look instead of holding it. MODERATION_FAIL_OPEN=false restores holding.
@@ -198,6 +199,9 @@ export function mountPublish(app, deps) {
 
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const g = settings.guidance;
+    // Teen mode: until a parent approves, sightings stay in the journal; after, never where
+    const profile = await graduateIfDue(db, user.uid, (await db.doc(`users/${user.uid}`).get().catch(() => null))?.data() || {});
+    const teen = teenPolicy(profile);
 
     // Allowance first (read only), so nobody waits through checks they can't use
     const used = await usageFor(user.uid);
@@ -249,6 +253,7 @@ export function mountPublish(app, deps) {
       i.needsExpertReview = i.needsExpertReview || r.confidence === 'low';
     }));
     const sensitive = items.some(i => i.aiFlags?.sensitiveSpecies);
+    if (teen.teen) items.forEach(i => { i.locationArea = ''; i.showLocation = false; });
     if (sensitive) items.forEach(i => { i.locationArea = ''; i.showLocation = false; });
 
     // Words: abuse and spam heuristics (no AI). A hit keeps the sighting out of the feed until reviewed.
@@ -269,7 +274,7 @@ export function mountPublish(app, deps) {
     }
     const safetyReasons = [...safety];
 
-    const wantsFeed = body.feed === true;
+    const wantsFeed = body.feed === true && (!teen.teen || teen.approved);
     const requestReview = body.requestReview === true;
     if (reasons.length && !requestReview) {
       const first = PRIVACY_REASONS.find(r => reasons.includes(r));
@@ -286,7 +291,6 @@ export function mountPublish(app, deps) {
     const pending = safetyReasons.length > 0;
     const held = pending || reasons.length > 0 || (unchecked && !MODERATION_FAIL_OPEN);
     const lookLater = !held && unchecked;
-    const profile = (await db.doc(`users/${user.uid}`).get().catch(() => null))?.data() || {};
     const primary = items[0];
     const labels = Array.from(new Set(items.flatMap(i => i.labels))).slice(0, 20);
     const post = {
@@ -311,7 +315,7 @@ export function mountPublish(app, deps) {
       timestamp: FieldValue.serverTimestamp(),
       likes: [], likeCount: 0, commentCount: 0,
       isPublic: wantsFeed && !held,
-      isJournal: body.journal !== false || held,
+      isJournal: body.journal !== false || held || (body.feed === true && !wantsFeed),
       reportStatus: 'safe', reports: [],
       isHybrid: items.length > 1 || items.some(i => i.associatedImageUrls.length > 0),
       items: items.map(({ aiResultId, observedAt, ...rest }) => ({ ...rest, aiResultId, ...(observedAt ? { observedAt } : {}) })),
@@ -357,7 +361,7 @@ export function mountPublish(app, deps) {
     res.json({
       ok: true, id: ref.id, held, isPublic: post.isPublic,
       url: primary.imageUrl || undefined, videoUrl: primary.videoUrl || undefined, audioUrl: primary.audioUrl || undefined,
-      message: held ? 'Saved to your journal. It will appear in the feed once it has been reviewed.' : undefined,
+      message: teen.teen && !teen.approved ? 'Saved to your journal. Sharing opens once a grown-up says yes.' : held ? 'Saved to your journal. It will appear in the feed once it has been reviewed.' : undefined,
       note: sensitive ? g.sensitive : undefined,
       left: Math.max(0, limit - charged.used),
     });
@@ -377,6 +381,8 @@ export function mountPublish(app, deps) {
     if (!post || post.userId !== user.uid) return res.status(404).json({ ok: false, message: 'Not found' });
     const makePublic = req.body?.isPublic === true;
     let recheck = null;
+    const teen = makePublic ? teenPolicy(await graduateIfDue(db, user.uid, (await db.doc(`users/${user.uid}`).get().catch(() => null))?.data() || {})) : { teen: false };
+    if (makePublic && teen.teen && !teen.approved) return res.status(403).json({ ok: false, code: 'guardian', message: 'Sharing opens once a grown-up says yes. Your sighting is safe in your journal.' });
     if (makePublic) {
       // Every picture, clip and sound must still be the explorer's own upload
       const urls = [post, ...(Array.isArray(post.items) ? post.items : [])].flatMap(i => [
@@ -417,8 +423,10 @@ export function mountPublish(app, deps) {
     }
     if (makePublic && post.reportStatus === 'hidden') return res.status(409).json({ ok: false, message: 'This sighting was removed from the feed.' });
     const batch = db.batch();
-    batch.update(ref, recheck ? { isPublic: true, moderation: recheck } : { isPublic: makePublic });
-    if (makePublic) batch.set(db.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, isPublic: true }));
+    // A teen's sighting joins the feed without its place
+    const hidePlace = makePublic && teen.teen ? { showLocation: false, locationArea: '' } : {};
+    batch.update(ref, { ...(recheck ? { isPublic: true, moderation: recheck } : { isPublic: makePublic }), ...hidePlace });
+    if (makePublic) batch.set(db.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, ...hidePlace, isPublic: true }));
     else batch.delete(db.doc(`feed_thumbnails/${id}`));
     await batch.commit();
     res.json({ ok: true, isPublic: makePublic });

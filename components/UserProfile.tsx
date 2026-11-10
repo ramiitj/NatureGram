@@ -16,6 +16,7 @@ import { getThemePeriod } from '../constants/naturalistExtras';
 import { fieldMoment } from './Wonder';
 import { themeAccent } from './ShareSheet';
 import { challengeStamps } from '../services/stamps';
+import GuardianCare from './GuardianCare';
 
 /** "Exploring since March 2026", tolerant of Firestore Timestamps, {seconds} objects, ISO strings and millis. */
 const exploringSince = (t: any): string => {
@@ -781,6 +782,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
+            {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
             {isAdmin && onAdminConsole && (
               <button onClick={() => { setSheet(null); onAdminConsole(); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">admin_panel_settings</span>Admin console</button>
             )}

@@ -24,13 +24,22 @@ const sessionId = (() => {
   try { return crypto.randomUUID(); } catch { return String(Math.random()).slice(2); }
 })();
 
+// Teen mode (13 to 17): no product analytics, no vitals, no ads tag, whatever was chosen before.
+// Error reports, which carry no identifiers, still go out. Set by services/guardian.ts.
+let teenMode = false;
+export const setTeenMode = (on: boolean) => {
+  teenMode = on;
+  if (on) queue.splice(0, queue.length, ...queue.filter(e => e.kind === 'error'));
+};
+export const isTeenMode = () => teenMode;
+
 export type Consent = 'granted' | 'denied' | null;
 export const getConsent = (): Consent => {
   try { return (localStorage.getItem(CONSENT_KEY) as Consent) || null; } catch { return null; }
 };
 export const setConsent = (c: 'granted' | 'denied') => {
   try { localStorage.setItem(CONSENT_KEY, c); } catch { /* ignore */ }
-  if (c === 'granted') {
+  if (c === 'granted' && !teenMode) {
     track('analytics_consent', { granted: true });
     try { (window as any).ngLoadAdsTag?.(); } catch { /* ignore */ }
   }
@@ -47,7 +56,7 @@ const schedule = () => {
 export const flush = (useBeacon = false) => {
   if (!queue.length) return;
   const batch = queue.splice(0, 50);
-  const consented = getConsent() === 'granted';
+  const consented = getConsent() === 'granted' && !teenMode;
   const body = JSON.stringify({
     sessionId,
     uid: consented ? uid : null,
@@ -75,7 +84,7 @@ const clean = (props: Props = {}): Props => {
 
 /** Record a product event (dropped unless the explorer opted in). */
 export const track = (name: string, props: Props = {}) => {
-  if (getConsent() !== 'granted') return;
+  if (getConsent() !== 'granted' || teenMode) return;
   queue.push({ name, props: clean(props), ts: Date.now(), kind: 'event' });
   schedule();
 };
@@ -155,7 +164,7 @@ export const initAnalytics = () => {
     new PerformanceObserver(list => { list.getEntries().forEach((e: any) => { if (!e.hadRecentInput) cls += e.value; }); }).observe({ type: 'layout-shift', buffered: true } as any);
     new PerformanceObserver(list => { list.getEntries().forEach((e: any) => { inp = Math.max(inp, e.duration || 0); }); }).observe({ type: 'event', buffered: true, durationThreshold: 40 } as any);
     const send = () => {
-      if (getConsent() !== 'granted') return;
+      if (getConsent() !== 'granted' || teenMode) return;
       queue.push({ name: 'web_vitals', props: { lcp_ms: Math.round(lcp), cls: Math.round(cls * 1000) / 1000, inp_ms: Math.round(inp) }, ts: Date.now(), kind: 'vital' });
       flush(true);
     };

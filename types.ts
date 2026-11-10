@@ -62,6 +62,14 @@ export interface UserProfileData {
     observations: number;
     species: number;
   }
+  /** Teen mode (13 to 17). Missing on older profiles, which are adults. */
+  ageBand?: 'teen' | 'adult';
+  /** First day of the month a teen turns 18 (no date of birth is kept) */
+  adultFrom?: any;
+  /** A teen's parent or guardian consent, written by the server only */
+  guardian?: { status: 'pending' | 'approved' | 'declined' | 'withdrawn'; emailHash?: string; requestedAt?: any; parentUid?: string; approvedAt?: any; deletionRequestedAt?: any };
+  /** Teens this explorer gave consent for, written by the server only */
+  guardianOf?: string[];
 }
 
 export interface Snapshot {
