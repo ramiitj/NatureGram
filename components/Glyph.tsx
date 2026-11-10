@@ -30,7 +30,10 @@ export type GlyphName =
   | 'fish'          // fish & water life
   | 'frog'          // amphibians & reptiles
   | 'shell'         // molluscs & other life
-  | 'sound';        // sound sightings
+  | 'sound'         // sound sightings
+  | 'mark'          // NatureGram's own mark (a sun rising over an opening leaf)
+  | 'signpost'      // off the trail (errors, wrong turns)
+  | 'key';          // a field-station key (password reset)
 
 const P: Record<GlyphName, React.ReactNode> = {
   notebook: <><path d="M6 3.5h11a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H6z" /><path d="M6 3.5v17M4 7h3M4 12h3M4 17h3" /><path d="M10 8h5M10 11h4" /></>,
@@ -57,6 +60,9 @@ const P: Record<GlyphName, React.ReactNode> = {
   frog: <><path d="M5 15c0-4 3-6.5 7-6.5s7 2.5 7 6.5c0 2-2 3.5-7 3.5S5 17 5 15z" /><circle cx="8.5" cy="8" r="2" /><circle cx="15.5" cy="8" r="2" /><path d="M9.5 14.5c1.5 1 3.5 1 5 0M5 17l-2 2.5M19 17l2 2.5" /></>,
   shell: <><path d="M12 20c-5 0-8-3.5-8-7.5C4 8 8 4 12 4s8 4 8 8.5c0 4-3 7.5-8 7.5z" /><path d="M12 20V4M12 20l-5-13M12 20l5-13" /></>,
   sound: <><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" /></>,
+  mark: <><circle cx="12" cy="8.5" r="3" /><path d="M12 3v1.2M7.6 4.9l.8.8M16.4 4.9l-.8.8M5.8 8.5h1.2M17 8.5h1.2" /><path d="M12 21c-3.6-1-6.2-3.8-6.2-7.2 2.8 0 5.1 1.2 6.2 3.2 1.1-2 3.4-3.2 6.2-3.2 0 3.4-2.6 6.2-6.2 7.2z" /><path d="M12 21v-4" /></>,
+  signpost: <><path d="M12 21V3.5" /><path d="M12 5.5h6.2l2 2-2 2H12" /><path d="M12 11.5H5.8l-2 2 2 2H12" /><path d="M8.5 21h7" /></>,
+  key: <><circle cx="8" cy="16" r="4.5" /><circle cx="8" cy="16" r="1.3" /><path d="M11.2 12.8L20 4M15.5 8.5l2.5 2.5M18 6l2 2" /></>,
 };
 
 export const Glyph: React.FC<{ name: GlyphName; className?: string; size?: number; strokeWidth?: number; title?: string }> = ({ name, className = '', size = 22, strokeWidth = 1.5, title }) => (
