@@ -25,7 +25,7 @@ import { statsFromPosts, affectsStats, recomputeUserStats } from './userStats.js
 initializeApp();
 const db = getFirestore();
 
-const TITLES = { like: 'New like', comment: 'New comment', follow: 'New follower', mention: 'You were mentioned', reply: 'New reply' };
+const TITLES = { like: 'A new marvel', comment: 'A new field note', follow: 'A new follower', mention: 'You were mentioned', reply: 'A reply to your field note', message: 'A new letter' };
 
 export const sendActivityPush = onDocumentCreated({ document: 'users/{uid}/notifications/{notifId}', region: 'asia-east1' }, async (event) => {
   const n = event.data?.data();

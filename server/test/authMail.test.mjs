@@ -126,7 +126,7 @@ test('send-verification: needs a token, sends our letter, rate-limits per explor
     assert.equal((await s.post('/api/auth/send-verification', {})).status, 401);
     const ok = await s.post('/api/auth/send-verification', {}, { Authorization: 'Bearer good' });
     assert.deepEqual(ok.body, { sent: true });
-    assert.match(sent[0].subject, /field notebook/);
+    assert.match(sent[0].subject, /field page/);
     assert.match(sent[0].html, /Hi ana,/);
     assert.match(sent[0].html, /thenaturegram\.com\/auth\/action\?mode=verifyEmail/);
     await s.post('/api/auth/send-verification', {}, { Authorization: 'Bearer good' });

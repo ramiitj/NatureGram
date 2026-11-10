@@ -111,7 +111,7 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
       // Saved on the slip so the thanks shows everywhere; rules allow only the post's author to set it
       await FirebaseService.thankIdentification(postId, d.id).catch(() => { /* rules not yet deployed: keep the notification */ });
       const me = await FirebaseService.getUserProfile(currentUserId).catch(() => null);
-      const who = (me?.username || 'The explorer who posted it').slice(0, 60);
+      const who = (me?.username || 'The explorer who shared it').slice(0, 60);
       await FirebaseService.addNotification(d.id, {
         type: 'identification',
         message: `${who} thanked you for your determination: ${d.name.slice(0, 80)}.`,

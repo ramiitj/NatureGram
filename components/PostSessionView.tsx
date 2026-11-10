@@ -156,6 +156,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             return;
         }
 
+        // glossary-ok: matches a stored placeholder from LiveLens
         if (current.aiInsight === "Processing..." || current.aiInsight === "Audio analysis pending..." || current.aiInsight === "Visual record for field study.") {
             if (current.aiInsight === "Processing..." && geminiServiceRef.current?.isConnected() && pendingSnapshotIdRef.current === current.id) {
                 setIsAnalyzing(true);
@@ -430,8 +431,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           if (!plate) return shareLink();
           setShareNote('');
           const url = getShareUrl(createdPostId);
-          const res = await sharePlate({ ...plate, line: answeredChallenge ? `Answers ${theme.naturalist}'s challenge` : undefined }, { text: `${plate.name}, in my field notebook on NatureGram`, url });
+          const res = await sharePlate({ ...plate, line: answeredChallenge ? `Answers ${theme.naturalist}'s challenge` : undefined }, { text: `${plate.name}, from my field page on NatureGram`, url });
           if (res === 'failed') return shareLink();
+          // glossary-ok: the life-list plate image
           if (res === 'downloaded') setShareNote('Plate saved to your device.');
       };
       const isNew = newSpecies.length > 0;
@@ -453,8 +455,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    </div>
                )}
                {plate?.no && <p className="font-display italic text-lg text-theme-accent mb-1">No. {plate.no} in your collection</p>}
-               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'Kept in your journal'}</h2>
-               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with others any time.')}</p>
+               <h2 className="text-3xl font-display text-theme-primary mb-2">{postToFeed && !heldMessage ? 'Shared with everyone' : 'In your journal'}</h2>
+               <p className="text-stone-600 mb-4 text-base max-w-xs">{heldMessage || (postToFeed ? 'Explorers everywhere can now see what you found and learn from it.' : 'Only you can see it. You can share it with everyone any time.')}</p>
                {isNew && lifeListTotal > 0 && <p className="text-sm text-stone-700 mb-4 max-w-xs">{newSpecies.length > 1 ? `New to your list: ${newSpecies.join(', ')}. ` : ''}{lifeListMilestone(lifeListTotal, newSpecies.length)}</p>}
                {answeredChallenge && (
                    <p className="mb-4 flex items-center justify-center gap-2 text-sm text-theme-accent"><Glyph name="stamp" size={18} />You answered {theme.naturalist}'s challenge</p>
@@ -468,7 +470,8 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                <div className="w-full max-w-xs flex flex-col gap-3 pb-6">
                    {createdPostId && postToFeed && !heldMessage && (
                        <button onClick={share} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
-                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
+                           <span className="material-symbols-outlined" aria-hidden="true">share</span>{/* glossary-ok: the life-list plate */}
+                           {copied ? 'Link copied' : plate ? 'Share the plate' : 'Share'}
                        </button>
                    )}
                    {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
@@ -554,7 +557,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <img
                                   src={currentPreviewUrl!}
                                   className="w-full h-full object-contain z-10 transition-transform duration-300"
-                                  alt="Observation"
+                                  alt="Your capture"
                               />
                               <div className="absolute inset-0 opacity-30 blur-3xl scale-110 pointer-events-none">
                                   <img src={currentPreviewUrl!} className="w-full h-full object-cover transition-transform duration-300" alt="" />
@@ -569,7 +572,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       <button
                           onClick={() => toggleSelection(currentSnapIndex)}
                           aria-pressed={selectedIndices.has(currentSnapIndex)}
-                          aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected for posting. Tap to exclude' : 'Not selected. Tap to include'}
+                          aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected to share. Tap to leave out' : 'Not selected. Tap to include'}
                           className={`absolute top-6 right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 ${selectedIndices.has(currentSnapIndex) ? 'bg-theme-accent text-white' : 'bg-white/20 backdrop-blur-md text-white border border-white/20'}`}
                       >
                           <span className="material-symbols-outlined text-2xl">{selectedIndices.has(currentSnapIndex) ? 'check_circle' : 'add_circle'}</span>
@@ -710,7 +713,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                       <p className="text-sm text-amber-900 bg-amber-50 rounded-xl p-3">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
                                   )}
                                   {currentSnapshot?.needsExpertReview && !currentSnapshot?.aiError && (
-                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once posted, other explorers can confirm or suggest a better name.</p>
+                                      <p className="text-sm text-stone-700 bg-stone-100 rounded-xl p-3"><strong>Low certainty.</strong> Check the name before sharing. Once shared, other explorers can confirm or suggest a better name.</p>
                                   )}
                                   {currentSnapshot?.aiSafetyNote && !currentSnapshot?.aiFlags?.fungi && (
                                       <p className="text-sm text-red-900 bg-red-50 rounded-xl p-3">{currentSnapshot.aiSafetyNote}</p>
@@ -742,7 +745,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <div className="grid grid-cols-2 gap-3">
                                   {([
                                       { v: true, icon: 'public', title: 'Share with everyone', desc: 'Everyone on NatureGram, and your journal' },
-                                      { v: false, icon: 'fingerprint', title: 'Only me', desc: 'Kept in your journal' },
+                                      { v: false, icon: 'fingerprint', title: 'Only me', desc: 'Just in your journal' },
                                   ]).map(opt => (
                                       <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
@@ -842,7 +845,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                               className="w-full pl-11 pr-4 py-3.5 bg-theme-primary/5 border border-theme-primary/10 rounded-2xl text-sm font-display text-theme-primary/90 outline-none focus:border-theme-accent/30"
                                           />
                                       </div>
-                                      <p className="text-xs text-stone-500 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your private records.</p>
+                                      <p className="text-xs text-stone-500 mt-2 leading-snug">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
                                       {(currentSnapshot as any)?.takenAtMs && <p className="text-xs text-stone-600 mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-theme-accent" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
                                   </section>
 
@@ -903,7 +906,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   ) : (
                       <>
                           {postToFeed ? <span className="material-symbols-outlined" aria-hidden="true">public</span> : <Glyph name="rings" size={22} />}
-                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Keep in my journal'}</span>
+                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Save for only me'}</span>
                       </>
                   ))}
               </button>
@@ -913,7 +916,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       {confirmLeave && (
           <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/50 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
               <div className="w-full sm:max-w-sm bg-white rounded-t-[2rem] sm:rounded-[2rem] p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
-                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Keep your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
+                  <h3 id="leave-title" className="text-xl font-bold text-stone-900">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
                   <p className="text-sm text-stone-600 mt-1 mb-5">Save a draft to finish later, or discard them for good.</p>
                   <div className="flex flex-col gap-2">
                       <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="w-full py-3.5 rounded-xl bg-theme-primary text-white font-bold">Save draft</button>

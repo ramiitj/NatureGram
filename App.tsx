@@ -252,13 +252,14 @@ const App: React.FC = () => {
   const shareLetter = async () => {
     const w = myWeek;
     const text = w && w.sightings
-      ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my NatureGram field notebook.`
-      : 'My field notebook on NatureGram.';
+      ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my field page on NatureGram.`
+      : 'My field page on NatureGram.';
     const url = `${window.location.origin}/profile/${encodeURIComponent(userMode?.userId || '')}`;
     track('share', { surface: 'sunday_letter' });
     if (w?.newPlates.length) {
       const { sharePlate } = await import('./services/plateImage.ts');
       const r = await sharePlate({ ...w.newPlates[0], line: 'New to my list this week' }, { text, url });
+      // glossary-ok: the plate image of a new life-list species
       if (r === 'downloaded') { setLetterToast('Plate saved. Share it wherever you like.'); window.setTimeout(() => setLetterToast(''), 2600); }
       return;
     }
@@ -451,13 +452,13 @@ const App: React.FC = () => {
 
   const handleSaveDraft = async () => {
     if (userMode?.isAnonymous) {
-      requireAccount('Create a free account to keep drafts of your expeditions.', () => handleSaveDraftRef.current?.());
+      requireAccount('Create a free account to keep drafts of your sightings.', () => handleSaveDraftRef.current?.());
       return;
     }
     const activeUserId = userMode?.userId;
     if (activeUserId && currentSessionRef.current.length > 0) {
       try {
-        await FirebaseService.saveDraft(activeUserId, currentSessionRef.current, sessionSummary || "Unfinished expedition.");
+        await FirebaseService.saveDraft(activeUserId, currentSessionRef.current, sessionSummary || "Unfinished sighting.");
         if (resumedDraftId) {
           await FirebaseService.deleteDraft(activeUserId, resumedDraftId).catch(() => {});
           setResumedDraftId(null);
@@ -707,6 +708,7 @@ const App: React.FC = () => {
                 {!userMode?.isAnonymous && !!myWeek?.sightings && (
                   <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
                     <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
+                    {/* glossary-ok: the life-list plate itself */}
                     {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
                   </button>
                 )}

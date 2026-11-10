@@ -45,7 +45,7 @@ type Tab = 'posts' | 'lifelist' | 'saved';
 
 const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = ({ url, name, size = 88 }) => (
   url
-    ? <img src={url} alt={`${name || 'Explorer'}'s profile photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
+    ? <img src={url} alt={`${name || 'Explorer'}'s photo`} className="rounded-full object-cover bg-stone-100" style={{ width: size, height: size }} />
     : <div className="rounded-full bg-theme-accent/10 text-theme-deep flex items-center justify-center font-display font-semibold" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</div>
 );
 
@@ -426,7 +426,7 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
       <Glyph name="sealed" size={26} className="text-theme-accent shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="font-display text-[17px] text-stone-900 leading-snug">Check your inbox</p>
-        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your notebook is yours to keep.</p>
+        <p className="text-sm text-stone-600 mt-0.5">We sent a letter to <span className="font-semibold text-stone-800 break-all">{email || 'your email'}</span>. Tap the link inside and your field page is yours to keep.</p>
         <button onClick={resend} disabled={busy || wait > 0} className="mt-2 text-sm font-semibold text-theme-primary disabled:text-stone-400">
           {busy ? 'Sending…' : wait > 0 ? `Send another in ${wait}s` : 'Send it again'}
         </button>
@@ -581,7 +581,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   const toggleBlock = async () => {
     setSheet(null);
-    if (!blocked && !window.confirm(`Block ${username}? You won't see their posts or comments, and they'll be removed from your followers list.`)) return;
+    if (!blocked && !window.confirm(`Block ${username}? You won't see their sightings or field notes, and they'll be removed from your followers.`)) return;
     try {
       if (blocked) { await FirebaseService.unblockUser(userId); setBlocked(false); showToast(`${username} unblocked`); }
       else { await FirebaseService.blockUser(userId); setBlocked(true); setFollowing(false); showToast(`${username} blocked`); }
@@ -592,7 +592,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
     const url = `${PUBLIC_ORIGIN}/profile?user=${encodeURIComponent(userId)}`;
     try {
       if (navigator.share) await navigator.share({ title: `${username} on NatureGram`, url });
-      else { await navigator.clipboard.writeText(url); showToast('Profile link copied'); }
+      else { await navigator.clipboard.writeText(url); showToast('Link to the field page copied'); }
     } catch { /* cancelled */ }
   };
 
@@ -660,7 +660,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
         <section className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change profile photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
+            <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full p-[3px] border border-theme-accent/40">
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
             <div className="min-w-0">
@@ -705,8 +705,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           <div className="flex gap-2 mt-4">
             {isOwnProfile ? (
               <>
-                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit profile</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                <button onClick={() => setSheet('edit')} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary">Edit field page</button>
+                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             ) : blocked ? (
               <button onClick={toggleBlock} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 text-sm font-bold text-theme-primary">Unblock</button>
@@ -719,7 +719,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                   // A letter that can't be opened says why, instead of doing nothing.
                   try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
                 }} className="flex-1 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-sm font-bold text-theme-primary flex items-center justify-center gap-1.5"><span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">mail</span>Letter</button>
-                <button onClick={shareProfile} aria-label="Share profile" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
+                <button onClick={shareProfile} aria-label="Share field page" className="w-11 py-2.5 rounded-xl border border-theme-primary/15 hover:bg-theme-primary/5 text-theme-primary flex items-center justify-center"><span className="material-symbols-outlined text-xl" aria-hidden="true">share</span></button>
               </>
             )}
           </div>
@@ -727,10 +727,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
         </section>
 
         {blocked && !isOwnProfile ? (
-          <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their posts.</p>
+          <p className="text-center text-stone-500 py-16 px-8">You've blocked this explorer. Unblock to see their sightings.</p>
         ) : (
           <>
-            <div role="tablist" aria-label="Profile sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
+            <div role="tablist" aria-label="Field page sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
               {([
                 { key: 'posts', icon: 'landscape', label: 'Sightings' },
                 { key: 'lifelist', icon: 'plate', label: 'Life list' },
@@ -798,13 +798,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <Glyph name={sheet === 'followers' ? 'binoculars' : 'notebook'} size={32} className="text-theme-accent/60 mb-2" />
                 <p className="text-stone-700 font-display text-lg">
                   {sheet === 'followers'
-                    ? (isOwnProfile ? 'No one is reading your field page yet' : `No one reads ${username}'s page yet`)
-                    : (isOwnProfile ? "You're not reading anyone yet" : `${username} isn't reading anyone yet`)}
+                    ? (isOwnProfile ? 'No one follows you yet' : `No one follows ${username} yet`)
+                    : (isOwnProfile ? "You're not following anyone yet" : `${username} isn't following anyone yet`)}
                 </p>
                 <p className="text-sm text-stone-500 mt-1">
                   {sheet === 'followers'
                     ? (isOwnProfile ? 'Share a sighting or two; explorers who notice the same things tend to find you.' : 'You could be the first to follow along.')
-                    : (isOwnProfile ? 'Follow an explorer from any sighting and their new pages will reach you.' : 'Their own pages are worth a look in the meantime.')}
+                    : (isOwnProfile ? 'Follow an explorer from any sighting and their new sightings will reach you.' : 'Their own sightings are worth a look in the meantime.')}
                 </p>
               </div>
             ) : (
@@ -825,7 +825,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'menu' && !isOwnProfile && (
         <Sheet title={username} onClose={() => setSheet(null)}>
           <div className="flex flex-col gap-1">
-            <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share profile</button>
+            <button onClick={shareProfile} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">ios_share</span>Share field page</button>
             {currentUserId && !isAnonymous && (<>
               <button onClick={toggleMute} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">{muted ? 'volume_up' : 'volume_off'}</span>{muted ? 'Unmute' : 'Mute'} {username}</button>
               <button onClick={toggleBlock} className="text-left p-3 rounded-xl hover:bg-red-50 font-semibold text-red-700 flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">block</span>{blocked ? 'Unblock' : 'Block'} {username}</button>
@@ -837,7 +837,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'settings' && isOwnProfile && (
         <Sheet title="Settings" onClose={() => setSheet(null)}>
           <nav className="flex flex-col gap-1" aria-label="Account settings">
-            <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit profile</button>
+            <button onClick={() => setSheet('edit')} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">edit</span>Edit field page</button>
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><Glyph name="guide" size={24} /><span className="flex-1">What makes you stop and look<span className="block text-xs font-normal text-stone-500">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
             <button onClick={downloadData} className="text-left p-3 rounded-xl hover:bg-stone-50 font-semibold flex items-center gap-3"><span className="material-symbols-outlined" aria-hidden="true">download</span>Download my data</button>
@@ -910,14 +910,14 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
     try {
       if (avatarFile) await FirebaseService.uploadAvatar(avatarFile);
       await FirebaseService.updateMyProfile({ username, bio, displayName });
-      onSaved('Profile updated');
+      onSaved('Field page updated');
     } catch (err: any) {
-      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your profile. Please try again.');
+      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your field page. Please try again.');
     } finally { setBusy(false); }
   };
 
   return (
-    <Sheet title="Edit profile" onClose={onClose}>
+    <Sheet title="Edit field page" onClose={onClose}>
       <form onSubmit={save} className="flex flex-col gap-4">
         <div className="flex flex-col items-center gap-2">
           <Avatar url={avatarPreview || profile?.avatarUrl} name={username} size={96} />
@@ -987,7 +987,7 @@ const DeleteAccountSheet: React.FC<{ username: string; lifeList: LifeEntry[]; on
         <AuthModal inline initialIsSignUp={false} reason="Log in again to confirm it's you." onSuccess={() => { setNeedsReauth(false); setError(''); run(); }} />
       ) : (
         <div className="flex flex-col gap-4">
-          <p className="text-stone-700 leading-relaxed">This permanently deletes <strong>{username}</strong>: your profile, every post and its media, comments, likes, follows, drafts and private records. <strong>This cannot be undone.</strong></p>
+          <p className="text-stone-700 leading-relaxed">This permanently deletes <strong>{username}</strong>: your field page, every sighting and its media, field notes, marvels, follows, drafts and private details. <strong>This cannot be undone.</strong></p>
           <section aria-labelledby="keep-first" className="rounded-2xl bg-[#fbf7ef] border border-[#e8dfcd] p-4">
             <h3 id="keep-first" className="font-display text-lg text-theme-primary flex items-center gap-2"><Glyph name="plate" size={20} className="text-theme-accent" />Download your plates first</h3>
             <p className="text-sm text-stone-600 mt-1">

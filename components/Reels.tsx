@@ -196,8 +196,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
       ) : items.length === 0 ? (
         <div className="h-full flex flex-col items-center justify-center gap-3 p-8 text-center">
           <span className="material-symbols-outlined text-4xl text-white/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">videocam</span>
-          <p className="font-display text-xl">No moments recorded yet</p>
-          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to record one.</p>
+          <p className="font-display text-xl">No moments captured yet</p>
+          <p className="text-white/75 max-w-xs">Hold the shutter in the Lens to capture one.</p>
         </div>
       ) : (
         <div ref={containerRef} className="h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar overscroll-contain" role="feed" aria-busy={loading} aria-label={extended ? 'Moments' : `${evening ? "Tonight's" : "Today's"} moments: ${countWord} clips`}>

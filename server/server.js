@@ -460,7 +460,7 @@ async function startServer() {
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
     const theme = shareTheme();
     let title = 'NatureGram: a living field notebook';
-    let heading = 'A page from a field notebook';
+    let heading = 'A wild sighting';
     let scientific = '';
     let byline = '';
     let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
@@ -562,7 +562,7 @@ ${scientific ? `<p class="sci">${e(scientific)}</p>` : ''}
 ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 <p class="desc">${e(description)}</p>
 <div>${tagHtml}</div>
-<a class="btn" href="${e(appUrl)}">Open this field page</a>
+<a class="btn" href="${e(appUrl)}">Open this sighting</a>
 </main></body></html>`);
   });
 

@@ -37,7 +37,7 @@ const GuardianCare: React.FC<{ uids: string[]; me: string; onToast?: (m: string)
     setBusy(false);
     if (!r.ok) { setError(r.message || 'That didn\'t work. Please try again.'); return; }
     setChildren(cs => (cs || []).map(c => c.uid === confirm.uid ? { ...c, status: 'withdrawn', deletion: confirm.kind === 'delete' || c.deletion } : c));
-    onToast?.(confirm.kind === 'withdraw' ? 'Consent withdrawn. Their notebook is private again.' : 'Their account is closed and will be deleted.');
+    onToast?.(confirm.kind === 'withdraw' ? 'Consent withdrawn. Their field page is private again.' : 'Their account is closed and will be deleted.');
     setConfirm(null);
   };
 
@@ -53,13 +53,13 @@ const GuardianCare: React.FC<{ uids: string[]; me: string; onToast?: (m: string)
                 : <span className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center font-display text-stone-700" aria-hidden="true">{c.username.slice(0, 1).toUpperCase()}</span>}
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-stone-900 truncate">{c.username}</p>
-                <p className="text-xs text-stone-600">{c.deletion ? 'Account closed, being deleted' : c.status === 'approved' ? 'Teen mode, with your OK' : 'Private notebook, consent withdrawn'}</p>
+                <p className="text-xs text-stone-600">{c.deletion ? 'Account closed, being deleted' : c.status === 'approved' ? 'Teen mode, with your OK' : 'Private field page, consent withdrawn'}</p>
               </div>
             </div>
             {!c.deletion && (confirm?.uid === c.uid ? (
               <div className="mt-3 text-sm text-stone-700">
                 <p className="leading-relaxed">{confirm.kind === 'withdraw'
-                  ? `${c.username}'s notebook goes back to private: nothing they've shared stays in the feed, and they can't share or write letters. Everything they've recorded stays theirs.`
+                  ? `${c.username}'s field page goes back to private: nothing they've shared stays in the feed, and they can't share or write letters. Everything they've recorded stays theirs.`
                   : `This closes ${c.username}'s account now and deletes it, with every sighting, photo and letter. It can't be undone.`}</p>
                 {error && <p role="alert" className="mt-2 text-red-800">{error}</p>}
                 <div className="mt-2 flex gap-2">

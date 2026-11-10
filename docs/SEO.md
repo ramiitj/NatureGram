@@ -6,7 +6,7 @@ NatureGram is a single-page app, so search engines and AI answer engines (ChatGP
 
 | Shown | Never shown |
 |---|---|
-| Public sightings that passed moderation (`isPublic`, not hidden, not pending, held, rejected or edited, not demo posts) | Private or journal-only sightings, hidden or pending ones |
+| Public sightings that passed moderation (`isPublic`, not hidden, not pending, held, rejected or edited, not demo posts) | Private ("Only me") sightings, hidden or pending ones |
 | A coarse area (the last two parts of `locationArea`, such as "Golaghat, Assam") | Coordinates, ever. The area is dropped when the explorer hid it, when the guide flagged a sensitive species, or when it looks like coordinates |
 | Usernames of non-guest explorers whose profile is not private (`profilePrivate`) | Teen explorers (`ageBand: 'teen'`) and all their sightings; guest names; fallback names like `Explorer-ab12` (they hold part of the account ID); user IDs; emails and phone numbers (removed from captions and bios) |
 

@@ -271,7 +271,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
     if (items.length === 0) return;
 
     setIsProcessing(true);
-    setProcessingStatus("Looking closely at your observations…");
+    setProcessingStatus("Looking closely at your sightings…");
 
     try {
       const processedSnapshots: Snapshot[] = [];
@@ -443,7 +443,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                       onChange={(e) => setShouldStitch(e.target.checked)}
                       className="rounded accent-[rgb(var(--theme-accent-rgb))] w-4 h-4"
                     />
-                    <span>Keep them together as one entry</span>
+                    <span>Combine into one sighting</span>
                   </label>
                 )}
               </div>

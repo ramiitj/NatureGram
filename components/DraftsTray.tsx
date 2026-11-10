@@ -49,12 +49,12 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
       </div>
 
       {loading ? (
-        <PressingLoader label="Gathering your pages" className="py-20" />
+        <PressingLoader label="Gathering your drafts" className="py-20" />
       ) : drafts.length === 0 ? (
         <div className="text-center py-20 text-stone-500 flex flex-col items-center">
           <Glyph name="satchel" size={52} strokeWidth={1.2} className="text-stone-400 mb-3" />
           <p className="font-display text-lg text-stone-700">Nothing left unfinished</p>
-          <p className="text-sm mt-1 max-w-xs">Tap "Save draft" while reviewing captures to finish the page later.</p>
+          <p className="text-sm mt-1 max-w-xs">Tap "Save draft" while reviewing captures to finish the sighting later.</p>
         </div>
       ) : (
         <ul className="grid gap-3 max-w-2xl" role="list">
@@ -87,8 +87,8 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
                   )}
                 </div>
                 {asking && (
-                  <div role="alertdialog" aria-label="Discard this page?" className="mt-3 pt-3 border-t border-[#e3d8c4] flex flex-wrap items-center gap-2">
-                    <p className="text-sm text-stone-700 flex-1 min-w-[12rem]">Discard this page? Its captures will be deleted too.</p>
+                  <div role="alertdialog" aria-label="Discard this draft?" className="mt-3 pt-3 border-t border-[#e3d8c4] flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-stone-700 flex-1 min-w-[12rem]">Discard this draft? Its captures will be deleted too.</p>
                     <button onClick={() => setConfirmId(null)} className="h-9 px-4 rounded-full border border-stone-300 text-sm font-medium text-stone-700 hover:bg-white">Keep it</button>
                     <button onClick={() => discard(draft.id)} disabled={discarding} className="h-9 px-4 rounded-full bg-red-700 text-white text-sm font-medium disabled:opacity-50">{discarding ? 'Discarding…' : 'Discard'}</button>
                   </div>

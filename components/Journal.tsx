@@ -106,7 +106,7 @@ const Journal: React.FC<JournalProps> = ({
         showSearch={!gridHasFilters}
         onTitleClick={onLogoClick}
       />
-      <FirstHint id="journal" text="Every sighting you share or keep lands here, one notebook page per outing." />
+      <FirstHint id="journal" text="Every sighting lands here, shared or just for you, one notebook page per outing." />
 
       {view === 'grid' ? (
         loading ? <PressingLoader label="Opening your journal" className="py-24" />
@@ -116,7 +116,7 @@ const Journal: React.FC<JournalProps> = ({
             currentUserMode={{ type: 'community', userId }}
             isJournalOnly={true}
             journalQuery={gridHasFilters ? null : query}
-            backLabel="Profile"
+            backLabel="Field page"
             activeDraftsCount={activeDraftsCount}
             onViewDrafts={onViewDrafts}
             onViewProfile={onViewProfile}

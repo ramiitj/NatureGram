@@ -14,7 +14,7 @@ interface MediaEditorProps {
 const FRAMES: { id: string; label: string; ratio: number | null }[] = [
   { id: 'original', label: 'As taken', ratio: null },
   { id: 'square', label: 'Square', ratio: 1 },
-  { id: 'portrait', label: 'Plate', ratio: 4 / 5 },
+  { id: 'portrait', label: 'Portrait', ratio: 4 / 5 },
   { id: 'wide', label: 'Wide', ratio: 3 / 2 },
 ];
 
@@ -140,7 +140,7 @@ const MediaEditor: React.FC<MediaEditorProps> = ({ type, source, initialRotation
     <div className="fixed inset-0 z-[200] bg-stone-950/95 flex flex-col text-white" role="dialog" aria-modal="true" aria-labelledby="frame-title">
       <div className="flex justify-between items-center p-4 border-b border-white/10 safe-pt">
         <button onClick={onCancel} className="text-sm font-medium text-white/75 hover:text-white transition-colors px-2 py-2">Cancel</button>
-        <h2 id="frame-title" className="text-base font-display">{type === 'image' ? 'Frame the specimen' : type === 'video' ? 'Turn the clip upright' : 'Your sound'}</h2>
+        <h2 id="frame-title" className="text-base font-display">{type === 'image' ? 'Frame your sighting' : type === 'video' ? 'Turn the clip upright' : 'Your sound'}</h2>
         <button
           onClick={handleSave}
           disabled={isProcessing || (type === 'image' && !work)}

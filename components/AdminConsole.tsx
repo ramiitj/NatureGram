@@ -417,7 +417,7 @@ const AiGovernance: React.FC = () => {
       )}
       {tab === 'history' && (
         <Card title="Changes, newest first">
-          {!history ? <Loading label="Turning back the pages" /> : history.length === 0 ? <Quiet glyph="feather">No changes yet. Everything is as first written.</Quiet> : (
+          {!history ? <Loading label="Turning back through the changes" /> : history.length === 0 ? <Quiet glyph="feather">No changes yet. Everything is as first written.</Quiet> : (
             <ul className={`divide-y ${DIVIDE}`}>
               {history.map(h => (
                 <li key={h.id} className="py-3 flex flex-wrap sm:items-center gap-2 justify-between">
@@ -698,7 +698,7 @@ const Branding: React.FC = () => {
       {msg && <Notice>{msg}</Notice>}
       <Card title="The mark" actions={<Btn tone="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save branding'}</Btn>}>
         <div className="grid sm:grid-cols-3 gap-2">
-          <Choice on={b.style !== 'lens' && b.style !== 'custom'} onClick={() => set({ style: 'sun' })} title="The landing sun" sub="The sun from the landing page. Recommended."><img src={sample('sun')} alt="" className="w-10 h-10" /></Choice>
+          <Choice on={b.style !== 'lens' && b.style !== 'custom'} onClick={() => set({ style: 'sun' })} title="The landing sun" sub="The sun from the welcome screen. Recommended."><img src={sample('sun')} alt="" className="w-10 h-10" /></Choice>
           <Choice on={b.style === 'lens'} onClick={() => set({ style: 'lens' })} title="Hand lens and fern" sub="A lens over an uncurling fiddlehead."><img src={sample('lens')} alt="" className="w-10 h-10" /></Choice>
           <label className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] cursor-pointer ${b.style === 'custom' ? 'border-theme-accent bg-theme-accent/5' : 'border-[#e3d8c4] bg-white/60 hover:bg-white'}`}>
             {b.style === 'custom' && isSafeIcon(b.customIcon) ? <img src={b.customIcon!} alt="" className="w-10 h-10 rounded-lg" /> : <Glyph name="plate" size={36} className="text-stone-400" />}
@@ -829,7 +829,7 @@ const People: React.FC<{ uid: string | null; setUid: (u: string | null) => void 
       <div className="space-y-4">
         <button onClick={() => setUid(null)} className="inline-flex items-center gap-1 text-sm text-stone-700 hover:text-stone-900 -ml-1 px-1 py-1"><span className="material-symbols-outlined text-lg" aria-hidden="true">arrow_back</span>All people</button>
         {msg && <Notice>{msg}</Notice>}
-        {!detail ? <Loading label="Opening their page" /> : (
+        {!detail ? <Loading label="Opening their field page" /> : (
           <>
             <Card title={detail.profile?.username || detail.auth?.email || uid}>
               <dl className="grid sm:grid-cols-2 gap-x-6">

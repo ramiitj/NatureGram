@@ -259,7 +259,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const presentSighting = useCallback((snapId: string, s: { labels?: string[]; behavior?: string; aiInsight?: string; aiIdentifications?: any[] | null; aiFlags?: any; location?: string }): string => {
       if (s.location) placeRef.current = s.location;
       const name = (s.labels?.[0] || '').trim();
-      if (!name || UNNAMED.test(name)) return 'Added to today\'s page. You can name it in review.';
+      if (!name || UNNAMED.test(name)) return 'Captured. You can name it in review.';
       const entry = sessionCapturesRef.current.get(snapId);
       if (entry) entry.name = name;
       const sciCandidate = [s.labels?.[1], s.aiIdentifications?.[0]?.scientificName].find(x => !!x && /^[A-Z][a-z]+ [a-z]+/.test(x));
@@ -277,7 +277,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           try { navigator.vibrate?.([12, 40, 12]); } catch { /* unsupported */ }
           playChime();
       }
-      return `${name} added to today's page.`;
+      return `${name}, captured.`;
   }, [playChime]);
 
   const nextStartTimeRef = useRef<number>(0);
@@ -1021,6 +1021,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            const objUrl = URL.createObjectURL(compressedBlob);
            const resolvedLabels = args.labels || (args.label ? [args.label] : ['Nature']);
            const resolvedBehavior = args.behavior || "Manual observation captured by explorer.";
+           // glossary-ok: a stored placeholder that PostSessionView recognises and hides
            const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
            
            retakesCountRef.current += 1;
@@ -1205,6 +1206,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             }
         });
 
+        // glossary-ok: prompt text for the model, not shown to people
         const memoryContext = memory ? `[NATURALIST PROFILE: ${memory.preferredStyle}. Last summary: ${memory.lastSessionSummary}]` : '';
         
         const modeInstruction = "\n[MODE: CONVERSATION. You are an active field companion. Engage in real-time dialogue, ask questions, and be highly interactive. Your goal is to be a conversational partner in this exploration.]";
@@ -1688,14 +1690,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           </div>
                       )}
                       <span className="text-xs font-semibold text-white/90 bg-black/40 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap">
-                          {isRecordingVideo ? 'Release to stop' : isCameraActive ? "Tap photo · hold video" : "Tap to turn camera on"}
+                          {isRecordingVideo ? 'Release to stop' : isCameraActive ? "Tap to capture · hold for a clip" : "Tap to turn camera on"}
                       </span>
                       <button 
                           onPointerDown={handleShutterPress}
                           onPointerUp={handleShutterRelease}
                           onPointerLeave={() => { if (holdTimeoutRef.current || isRecordingVideo) handleShutterRelease(); }}
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleShutterPress(); window.setTimeout(handleShutterRelease, 50); } }}
-                          aria-label={isRecordingVideo ? 'Stop video' : isCameraActive ? 'Take photo. Hold to record video' : 'Turn camera on'}
+                          aria-label={isRecordingVideo ? 'Stop video' : isCameraActive ? 'Capture a photo. Hold to capture a clip' : 'Turn camera on'}
                           className="group relative w-24 h-24 flex items-center justify-center active:scale-90 transition-all touch-none"
                       >
                           <div className={`absolute inset-0 rounded-full border-4 transition-all duration-500 ${isCameraActive ? 'border-theme-vivid scale-110 opacity-60' : 'border-white/10'} ${isRecordingVideo ? 'border-red-500 animate-pulse' : ''}`} />
@@ -1719,7 +1721,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       onClick={toggleSoundRecording}
                       disabled={isRecordingVideo}
                       aria-pressed={isRecordingAudio}
-                      aria-label={isRecordingAudio ? `Stop sound recording, ${recordingTime} seconds left` : 'Record a sound (up to 30 seconds)'}
+                      aria-label={isRecordingAudio ? `Stop sound recording, ${recordingTime} seconds left` : 'Capture a sound (up to 30 seconds)'}
                       className={`w-14 h-14 rounded-full backdrop-blur-xl border flex flex-col items-center justify-center transition-all shadow-2xl active:scale-95 disabled:opacity-40 ${isRecordingAudio ? 'bg-red-600 border-red-400 text-white animate-pulse' : 'bg-black/40 border-white/20 text-white'}`}
                   >
                       <span className="material-symbols-outlined" aria-hidden="true">{isRecordingAudio ? 'stop' : 'graphic_eq'}</span>

@@ -98,7 +98,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
         {state === 'saved' ? (
           <div className="p-8 text-center" role="status">
             <Glyph name="feather" size={34} className="text-theme-accent mx-auto" />
-            <p className="font-display text-xl text-stone-900 mt-4">Noted in your field notebook.</p>
+            <p className="font-display text-xl text-stone-900 mt-4">Noted on your field page.</p>
             <p className="font-display italic text-lg text-theme-primary mt-4 leading-snug">“{extra.philosophy}”</p>
             <p className="text-sm text-stone-500 mt-2">{theme.naturalist}</p>
           </div>

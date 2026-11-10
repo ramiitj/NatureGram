@@ -166,13 +166,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const blocked = mode === 'signup' && tooYoung;
   const teenStep = mode === 'signup' && !blocked && step !== 'form';
   const title = blocked ? 'Not quite yet'
-    : teenStep ? (step === 'guardian' ? 'A grown-up\'s OK' : 'Your notebook is ready')
-    : mode === 'signup' ? (isGuest ? 'Keep your field notebook' : 'Start your field notebook')
+    : teenStep ? (step === 'guardian' ? 'A grown-up\'s OK' : 'Your field page is ready')
+    : mode === 'signup' ? (isGuest ? 'Keep what you\'ve found' : 'Start your field page')
     : mode === 'login' ? 'Welcome back to the field' : 'Reset your password';
   // The reason was written for the mode we opened in ("Create an account to comment"), so it isn't repeated after switching
   const subtitle = blocked ? '' : teenStep ? (step === 'guardian' ? 'One more step, because you\'re under 18.' : 'It stays private until your grown-up says yes.') : (reason && mode === initialMode ? reason : '') || (
     mode === 'signup' ? 'Free, and yours to keep.'
-    : mode === 'login' ? 'Your pages, life list and letters are just where you left them.' : 'Tell us your email and we\'ll send a link to choose a new password.');
+    : mode === 'login' ? 'Your sightings, life list and letters are just where you left them.' : 'Tell us your email and we\'ll send a link to choose a new password.');
   const headGlyph: GlyphName = blocked ? 'feather' : teenStep ? (step === 'guardian' ? 'stamp' : 'letter') : mode === 'reset' ? 'key' : mode === 'login' ? 'compass' : 'notebook';
   // The threshold panel: what you're joining (sign-up), or who keeps the notebook this fortnight (log in)
   const wide = !inline && !blocked && mode !== 'reset';
@@ -201,7 +201,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             <SpecimenPlate ghost size="sm" data={{ name: 'Your first species', no: 1 }} />
           </div>
           <ul className="flex flex-col gap-2 md:gap-3 text-[13px] md:text-sm text-stone-700 leading-snug" role="list">
-            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A field notebook for every outing</li>
+            <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A journal for every outing</li>
             <li className="flex items-center gap-2.5"><Glyph name="plate" size={20} className="text-theme-accent" />A life list, species by species</li>
             <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-theme-accent" />Letters with other explorers</li>
           </ul>
@@ -252,27 +252,27 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         {teenStep && step === 'sent' ? (
           <div role="status" className="space-y-4">
             {guardianSent?.sent ? (
-              <p className="text-[15px] text-stone-700 leading-relaxed">We've written to <strong className="font-semibold text-text-main">{guardianSent.to}</strong>. When they say yes, your notebook opens to the community. Their link works for 7 days.</p>
+              <p className="text-[15px] text-stone-700 leading-relaxed">We've written to <strong className="font-semibold text-text-main">{guardianSent.to}</strong>. When they say yes, your field page opens to the community. Their link works for 7 days.</p>
             ) : guardianSent?.link ? (
               <>
                 <p className="text-[15px] text-stone-700 leading-relaxed">Send this link to your parent or guardian. It explains NatureGram and what we keep, and takes them about two minutes. It works for 7 days.</p>
-                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
+                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' /* glossary-ok: a text or email, not a letter */ : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
                   <Glyph name="sealed" size={20} />Send this to your parent
                 </button>
                 {shared && <p className="text-sm text-stone-600">{shared}</p>}
               </>
             ) : (
-              <p className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your notebook.</p>
+              <p className="text-sm text-red-900 bg-red-50 border-l-[3px] border-red-700 rounded-r-lg px-3.5 py-3 leading-relaxed">{guardianIssue || 'We couldn\'t send it just now.'} You can send it again from your field page.</p>
             )}
             <div className="rounded-[3px] bg-[#fbf7ef] border border-[#e8dfcd] p-4">
               <p className="text-sm font-semibold text-stone-800">While you wait, you can</p>
               <ul className="mt-2 flex flex-col gap-2 text-sm text-stone-700" role="list">
                 <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-theme-accent" />Browse the feed, Moments and Explore</li>
                 <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-theme-accent" />Use the Lens and ask the guide</li>
-                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Keep sightings in your own journal</li>
+                <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Save sightings to your own journal</li>
               </ul>
             </div>
-            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] font-semibold text-base py-3.5 rounded-xl ${guardianSent?.link ? 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50' : 'bg-theme-primary text-white hover:opacity-90'}`}>Open my notebook</button>
+            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] font-semibold text-base py-3.5 rounded-xl ${guardianSent?.link ? 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50' : 'bg-theme-primary text-white hover:opacity-90'}`}>Go to my field page</button>
           </div>
         ) : blocked ? (
           <div role="status" className="space-y-3">
@@ -285,7 +285,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate={false}>
             {teenStep && step === 'guardian' && (
               <>
-                <p className="text-[15px] text-stone-700 leading-relaxed">Because you're under 18, a parent or guardian needs to say it's all right before your notebook can be shared. Until then you can explore everything and keep sightings in your own journal.</p>
+                <p className="text-[15px] text-stone-700 leading-relaxed">Because you're under 18, a parent or guardian needs to say it's all right before your field page can be shared. Until then you can explore everything and save sightings to your own journal.</p>
                 <div>
                   <label htmlFor="auth-parent-email" className={labelClass}>Your parent or guardian's email</label>
                   <input id="auth-parent-email" autoFocus type="email" inputMode="email" value={parentEmail} onChange={e => setParentEmail(e.target.value)} required autoComplete="off" placeholder="grown-up@example.com" className={inputClass} aria-describedby="auth-parent-hint" />
@@ -377,7 +377,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
             <button type="submit" disabled={loading} aria-busy={loading} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-60 active:scale-[0.98]">
               {loading
-                ? (mode === 'signup' ? 'Opening your notebook…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
+                ? (mode === 'signup' ? 'Starting your field page…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
                 : mode === 'signup' ? 'Start my field page' : mode === 'login' ? 'Log in' : 'Send reset link'}
             </button>
             {teenStep && step === 'guardian' && <button type="button" onClick={() => { setStep('form'); setError(''); }} className={`${linkBtn} self-center text-sm`}>Back</button>}

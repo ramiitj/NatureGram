@@ -234,7 +234,7 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           </div>
         </div>
       )}
-      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their profile.</p>}
+      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their field page.</p>}
       <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-live="polite" aria-label="Letters">
         <div className="max-w-xl mx-auto">
           {opening}

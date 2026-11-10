@@ -103,25 +103,25 @@ const SETUP_ERROR = /insufficient-permission|permission|unauthorized|configurati
 
 export function verificationLetter({ username, link, naturalist = letterNaturalist() }) {
   const m = {
-    preheader: 'One tap and your field notebook is yours.',
-    heading: 'Your field notebook is waiting',
+    preheader: 'One tap and your field page is yours.',
+    heading: 'Your field page is waiting',
     paragraphs: [
       `Hi ${escapeName(username)},`,
-      'Your notebook, your life list and your letters from other explorers are ready. Confirm this is your email and they are yours to keep.',
+      'Your field page, your life list and your letters from other explorers are ready. Confirm this is your email and they are yours to keep.',
     ],
     button: { label: 'Confirm my email', url: link },
     after: ["If you didn't sign up, you can ignore this letter."],
     quote: { text: naturalist.quote, by: naturalist.name },
     accent: naturalist.accent,
-    footnote: 'This link works once and expires in a few days. You can always ask for a new one from your profile.',
+    footnote: 'This link works once and expires in a few days. You can always ask for a new one from your field page.',
   };
-  return { subject: 'Confirm your email and your field notebook is yours', html: letterHtml(m), text: letterText(m) };
+  return { subject: 'Confirm your email and your field page is yours', html: letterHtml(m), text: letterText(m) };
 }
 
 export function resetLetter({ link, naturalist = letterNaturalist() }) {
   const m = {
     preheader: 'Choose a new password and pick up where you left off.',
-    heading: 'A new password for your notebook',
+    heading: 'A new password for your field page',
     paragraphs: [
       'Someone, hopefully you, asked to reset the password for this NatureGram account.',
       'Choose a new one and your sightings, life list and letters will be right where you left them.',

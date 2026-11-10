@@ -844,7 +844,7 @@ const Community: React.FC<CommunityProps> = ({
             }
         }
         setSpeciesData({
-            extract: found?.extract || `No encyclopedia entry for "${clean}" yet. The name may cover a group rather than a single species.`,
+            extract: found?.extract || `The encyclopedia has nothing on "${clean}" yet. The name may cover a group rather than a single species.`,
             thumbnail: found?.thumbnail?.source || "",
             loading: false,
             url: found?.content_urls?.desktop?.page || '',
@@ -872,7 +872,7 @@ const Community: React.FC<CommunityProps> = ({
           }
       } catch (e) {
           console.error("Failed to delete post", e);
-          alert("Failed to delete observation.");
+          alert("Could not delete the sighting. Please try again.");
           // Revert optimistic update is handled by the onSnapshot listener automatically
       }
   };
@@ -1142,7 +1142,7 @@ const Community: React.FC<CommunityProps> = ({
       } catch (err) {
           console.error('Like failed', err);
           setPosts(snapshot.posts); setActivePost(snapshot.active); setMyLikes(snapshot.mine);
-          showToast('Could not save your like. Please try again.');
+          showToast('Could not save your marvel. Please try again.');
       }
   };
 
@@ -1179,7 +1179,7 @@ const Community: React.FC<CommunityProps> = ({
           showToast(next ? 'Kept in your collection' : 'Removed from your collection');
       } catch {
           setIsSaved(!next);
-          showToast('Could not update saved posts.');
+          showToast('Could not update your kept sightings.');
       }
   };
 
@@ -1187,12 +1187,12 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost) return;
       setReportOpen(false);
       if (!isMember) { askAccount('Create a free account to report content.'); return; }
-      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this post. Thank you.'); return; }
+      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this sighting. Thank you.'); return; }
       try {
           await FirebaseService.reportPost(activePost.id, reason);
           track('report', { reason });
           setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
-          showToast('Thanks. Our moderators will review this post.');
+          showToast('Thanks. Our moderators will review this sighting.');
       } catch {
           showToast('Could not send the report. Please try again.');
       }
@@ -1206,7 +1206,7 @@ const Community: React.FC<CommunityProps> = ({
           await FirebaseService.muteUser(activePost.userId);
           setBlockedIds(prev => [...prev, activePost.userId]);
           closeDetail();
-          showToast(`${activePost.userName} muted. They won't know, and you can unmute from their page.`);
+          showToast(`${activePost.userName} muted. They won't know, and you can unmute from their field page.`);
       } catch { showToast('Could not mute. Please try again.'); }
   };
 
@@ -1214,7 +1214,7 @@ const Community: React.FC<CommunityProps> = ({
       if (!activePost) return;
       setPostMenuOpen(false);
       if (!isMember) { askAccount('Create a free account to block explorers.'); return; }
-      if (!window.confirm(`Block ${activePost.userName}? You won't see their posts or comments.`)) return;
+      if (!window.confirm(`Block ${activePost.userName}? You won't see their sightings or field notes.`)) return;
       try {
           await FirebaseService.blockUser(activePost.userId);
           setBlockedIds(prev => [...prev, activePost.userId]);
@@ -1390,7 +1390,7 @@ const Community: React.FC<CommunityProps> = ({
         }
     } catch (e) {
         console.error("Failed to update post", e);
-        alert("Failed to save edits.");
+        alert("Could not save your changes. Please try again.");
     }
   };
 
@@ -1471,7 +1471,7 @@ const Community: React.FC<CommunityProps> = ({
                             {speciesPage.explorers > 0 && speciesPath(speciesPage.scientific || selectedSpecies.name) && (
                                 <a href={speciesPath(speciesPage.scientific || selectedSpecies.name)!} className="inline-flex items-center gap-2 min-h-[44px] text-sm text-theme-primary hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4">
                                     <Glyph name="notebook" size={16} className="text-theme-accent" />
-                                    The field guide page for <span className="font-display italic">{selectedSpecies.name}</span>
+                                    More on <span className="font-display italic">{selectedSpecies.name}</span> in the field guide
                                 </a>
                             )}
 
@@ -1837,13 +1837,13 @@ const Community: React.FC<CommunityProps> = ({
                                         {(((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType !== 'audio') && (
                                             <button role="menuitem" onClick={() => { setPostMenuOpen(false); setIsEditing(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">tune</span>{((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType === 'video' ? 'Rotate video' : 'Edit photo'}</button>
                                         )}
-                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now visible in the feed' : 'Now only in your journal'); } catch (err: any) { showToast(err?.message || 'Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make journal-only' : 'Share to feed'}</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete post</button>
+                                        <button role="menuitem" onClick={async () => { setPostMenuOpen(false); const next = !activePost.isPublic; try { await FirebaseService.updatePost(activePost.id, { isPublic: next } as any); setActivePost(p => p ? { ...p, isPublic: next } : p); showToast(next ? 'Now shared with everyone' : 'Now only you can see it'); } catch (err: any) { showToast(err?.message || 'Could not change visibility.'); } }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">{activePost.isPublic ? 'lock' : 'public'}</span>{activePost.isPublic ? 'Make it only me' : 'Share with everyone'}</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleDeletePost(activePost.id); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">delete</span>Delete sighting</button>
                                     </>
                                 ) : (
                                     <>
                                         <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">person</span>View {activePost.userName}</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report post</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">flag</span>Report sighting</button>
                                         <button role="menuitem" onClick={handleMuteAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-stone-50 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">volume_off</span>Mute {activePost.userName}</button>
                                         <button role="menuitem" onClick={handleBlockAuthor} className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-red-50 text-red-700 flex items-center gap-3 text-sm font-semibold"><span className="material-symbols-outlined text-xl" aria-hidden="true">block</span>Block {activePost.userName}</button>
                                     </>
@@ -2177,7 +2177,7 @@ const Community: React.FC<CommunityProps> = ({
             <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
                 <div className="absolute inset-0 bg-black/50" onClick={() => setReportOpen(false)} aria-hidden="true" />
                 <div className="relative w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] animate-slide-up">
-                    <h2 id="report-title" className="text-lg font-bold text-stone-900">Why are you reporting this post?</h2>
+                    <h2 id="report-title" className="text-lg font-bold text-stone-900">Why are you reporting this sighting?</h2>
                     <p className="text-sm text-stone-600 mt-1 mb-4">Your report is anonymous to the author.</p>
                     <div className="flex flex-col gap-1">
                         {[

@@ -1423,7 +1423,7 @@ export const FirebaseService = {
       if (!target || target.uid === me.uid) return;
       await FirebaseService.addNotification(target.uid, {
         type: 'mention',
-        message: `${senderName} mentioned you in a ${context}: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+        message: `${senderName} mentioned you in ${context === 'comment' ? 'a field note' : 'their note'}: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
         postId, senderId: me.uid, senderName,
       }).catch(() => {});
     }));
@@ -1470,7 +1470,7 @@ export const FirebaseService = {
       // Teen mode: letters only between explorers who follow each other, once a parent has said yes
       // (the rules enforce this; here it gets a kind explanation instead of a bare failure)
       const meTeen = isTeenProfile(mine), themTeen = isTeenProfile(theirs);
-      if (meTeen && mine?.guardian?.status !== 'approved') throw new Error('Letters open once a grown-up has said yes to your notebook.');
+      if (meTeen && mine?.guardian?.status !== 'approved') throw new Error('Letters open once a grown-up has said yes to your field page.');
       if (themTeen && theirs?.guardian?.status !== 'approved') throw new Error('This explorer can\'t receive letters yet.');
       if (meTeen || themTeen) {
         const [a, b] = await Promise.all([getDoc(doc(db, 'users', me.uid, 'following', otherUid)).catch(() => null), getDoc(doc(db, 'users', otherUid, 'following', me.uid)).catch(() => null)]);
@@ -1559,7 +1559,7 @@ export const FirebaseService = {
     try {
       const myProfile = await FirebaseService.getUserProfile(me.uid);
       const name = myProfile?.username || me.displayName || 'An explorer';
-      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} is following your journal.`, senderId: me.uid, senderName: name });
+      await FirebaseService.addNotification(targetUid, { type: 'follow', message: `${name} started following you.`, senderId: me.uid, senderName: name });
     } catch { /* notification is best-effort */ }
   },
 
@@ -1667,7 +1667,7 @@ export const FirebaseService = {
   },
   toggleSave: async (postId: string, save: boolean, thumb?: Partial<CommunityPost>) => {
     const me = auth.currentUser?.uid;
-    if (!me) throw new Error("Please sign in to save posts.");
+    if (!me) throw new Error("Please sign in to keep sightings.");
     if (save) {
       await setDoc(doc(db, "users", me, "saved", postId), {
         createdAt: serverTimestamp(),
@@ -1753,7 +1753,7 @@ export const FirebaseService = {
     const uid = me.uid;
     const step = (s: string) => onProgress?.(s);
 
-    step('Removing your posts…');
+    step('Removing your sightings…');
     const posts = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", uid)));
     for (const p of posts.docs) {
       try {
@@ -1764,7 +1764,7 @@ export const FirebaseService = {
       await deleteDoc(p.ref).catch(() => {});
     }
 
-    step('Removing your comments…');
+    step('Removing your field notes…');
     try {
       const myComments = await getDocs(query(collectionGroup(db, "comments"), where("userId", "==", uid)));
       for (const c of myComments.docs) {
@@ -1777,7 +1777,7 @@ export const FirebaseService = {
       }
     } catch (e) { console.warn("Comment cleanup incomplete", e); }
 
-    step('Removing your likes…');
+    step('Removing your marvels…');
     try {
       const myLikes = await getDocs(query(collectionGroup(db, "likes"), where("userId", "==", uid), limit(1000)));
       for (const l of myLikes.docs) {
