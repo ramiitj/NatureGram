@@ -192,30 +192,31 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
         className={`fixed w-[min(340px,calc(100vw-32px))] ${motion}`}
         style={{ top: cardPos?.top ?? -9999, left: cardPos?.left ?? -9999, visibility: cardPos ? 'visible' : 'hidden' }}
       >
-        <div className="bg-[#fcfaf8] rounded-2xl p-5 shadow-2xl border border-[#e8dfcd] relative overflow-hidden">
-          <button onClick={() => close('skipped')} className="absolute top-2 right-2 min-h-[44px] px-3 text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors">
+        <div className="bg-day-bg rounded-2xl p-6 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.55)] relative overflow-hidden">
+          <button onClick={() => close('skipped')} className="absolute top-3 right-3 min-h-[44px] px-3 ng-link-quiet no-underline hover:underline">
             Skip
           </button>
-          <h2 id="first-tour-title" className="pr-14 flex items-center gap-2 text-xl font-display font-semibold text-stone-900 leading-snug"><Glyph name={step.id === 'wild' ? 'fern' : step.id === 'lens' ? 'lens' : 'compass'} size={20} className="text-theme-accent shrink-0" />{step.title}</h2>
-          <p id="first-tour-body" className="text-stone-700 text-[15px] leading-relaxed mt-1.5">{step.body}</p>
+          <Glyph name={step.id === 'wild' ? 'fern' : step.id === 'lens' ? 'lens' : 'compass'} size={24} className="text-stone-500" />
+          <h2 id="first-tour-title" className="pr-14 ng-subtitle mt-3">{step.title}</h2>
+          <p id="first-tour-body" className="ng-small text-[15px] text-stone-700 mt-2">{step.body}</p>
           <p className="sr-only" aria-live="polite" aria-atomic="true">{`Step ${index + 1} of ${total}. ${step.title}. ${step.body}`}</p>
 
-          <div className="flex justify-between items-center mt-4 gap-2">
+          <div className="flex justify-between items-center mt-6 gap-2">
             <div className="flex items-center gap-1.5">
-              {index > 0 && <button onClick={back} className="min-h-[44px] pr-3 -ml-1 text-sm font-semibold text-stone-600 hover:text-stone-900">Back</button>}
+              {index > 0 && <button onClick={back} className="min-h-[44px] pr-3 -ml-1 text-sm font-medium text-stone-600 hover:text-stone-900">Back</button>}
               <span className="flex items-center gap-1.5" aria-hidden="true">
                 {steps.map((s, i) => (
-                  <span key={s.id} className={`h-1.5 rounded-full ${reduced.current ? '' : 'transition-all duration-500'} ${i === index ? 'w-6 bg-theme-accent' : i < index ? 'w-1.5 bg-theme-accent/40' : 'w-1.5 bg-stone-300'}`} />
+                  <span key={s.id} className={`h-1.5 rounded-full ${reduced.current ? '' : 'transition-all duration-500'} ${i === index ? 'w-6 bg-theme-accent' : i < index ? 'w-1.5 bg-stone-500' : 'w-1.5 bg-stone-300'}`} />
                 ))}
               </span>
             </div>
             <button
               ref={nextRef}
               onClick={next}
-              className="min-h-[44px] flex items-center gap-1.5 bg-stone-900 text-white pl-5 pr-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 active:scale-95 transition-transform shrink-0"
+              className="ng-button-primary min-h-[44px] pl-5 pr-4 text-sm shrink-0"
             >
               <span>{isLast ? 'Start exploring' : 'Next'}</span>
-              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">{isLast ? 'check' : 'arrow_forward'}</span>
+              <Glyph name={isLast ? 'check' : 'forward'} size={20} className="ng-arrow" />
             </button>
           </div>
         </div>

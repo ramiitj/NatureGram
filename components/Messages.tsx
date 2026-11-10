@@ -62,7 +62,7 @@ const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 
 
 const Avatar: React.FC<{ name?: string; url?: string | null; size?: number }> = ({ name, url, size = 48 }) => url
   ? <img src={url} alt="" className="rounded-full object-cover bg-stone-100 shrink-0" style={{ width: size, height: size }} />
-  : <span className="rounded-full bg-stone-900/[0.045] text-theme-deep font-bold flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
+  : <span className="rounded-full bg-[#f3efe7] text-stone-700 font-display flex items-center justify-center shrink-0" style={{ width: size, height: size, fontSize: size * 0.4 }} aria-hidden="true">{(name || '?').charAt(0).toUpperCase()}</span>;
 
 /** Letters: private correspondence between explorers (inbox + 1:1 threads, realtime), written like notes between naturalists. */
 const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfile, onOpenPost }) => {
@@ -84,21 +84,21 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-200 shrink-0 safe-pt box-content">
-        <button onClick={onBack} aria-label="Back" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <h1 className="flex-1 text-xl font-display font-semibold text-stone-900">Letters</h1>
-        <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-900/[0.03] text-stone-900"><span className="material-symbols-outlined" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">history_edu</span></button>
+      <header className="h-16 px-4 md:px-10 flex items-center gap-2 border-b border-stone-200/80 shrink-0 safe-pt box-content">
+        <button onClick={onBack} aria-label="Back" className="ng-icon-button -ml-2"><Glyph name="back" size={24} /></button>
+        <h1 className="flex-1 font-display text-[20px] text-stone-900">Letters</h1>
+        <button onClick={() => setNewChat(true)} aria-label="Write a letter" className="ng-icon-button -mr-2"><Glyph name="feather" size={24} /></button>
       </header>
       <main className="flex-1 overflow-y-auto overscroll-contain">
         <FirstHint id="letters" text="Letters are slow notes between explorers. Ask about a find, or plan a walk." />
         {convos === null ? (
-          <p className="text-center text-stone-500 py-16" role="status">Opening your letters…</p>
+          <p className="text-center font-display italic text-stone-500 py-16" role="status">Opening your letters…</p>
         ) : convos.length === 0 ? (
-          <div className="text-center py-20 px-8 text-stone-500">
-            <span className="material-symbols-outlined text-5xl mb-3 text-theme-accent/60" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">mail</span>
-            <p className="font-display text-xl text-stone-800">No letters yet</p>
-            <p className="text-sm mt-1 max-w-xs mx-auto">Write to an explorer: ask what they saw, where to look, or plan a walk together.</p>
-            <button onClick={() => setNewChat(true)} className="mt-5 px-6 py-3 rounded-full bg-stone-900 text-white font-bold text-sm">Write a letter</button>
+          <div className="ng-empty py-20">
+            <Glyph name="letter" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+            <p className="ng-empty-title">No letters yet</p>
+            <p className="ng-empty-body">Write to an explorer: ask what they saw, where to look, or plan a walk together.</p>
+            <button onClick={() => setNewChat(true)} className="ng-button-primary mt-8">Write a letter<Glyph name="forward" size={20} className="ng-arrow" /></button>
           </div>
         ) : (
           <ul role="list">
@@ -108,11 +108,11 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
               const unread = c.lastMessage && c.lastMessage.senderId !== me && toMs(c.lastMessage.at) > toMs(c.lastReadAt?.[me]);
               return (
                 <li key={c.id}>
-                  <button onClick={() => setActiveId(c.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-50 text-left">
+                  <button onClick={() => setActiveId(c.id)} className="w-full flex items-center gap-4 px-6 md:px-10 py-4 border-b border-stone-200/70 hover:bg-stone-900/[0.02] text-left">
                     <Avatar name={info?.username} url={info?.avatarUrl} />
                     <span className="flex-1 min-w-0">
-                      <span className={`block truncate ${unread ? 'font-bold text-stone-900' : 'font-semibold text-stone-800'}`}>{info?.username || 'Explorer'}</span>
-                      <span className={`flex items-center gap-1 text-sm min-w-0 ${unread ? 'text-stone-900 font-semibold' : 'text-stone-500'}`}>
+                      <span className={`block truncate ${unread ? 'font-semibold text-stone-900' : 'font-medium text-stone-800'}`}>{info?.username || 'Explorer'}</span>
+                      <span className={`flex items-center gap-1 text-sm min-w-0 ${unread ? 'text-stone-800' : 'text-stone-500'}`}>
                         {c.lastMessage?.senderId === me && <Glyph name="feather" size={14} className="text-stone-400" title="You wrote" />}
                         <span className="truncate">
                           {c.lastMessage ? c.lastMessage.text.replace(/\s+/g, ' ') : 'Write the first line'}
@@ -120,7 +120,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
                         </span>
                       </span>
                     </span>
-                    {unread && <span className="w-2.5 h-2.5 rounded-full bg-theme-accent shrink-0" aria-label="Unread" />}
+                    {unread && <span className="ng-dot shrink-0" aria-label="Unread" />}
                   </button>
                 </li>
               );
@@ -129,7 +129,7 @@ const Messages: React.FC<Props> = ({ initialConversationId, onBack, onViewProfil
         )}
       </main>
       {newChat && <NewChatSheet onClose={() => setNewChat(false)} onPick={async (uid) => { setNewChat(false); setOpenIssue(''); try { setActiveId(await FirebaseService.openConversation(uid)); } catch (e: any) { setOpenIssue(e?.message || 'That letter couldn\'t be opened just now.'); } }} />}
-      {openIssue && <div role="alert" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[95] bg-[#fcfaf8] border border-[#e8dfcd] rounded-2xl shadow-lg p-4 text-sm text-stone-800 flex gap-3 items-start"><span className="flex-1 leading-relaxed">{openIssue}</span><button onClick={() => setOpenIssue('')} className="font-semibold text-theme-accent min-h-[44px] -my-3">OK</button></div>}
+      {openIssue && <div role="alert" className="fixed left-6 right-6 bottom-24 sm:left-auto sm:right-6 sm:max-w-sm z-[95] ng-toast rounded-2xl pl-5 pr-3 py-3 flex gap-3 items-center"><span className="flex-1 leading-[1.5]">{openIssue}</span><button onClick={() => setOpenIssue('')} className="font-semibold text-white underline underline-offset-4 decoration-white/40 min-h-[44px] px-2">OK</button></div>}
     </div>
   );
 };
@@ -190,70 +190,70 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
   };
 
   const opening = (
-    <section aria-label="What you have in common" className="text-center pt-4 pb-6 px-2">
+    <section aria-label="What you have in common" className="text-center pt-6 pb-10 px-2">
       <Avatar name={info?.username} url={info?.avatarUrl} size={64} />
-      <p className="font-display text-lg text-stone-900 mt-3">Letters with {theirName}</p>
-      <p className="text-sm text-stone-500 mt-0.5">Private between the two of you.</p>
+      <p className="ng-subtitle italic mt-4">Letters with {theirName}</p>
+      <p className="ng-small text-stone-500 mt-1">Private between the two of you.</p>
       {common && (common.species.length > 0 || common.region) && (
-        <div className="mt-4 mx-auto max-w-sm text-left rounded-xl bg-white border border-stone-200 px-4 py-3">
-          <p className="text-sm text-stone-700">Common ground</p>
+        <div className="mt-6 mx-auto max-w-sm text-left py-4 border-y border-stone-200/80">
+          <p className="ng-kicker">Common ground</p>
           {common.species.length > 0 && (
-            <p className="text-[15px] text-stone-900 mt-1 leading-snug">
+            <p className="text-[15px] text-stone-800 mt-2 leading-[1.6]">
               You have both recorded {common.species.map((s, i) => (
                 <React.Fragment key={s}>{i > 0 && (i === common.species.length - 1 ? ' and ' : ', ')}<span className="font-display italic">{s}</span></React.Fragment>
               ))}.
             </p>
           )}
-          {common.region && <p className="text-[15px] text-stone-900 mt-1">You both explore around {common.region}.</p>}
+          {common.region && <p className="text-[15px] text-stone-800 mt-1 leading-[1.6]">You both explore around {common.region}.</p>}
         </div>
       )}
-      <button onClick={askWhere} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-theme-accent/40 text-theme-accent text-sm font-semibold hover:bg-stone-900/[0.03]">
-        <Glyph name="leafCompass" size={16} /> Ask where to look
+      <button onClick={askWhere} className="mt-5 inline-flex items-center gap-2 ng-link-quiet min-h-[44px]">
+        <Glyph name="leafCompass" size={20} className="text-stone-500" /> Ask where to look
       </button>
     </section>
   );
 
   return (
     <div className="flex-1 flex flex-col bg-day-bg min-h-0">
-      <header className="h-14 px-2 flex items-center gap-2 border-b border-stone-200 shrink-0 safe-pt box-content">
-        <button onClick={onBack} aria-label="Back to letters" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
-        <button onClick={() => other && onViewProfile(other)} className="flex items-center gap-2 min-w-0">
+      <header className="h-16 px-4 md:px-10 flex items-center gap-2 border-b border-stone-200/80 shrink-0 safe-pt box-content">
+        <button onClick={onBack} aria-label="Back to letters" className="ng-icon-button -ml-2"><Glyph name="back" size={24} /></button>
+        <button onClick={() => other && onViewProfile(other)} className="flex items-center gap-3 min-w-0">
           <Avatar name={info?.username} url={info?.avatarUrl} size={36} />
-          <span className="font-bold text-stone-900 truncate">{theirName}</span>
+          <span className="font-medium text-stone-900 truncate">{theirName}</span>
         </button>
-        <button onClick={() => setReporting(true)} disabled={reported} aria-label="Report this conversation" className="ml-auto w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100 text-stone-600 disabled:opacity-40"><span className="material-symbols-outlined" aria-hidden="true">flag</span></button>
+        <button onClick={() => setReporting(true)} disabled={reported} aria-label="Report this conversation" className="ml-auto ng-icon-button -mr-2 text-stone-500"><Glyph name="flag" size={20} /></button>
       </header>
       {reporting && (
-        <div className="px-4 py-3 border-b border-stone-200 bg-white text-sm space-y-2" role="dialog" aria-label="Report this conversation">
-          <p className="text-stone-800">Reporting lets NatureGram read this conversation to look into it. Nobody else can read letters.</p>
+        <div className="px-6 md:px-10 py-4 border-b border-stone-200/80 text-sm space-y-3" role="dialog" aria-label="Report this conversation">
+          <p className="text-stone-700 leading-[1.6]">Reporting lets NatureGram read this conversation to look into it. Nobody else can read letters.</p>
           <div className="flex flex-wrap gap-2">
             {[['spam', 'Spam or selling'], ['harassment', 'Harassment'], ['unsafe', 'Something unsafe'], ['other', 'Something else']].map(([k, label]) => (
-              <button key={k} onClick={async () => { try { await FirebaseService.reportConversation(cid, k); setReported(true); setReporting(false); } catch { setError('Could not send the report. Please try again.'); } }} className="px-3 py-1.5 rounded-full border border-stone-300 hover:bg-stone-50">{label}</button>
+              <button key={k} onClick={async () => { try { await FirebaseService.reportConversation(cid, k); setReported(true); setReporting(false); } catch { setError('Could not send the report. Please try again.'); } }} className="ng-chip">{label}</button>
             ))}
-            <button onClick={() => setReporting(false)} className="px-3 py-1.5 text-stone-600">Cancel</button>
+            <button onClick={() => setReporting(false)} className="ng-link-quiet min-h-[44px] px-2">Cancel</button>
           </div>
         </div>
       )}
-      {reported && <p role="status" className="px-4 py-2 text-sm bg-stone-100 text-stone-800">Thanks. We'll look into it. You can also block them from their field page.</p>}
-      <main className="flex-1 overflow-y-auto overscroll-contain px-3 py-4" aria-live="polite" aria-label="Letters">
+      {reported && <p role="status" className="px-6 md:px-10 py-3 ng-small border-b border-stone-200/80">Thanks. We'll look into it. You can also block them from their field page.</p>}
+      <main className="flex-1 overflow-y-auto overscroll-contain px-6 py-6" aria-live="polite" aria-label="Letters">
         <div className="max-w-xl mx-auto">
           {opening}
-          {msgs === null ? <p className="text-center text-stone-500 py-6">Opening the letters…</p> : (
-            <ol className="space-y-4" role="list">
+          {msgs === null ? <p className="text-center font-display italic text-stone-500 py-6">Opening the letters…</p> : (
+            <ol className="space-y-6" role="list">
               {msgs.map((m, i) => {
                 const mine = m.senderId === me;
                 return (
                   <li key={m.id}>
                     <article
-                      className={`relative bg-[#fbf7ef] rounded-[3px] px-5 pt-3 pb-4 shadow-[0_1px_2px_rgba(60,40,20,0.10),0_6px_16px_-10px_rgba(60,40,20,0.25)] ${i % 2 ? 'rotate-[0.25deg]' : '-rotate-[0.2deg]'} ${mine ? 'border-l-2 border-theme-accent/50' : 'border-l-2 border-[#d8ccb6]'}`}
+                      className={`relative bg-[#fbf7ef] rounded-md px-6 pt-4 pb-5 border border-[#e8dfcd] ${mine ? 'ml-6 sm:ml-12' : 'mr-6 sm:mr-12'}`} data-i={i}
                       aria-label={`${mine ? 'You wrote' : `${theirName} wrote`}, ${noteDate(m.createdAt)}`}
                     >
-                      <p className="text-xs text-[#8a7a60] font-display italic">{noteDate(m.createdAt)}</p>
+                      <p className="ng-caption font-display italic text-[13px]">{noteDate(m.createdAt)}</p>
                       {m.postId && (
-                        <button onClick={() => onOpenPost(m.postId!)} className="flex items-center gap-1.5 mt-2 text-sm font-display font-semibold text-theme-accent hover:underline"><Glyph name="plate" size={16} />Open the sighting</button>
+                        <button onClick={() => onOpenPost(m.postId!)} className="flex items-center gap-2 mt-2 min-h-[44px] ng-link-quiet"><Glyph name="plate" size={20} className="text-stone-500" />Open the sighting</button>
                       )}
-                      {m.text && <p className="mt-2 text-[15px] leading-relaxed text-stone-900 whitespace-pre-wrap break-words">{m.text}</p>}
-                      <p className="mt-3 text-right font-display italic text-stone-700">— {mine ? myName : theirName}</p>
+                      {m.text && <p className="mt-2 text-base leading-[1.65] text-stone-800 whitespace-pre-wrap break-words">{m.text}</p>}
+                      <p className="mt-4 text-right font-display italic text-stone-600">— {mine ? myName : theirName}</p>
                     </article>
                   </li>
                 );
@@ -263,8 +263,8 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
           <div ref={endRef} />
         </div>
       </main>
-      {error && <p role="alert" className="px-4 pb-2 text-sm text-red-700">{error}</p>}
-      <form onSubmit={send} className="shrink-0 p-3 border-t border-stone-200 bg-day-bg pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      {error && <p role="alert" className="px-6 pb-2 text-sm text-red-800">{error}</p>}
+      <form onSubmit={send} className="shrink-0 px-6 pt-4 border-t border-stone-200/80 bg-day-bg pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <div className="max-w-xl mx-auto">
           <label htmlFor="dm-input" className="sr-only">Your letter to {theirName}</label>
           <textarea
@@ -276,12 +276,12 @@ const Thread: React.FC<{ cid: string; convo: Conversation | null; me: string; on
             rows={3}
             placeholder={`Dear ${theirName},`}
             aria-describedby="dm-hint"
-            className="w-full resize-none max-h-48 bg-[#fbf7ef] border border-[#d8ccb6] rounded-[3px] px-4 py-3 text-base leading-relaxed focus:border-theme-accent"
+            className="ng-field w-full resize-none max-h-48 px-4 py-3 leading-[1.6]"
           />
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p id="dm-hint" className="text-xs text-stone-500 hidden sm:block">Ctrl or ⌘ + Enter also sends</p>
-            <button type="submit" disabled={!text.trim() || sending} className="ml-auto px-5 py-2.5 rounded-full bg-stone-900 text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40">
-              <Glyph name="sealed" size={17} />{sending ? 'Sending…' : 'Send'}
+          <div className="mt-3 flex items-center justify-between gap-4">
+            <p id="dm-hint" className="ng-caption hidden sm:block">Ctrl or ⌘ + Enter also sends</p>
+            <button type="submit" disabled={!text.trim() || sending} className="ml-auto ng-button-primary">
+              <Glyph name="sealed" size={20} className="ng-arrow" />{sending ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>
@@ -298,26 +298,26 @@ const NewChatSheet: React.FC<{ onClose: () => void; onPick: (uid: string) => voi
     return () => window.clearTimeout(t);
   }, [q]);
   return (
-    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-label="Write a letter">
-      <div className="w-full sm:max-w-md bg-white rounded-t-[2rem] sm:rounded-[2rem] p-5 max-h-[80dvh] flex flex-col pb-[calc(1.25rem+env(safe-area-inset-bottom))]">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-display font-semibold text-stone-900">Write a letter</h2>
-          <button onClick={onClose} aria-label="Close" className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-stone-100"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
+    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center ng-scrim" role="dialog" aria-modal="true" aria-label="Write a letter">
+      <div className="w-full sm:max-w-md ng-sheet px-6 pt-5 max-h-[80dvh] flex flex-col pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="ng-subtitle">Write a letter</h2>
+          <button onClick={onClose} aria-label="Close" className="ng-icon-button -mr-2"><Glyph name="close" size={24} /></button>
         </div>
         <label className="block">
           <span className="sr-only">Search explorers</span>
-          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search explorers by username" className="w-full bg-stone-100 rounded-xl px-4 py-3 text-base" />
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search explorers by username" className="ng-field-line" />
         </label>
         <ul className="mt-3 overflow-y-auto" role="list">
           {results.map(u => (
             <li key={u.uid}>
-              <button onClick={() => onPick(u.uid)} className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 text-left">
+              <button onClick={() => onPick(u.uid)} className="w-full flex items-center gap-4 py-3 border-b border-stone-200/70 text-left">
                 <Avatar name={u.username} url={u.avatarUrl} size={44} />
-                <span className="font-semibold text-stone-900 truncate">{u.username}</span>
+                <span className="font-medium text-stone-900 truncate">{u.username}</span>
               </button>
             </li>
           ))}
-          {q.trim().length >= 2 && results.length === 0 && <li className="text-sm text-stone-500 p-3">No explorers found.</li>}
+          {q.trim().length >= 2 && results.length === 0 && <li className="ng-small py-3">No explorers found.</li>}
         </ul>
       </div>
     </div>

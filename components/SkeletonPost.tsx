@@ -39,26 +39,22 @@ export const PressLeaf: React.FC<{ size?: number; className?: string }> = ({ siz
 
 /** A small, reusable "pressing" loader for anywhere a spinner would go. */
 export const PressingLoader: React.FC<{ label?: string; size?: number; className?: string }> = ({ label, size = 36, className = '' }) => (
-  <div role="status" className={`flex flex-col items-center justify-center gap-2 text-[#a8957a] ${className}`}>
+  <div role="status" className={`flex flex-col items-center justify-center gap-3 text-stone-400 ${className}`}>
     <PressStyles />
     <PressLeaf size={size} />
     {label ? <span className="text-sm font-display italic text-stone-500">{label}</span> : <span className="sr-only">Loading</span>}
   </div>
 );
 
-/** Placeholder for a feed card while sightings load: a cream specimen plate being pressed. */
+/** Placeholder for a feed tile while sightings load: the tile's own shape in calm cream, a leaf being pressed. */
 const SkeletonPost: React.FC<{ tall?: boolean }> = ({ tall }) => (
   <div className="relative break-inside-avoid" aria-hidden="true">
     <PressStyles />
-    <div className="rounded-[3px] p-2 bg-[#fbf7ef] shadow-[0_1px_2px_rgba(60,40,20,0.10)]">
-      <div className="rounded-[2px] border border-[#e3d8c4] p-2">
-        <div className={`ng-paper-breath bg-[#f1e9d9] ${tall ? 'aspect-[3/4]' : 'aspect-[4/5]'} w-full flex items-center justify-center text-[#c2b08f]`}>
-          <PressLeaf size={34} />
-        </div>
-        <div className="ng-paper-breath h-2.5 bg-[#eee4d1] rounded-full w-3/4 mt-2.5" />
-        <div className="ng-paper-breath h-2 bg-[#f1e9d9] rounded-full w-1/2 mt-1.5" />
-      </div>
+    <div className={`ng-paper-breath rounded-md bg-[#f3efe7] ${tall ? 'aspect-[3/4]' : 'aspect-[4/5]'} w-full flex items-center justify-center text-stone-400/70`}>
+      <PressLeaf size={28} />
     </div>
+    <div className="ng-paper-breath h-3 bg-[#efe9de] rounded-full w-3/4 mt-3" />
+    <div className="ng-paper-breath h-2 bg-[#f3efe7] rounded-full w-1/2 mt-2" />
   </div>
 );
 

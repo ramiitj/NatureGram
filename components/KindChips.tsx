@@ -19,9 +19,9 @@ const KindChips: React.FC<{
   const have = new Set(present);
   const kinds = GROUP_ORDER.filter(g => have.has(g));
   if (!kinds.length) return null;
-  const chip = (on: boolean) => `shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-sm transition-colors ${on ? 'bg-stone-900 border-stone-900 text-white' : 'border-stone-200 text-stone-700 hover:bg-stone-900/[0.03]'}`;
+  const chip = (on: boolean) => `ng-chip ${on ? 'ng-chip-on' : ''}`;
   return (
-    <div role="group" aria-label={label} className={`w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 ${className}`}>
+    <div role="group" aria-label={label} className={`overflow-x-auto no-scrollbar flex items-center gap-2 py-1 -mx-6 px-6 md:-mx-12 md:px-12 ${className}`}>
       {withAll && (
         <button type="button" aria-pressed={selected === null} onClick={() => onSelect(null)} className={chip(selected === null)}>All</button>
       )}
@@ -29,9 +29,9 @@ const KindChips: React.FC<{
         const on = selected === g;
         return (
           <button key={g} type="button" aria-pressed={on} onClick={() => onSelect(on && withAll ? null : g)} className={chip(on)}>
-            <Glyph name={GROUP_GLYPH[g]} size={16} className={on ? 'text-white' : 'text-theme-accent'} />
+            <Glyph name={GROUP_GLYPH[g]} size={16} className={on ? 'text-stone-900' : 'text-stone-400'} />
             <span>{g}</span>
-            {counts?.[g] !== undefined && <span className={`tabular-nums ${on ? 'text-white/80' : 'text-stone-500'}`}>{counts[g]}</span>}
+            {counts?.[g] !== undefined && <span className="tabular-nums text-stone-400">{counts[g]}</span>}
           </button>
         );
       })}

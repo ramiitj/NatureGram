@@ -23,14 +23,14 @@ interface NaturalistPersonaModalProps {
 interface Vignette { id: string; title: string; line: string; glyph: GlyphName; bg: string; taxa: string[]; styles: string[]; habitats: string[] }
 
 const VIGNETTES: Vignette[] = [
-  { id: 'dawn-bird', title: 'A bird at dawn', line: 'The first song before the light', glyph: 'bird', bg: 'from-theme-accent/15 to-stone-50', taxa: ['Birds & Avian Vocalizations'], styles: ['Bioacoustic Soundscapes'], habitats: ['Dense Canopy Forests'] },
-  { id: 'mushroom', title: 'A mushroom after rain', line: 'Something new on the forest floor', glyph: 'mushroom', bg: 'from-stone-200/70 to-stone-50', taxa: ['Flora & Fungi'], styles: ['Macro Photography'], habitats: ['Dense Canopy Forests'] },
-  { id: 'tide-pool', title: 'A tide pool', line: 'A whole world left by the sea', glyph: 'shell', bg: 'from-theme-primary/10 to-stone-50', taxa: ['Marine & Aquatic Life'], styles: [], habitats: ['Coastal Tidepools & Reefs'] },
-  { id: 'city-fox', title: 'A fox in the city', line: 'Wild lives between the houses', glyph: 'paw', bg: 'from-theme-accent/10 to-stone-100', taxa: ['Mammal Ethology'], styles: ['Behavioral Motion Video'], habitats: ['Urban Wildlife Habitats'] },
-  { id: 'bee', title: 'A bee on a flower', line: 'Small work, done carefully', glyph: 'insect', bg: 'from-theme-vivid/10 to-stone-50', taxa: ['Insects & Pollinators'], styles: ['Macro Photography'], habitats: [] },
-  { id: 'night', title: 'Sounds in the night', line: 'Owls, frogs, a chorus in the dark', glyph: 'sound', bg: 'from-stone-300/70 to-stone-100', taxa: ['Amphibians & Reptiles'], styles: ['Bioacoustic Soundscapes'], habitats: ['Wetlands & Swamps'] },
-  { id: 'trees', title: 'Trees and leaves', line: 'How a wood changes with the seasons', glyph: 'leaf', bg: 'from-theme-primary/15 to-stone-50', taxa: ['Flora & Fungi'], styles: ['Field Journal Notes'], habitats: ['Dense Canopy Forests', 'Alpine & High Elevation'] },
-  { id: 'insects-close', title: 'Insects up close', line: 'Wings, eyes and patterns', glyph: 'lens', bg: 'from-stone-100 to-theme-accent/10', taxa: ['Insects & Pollinators'], styles: ['Macro Photography', 'Field Journal Notes'], habitats: [] },
+  { id: 'dawn-bird', title: 'A bird at dawn', line: 'The first song before the light', glyph: 'bird', bg: '', taxa: ['Birds & Avian Vocalizations'], styles: ['Bioacoustic Soundscapes'], habitats: ['Dense Canopy Forests'] },
+  { id: 'mushroom', title: 'A mushroom after rain', line: 'Something new on the forest floor', glyph: 'mushroom', bg: '', taxa: ['Flora & Fungi'], styles: ['Macro Photography'], habitats: ['Dense Canopy Forests'] },
+  { id: 'tide-pool', title: 'A tide pool', line: 'A whole world left by the sea', glyph: 'shell', bg: '', taxa: ['Marine & Aquatic Life'], styles: [], habitats: ['Coastal Tidepools & Reefs'] },
+  { id: 'city-fox', title: 'A fox in the city', line: 'Wild lives between the houses', glyph: 'paw', bg: '', taxa: ['Mammal Ethology'], styles: ['Behavioral Motion Video'], habitats: ['Urban Wildlife Habitats'] },
+  { id: 'bee', title: 'A bee on a flower', line: 'Small work, done carefully', glyph: 'insect', bg: '', taxa: ['Insects & Pollinators'], styles: ['Macro Photography'], habitats: [] },
+  { id: 'night', title: 'Sounds in the night', line: 'Owls, frogs, a chorus in the dark', glyph: 'sound', bg: '', taxa: ['Amphibians & Reptiles'], styles: ['Bioacoustic Soundscapes'], habitats: ['Wetlands & Swamps'] },
+  { id: 'trees', title: 'Trees and leaves', line: 'How a wood changes with the seasons', glyph: 'leaf', bg: '', taxa: ['Flora & Fungi'], styles: ['Field Journal Notes'], habitats: ['Dense Canopy Forests', 'Alpine & High Elevation'] },
+  { id: 'insects-close', title: 'Insects up close', line: 'Wings, eyes and patterns', glyph: 'lens', bg: '', taxa: ['Insects & Pollinators'], styles: ['Macro Photography', 'Field Journal Notes'], habitats: [] },
 ];
 
 const uniq = (xs: string[]) => Array.from(new Set(xs));
@@ -93,24 +93,25 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
   };
 
   return (
-    <div className="fixed inset-0 z-[160] flex items-end sm:items-center justify-center bg-stone-900/60 backdrop-blur-sm sm:p-5 font-body animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="persona-title">
-      <div className="bg-day-bg text-stone-900 rounded-t-[2rem] sm:rounded-[2rem] w-full max-w-xl shadow-2xl flex flex-col max-h-[92dvh] animate-slide-up">
+    <div className="fixed inset-0 z-[160] flex items-end sm:items-center justify-center ng-scrim sm:p-5 font-body animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="persona-title">
+      <div className="ng-sheet text-stone-900 w-full max-w-xl flex flex-col max-h-[92dvh] animate-slide-up">
         {state === 'saved' ? (
-          <div className="p-8 text-center" role="status">
-            <Glyph name="feather" size={34} className="text-theme-accent mx-auto" />
-            <p className="font-display text-xl text-stone-900 mt-4">Noted on your field page.</p>
-            <p className="font-display italic text-lg text-stone-900 mt-4 leading-snug">“{extra.philosophy}”</p>
-            <p className="text-sm text-stone-500 mt-2">{theme.naturalist}</p>
+          <div className="p-10 text-center ng-rise" role="status">
+            <Glyph name="feather" size={32} strokeWidth={1.3} className="text-stone-500 mx-auto" />
+            <p className="ng-subtitle mt-5">Noted on your field page.</p>
+            <span className="ng-rule mx-auto mt-6" aria-hidden="true" />
+            <p className="ng-quote mt-5">“{extra.philosophy}”</p>
+            <p className="ng-caption mt-3">{theme.naturalist}</p>
           </div>
         ) : (
           <>
-            <header className="px-6 pt-6 pb-3 flex items-start justify-between gap-3">
+            <header className="px-6 pt-6 pb-4 flex items-start justify-between gap-4">
               <div>
-                <h2 id="persona-title" className="text-2xl font-display font-semibold text-stone-900">What makes you stop and look?</h2>
-                <p className="text-sm text-stone-600 mt-1">Choose any that ring true. Your feed and your guide will lean towards them.</p>
+                <h2 id="persona-title" className="ng-title">What makes you stop and look?</h2>
+                <p className="ng-small mt-2">Choose any that ring true. Your feed and your guide will lean towards them.</p>
               </div>
-              <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 rounded-full hover:bg-stone-100 flex items-center justify-center text-stone-500 shrink-0">
-                <span className="material-symbols-outlined" aria-hidden="true">close</span>
+              <button onClick={onClose} aria-label="Close" className="ng-icon-button -mr-2 text-stone-500">
+                <Glyph name="close" size={24} />
               </button>
             </header>
 
@@ -124,14 +125,14 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                         type="button"
                         onClick={() => toggle(v.id)}
                         aria-pressed={on}
-                        className={`relative w-full h-full text-left rounded-2xl p-3.5 border transition-all active:scale-[0.98] bg-gradient-to-br ${v.bg} ${on ? 'border-theme-accent ring-2 ring-theme-accent/40' : 'border-stone-200 hover:border-stone-300'}`}
+                        className={`relative w-full h-full text-left rounded-xl p-4 border transition-colors ${v.bg} ${on ? 'border-stone-900' : 'border-stone-200/90 hover:border-stone-300'}`}
                       >
-                        <span className={`block ${on ? 'text-theme-accent' : 'text-stone-900/80'}`}><Glyph name={v.glyph} size={36} strokeWidth={1.3} /></span>
-                        <span className="block font-display text-[17px] leading-tight text-stone-900 mt-3">{v.title}</span>
-                        <span className="block text-xs text-stone-600 mt-1 leading-snug">{v.line}</span>
+                        <span className="block text-stone-500"><Glyph name={v.glyph} size={24} /></span>
+                        <span className="block font-display italic text-[18px] leading-snug text-stone-900 mt-4">{v.title}</span>
+                        <span className="block ng-caption mt-1">{v.line}</span>
                         {on && (
-                          <span className="absolute top-2.5 right-2.5 w-6 h-6 rounded-full bg-theme-accent text-white flex items-center justify-center" aria-hidden="true">
-                            <span className="material-symbols-outlined text-[16px]">check</span>
+                          <span className="absolute top-3 right-3 text-theme-accent" aria-hidden="true">
+                            <Glyph name="check" size={20} />
                           </span>
                         )}
                       </button>
@@ -139,24 +140,24 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
                   );
                 })}
               </ul>
-              <label className="block mt-5">
-                <span className="text-sm text-stone-700">Anything else you love to watch? <span className="text-stone-500">(optional)</span></span>
+              <label className="block mt-6">
+                <span className="ng-label">Anything else you love to watch? <span className="text-stone-500">(optional)</span></span>
                 <input
                   value={note}
                   onChange={e => setNote(e.target.value.slice(0, 200))}
                   placeholder="For example, herons on the canal"
-                  className="mt-1.5 w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-base placeholder:text-stone-500 focus:border-theme-accent"
+                  className="mt-1 ng-field-line"
                 />
               </label>
             </div>
 
-            <footer className="px-6 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] border-t border-stone-100 flex items-center justify-between gap-3">
-              <button type="button" onClick={onClose} className="px-3 py-3 text-sm font-semibold text-stone-600 hover:text-stone-900">Not now</button>
+            <footer className="px-6 pt-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] border-t border-stone-200/80 flex items-center justify-between gap-4">
+              <button type="button" onClick={onClose} className="ng-link-quiet min-h-[44px]">Not now</button>
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={state === 'saving' || (picked.length === 0 && !note.trim())}
-                className="px-6 py-3 rounded-full text-sm font-semibold bg-stone-900 text-white disabled:opacity-40"
+                className="ng-button-primary"
               >
                 {state === 'saving' ? 'Noting it down…' : 'Keep these'}
               </button>

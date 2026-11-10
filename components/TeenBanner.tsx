@@ -47,46 +47,46 @@ const TeenBanner: React.FC<{ state?: TeenState }> = ({ state: forced }) => {
 
   if (folded) {
     return (
-      <button type="button" onClick={() => fold(false)} className="fixed right-3 bottom-24 z-[89] flex items-center gap-2 min-h-[44px] pl-3 pr-4 rounded-full bg-[#fcfaf8] border border-[#e8dfcd] shadow-[0_8px_24px_-10px_rgba(60,40,20,0.35)] text-sm font-semibold text-stone-800">
-        <Glyph name="stamp" size={18} className="text-theme-accent" />{s.status === 'pending' ? 'Waiting for a grown-up\'s OK' : heading}
+      <button type="button" onClick={() => fold(false)} className="fixed right-4 bottom-24 z-[89] flex items-center gap-2 min-h-[44px] pl-3.5 pr-4 rounded-full bg-day-bg border border-stone-200/80 shadow-[0_12px_32px_-16px_rgba(28,25,23,0.45)] text-sm font-medium text-stone-800">
+        <Glyph name="stamp" size={20} className="text-stone-500" />{s.status === 'pending' ? 'Waiting for a grown-up\'s OK' : heading}
       </button>
     );
   }
 
   return (
-    <section aria-label="A grown-up's OK" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[89] bg-[#fcfaf8] rounded-2xl border border-[#e8dfcd] shadow-[0_2px_4px_rgba(60,40,20,0.08),0_18px_40px_-12px_rgba(60,40,20,0.35)] p-4 animate-slide-up">
+    <section aria-label="A grown-up's OK" className="fixed left-4 right-4 bottom-24 sm:left-auto sm:right-6 sm:max-w-sm z-[89] bg-day-bg rounded-2xl border border-stone-200/80 shadow-[0_18px_44px_-22px_rgba(28,25,23,0.45)] p-5 ng-rise">
       <div className="flex gap-3">
-        <Glyph name="stamp" size={24} className="text-theme-accent mt-0.5 shrink-0" />
+        <Glyph name="stamp" size={20} className="text-stone-500 mt-1 shrink-0" />
         <div className="flex-1 min-w-0">
-          <h2 className="font-display text-[17px] leading-snug text-text-main">{heading}</h2>
-          <p className="text-sm text-stone-700 leading-relaxed mt-1">{body}</p>
+          <h2 className="ng-subtitle text-[18px]">{heading}</h2>
+          <p className="ng-small text-stone-700 mt-1">{body}</p>
         </div>
-        <button type="button" onClick={() => fold(true)} aria-label="Fold away" className="-mr-2 -mt-2 w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-900/5">
-          <span className="material-symbols-outlined text-xl" aria-hidden="true">expand_more</span>
+        <button type="button" onClick={() => fold(true)} aria-label="Fold away" className="-mr-3 -mt-3 ng-icon-button text-stone-500">
+          <Glyph name="chevronDown" size={20} />
         </button>
       </div>
 
       {showForm ? (
-        <form onSubmit={e => { e.preventDefault(); send(email.trim()); }} className="mt-3 flex flex-col gap-2">
-          <label htmlFor="teen-parent-email" className="text-sm font-semibold text-stone-700">Parent or guardian's email</label>
-          <input id="teen-parent-email" type="email" inputMode="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="grown-up@example.com" className="w-full min-h-[44px] bg-white border border-stone-300 rounded-lg px-3 text-base focus:border-theme-accent" />
+        <form onSubmit={e => { e.preventDefault(); send(email.trim()); }} className="mt-4 flex flex-col gap-3">
+          <label htmlFor="teen-parent-email" className="ng-label">Parent or guardian's email</label>
+          <input id="teen-parent-email" type="email" inputMode="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="grown-up@example.com" className="ng-field w-full min-h-[44px] px-3.5" />
           <div className="flex gap-2">
-            <button type="submit" disabled={busy} className="flex-1 min-h-[44px] rounded-xl bg-stone-900 text-white text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send the letter'}</button>
-            {editing && !needsEmail && <button type="button" onClick={() => setEditing(false)} className="min-h-[44px] px-4 rounded-xl border border-stone-300 bg-white text-sm font-semibold text-stone-800">Cancel</button>}
+            <button type="submit" disabled={busy} className="ng-button-primary flex-1 min-h-[44px] text-sm">{busy ? 'Sending…' : 'Send the letter'}</button>
+            {editing && !needsEmail && <button type="button" onClick={() => setEditing(false)} className="ng-button-quiet min-h-[44px] px-4 text-sm">Cancel</button>}
           </div>
         </form>
       ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => send()} disabled={busy} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send it again'}</button>
-          <button type="button" onClick={() => { setEditing(true); setNote(''); }} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold">Change email</button>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button type="button" onClick={() => send()} disabled={busy} className="ng-button-quiet flex-1 min-h-[44px] text-sm">{busy ? 'Sending…' : 'Send it again'}</button>
+          <button type="button" onClick={() => { setEditing(true); setNote(''); }} className="ng-button-quiet flex-1 min-h-[44px] text-sm">Change email</button>
         </div>
       )}
       {link && (
-        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.' /* glossary-ok: a text or email */); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-stone-900 text-white text-sm font-semibold flex items-center justify-center gap-2">
-          <Glyph name="sealed" size={18} />Send this to your parent
+        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.' /* glossary-ok: a text or email */); }} className="mt-3 ng-button-primary w-full min-h-[44px] text-sm">
+          <Glyph name="sealed" size={20} className="ng-arrow" />Send this to your parent
         </button>
       )}
-      {note && <p role="status" className="mt-2 text-[13px] text-stone-600 leading-snug">{note}</p>}
+      {note && <p role="status" className="mt-3 ng-small">{note}</p>}
     </section>
   );
 };

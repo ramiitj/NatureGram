@@ -131,40 +131,40 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
   const shown = showAll ? slips : slips.slice(0, 4);
 
   return (
-    <section aria-labelledby={`cid-${postId}`} className="relative rounded-[3px] border border-stone-200 p-4 space-y-3">
+    <section aria-labelledby={`cid-${postId}`} className="relative space-y-4">
       <div className="flex items-start justify-between gap-2 pr-16">
         <div>
-          <h3 id={`cid-${postId}`} className="text-[17px] font-display text-stone-900">{canDetermine ? 'Is this right?' : 'Determinations'}</h3>
+          <h3 id={`cid-${postId}`} className="ng-subtitle flex items-center gap-3"><span className="ng-rule" aria-hidden="true" />{canDetermine ? 'Is this right?' : 'Determinations'}</h3>
           {tally.length > 0 && (
-            <p className="text-xs text-stone-500 mt-0.5">
+            <p className="ng-caption mt-1">
               {ids.length} {ids.length === 1 ? 'explorer has' : 'explorers have'} weighed in{disputed ? ', and they disagree' : ''}
             </p>
           )}
         </div>
       </div>
       {verified && (
-        <div className="absolute -top-3 right-2 rotate-[8deg]" aria-label={`Confirmed by ${agreeCount} explorers`}>
+        <div className="absolute -top-1 right-0 rotate-[8deg]" aria-label={`Confirmed by ${agreeCount} explorers`}>
           <PlateStamp tone="accent">Confirmed by {agreeCount}</PlateStamp>
         </div>
       )}
 
       {slips.length > 0 && (
-        <ul className="space-y-2.5" role="list">
+        <ul className="border-t border-stone-200/80" role="list">
           {shown.map(d => {
             const agrees = norm(d.name) === norm(primaryLabel);
             const when = toMs(d.createdAt);
             return (
-              <li key={d.id} className={`relative bg-[#fbf7ef] border border-[#e3d8c4] rounded-[2px] px-3.5 py-3 shadow-[0_1px_1px_rgba(60,40,20,0.06)] ${isAuthor ? 'pr-24' : ''}`}>
-                <p className="font-display italic text-[17px] text-[#2f2a22] leading-tight">
+              <li key={d.id} className={`relative py-4 border-b border-stone-200/80 ${isAuthor ? 'pr-24' : ''}`}>
+                <p className="font-display italic text-[18px] text-stone-900 leading-snug">
                   {d.name}
-                  {d.scientificName && norm(d.scientificName) !== norm(d.name) && <span className="text-sm text-[#8a7a60]"> {d.scientificName}</span>}
+                  {d.scientificName && norm(d.scientificName) !== norm(d.name) && <span className="text-sm text-stone-500"> {d.scientificName}</span>}
                 </p>
                 {d.note && d.note.trim() && (
-                  <p className="mt-1.5 text-sm text-stone-700 leading-snug">
+                  <p className="mt-1.5 ng-small text-stone-700">
                     <span className="sr-only">Field marks: </span>{d.note.trim()}
                   </p>
                 )}
-                <p className="mt-2 text-xs text-[#8a7a60] border-t border-dashed border-[#e3d8c4] pt-1.5 flex flex-wrap items-center gap-x-1.5">
+                <p className="mt-2 ng-caption flex flex-wrap items-center gap-x-1.5">
                   <span>Det. by <span className="text-stone-700 font-medium">{d.userName || 'an explorer'}</span></span>
                   {standing[d.id] && <><span aria-hidden="true">·</span><span>{standing[d.id]}</span></>}
                   {when > 0 && <><span aria-hidden="true">·</span><span>{fieldDate(when)}</span></>}
@@ -175,7 +175,7 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
                     type="button"
                     onClick={() => thank(d)}
                     disabled={thanked.includes(d.id)}
-                    className="absolute top-2.5 right-2.5 h-8 px-3 rounded-full border border-stone-200 text-xs font-medium text-stone-900 hover:bg-white disabled:text-stone-500 disabled:hover:bg-transparent"
+                    className="absolute top-3 right-0 min-h-[36px] px-3.5 rounded-full border border-stone-200 text-xs font-medium text-stone-800 hover:border-stone-300 disabled:text-stone-500"
                   >
                     {thanked.includes(d.id) ? 'Thanked' : 'Thank'}
                   </button>
@@ -186,41 +186,41 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
         </ul>
       )}
       {slips.length > 4 && (
-        <button type="button" onClick={() => setShowAll(v => !v)} className="text-sm text-theme-accent font-medium">
+        <button type="button" onClick={() => setShowAll(v => !v)} className="ng-link-quiet min-h-[44px]">
           {showAll ? 'Show fewer' : `Show all ${slips.length} determinations`}
         </button>
       )}
 
       {canDetermine && (
         mine ? (
-          <div className="flex items-center justify-between text-sm text-stone-600">
+          <div className="flex items-center justify-between ng-small">
             <span>Your determination: <em className="font-display text-stone-900">{mine.name}</em></span>
-            <button onClick={async () => { await FirebaseService.removeIdentification(postId); setIds(await FirebaseService.getIdentifications(postId)); }} className="font-semibold text-stone-700 underline">Withdraw</button>
+            <button onClick={async () => { await FirebaseService.removeIdentification(postId); setIds(await FirebaseService.getIdentifications(postId)); }} className="ng-link-quiet min-h-[44px]">Withdraw</button>
           </div>
         ) : suggesting ? (
-          <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) submit({ name, note }); }} className="space-y-2">
+          <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) submit({ name, note }); }} className="space-y-3">
             <label className="block">
               <span className="sr-only">Species name</span>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Species (common or scientific name)" maxLength={80} required className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-base" />
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Species (common or scientific name)" maxLength={80} required className="ng-field w-full px-4 py-3" />
             </label>
             <label className="block">
-              <span className="text-xs text-stone-500">What shows it? Field marks help the explorer learn.</span>
-              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="For example: white eye-ring, two wing bars" maxLength={280} rows={2} className="mt-1 w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-base resize-none" />
+              <span className="ng-caption">What shows it? Field marks help the explorer learn.</span>
+              <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="For example: white eye-ring, two wing bars" maxLength={280} rows={2} className="mt-1 ng-field w-full px-4 py-3 resize-none" />
             </label>
-            <div className="flex gap-2">
-              <button type="submit" disabled={busy || !name.trim()} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold disabled:opacity-40">Suggest this</button>
-              <button type="button" onClick={() => setSuggesting(false)} className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-900 text-sm font-bold">Cancel</button>
+            <div className="flex gap-3">
+              <button type="submit" disabled={busy || !name.trim()} className="ng-button-primary flex-1">Suggest this</button>
+              <button type="button" onClick={() => setSuggesting(false)} className="ng-button-quiet">Cancel</button>
             </div>
           </form>
         ) : (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-3">
             {primaryLabel && (
-              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-1.5">
-                <Glyph name="tag" size={16} />
+              <button onClick={() => submit({ name: primaryLabel, agree: true })} disabled={busy} className="ng-button-quiet flex-1 px-4 whitespace-nowrap">
+                <Glyph name="check" size={20} />
                 Yes, it's {primaryLabel.length > 22 ? primaryLabel.slice(0, 20) + '…' : primaryLabel}
               </button>
             )}
-            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-900 text-sm font-bold">I think it's…</button>
+            <button onClick={() => isMember ? setSuggesting(true) : onRequireAccount('Create a free account to help identify sightings.')} className="ng-button-quiet flex-1 px-4">I think it's…</button>
           </div>
         )
       )}

@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import type { GlyphName } from './Glyph.tsx';
 
 /**
  * NatureGram's appreciation gesture. Explorers don't "like" a sighting, they marvel at it.
@@ -66,14 +67,14 @@ export const wonderLabel = (n: number) => n === 0 ? 'Be the first to marvel' : `
  * What the living world is doing right now, by the explorer's local hour. A quiet nudge to look
  * up from the screen. Kept to well-established, general patterns so it holds true almost anywhere.
  */
-export const fieldMoment = (d: Date = new Date()): { name: string; hint: string; icon: string } => {
+export const fieldMoment = (d: Date = new Date()): { name: string; hint: string; icon: GlyphName } => {
   const h = d.getHours();
-  if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'birdsong peaks now', icon: 'wb_twilight' };
-  if (h >= 7 && h < 11) return { name: 'Morning', hint: 'butterflies are warming up', icon: 'emoji_nature' };
-  if (h >= 11 && h < 15) return { name: 'Midday', hint: 'raptors ride the thermals', icon: 'airwave' };
-  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'wb_sunny' };
-  if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'bats begin to hunt', icon: 'wb_twilight' };
-  return { name: 'Night', hint: 'owls are calling', icon: 'dark_mode' };
+  if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'birdsong peaks now', icon: 'dawn' };
+  if (h >= 7 && h < 11) return { name: 'Morning', hint: 'butterflies are warming up', icon: 'insect' };
+  if (h >= 11 && h < 15) return { name: 'Midday', hint: 'raptors ride the thermals', icon: 'bird' };
+  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'sun' };
+  if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'bats begin to hunt', icon: 'dawn' };
+  return { name: 'Night', hint: 'owls are calling', icon: 'moon' };
 };
 
 /** Capture placeholders ("Captured photo.", "Uploaded media.") aren't observations; don't show them as if they were. */

@@ -12,17 +12,17 @@ const ConsentBanner: React.FC = () => {
   if (!visible || teen) return null;
   const choose = (c: 'granted' | 'denied') => { setConsent(c); setVisible(false); };
   return (
-    <div role="region" aria-label="Usage statistics choice" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[90] bg-[#fcfaf8] rounded-2xl shadow-[0_2px_4px_rgba(60,40,20,0.08),0_18px_40px_-12px_rgba(60,40,20,0.35)] border border-[#e8dfcd] p-4 animate-slide-up">
+    <div role="region" aria-label="Usage statistics choice" className="fixed left-4 right-4 bottom-24 sm:left-auto sm:right-6 sm:max-w-sm z-[90] bg-day-bg rounded-2xl border border-stone-200/80 shadow-[0_18px_44px_-22px_rgba(28,25,23,0.45)] p-5 ng-rise">
       <div className="flex gap-3">
-        <Glyph name="feather" size={22} className="text-theme-accent mt-0.5" />
-        <p className="text-sm text-stone-800 leading-relaxed">
-          May we learn how NatureGram is used? With your OK we collect usage statistics (screens used, crashes, speed) and let Google measure our ads. Never your photos, location or letters. <a href="/privacy.html" target="_blank" rel="noopener" className="underline underline-offset-2 text-theme-accent font-medium">Privacy</a>
+        <Glyph name="feather" size={20} className="text-stone-500 mt-0.5 shrink-0" />
+        <p className="text-sm text-stone-700 leading-[1.6]">
+          May we learn how NatureGram is used? With your OK we collect usage statistics (screens used, crashes, speed) and let Google measure our ads. Never your photos, location or letters. <a href="/privacy.html" target="_blank" rel="noopener" className="ng-link">Privacy</a>
         </p>
       </div>
       {/* Both answers carry equal weight: same size, same style, side by side */}
-      <div className="flex gap-2 mt-3">
-        <button onClick={() => choose('granted')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold hover:bg-stone-50">Allow</button>
-        <button onClick={() => choose('denied')} className="flex-1 min-h-[44px] py-2.5 rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold hover:bg-stone-50">No thanks</button>
+      <div className="flex gap-3 mt-4">
+        <button onClick={() => choose('granted')} className="ng-button-quiet flex-1 min-h-[44px] text-sm">Allow</button>
+        <button onClick={() => choose('denied')} className="ng-button-quiet flex-1 min-h-[44px] text-sm">No thanks</button>
       </div>
     </div>
   );

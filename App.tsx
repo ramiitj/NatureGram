@@ -666,38 +666,39 @@ const App: React.FC = () => {
 
   return (
     <div className="fixed inset-0 bg-day-bg text-text-main font-body flex flex-col overflow-hidden h-[100dvh]">
-      <a href="#main-content" className="sr-only-focusable absolute top-2 left-2 z-[300] bg-white px-4 py-2 rounded-lg shadow font-bold">Skip to content</a>
+      <a href="#main-content" className="sr-only-focusable absolute top-2 left-2 z-[300] bg-white px-4 py-2 rounded-lg shadow font-semibold">Skip to content</a>
 
       {isNotificationsOpen && (
         <div className="fixed inset-0 z-[100] flex justify-end animate-fade-in">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsNotificationsOpen(false)} aria-hidden="true"></div>
-          <section role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-in-right safe-pt">
-            <header className="p-6 pb-4 flex items-center justify-between border-b border-stone-100 shrink-0">
+          <div className="absolute inset-0 ng-scrim" onClick={() => setIsNotificationsOpen(false)} aria-hidden="true"></div>
+          <section role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-md bg-day-bg h-full shadow-[-24px_0_60px_-30px_rgba(28,25,23,0.45)] flex flex-col animate-slide-in-right safe-pt">
+            <header className="px-6 pt-6 pb-5 flex items-start justify-between gap-4 shrink-0">
               <div>
-                <h2 id="activity-title" className="text-2xl font-display font-semibold text-text-main">Activity</h2>
-                <p className="text-sm text-stone-500">{unreadCount ? `${unreadCount} new` : 'You\'re all caught up'}</p>
+                <h2 id="activity-title" className="ng-title">Activity</h2>
+                <p className="ng-small mt-1">{unreadCount ? `${unreadCount} new` : 'You\'re all caught up'}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 -mr-2">
                 {unreadCount > 0 && (
-                  <button onClick={markAllRead} className="text-sm font-semibold text-theme-accent px-3 py-2 rounded-full hover:bg-stone-50">Mark all read</button>
+                  <button onClick={markAllRead} className="ng-link-quiet min-h-[44px] px-2">Mark all read</button>
                 )}
-                <button onClick={() => setIsNotificationsOpen(false)} aria-label="Close activity" className="w-11 h-11 rounded-full bg-stone-50 text-stone-700 flex items-center justify-center" autoFocus>
-                  <span className="material-symbols-outlined" aria-hidden="true">close</span>
+                <button onClick={() => setIsNotificationsOpen(false)} aria-label="Close activity" className="ng-icon-button" autoFocus>
+                  <Glyph name="close" size={24} />
                 </button>
               </div>
             </header>
-            <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
+            <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-10">
               {/* Your week outside: one short line, the week's new plates and a way to share them */}
-              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-stone-300">
-                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-stone-900">Your week outside</h3>
-                <p className="text-sm text-stone-700 mt-1 leading-relaxed">
+              <article aria-labelledby="field-letter-title" className="py-6 border-y border-stone-200/80">
+                <p className="ng-kicker">This week</p>
+                <h3 id="field-letter-title" className="ng-subtitle mt-3">Your week outside</h3>
+                <p className="ng-body mt-2">
                   {userMode?.isAnonymous ? seasonNote()
                     : !myWeek ? 'Counting your week…'
                     : myWeek.sightings === 0 ? 'No sightings yet this week. One good look is enough.'
                     : `${myWeek.sightings} sighting${myWeek.sightings === 1 ? '' : 's'} this week${myWeek.species.length ? `, including ${myWeek.species.slice(0, 3).join(', ')}` : ''}.`}
                 </p>
                 {!!myWeek?.newPlates.length && (
-                  <ul className="mt-2 flex gap-3 overflow-x-auto no-scrollbar pb-2 pt-2 -mx-1 px-1" role="list" aria-label="New to your list">
+                  <ul className="mt-4 flex gap-4 overflow-x-auto no-scrollbar pb-2 pt-1 -mx-1 px-1" role="list" aria-label="New to your list">
                     {myWeek.newPlates.map(pl => (
                       <li key={pl.name} className="w-[104px] shrink-0">
                         <SpecimenPlate size="sm" data={pl} />
@@ -706,41 +707,46 @@ const App: React.FC = () => {
                   </ul>
                 )}
                 {!userMode?.isAnonymous && !!myWeek?.sightings && (
-                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-stone-900/[0.03]">
-                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
+                  <button onClick={shareLetter} className="mt-3 inline-flex items-center gap-2 min-h-[44px] ng-link-quiet">
+                    <Glyph name="share" size={20} className="text-stone-500" />
                     {/* glossary-ok: the life-list plate itself */}
                     {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
                   </button>
                 )}
-                {letterToast && <p role="status" className="text-xs text-stone-600 mt-1">{letterToast}</p>}
+                {letterToast && <p role="status" className="ng-caption mt-1">{letterToast}</p>}
               </article>
               {notifications.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-center px-8 text-stone-500">
-                  <span className="material-symbols-outlined text-4xl mb-3 text-theme-accent/60" aria-hidden="true">nest_eco_leaf</span>
-                  <p className="font-display text-lg text-stone-800">Quiet in the woods</p>
+                <div className="ng-empty">
+                  <Glyph name="leaf" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                  <p className="ng-empty-title">Quiet in the woods</p>
                 </div>
-              ) : groupNotifications(notifications).map(group => {
-                const alert = group.lead;
-                const { who, what } = groupLine(group);
-                const glyph = NOTE_GLYPH[alert.type];
-                return (
-                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-stone-900/[0.03] hover:bg-stone-900/[0.045]' : 'bg-white hover:bg-stone-50'}`}>
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
-                      {glyph ? <Glyph name={glyph} size={22} /> : <WonderIcon active className="text-xl" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-text-main leading-snug"><span className="font-bold">{who}</span> {what}</p>
-                      <p className="text-xs text-stone-500 mt-1">{timeAgo(alert.timestamp)}</p>
-                    </div>
-                    {group.unread && <span className="w-2.5 h-2.5 rounded-full bg-theme-accent mt-2 shrink-0" aria-label="Unread"></span>}
-                  </button>
-                );
-              })}
+              ) : (
+                <ul role="list">
+                  {groupNotifications(notifications).map(group => {
+                    const alert = group.lead;
+                    const { who, what } = groupLine(group);
+                    const glyph = NOTE_GLYPH[alert.type];
+                    return (
+                      <li key={group.key} className="border-b border-stone-200/70 last:border-b-0">
+                        <button onClick={() => handleNotificationGroupClick(group)} className="w-full py-4 text-left flex items-start gap-4 transition-colors hover:bg-stone-900/[0.02] -mx-2 px-2 rounded-lg">
+                          <span className="w-6 h-6 mt-0.5 flex items-center justify-center shrink-0 text-stone-500" aria-hidden="true">
+                            {glyph ? <Glyph name={glyph} size={20} /> : <WonderIcon className="text-[20px]" />}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[15px] leading-[1.5] text-stone-800"><span className="font-medium text-stone-900">{who}</span> {what}</span>
+                            <span className="block ng-caption mt-1">{timeAgo(alert.timestamp)}</span>
+                          </span>
+                          {group.unread && <span className="ng-dot mt-2.5 shrink-0" aria-label="Unread"></span>}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </section>
         </div>
       )}
-
       <main id="main-content" className={`flex-1 relative overflow-hidden flex flex-col ${showNav ? 'lg:pl-24 land:pl-20' : ''}`}>
         {currentView === AppView.LANDING && (
           <div className="landing absolute inset-0 z-[60] overflow-hidden bg-stone-950 text-white">
@@ -780,7 +786,7 @@ const App: React.FC = () => {
                     className="group inline-flex items-center gap-3 rounded-full bg-white text-stone-900 pl-6 pr-5 py-3.5 text-base font-semibold shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] transition-transform duration-200 hover:-translate-y-px active:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
                   >
                     Explore the wild
-                    <span className="material-symbols-outlined text-[20px] text-theme-deep transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true">arrow_forward</span>
+                    <Glyph name="forward" size={20} className="text-theme-deep transition-transform duration-200 group-hover:translate-x-0.5" />
                   </button>
                   <button
                     type="button"
@@ -852,10 +858,10 @@ const App: React.FC = () => {
         />
 
         {limitNotice && (
-          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 flex items-start gap-3 animate-slide-up">
-            <span className="material-symbols-outlined" aria-hidden="true">schedule</span>
-            <p className="text-sm flex-1">{limitNotice}</p>
-            <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="w-8 h-8 flex items-center justify-center"><span className="material-symbols-outlined text-lg" aria-hidden="true">close</span></button>
+          <div role="alert" className="fixed left-6 right-6 bottom-24 z-[210] mx-auto max-w-sm ng-toast rounded-2xl pl-5 pr-2 py-2 flex items-center gap-3 ng-rise">
+            <Glyph name="clock" size={20} className="text-white/70 shrink-0" />
+            <p className="flex-1 py-1.5">{limitNotice}</p>
+            <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="ng-icon-button-dark"><Glyph name="close" size={20} /></button>
           </div>
         )}
 
@@ -1086,11 +1092,11 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200'}`}>
-          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur-md border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200/80'}`}>
+          <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-8 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 bg-theme-primary text-white hover:brightness-110 shadow-[0_6px_18px_-8px_rgb(var(--theme-primary-rgb)/0.7)]`}>
-                <Glyph name="eyeEar" size={28} strokeWidth={1.6} />
+              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 bg-theme-primary text-white hover:brightness-110 shadow-[0_8px_20px_-10px_rgb(var(--theme-primary-rgb)/0.7)]`}>
+                <Glyph name="eyeEar" size={26} />
               </button>
             ) : (
               <button
@@ -1101,11 +1107,11 @@ const App: React.FC = () => {
                 aria-current={item.active ? 'page' : undefined}
                 className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
               >
-                <Glyph name={item.icon} size={25} strokeWidth={item.active ? 2 : 1.5} className={`transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} />
-                <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>
-                {item.active && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
+                <Glyph name={item.icon} size={24} />
+                <span className="text-[12px] leading-none font-medium">{item.label}</span>
+                {item.active && <span className={`absolute bottom-0 w-4 h-[2px] rounded-full ${darkNav ? 'bg-white' : 'bg-theme-accent'}`} aria-hidden="true" />}
                 {!!item.badge && (
-                  <span className="absolute top-2 right-3 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-white" aria-hidden="true" />
+                  <span className={`absolute top-2 right-3 w-2 h-2 rounded-full bg-theme-accent ring-2 ${darkNav ? 'ring-black' : 'ring-day-bg'}`} aria-hidden="true" />
                 )}
               </button>
             ))}

@@ -62,7 +62,7 @@ interface SearchPanelProps {
 }
 
 const Heading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h3 className="font-display text-lg text-stone-900 mb-2">{children}</h3>
+  <h3 className="ng-subtitle mb-3">{children}</h3>
 );
 
 const SearchPanel: React.FC<SearchPanelProps> = ({
@@ -125,10 +125,10 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <div className="relative flex-1">
           <label htmlFor={inputId} className="sr-only">{SEARCH_PLACEHOLDER}</label>
-          <Glyph name="lens" size={20} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-theme-accent pointer-events-none" />
+          <Glyph name="search" size={20} className="absolute left-0 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
           <input
             id={inputId}
             type="search"
@@ -140,49 +140,49 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
             placeholder={SEARCH_PLACEHOLDER}
             enterKeyHint="search"
             autoComplete="off"
-            className={`ng-field w-full pl-11 ${query ? 'pr-10' : 'pr-3'} py-3 [&::-webkit-search-cancel-button]:hidden`}
+            className={`ng-field-line pl-8 ${query ? 'pr-10' : 'pr-0'} [&::-webkit-search-cancel-button]:hidden`}
           />
           {query && (
-            <button type="button" onClick={() => onQueryChange('')} aria-label="Clear search" className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center text-stone-500 hover:text-stone-800">
-              <span className="material-symbols-outlined text-lg" aria-hidden="true">close</span>
+            <button type="button" onClick={() => onQueryChange('')} aria-label="Clear search" className="absolute -right-2 top-1/2 -translate-y-1/2 ng-icon-button text-stone-500">
+              <Glyph name="close" size={20} />
             </button>
           )}
         </div>
         {open && onCancel
-          ? <button type="button" onClick={onCancel} className="text-sm font-medium text-theme-deep hover:opacity-70 px-1 shrink-0">Cancel</button>
+          ? <button type="button" onClick={onCancel} className="ng-link-quiet min-h-[44px] shrink-0">Cancel</button>
           : aside}
       </div>
 
       {open && (
-        <div className="flex flex-col gap-6" aria-live="polite" aria-busy={searching}>
+        <div className="flex flex-col gap-8 pt-2" aria-live="polite" aria-busy={searching}>
           {term.length < 2 ? (
             suggestions.length > 0 && (
               <section aria-label="Suggestions">
-                <p className="text-sm text-stone-600 mb-2">Try a species, a place, a #tag or an explorer's name.</p>
+                <p className="ng-small mb-3">Try a species, a place, a #tag or an explorer's name.</p>
                 <div className="flex flex-wrap gap-2">
                   {suggestions.slice(0, 8).map(s => (
-                    <button key={s} type="button" onClick={() => onQueryChange(s)} className="px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">{s}</button>
+                    <button key={s} type="button" onClick={() => onQueryChange(s)} className="ng-chip">{s}</button>
                   ))}
                 </div>
               </section>
             )
           ) : searching && posts === null ? (
-            <p className="text-sm text-stone-600">Looking…</p>
+            <p className="ng-small">Looking…</p>
           ) : nothing ? (
-            <p className="text-sm text-stone-600">Nothing matches “{term}” yet. Try another word.</p>
+            <p className="ng-small">Nothing matches “{term}” yet. Try another word.</p>
           ) : (
             <>
               <p className="sr-only">{summary}</p>
               {species.length > 0 && (
                 <section aria-label="Species">
                   <Heading>Species</Heading>
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" role="list">
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8" role="list">
                     {species.map(s => (
-                      <li key={s.name} className="min-w-0">
-                        <button type="button" onClick={() => onOpenSpecies ? onOpenSpecies(s.name) : onQueryChange(s.name)} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-stone-200 bg-white hover:border-stone-300 text-left transition-colors">
-                          <Glyph name={GROUP_GLYPH[s.group]} size={20} className="text-theme-accent shrink-0" />
+                      <li key={s.name} className="min-w-0 border-b border-stone-200/70">
+                        <button type="button" onClick={() => onOpenSpecies ? onOpenSpecies(s.name) : onQueryChange(s.name)} className="w-full flex items-center gap-4 py-3 text-left transition-colors hover:text-stone-900">
+                          <Glyph name={GROUP_GLYPH[s.group]} size={20} className="text-stone-400 shrink-0" />
                           <span className="min-w-0 flex-1">
-                            <span className="block font-display italic text-[15px] text-text-main truncate">{s.name}</span>
+                            <span className="block font-display italic text-base text-stone-900 truncate">{s.name}</span>
                             {s.latin && <span className="block font-display italic text-xs text-stone-500 truncate">{s.latin}</span>}
                           </span>
                           <span className="text-xs text-stone-500 tabular-nums shrink-0">{s.count} {s.count === 1 ? 'sighting' : 'sightings'}</span>
@@ -207,13 +207,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                   <Heading>Places and tags</Heading>
                   <div className="flex flex-wrap gap-2">
                     {placesAndTags.places.map(pl => (
-                      <button key={`p-${pl}`} type="button" onClick={() => onQueryChange(pl)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">
-                        <Glyph name="tracks" size={15} className="text-theme-accent" />{pl}
+                      <button key={`p-${pl}`} type="button" onClick={() => onQueryChange(pl)} className="ng-chip">
+                        <Glyph name="pin" size={16} className="text-stone-400" />{pl}
                       </button>
                     ))}
                     {placesAndTags.tags.map(tg => (
-                      <button key={`t-${tg}`} type="button" onClick={() => onQueryChange(`#${tg}`)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-200 text-sm text-stone-700 hover:bg-stone-900/[0.03]">
-                        <Glyph name="tag" size={15} className="text-theme-accent" />#{tg}
+                      <button key={`t-${tg}`} type="button" onClick={() => onQueryChange(`#${tg}`)} className="ng-chip">
+                        <Glyph name="tag" size={16} className="text-stone-400" />#{tg}
                       </button>
                     ))}
                   </div>
@@ -222,17 +222,17 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
               {users.length > 0 && (
                 <section aria-label="Explorers">
                   <Heading>Explorers</Heading>
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" role="list">
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8" role="list">
                     {users.map(u => {
                       const line = explorerStatsLine(u) || (u.bio || '').slice(0, 80);
                       return (
-                        <li key={u.uid} className="min-w-0">
-                          <button type="button" onClick={() => onOpenProfile(u.uid)} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white text-left">
+                        <li key={u.uid} className="min-w-0 border-b border-stone-200/70">
+                          <button type="button" onClick={() => onOpenProfile(u.uid)} className="w-full flex items-center gap-4 py-3 text-left">
                             {u.avatarUrl
                               ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
-                              : <span className="w-10 h-10 rounded-full bg-stone-900/[0.045] flex items-center justify-center font-semibold text-stone-900 shrink-0" aria-hidden="true">{(u.username || '?').charAt(0).toUpperCase()}</span>}
+                              : <span className="w-10 h-10 rounded-full bg-[#f3efe7] flex items-center justify-center font-display text-lg text-stone-700 shrink-0" aria-hidden="true">{(u.username || '?').charAt(0).toUpperCase()}</span>}
                             <span className="min-w-0">
-                              <span className="block font-semibold text-stone-900 truncate">{u.username}</span>
+                              <span className="block font-medium text-stone-900 truncate">{u.username}</span>
                               {line && <span className="block text-xs text-stone-500 truncate">{line}</span>}
                             </span>
                           </button>

@@ -42,41 +42,41 @@ const GuardianCare: React.FC<{ uids: string[]; me: string; onToast?: (m: string)
   };
 
   return (
-    <section aria-labelledby="in-your-care" className="my-2 rounded-xl bg-[#fbf7ef] border border-[#e8dfcd] p-3">
-      <h3 id="in-your-care" className="font-display text-[17px] text-text-main flex items-center gap-2"><Glyph name="stamp" size={20} className="text-theme-accent" />Explorers in your care</h3>
-      <ul className="mt-2 flex flex-col gap-3" role="list">
+    <section aria-labelledby="in-your-care" className="my-2 mx-3 py-4 border-y border-stone-200/80">
+      <h3 id="in-your-care" className="ng-subtitle text-[18px] flex items-center gap-3"><Glyph name="stamp" size={20} className="text-stone-500" />Explorers in your care</h3>
+      <ul className="mt-2 flex flex-col" role="list">
         {children.map(c => (
-          <li key={c.uid} className="bg-white/70 rounded-lg border border-[#ece4d4] p-3">
+          <li key={c.uid} className="py-3 border-b border-stone-200/70 last:border-b-0">
             <div className="flex items-center gap-3">
               {c.avatarUrl
                 ? <img src={c.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                : <span className="w-10 h-10 rounded-full bg-stone-200 flex items-center justify-center font-display text-stone-700" aria-hidden="true">{c.username.slice(0, 1).toUpperCase()}</span>}
+                : <span className="w-10 h-10 rounded-full bg-[#f3efe7] flex items-center justify-center font-display text-stone-700" aria-hidden="true">{c.username.slice(0, 1).toUpperCase()}</span>}
               <div className="min-w-0 flex-1">
-                <p className="font-semibold text-stone-900 truncate">{c.username}</p>
-                <p className="text-xs text-stone-600">{c.deletion ? 'Account closed, being deleted' : c.status === 'approved' ? 'Teen mode, with your OK' : 'Private field page, consent withdrawn'}</p>
+                <p className="font-medium text-stone-900 truncate">{c.username}</p>
+                <p className="ng-caption">{c.deletion ? 'Account closed, being deleted' : c.status === 'approved' ? 'Teen mode, with your OK' : 'Private field page, consent withdrawn'}</p>
               </div>
             </div>
             {!c.deletion && (confirm?.uid === c.uid ? (
               <div className="mt-3 text-sm text-stone-700">
-                <p className="leading-relaxed">{confirm.kind === 'withdraw'
+                <p className="leading-[1.6]">{confirm.kind === 'withdraw'
                   ? `${c.username}'s field page goes back to private: nothing they've shared stays in the feed, and they can't share or write letters. Everything they've recorded stays theirs.`
                   : `This closes ${c.username}'s account now and deletes it, with every sighting, photo and letter. It can't be undone.`}</p>
                 {error && <p role="alert" className="mt-2 text-red-800">{error}</p>}
-                <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={act} disabled={busy} className={`flex-1 min-h-[44px] rounded-xl text-white text-sm font-semibold disabled:opacity-60 ${confirm.kind === 'delete' ? 'bg-red-800' : 'bg-stone-900'}`}>{busy ? 'One moment…' : confirm.kind === 'withdraw' ? 'Withdraw consent' : 'Delete their account'}</button>
-                  <button type="button" onClick={() => { setConfirm(null); setError(''); }} className="min-h-[44px] px-4 rounded-xl border border-stone-300 bg-white text-sm font-semibold text-stone-800">Keep as is</button>
+                <div className="mt-3 flex gap-3">
+                  <button type="button" onClick={act} disabled={busy} className={`flex-1 min-h-[44px] rounded-full text-white text-sm font-semibold disabled:opacity-60 ${confirm.kind === 'delete' ? 'bg-red-800' : 'bg-stone-900'}`}>{busy ? 'One moment…' : confirm.kind === 'withdraw' ? 'Withdraw consent' : 'Delete their account'}</button>
+                  <button type="button" onClick={() => { setConfirm(null); setError(''); }} className="ng-button-quiet min-h-[44px] px-4 text-sm">Keep as is</button>
                 </div>
               </div>
             ) : (
-              <div className="mt-3 flex gap-2">
-                {c.status === 'approved' && <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'withdraw' })} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold">Withdraw consent</button>}
-                <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'delete' })} className="flex-1 min-h-[44px] rounded-xl border border-red-200 bg-white text-red-800 text-sm font-semibold">Delete account</button>
+              <div className="mt-3 flex gap-3">
+                {c.status === 'approved' && <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'withdraw' })} className="ng-button-quiet flex-1 min-h-[44px] text-sm">Withdraw consent</button>}
+                <button type="button" onClick={() => setConfirm({ uid: c.uid, kind: 'delete' })} className="ng-button-quiet flex-1 min-h-[44px] text-sm !text-red-800 !border-red-200">Delete account</button>
               </div>
             ))}
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-xs text-stone-600 leading-relaxed">Teen mode keeps ads, tracking and their places off, and letters only between explorers who follow each other. It ends on its own when they turn 18.</p>
+      <p className="mt-3 ng-caption">Teen mode keeps ads, tracking and their places off, and letters only between explorers who follow each other. It ends on its own when they turn 18.</p>
     </section>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { PressingLoader } from './SkeletonPost';
 import { Snapshot } from '../types.ts';
 import { GenAiService } from '../services/genAiService.ts';
 import { RateLimitService } from '../services/rateLimitService.ts';
@@ -368,17 +369,17 @@ const UploadModal: React.FC<UploadModalProps> = ({
   return (
     <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 animate-fade-in">
       <div
-        className="absolute inset-0 bg-stone-900/80 backdrop-blur-md"
+        className="absolute inset-0 ng-scrim"
         onClick={isProcessing ? undefined : onClose}
         aria-hidden="true"
       />
 
-      <section role="dialog" aria-modal="true" aria-labelledby="upload-title" className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-slide-up">
+      <section role="dialog" aria-modal="true" aria-labelledby="upload-title" className="relative w-full max-w-lg bg-day-bg rounded-2xl shadow-[0_24px_60px_-24px_rgba(28,25,23,0.5)] overflow-hidden flex flex-col max-h-[90vh] ng-rise">
         {/* Header */}
-        <div className="p-6 sm:p-8 pb-4 border-b border-stone-100 flex items-start justify-between gap-4 shrink-0">
+        <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-2 flex items-start justify-between gap-4 shrink-0">
           <div className="min-w-0 flex-1">
-            <h2 id="upload-title" className="text-2xl font-display text-stone-900 leading-tight">Bring in from your camera roll</h2>
-            <p className="text-sm text-stone-500 mt-1 leading-snug">
+            <h2 id="upload-title" className="ng-title">Bring in from your camera roll</h2>
+            <p className="ng-small mt-2">
               Photos, or sound and video clips up to 30 seconds. Up to 5 at a time.
             </p>
           </div>
@@ -386,19 +387,19 @@ const UploadModal: React.FC<UploadModalProps> = ({
             disabled={isProcessing}
             onClick={onClose}
             aria-label="Close"
-            className="w-10 h-10 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center hover:bg-stone-200 transition-colors disabled:opacity-50 shrink-0"
+            className="ng-icon-button -mr-2 -mt-1 text-stone-500"
           >
-            <span className="material-symbols-outlined" aria-hidden="true">close</span>
+            <Glyph name="close" size={24} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 sm:p-8 overflow-y-auto space-y-6 flex-1 no-scrollbar">
+        <div className="px-6 sm:px-8 py-6 overflow-y-auto space-y-6 flex-1 no-scrollbar">
           {items.length < 5 && !isProcessing && (
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              className="border-2 border-dashed border-stone-200 hover:border-theme-accent bg-stone-50/50 hover:bg-stone-900/[0.03] rounded-3xl text-center transition-all group"
+              className="border border-dashed border-stone-300 hover:border-stone-500 rounded-xl text-center transition-colors group"
             >
               <input
                 ref={fileInputRef}
@@ -410,11 +411,11 @@ const UploadModal: React.FC<UploadModalProps> = ({
                 onChange={handleFileChange}
               />
               <label htmlFor="upload-files" className="block p-8 cursor-pointer">
-                <span className="w-14 h-14 rounded-2xl bg-white shadow-sm border border-stone-100 text-theme-accent flex items-center justify-center mx-auto mb-3" aria-hidden="true">
-                  <span className="material-symbols-outlined text-3xl">photo_library</span>
+                <span className="flex items-center justify-center mx-auto mb-4 text-stone-500" aria-hidden="true">
+                  <Glyph name="gallery" size={32} strokeWidth={1.3} />
                 </span>
-                <span className="block font-semibold text-stone-900 text-base mb-1">Choose photos, videos or sounds</span>
-                <span className="block text-sm text-stone-500 leading-relaxed max-w-xs mx-auto">
+                <span className="block font-display italic text-[20px] text-stone-900 mb-1">Choose photos, videos or sounds</span>
+                <span className="block ng-small max-w-xs mx-auto">
                   Or drag them here. Your guide will name what it can.
                 </span>
               </label>
@@ -422,11 +423,11 @@ const UploadModal: React.FC<UploadModalProps> = ({
           )}
 
           {uploadError && (
-            <div role="alert" className="p-4 rounded-2xl bg-stone-50 border border-stone-200 text-stone-800 text-sm flex items-start gap-3 animate-fade-in">
-              <span className="material-symbols-outlined text-red-700 shrink-0 text-xl" aria-hidden="true">error</span>
+            <div role="alert" className="pl-4 py-1 border-l-2 border-red-700 text-stone-800 text-sm flex items-start gap-3 animate-fade-in">
+              <Glyph name="alert" size={20} className="text-red-700 shrink-0" />
               <p className="flex-1">{uploadError}</p>
               <button onClick={() => setUploadError(null)} aria-label="Dismiss" className="text-stone-500 hover:text-stone-800 -m-1 p-1">
-                <span className="material-symbols-outlined text-base" aria-hidden="true">close</span>
+                <Glyph name="close" size={20} />
               </button>
             </div>
           )}
@@ -434,35 +435,35 @@ const UploadModal: React.FC<UploadModalProps> = ({
           {items.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-semibold text-stone-700">Your files <span className="font-normal text-stone-500">({items.length} of 5)</span></span>
+                <span className="ng-label">Your files <span className="font-normal text-stone-500">({items.length} of 5)</span></span>
                 {items.length > 1 && (
                   <label className="flex items-center gap-2 cursor-pointer text-stone-700">
                     <input
                       type="checkbox"
                       checked={shouldStitch}
                       onChange={(e) => setShouldStitch(e.target.checked)}
-                      className="rounded accent-[rgb(var(--theme-accent-rgb))] w-4 h-4"
+                      className="rounded accent-stone-900 w-4 h-4"
                     />
                     <span>Combine into one sighting</span>
                   </label>
                 )}
               </div>
 
-              <ul className="space-y-2 max-h-56 overflow-y-auto pr-1 no-scrollbar">
+              <ul className="max-h-56 overflow-y-auto pr-1 no-scrollbar border-t border-stone-200/80">
                 {items.map((item) => (
                   <li
                     key={item.id}
-                    className="p-3 bg-stone-50 border border-stone-100 rounded-2xl flex items-center justify-between gap-3"
+                    className="py-3 border-b border-stone-200/80 flex items-center justify-between gap-4"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-12 h-12 rounded-xl bg-stone-200 overflow-hidden relative shrink-0 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-md bg-[#f3efe7] overflow-hidden relative shrink-0 flex items-center justify-center">
                         {item.type === 'image' && (
                           <img src={item.previewUrl} alt="" className="w-full h-full object-cover" />
                         )}
                         {item.type === 'video' && (
                           <>
                             <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
-                            <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow" aria-hidden="true"><span className="material-symbols-outlined text-xl">play_arrow</span></span>
+                            <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow" aria-hidden="true"><Glyph name="play" size={20} /></span>
                           </>
                         )}
                         {item.type === 'audio' && (
@@ -471,8 +472,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
                       </div>
 
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-stone-800 truncate">{item.file.name}</p>
-                        <p className="text-xs text-stone-500 truncate">
+                        <p className="text-sm font-medium text-stone-800 truncate">{item.file.name}</p>
+                        <p className="ng-caption truncate">
                           {takenLine(item) || (item.type === 'image' ? 'Photo' : item.type === 'video' ? 'Video' : 'Sound')}
                           {item.duration !== undefined && ` · ${item.duration} s`}
                         </p>
@@ -483,31 +484,31 @@ const UploadModal: React.FC<UploadModalProps> = ({
                       disabled={isProcessing}
                       onClick={() => removeItem(item.id)}
                       aria-label={`Remove ${item.file.name}`}
-                      className="w-9 h-9 rounded-full text-stone-500 hover:text-red-700 hover:bg-stone-100 flex items-center justify-center transition-colors shrink-0 disabled:opacity-50"
+                      className="ng-icon-button text-stone-500 hover:text-red-700"
                     >
-                      <span className="material-symbols-outlined text-base" aria-hidden="true">delete</span>
+                      <Glyph name="trash" size={20} />
                     </button>
                   </li>
                 ))}
               </ul>
-              {items.some(i => i.coarse) && <p className="text-xs text-stone-500">Only the town is used. Exact GPS from your photos is never shared.</p>}
+              {items.some(i => i.coarse) && <p className="ng-caption">Only the town is used. Exact GPS from your photos is never shared.</p>}
             </div>
           )}
 
           {isProcessing && (
-            <div className="p-6 bg-stone-900/[0.03] border border-stone-200 rounded-3xl text-center space-y-3" role="status" aria-live="polite">
-              <span className="text-theme-accent inline-flex motion-safe:animate-pulse" aria-hidden="true"><Glyph name="guide" size={32} /></span>
-              <p className="text-sm text-stone-800">{processingStatus}</p>
+            <div className="py-6 text-center space-y-3" role="status" aria-live="polite">
+              <PressingLoader size={32} />
+              <p className="font-display italic text-base text-stone-700">{processingStatus}</p>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-stone-100 bg-stone-50/50 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-6 sm:px-8 py-5 border-t border-stone-200/80 flex items-center justify-between gap-4 shrink-0">
           <button
             disabled={isProcessing}
             onClick={onClose}
-            className="px-5 py-3 rounded-full text-sm font-semibold text-stone-600 hover:text-stone-900 transition-colors disabled:opacity-50"
+            className="ng-link-quiet min-h-[44px] disabled:opacity-50"
           >
             Cancel
           </button>
@@ -515,9 +516,9 @@ const UploadModal: React.FC<UploadModalProps> = ({
           <button
             disabled={items.length === 0 || isProcessing}
             onClick={handleProcess}
-            className="flex-1 py-4 px-6 rounded-full bg-theme-accent text-white font-bold text-sm shadow-lg hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+            className="ng-button-primary flex-1 sm:flex-none"
           >
-            <Glyph name="guide" size={18} />
+            <Glyph name="guide" size={20} className="ng-arrow" />
             <span>{items.length > 1 ? `Show your guide (${items.length})` : 'Show your guide'}</span>
           </button>
         </div>
