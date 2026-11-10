@@ -12,7 +12,39 @@ import { coarsenCoordinate } from '../utils';
 import { GenAiService } from '../services/genAiService.ts';
 import { RateLimitService } from '../services/rateLimitService.ts';
 import OnboardingTour from './OnboardingTour.tsx';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import Glyph from './Glyph';
+import { PlateStamp } from './SpecimenPlate';
+import { isOnList } from '../services/lifeList';
+import { answersChallenge } from '../services/challenge';
+
+/** The guide's one motif: a dot breathing inside a ring. Still when the explorer prefers reduced motion. */
+const BREATHE_CSS = `@keyframes ng-guide-breathe{0%,100%{transform:scale(.86);opacity:.65}50%{transform:scale(1.08);opacity:1}}.ng-breathe{animation:ng-guide-breathe 2.6s ease-in-out infinite;transform-origin:center}@media (prefers-reduced-motion: reduce){.ng-breathe{animation:none}}
+@keyframes ng-pin-in{from{opacity:0;transform:translateY(18px) rotate(0deg) scale(.9)}to{opacity:1}}.ng-pin{animation:ng-pin-in .6s cubic-bezier(.2,.8,.2,1) both}@media (prefers-reduced-motion: reduce){.ng-pin{animation:none}}`;
+const BreathingGuide: React.FC<{ size?: number; still?: boolean; className?: string }> = ({ size = 14, still, className = '' }) => (
+  <span className={`inline-flex ${still ? '' : 'ng-breathe'} ${className}`} aria-hidden="true"><Glyph name="guide" size={size} /></span>
+);
+
+/** Placeholder labels a capture carries before (or without) an identification. */
+const UNNAMED = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting|manual observation|audio recording|video recording|uploaded discovery)/i;
+const PLACEHOLDER_TEXT = /^(captured (photo|audio|video)|captured \w+ snippet|uploaded media|manual observation captured|visual record for field study|processing)/i;
+/** One sentence, the way a specimen tag carries one line. */
+const oneSentence = (t?: string) => {
+  const s = (t || '').trim();
+  if (!s || PLACEHOLDER_TEXT.test(s)) return '';
+  const m = s.match(/^.*?[.!?](\s|$)/);
+  const first = (m ? m[0] : s).trim();
+  return first.length > 180 ? `${first.slice(0, 177).trimEnd()}…` : first;
+};
+
+interface SightingCard {
+  id: string;
+  name: string;
+  scientific?: string;
+  line: string;
+  firstForList: boolean;
+  challenge: string | null;
+}
 
 interface LiveLensProps {
   onCapture: (snap: Snapshot) => void;
@@ -28,11 +60,60 @@ interface LiveLensProps {
   pendingSnapshotIdRef: React.MutableRefObject<string | null>;
   initialAudioMode?: AudioMode;
   selectedMode?: 'observation' | 'conversation';
+  /** Species already on the explorer's life list (common names). Fetched here when not given. */
+  knownSpecies?: string[];
 }
 
 type AgentState = 'BOOTING' | 'IDLE' | 'HEARING_USER' | 'THINKING' | 'SPEAKING' | 'DISCONNECTED' | 'RECONNECTING' | 'FINALIZING';
 
-const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, config, userMode, audioContext, isFirstTime, isFinalizing, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef, initialAudioMode = 'voice', selectedMode = 'conversation' }) => {
+/** The sighting as a specimen tag: common name, scientific name, one line, and any stamp it earned. */
+export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; onClose: () => void }> = ({ card, reduceMotion, onClose }) => (
+  <motion.div
+      key={card.id}
+      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 48 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 32 }}
+      transition={{ type: 'spring', damping: 26, stiffness: 260 }}
+      className="absolute bottom-40 inset-x-0 mx-auto w-[calc(100%-2.5rem)] max-w-sm z-[85] pointer-events-auto"
+  >
+      <div className="relative bg-[#fbf7ef] text-[#2f2a22] rounded-[3px] pl-9 pr-12 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.25),0_24px_50px_-18px_rgba(0,0,0,0.75)]">
+          {/* The tag's eyelet and a fine double rule, like a museum label */}
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-[#b9a98a] bg-stone-900/80" aria-hidden="true" />
+          <span className="absolute inset-1.5 border border-[#d8ccb6] rounded-[2px] pointer-events-none" aria-hidden="true" />
+          <div role="status" aria-live="polite" aria-atomic="true">
+              <p className="font-display italic text-[1.6rem] leading-tight">{card.name}</p>
+              {card.scientific && <p className="font-display italic text-sm text-[#8a7a60] mt-0.5">{card.scientific}</p>}
+              {card.line && <p className="font-display text-[15px] leading-snug text-[#4a4134] mt-2">{card.line}</p>}
+              {card.challenge && (
+                  <p className="mt-2.5 flex items-center gap-1.5 text-sm text-[rgb(var(--theme-accent-rgb))]">
+                      <Glyph name="stamp" size={16} />Answers {card.challenge}'s challenge
+                  </p>
+              )}
+              {card.firstForList && <span className="sr-only">First for your list.</span>}
+          </div>
+          <button
+              onClick={onClose}
+              aria-label="Put this sighting away"
+              className="absolute top-1.5 right-1.5 w-11 h-11 rounded-full text-[#8a7a60] hover:text-[#2f2a22] hover:bg-black/5 flex items-center justify-center transition-colors"
+          >
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
+          </button>
+          {card.firstForList && (
+              <motion.div
+                  className="absolute -top-[3.75rem] right-12"
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 1.4, rotate: 0 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 8 }}
+                  transition={{ delay: reduceMotion ? 0 : 0.35, type: 'spring', damping: 14, stiffness: 220 }}
+                  aria-hidden="true"
+              >
+                  <PlateStamp>First for your list</PlateStamp>
+              </motion.div>
+          )}
+      </div>
+  </motion.div>
+);
+
+const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, config, userMode, audioContext, isFirstTime, isFinalizing, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef, initialAudioMode = 'voice', selectedMode = 'conversation', knownSpecies }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -83,15 +164,25 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const isProcessingCapture = pendingAnalyses > 0;
   const [showTranscript, setShowTranscript] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState<{type: 'success' | 'error' | 'processing', text: string} | null>(null);
-  const [latestSighting, setLatestSighting] = useState<{labels: string[], behavior: string, aiInsight: string} | null>(null);
+  // The sighting card rests until the next capture or until the explorer puts it away (no countdown)
+  const [latestSighting, setLatestSighting] = useState<SightingCard | null>(null);
+  const reduceMotion = useReducedMotion();
 
+  // Life-list awareness: which species the explorer already has, so a first can be marked as one
+  const [lifeNames, setLifeNames] = useState<string[] | null>(knownSpecies ?? null);
+  const sessionNamesRef = useRef<string[]>([]);
   useEffect(() => {
-    if (!latestSighting) return;
-    const timer = setTimeout(() => {
-      setLatestSighting(null);
-    }, 15000);
-    return () => clearTimeout(timer);
-  }, [latestSighting]);
+    if (knownSpecies) { setLifeNames(knownSpecies); return; }
+    if (userMode.isAnonymous || FirebaseService.isCurrentUserAnonymous()) return;
+    let alive = true;
+    FirebaseService.getMySpeciesSet().then(set => { if (alive) setLifeNames(Array.from(set)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [knownSpecies, userMode.isAnonymous, userMode.userId]);
+
+  // What this outing gathered, for the closing beat: thumbnails, names and the place
+  const sessionCapturesRef = useRef<Map<string, { thumb?: string; name?: string; type: string }>>(new Map());
+  const placeRef = useRef<string>('');
+  const [closing, setClosing] = useState<{ items: { thumb?: string; name?: string; type: string }[]; minutes: number; place: string } | null>(null);
 
   const showStatus = useCallback((type: 'success' | 'error' | 'processing', text: string) => {
       setAnalysisStatus({ type, text });
@@ -105,6 +196,66 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       }
   }, []);
   const [sessionError, setSessionError] = useState<{ title: string; message: string } | null>(null);
+
+  // Handlers below are memoised with narrow deps, so they read live values through refs
+  const onCaptureRef = useRef(onCapture);
+  onCaptureRef.current = onCapture;
+  const lifeNamesRef = useRef(lifeNames);
+  lifeNamesRef.current = lifeNames;
+  const audioModeRef = useRef(audioMode);
+  audioModeRef.current = audioMode;
+  const audioContextRef = useRef(audioContext);
+  audioContextRef.current = audioContext;
+
+  /** Every capture goes through here: the last card steps aside and the outing remembers the capture. */
+  const recordCapture = useCallback((snap: Snapshot) => {
+      setLatestSighting(null);
+      sessionCapturesRef.current.set(snap.id, { thumb: snap.url || snap.associatedImages?.[0]?.url, type: snap.type, name: UNNAMED.test(snap.labels?.[0] || '') ? undefined : snap.labels?.[0] });
+      onCaptureRef.current(snap);
+  }, []);
+
+  /** A soft two-note chime for a first on the list. Quiet, short, and never when sound is off. */
+  const playChime = useCallback(() => {
+      const ctx = audioContextRef.current;
+      if (!ctx || audioModeRef.current === 'silent' || ctx.state !== 'running') return;
+      try {
+          const t = ctx.currentTime;
+          [[784, 0], [1175, 0.12]].forEach(([f, d]) => {
+              const o = ctx.createOscillator(); const g = ctx.createGain();
+              o.type = 'sine'; o.frequency.value = f;
+              g.gain.setValueAtTime(0, t + d);
+              g.gain.linearRampToValueAtTime(0.05, t + d + 0.02);
+              g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.45);
+              o.connect(g); g.connect(ctx.destination);
+              o.start(t + d); o.stop(t + d + 0.5);
+          });
+      } catch { /* a missing chime never matters */ }
+  }, []);
+
+  /** Present an identified sighting as a specimen tag; returns the toast line in the guide's voice. */
+  const presentSighting = useCallback((snapId: string, s: { labels?: string[]; behavior?: string; aiInsight?: string; aiIdentifications?: any[] | null; aiFlags?: any; location?: string }): string => {
+      if (s.location) placeRef.current = s.location;
+      const name = (s.labels?.[0] || '').trim();
+      if (!name || UNNAMED.test(name)) return 'Added to today\'s page. You can name it in review.';
+      const entry = sessionCapturesRef.current.get(snapId);
+      if (entry) entry.name = name;
+      const sciCandidate = [s.labels?.[1], s.aiIdentifications?.[0]?.scientificName].find(x => !!x && /^[A-Z][a-z]+ [a-z]+/.test(x));
+      const known = lifeNamesRef.current;
+      const seen = [...(known || []), ...sessionNamesRef.current].map(n => ({ name: n }));
+      const firstForList = !!known && !isOnList(seen, name);
+      if (!isOnList(sessionNamesRef.current.map(n => ({ name: n })), name)) sessionNamesRef.current.push(name);
+      const theme = getDailyThemeConst();
+      const challenge = answersChallenge(theme.id, s) ? theme.naturalist : null;
+      setLatestSighting({
+          id: snapId, name, scientific: sciCandidate && sciCandidate.toLowerCase() !== name.toLowerCase() ? sciCandidate : undefined,
+          line: oneSentence(s.behavior) || oneSentence(s.aiInsight), firstForList, challenge,
+      });
+      if (firstForList) {
+          try { navigator.vibrate?.([12, 40, 12]); } catch { /* unsupported */ }
+          playChime();
+      }
+      return `${name} added to today's page.`;
+  }, [playChime]);
 
   const nextStartTimeRef = useRef<number>(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -234,7 +385,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           
           retakesCountRef.current += 1;
 
-          onCapture({
+          recordCapture({
                id: snapId,
                url: imgUrl || '', // Might be empty if audio only
                blob: imgBlob,
@@ -286,7 +437,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   aiError: null
               });
               setPendingAnalyses(n => Math.max(0, n - 1));
-              showStatus('success', 'Identified. Added to this session.');
+              showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
           }).catch(err => {
               console.error("Background analysis failed", err);
               updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
@@ -403,7 +554,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   
                   retakesCountRef.current += 1;
                   
-                  onCapture({
+                  recordCapture({
                       id: snapId,
                       url: objUrl,
                       blob: compressedBlob,
@@ -443,7 +594,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           aiError: null
                       });
                       setPendingAnalyses(n => Math.max(0, n - 1));
-                      showStatus('success', 'Identified. Added to this session.');
+                      showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
                   }).catch(err => {
                       console.error("Manual capture analysis failed", err);
                       updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
@@ -503,7 +654,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       if (isImage) {
           retakesCountRef.current += 1;
-          onCapture({
+          recordCapture({
               id: snapId,
               url: URL.createObjectURL(file),
               blob: file,
@@ -529,7 +680,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           reader.readAsDataURL(file);
       } else {
           retakesCountRef.current += 1;
-          onCapture({
+          recordCapture({
               id: snapId,
               videoUrl: isVideo ? URL.createObjectURL(file) : undefined,
               videoBlob: isVideo ? file : undefined,
@@ -570,7 +721,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           aiError: null
           });
           setPendingAnalyses(n => Math.max(0, n - 1));
-          showStatus('success', 'Identified. Added to this session.');
+          showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
       }).catch(err => {
           console.error("Upload analysis failed", err);
           updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
@@ -593,34 +744,22 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }
   };
 
-  const getPebbleStyle = () => {
-    if (agentState === 'FINALIZING') return { color: "bg-theme-accent shadow-lg animate-pulse", icon: "save" };
-    if (agentState === 'RECONNECTING') return { color: "bg-theme-accent animate-pulse", icon: "sync" };
-    if (isCameraActive) {
-        switch (agentState) {
-            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-vivid/30", icon: "hourglass_empty" };
-            case 'IDLE': return { color: "bg-theme-accent/40 animate-pulse-gentle", icon: "visibility" };
-            case 'HEARING_USER': return { color: "bg-white text-theme-vivid scale-110", icon: isMuted ? "mic_off" : "mic" };
-            case 'THINKING': return { color: "bg-theme-accent animate-pulse", icon: "smart_toy" };
-            case 'SPEAKING': return { color: "bg-theme-accent/80", icon: "record_voice_over" };
-            case 'DISCONNECTED': return { color: "bg-red-500", icon: "wifi_off" };
-            default: return { color: "bg-theme-accent/20", icon: "lens" };
-        }
-    } else {
-        switch (agentState) {
-            case 'BOOTING': return { color: "bg-theme-accent/40 border border-theme-vivid/30", icon: "hourglass_empty" };
-            case 'IDLE': return { color: isMuted ? "bg-white/10" : "bg-theme-accent/40", icon: isMuted ? "mic_off" : "mic_none" };
-            case 'HEARING_USER': return { color: "bg-white text-theme-vivid scale-110", icon: isMuted ? "mic_off" : "mic" };
-            case 'THINKING': return { color: "bg-theme-accent animate-pulse", icon: "psychology" };
-            case 'SPEAKING': return { color: "bg-theme-accent/80", icon: "volume_up" };
-            case 'DISCONNECTED': return { color: "bg-red-500", icon: "wifi_off" };
-            default: return { color: "bg-theme-accent/20", icon: "mic_off" };
-        }
-    }
+  /** The status pill's mark: the guide's breathing dot while it waits or works, a plain icon otherwise. */
+  const getPebbleStyle = (): { icon: string; guide?: 'breathe' | 'still' } => {
+    if (agentState === 'FINALIZING' || agentState === 'RECONNECTING' || agentState === 'BOOTING' || agentState === 'THINKING') return { icon: 'guide', guide: 'breathe' };
+    if (agentState === 'DISCONNECTED') return { icon: 'guide', guide: 'still' };
+    if (agentState === 'HEARING_USER') return { icon: isMuted ? 'mic_off' : 'mic' };
+    if (agentState === 'SPEAKING') return { icon: isCameraActive ? 'record_voice_over' : 'volume_up' };
+    if (isCameraActive) return { icon: 'visibility' };
+    return { icon: isMuted ? 'mic_off' : 'mic_none' };
   };
 
   const finalizeSession = useCallback(async (summary?: string) => {
     setAgentState('FINALIZING');
+    const startedAt = Date.now();
+    // The closing beat: what the outing gathered, pinned like specimens, while the session wraps up
+    const items = Array.from(sessionCapturesRef.current.values());
+    setClosing({ items, minutes: Math.max(1, Math.round((startedAt - sessionStartMsRef.current) / 60_000)), place: placeRef.current });
     const finalSummary = summary || "Exploration concluded.";
     if (naturalistId) {
       try {
@@ -629,7 +768,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         console.warn("Failed to update naturalist memory, proceeding to end session anyway:", e);
       }
     }
-    setTimeout(() => onEndSession(finalSummary), 1200);
+    // Long enough to see the page close (about 2.5 s with captures), never longer than that
+    const beat = items.length ? 2500 : 1200;
+    setTimeout(() => onEndSession(finalSummary), Math.max(300, beat - (Date.now() - startedAt)));
   }, [naturalistId, onEndSession]);
 
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
@@ -864,7 +1005,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
            const snapId = Date.now().toString();
            const liveConfidence = ['high', 'medium', 'low'].includes(args.confidence) ? args.confidence : 'low';
 
-           onCapture({ 
+           recordCapture({ 
                id: snapId, 
                url: objUrl, 
                blob: compressedBlob, 
@@ -909,12 +1050,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                updateSnapshot(snapId, { isAnalyzing: false, needsExpertReview: true, aiProposedLabels: resolvedLabels });
            }).finally(() => setPendingAnalyses(n => Math.max(0, n - 1)));
 
-           // Push sighting overlay on screen
-           setLatestSighting({
-               labels: resolvedLabels,
-               behavior: resolvedBehavior,
-               aiInsight: resolvedAiInsight
-           });
+           // The guide's call becomes a specimen tag straight away
+           presentSighting(snapId, { labels: resolvedLabels, behavior: resolvedBehavior, aiInsight: resolvedAiInsight });
         });
         return { result: "ok" };
       }
@@ -1191,6 +1328,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   return (
     <div className="relative h-full w-full bg-black overflow-hidden font-body flex flex-col">
+      <style>{BREATHE_CSS}</style>
       <div className={`absolute inset-0 bg-white z-[100] transition-opacity duration-150 pointer-events-none ${isFlashing ? 'opacity-100' : 'opacity-0'}`} />
 
       <button
@@ -1215,7 +1353,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   ? <p className="text-sm text-white/70">Nothing said yet. Point the camera at something alive.</p>
                   : chatHistory.filter(m => m.role !== 'system' && m.text).map(m => (
                       <p key={m.id} className={`text-sm leading-relaxed ${m.role === 'user' ? 'text-white/70 text-right' : 'text-white'}`}>
-                          <span className="block text-[11px] font-bold uppercase tracking-widest text-white/50 mb-0.5">{m.role === 'user' ? 'You' : 'Guide'}</span>{m.text}
+                          <span className="block text-xs font-semibold text-white/55 mb-0.5">{m.role === 'user' ? 'You' : 'Your guide'}</span>{m.text}
                       </p>
                   ))}
           </div>
@@ -1227,8 +1365,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
       {idleWarning !== null && agentState !== 'FINALIZING' && (
           <div className="absolute inset-x-4 top-1/3 z-[130] mx-auto max-w-xs bg-white rounded-2xl p-5 text-center shadow-2xl" role="alertdialog" aria-labelledby="idle-title">
-              <p id="idle-title" className="font-bold text-stone-900">Still exploring?</p>
-              <p className="text-sm text-stone-600 mt-1">The session ends in {idleWarning}s to save resources.</p>
+              <p id="idle-title" className="font-display text-lg text-stone-900">Still with me?</p>
+              <p className="text-sm text-stone-600 mt-1">I'll rest in {idleWarning}s.</p>
               <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="mt-4 w-full py-3 rounded-xl bg-stone-900 text-white font-bold">Keep going</button>
           </div>
       )}
@@ -1250,11 +1388,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           initSession().then(c => { if (c) cleanupRef.current = c; });
                       }
                   }}
-                  className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${agentState === 'DISCONNECTED' ? 'active:scale-95 cursor-pointer border-red-500/50' : 'cursor-default'} ${agentState === 'THINKING' || agentState === 'RECONNECTING' ? 'animate-pulse' : ''}`}
+                  className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${agentState === 'DISCONNECTED' ? 'active:scale-95 cursor-pointer border-red-400/50' : 'cursor-default'}`}
               >
-                  <span className={`material-symbols-outlined text-[12px] text-white/90 ${(agentState === 'RECONNECTING' || agentState === 'BOOTING') ? 'animate-spin' : ''} ${agentState === 'DISCONNECTED' ? 'text-red-500' : ''}`}>
-                      {getPebbleStyle().icon === 'sync' ? 'autorenew' : getPebbleStyle().icon}
-                  </span>
+                  {getPebbleStyle().guide
+                      ? <BreathingGuide size={14} still={getPebbleStyle().guide === 'still'} className={agentState === 'DISCONNECTED' ? 'text-red-300' : 'text-white/90'} />
+                      : <span className="material-symbols-outlined text-[14px] text-white/90" aria-hidden="true">{getPebbleStyle().icon}</span>}
                   <span className={`text-xs font-semibold truncate ${agentState === 'DISCONNECTED' ? 'text-red-100' : 'text-white/90'}`}>
                       {getStatusText()}
                   </span>
@@ -1262,12 +1400,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           )}
 
           {analysisStatus && (
-              <div className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${analysisStatus.type === 'processing' ? 'animate-pulse' : ''} ${analysisStatus.type === 'error' ? 'border-red-500/50' : analysisStatus.type === 'success' ? 'border-green-500/50' : ''}`}>
-                  <span className={`material-symbols-outlined text-[12px] ${analysisStatus.type === 'processing' ? 'animate-spin text-white/90' : analysisStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                      {analysisStatus.type === 'processing' ? 'autorenew' : 
-                       analysisStatus.type === 'success' ? 'check_circle' : 'error'}
-                  </span>
-                  <span role="status" className={`text-xs font-semibold ${analysisStatus.type === 'success' ? 'text-green-100' : analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
+              <div className={`bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border shadow-xl flex items-center gap-2 transition-all duration-300 animate-in fade-in slide-in-from-top-4 ${analysisStatus.type === 'error' ? 'border-red-400/50' : analysisStatus.type === 'success' ? 'border-theme-vivid/40' : 'border-white/10'}`}>
+                  {analysisStatus.type === 'processing'
+                      ? <BreathingGuide size={14} className="text-white/90" />
+                      : <span className={`material-symbols-outlined text-[14px] ${analysisStatus.type === 'success' ? 'text-theme-vivid' : 'text-red-300'}`} aria-hidden="true">{analysisStatus.type === 'success' ? 'check' : 'error'}</span>}
+                  <span role="status" className={`text-xs font-semibold ${analysisStatus.type === 'error' ? 'text-red-100' : 'text-white/90'}`}>
                       {analysisStatus.text}
                   </span>
               </div>
@@ -1276,7 +1413,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       {sessionError && (
           <div className="absolute inset-0 z-[110] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center pointer-events-auto">
-              <span className="material-symbols-outlined text-theme-vivid text-6xl mb-4" aria-hidden="true">eco</span>
+              <BreathingGuide size={40} still className="text-white/50 mb-5" />
               <h2 className="text-2xl font-display font-semibold text-white mb-4">{sessionError.title}</h2>
               <p className="text-base text-white/85 mb-8 max-w-md leading-relaxed">{sessionError.message}</p>
                <div className="flex gap-4">
@@ -1291,84 +1428,65 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                               if (c) cleanupRef.current = c;
                           });
                       }}
-                      className="px-6 py-3 bg-theme-accent text-white rounded-full font-bold uppercase tracking-widest text-xs active:scale-95 transition-transform"
+                      className="px-6 py-3 bg-theme-accent text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
                   >
-                      Retry
+                      Try again
                   </button>
                   <button 
                       onClick={() => setSessionError(null)}
-                      className="px-6 py-3 bg-white/10 text-white rounded-full font-bold uppercase tracking-widest text-xs active:scale-95 transition-transform"
+                      className="px-6 py-3 bg-white/10 text-white rounded-full font-semibold text-sm active:scale-95 transition-transform"
                   >
-                      Dismiss
+                      Not now
                   </button>
               </div>
           </div>
       )}
 
       {agentState === 'FINALIZING' && (
-          <div className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-20 h-20 rounded-full border-4 border-theme-vivid border-t-transparent animate-spin mb-8"></div>
-              <h2 className="text-3xl font-display font-semibold text-white mb-2">Gathering your sightings…</h2>
+          <div className="absolute inset-0 z-[100] bg-stone-950/95 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center" role="status" aria-live="polite">
+              {closing && closing.items.length > 0 ? (
+                  <>
+                      <div className="relative h-40 w-full max-w-xs mb-8" aria-hidden="true">
+                          {closing.items.slice(-5).map((it, i, arr) => {
+                              const mid = (arr.length - 1) / 2;
+                              const angle = (i - mid) * 9;
+                              const x = (i - mid) * 46;
+                              return (
+                                  <div
+                                      key={i}
+                                      className="ng-pin absolute left-1/2 top-2 w-24 bg-[#fbf7ef] p-1.5 pb-2 rounded-[2px] shadow-[0_6px_18px_-6px_rgba(0,0,0,0.6)]"
+                                      style={{ transform: `translateX(calc(-50% + ${x}px)) translateY(${Math.abs(i - mid) * 6}px) rotate(${angle}deg)`, animationDelay: `${i * 140}ms`, zIndex: 10 - Math.abs(Math.round(i - mid)) }}
+                                  >
+                                      <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#b8892b] shadow" />
+                                      <div className="aspect-square bg-[#efe7d6] overflow-hidden flex items-center justify-center">
+                                          {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" /> : <Glyph name={it.type === 'audio' ? 'sound' : 'fern'} size={26} className="text-[#b9a98a]" />}
+                                      </div>
+                                      {it.name && <p className="mt-1 font-display italic text-[11px] leading-tight text-[#2f2a22] truncate">{it.name}</p>}
+                                  </div>
+                              );
+                          })}
+                      </div>
+                      <h2 className="text-2xl font-display text-white mb-2">Closing the notebook</h2>
+                      <p className="text-sm text-white/75">
+                          {closing.minutes === 1 ? 'A minute' : `${closing.minutes} minutes`} outside{closing.place ? `, near ${closing.place}` : ''} · {closing.items.length} {closing.items.length === 1 ? 'capture' : 'captures'}
+                      </p>
+                  </>
+              ) : (
+                  <>
+                      <BreathingGuide size={36} className="text-white/70 mb-6" />
+                      <h2 className="text-2xl font-display text-white mb-2">Closing the notebook</h2>
+                      {closing && <p className="text-sm text-white/70">{closing.minutes === 1 ? 'A minute' : `${closing.minutes} minutes`} outside{closing.place ? `, near ${closing.place}` : ''}.</p>}
+                  </>
+              )}
           </div>
       )}
 
       {/* Skipped on an explorer's very first look (the guide's own first words introduce it); shown on the next visit */}
       {isFirstTime !== false && <OnboardingTour onComplete={() => setIsTourActive(false)} />}
 
-      {/* Sighting Insight Overlay Text Blob */}
+      {/* The sighting as a specimen tag: rests until the next capture or until put away */}
       <AnimatePresence>
-          {latestSighting && (
-              <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 30 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: 30 }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                  className="absolute bottom-40 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm bg-stone-900/95 backdrop-blur-xl p-6 rounded-[2rem] border border-white/10 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] z-[85] pointer-events-auto flex flex-col gap-3"
-              >
-                  {/* Close Button */}
-                  <button 
-                      onClick={() => setLatestSighting(null)} 
-                      aria-label="Dismiss sighting card"
-                      className="absolute top-3 right-3 w-11 h-11 rounded-full bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center justify-center transition-all duration-300 pointer-events-auto"
-                  >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
-                  </button>
-
-                  {/* Header labels */}
-                  <div className="flex flex-wrap gap-1.5 pr-8">
-                      {latestSighting.labels.map((label, idx) => (
-                          <span key={idx} className="bg-theme-accent/20 border border-theme-vivid/30 text-theme-vivid font-sans px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wider uppercase animate-fade-in">
-                              {label}
-                          </span>
-                      ))}
-                  </div>
-
-                  {/* Behavior text */}
-                  {latestSighting.behavior && (
-                      <p className="text-xs text-white/55 italic leading-snug">
-                          {latestSighting.behavior}
-                      </p>
-                  )}
-
-                  {/* Ecological Insight detail */}
-                  <div className="border-t border-white/15 pt-3">
-                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-theme-vivid mb-1.5">Field note</p>
-                      <p className="text-sm font-medium text-white/90 leading-relaxed max-h-48 overflow-y-auto no-scrollbar">
-                          {latestSighting.aiInsight}
-                      </p>
-                  </div>
-
-                  {/* Auto Dismiss Progress Lifebar */}
-                  <div className="w-full bg-white/10 h-1 rounded-full overflow-hidden mt-1 shrink-0">
-                      <motion.div 
-                          initial={{ width: "100%" }}
-                          animate={{ width: "0%" }}
-                          transition={{ duration: 15, ease: "linear" }}
-                          className="bg-theme-accent h-full w-full"
-                      />
-                  </div>
-              </motion.div>
-          )}
+          {latestSighting && <SightingTag key={latestSighting.id} card={latestSighting} reduceMotion={!!reduceMotion} onClose={() => setLatestSighting(null)} />}
       </AnimatePresence>
 
       <div className="absolute inset-0 overflow-hidden">
@@ -1377,10 +1495,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       </div>
 
       {aiOpticActive && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60] animate-bounce">
-              <div className="bg-theme-accent/90 backdrop-blur-md px-5 py-2 rounded-full border border-theme-vivid/50 shadow-xl flex items-center gap-2">
-                  <span className="material-symbols-outlined text-xs text-white animate-spin">sync</span>
-                  <span className="text-xs font-bold text-white">Guide is adjusting the camera</span>
+          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60]" role="status">
+              <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl flex items-center gap-2">
+                  <BreathingGuide size={14} className="text-white/90" />
+                  <span className="text-xs font-semibold text-white/90">Your guide is adjusting the camera</span>
               </div>
           </div>
       )}
@@ -1394,8 +1512,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               </div>
               <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} aria-label="Zoom out" className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white active:scale-90 active:bg-theme-accent transition-all"><span className="material-symbols-outlined">remove</span></button>
               <div className="text-center">
-                  <span className="text-[11px] font-mono font-black text-white block opacity-60">ZOOM</span>
-                  <span className="text-xs font-mono font-black text-white block">{zoom.toFixed(1)}x</span>
+                  <span className="text-[11px] text-white/60 block">Zoom</span>
+                  <span className="text-xs font-semibold text-white/90 block tabular">{zoom.toFixed(1)}×</span>
               </div>
           </div>
       )}
@@ -1405,12 +1523,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               {hasTorch && (
                 <button onClick={() => applyOpticalSettings({ torch: !torch })} aria-pressed={torch} aria-label="Torch" className={`w-14 h-14 rounded-full backdrop-blur-xl border transition-all flex flex-col items-center justify-center gap-1 shadow-2xl ${torch ? 'bg-theme-accent border-theme-vivid/50 text-white scale-110' : 'bg-black/30 border-white/10 text-white/60'}`}>
                     <span className="material-symbols-outlined text-xl">{torch ? 'flashlight_on' : 'flashlight_off'}</span>
-                    <span className="text-[11px] font-black uppercase tracking-tighter">Torch</span>
+                    <span className="text-[11px] font-semibold">Torch</span>
                 </button>
               )}
               <button onClick={() => switchCameraMode(facingMode === 'environment' ? 'user' : 'environment')} aria-label="Switch camera" className="w-14 h-14 rounded-full backdrop-blur-xl border border-white/20 text-white/60 flex flex-col items-center justify-center gap-1 bg-black/40 transition-all active:scale-95 shadow-2xl">
                   <span className="material-symbols-outlined text-xl">cached</span>
-                  <span className="text-[11px] font-black uppercase tracking-tighter">Flip</span>
+                  <span className="text-[11px] font-semibold">Flip</span>
               </button>
               
 
@@ -1424,7 +1542,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           <div className="mt-8 px-10 text-center">
               {liveCaption && (
                   <div className="animate-fade-in bg-black/40 backdrop-blur-2xl px-8 py-5 rounded-[2.5rem] border border-white/10 max-w-sm mx-auto shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.2em] mb-2 text-theme-vivid">Your guide</p>
+                      <p className="text-xs font-semibold mb-2 text-theme-vivid flex items-center justify-center gap-1.5"><Glyph name="guide" size={13} />Your guide</p>
                       <p className="text-xl font-display font-medium text-white leading-tight">"{liveCaption}"</p>
                   </div>
               )}
@@ -1436,26 +1554,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               <div className="absolute bottom-40 left-1/2 -translate-x-1/2 z-[60] w-full max-w-xs animate-slide-up pointer-events-auto">
                   <div className="bg-theme-accent text-white p-6 rounded-3xl shadow-2xl relative">
                       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-4 h-4 bg-theme-accent rotate-45" />
-                      <h4 className="font-display font-semibold text-lg mb-2">Multi-Modal Mastery</h4>
-                      <p className="text-xs leading-relaxed opacity-90 mb-4">
-                          Capture <b>Video</b> for sight & sound. Tap the shutter during any recording to add <b>Key Frames</b>. The agent will analyze them as one unified observation.
+                      <p className="font-display text-lg leading-snug mb-4">
+                          Add photos or sounds and your guide will look at them together.
                       </p>
-                      <div className="flex justify-end gap-3">
-                          <button 
+                      <div className="flex justify-end">
+                          <button
                             onClick={() => {
                                 setShowModalityTooltip(false);
-                                localStorage.setItem('naturegram_has_seen_modality_tooltip', 'true');
-                            }} 
-                            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-full text-xs font-black uppercase tracking-widest transition-colors"
-                          >
-                            Skip
-                          </button>
-                          <button 
-                            onClick={() => {
-                                setShowModalityTooltip(false);
-                                localStorage.setItem('naturegram_has_seen_modality_tooltip', 'true');
-                            }} 
-                            className="px-4 py-2 bg-white text-theme-vivid rounded-full text-xs font-black uppercase tracking-widest transition-colors"
+                                try { localStorage.setItem('naturegram_has_seen_modality_tooltip', 'true'); } catch { /* private mode */ }
+                            }}
+                            className="px-4 py-2 bg-white text-stone-900 rounded-full text-sm font-semibold transition-colors"
                           >
                             Got it
                           </button>
@@ -1492,11 +1600,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (
-                          <div className="absolute -top-16 left-1/2 -translate-x-1/2 z-[60] w-48 animate-bounce pointer-events-none">
-                              <div className="bg-theme-accent text-white p-3 rounded-2xl shadow-xl relative text-center">
-                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-3 h-3 bg-theme-accent rotate-45" />
-                                  <p className="text-xs font-black uppercase tracking-widest leading-tight">
-                                      Add a photo cover for your audio
+                          <div className="absolute -top-16 left-1/2 -translate-x-1/2 z-[60] w-48 pointer-events-none animate-fade-in">
+                              <div className="bg-[#fbf7ef] text-[#2f2a22] p-3 rounded-2xl shadow-xl relative text-center">
+                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-3 h-3 bg-[#fbf7ef] rotate-45" />
+                                  <p className="text-sm font-semibold leading-tight">
+                                      Pair a photo with that sound
                                   </p>
                               </div>
                           </div>
