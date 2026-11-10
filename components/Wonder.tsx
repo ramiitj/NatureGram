@@ -78,9 +78,30 @@ export const fieldMoment = (d: Date = new Date()): { name: string; hint: string;
 
 /** Capture placeholders ("Captured photo.", "Uploaded media.") aren't observations; don't show them as if they were. */
 export const observedBehaviour = (b?: string | null): string | null => {
-  const t = (b || '').trim();
+  const t = wholeSentences(b);
   if (!t || /^(captured|uploaded|recorded)\s+(photo|media|video|audio|sound)\.?$/i.test(t)) return null;
   return t;
+};
+
+/**
+ * Text that was cut short when it was stored ("…in ritualised sparring. This b...") reads as broken.
+ * Keep only the whole sentences; if there is no whole sentence, end at the last whole word with an ellipsis.
+ */
+export const wholeSentences = (b?: string | null): string => {
+  const t = (b || '').trim();
+  if (!/(\.\.\.|…)$/.test(t)) return t;
+  const body = t.replace(/(\.\.\.|…)$/, '').trimEnd();
+  const lastStop = Math.max(body.lastIndexOf('. '), body.lastIndexOf('! '), body.lastIndexOf('? '));
+  if (lastStop > 20) return body.slice(0, lastStop + 1);
+  const lastSpace = body.lastIndexOf(' ');
+  return (lastSpace > 0 ? body.slice(0, lastSpace) : body).replace(/[,;:]$/, '') + '…';
+};
+
+/** The first sentence only: a brief line for places where there is room for one thought (Moments). */
+export const firstSentence = (b?: string | null): string => {
+  const t = wholeSentences(b);
+  const m = /^(.+?[.!?])(\s|$)/.exec(t);
+  return (m ? m[1] : t).trim();
 };
 
 const normWords = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();

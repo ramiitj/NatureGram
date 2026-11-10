@@ -36,7 +36,7 @@ export function feedFirstPost(id, x) {
   const ms = d.timestamp?.toMillis?.() || (typeof d.timestamp?._seconds === 'number' ? d.timestamp._seconds * 1000 : 0);
   return {
     id, mediaType: d.mediaType || 'image', thumbnailUrl: d.thumbnailUrl || '', thumbSmallUrl: d.thumbSmallUrl || null,
-    videoUrl: d.videoUrl || null, posterUrl: d.posterUrl || null,
+    videoUrl: d.videoUrl || null, posterUrl: d.posterUrl || null, streamUrl: typeof d.streamUrl === 'string' && /^https:\/\//.test(d.streamUrl) ? d.streamUrl : null,
     lqip: cleanLqip(d.lqip), tint: cleanTint(d.tint), w: cleanDim(d.w), h: cleanDim(d.h), soundOnly: d.soundOnly === true,
     title: d.title || null, caption: d.caption || null, userId: d.userId, userName: d.userName || null, userAvatar: d.userAvatar || null,
     likes: d.likes || [], likeCount: d.likeCount || 0, commentCount: d.commentCount || 0, isPublic: true, tags: d.tags || [], labels: d.labels || [],

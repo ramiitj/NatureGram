@@ -139,6 +139,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                                   {item.mediaType === 'video' ? (
                                        <PlayableVideo 
                                            src={item.videoUrl!} 
+                                           streamUrl={(item as any).streamUrl}
+                                           preload="metadata" 
                                            controls 
                                            controlsList={!canDownload ? "nodownload" : undefined}
                                            onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}
@@ -201,6 +203,8 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
                       {currentItem.mediaType === 'video' ? (
                            <PlayableVideo 
                                src={currentItem.videoUrl!} 
+                               streamUrl={(currentItem as any).streamUrl}
+                               preload="metadata" 
                                controls 
                                controlsList={!canDownload ? "nodownload" : undefined}
                                onContextMenu={(e) => { if (!canDownload) e.preventDefault(); }}

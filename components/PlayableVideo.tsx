@@ -13,15 +13,17 @@ const storagePath = (url: string) => {
 };
 
 /**
- * Resolves a playable URL: WebM recordings are transcoded to MP4/H.264 by the
- * `transcodeVideo` Cloud Function (media_variants/{path}); browsers that can't play
- * WebM (iPhone Safari) get the MP4.
+ * Resolves the URL to play. Every clip gets a quick-start streaming copy from the `transcodeMedia`
+ * Cloud Function (media_variants/{path}.mp4Url: 1280 px at most, capped bitrate, moov first), which
+ * starts playing far sooner than a phone's original. Use it whenever it exists; otherwise the original
+ * (WebM originals fall back to it too, for browsers that can't play WebM).
  */
-export const resolvePlayableVideo = async (url?: string | null, kind: 'video' | 'audio' = 'video'): Promise<string | undefined> => {
+export const resolvePlayableVideo = async (url?: string | null, kind: 'video' | 'audio' = 'video', streamUrl?: string | null): Promise<string | undefined> => {
+  if (streamUrl) return streamUrl;
   if (!url) return undefined;
-  if (kind === 'video' ? canPlayWebm : canPlayWebmAudio) return url;
   const path = storagePath(url);
-  if (!path || !/\.webm$/i.test(path)) return url;
+  if (!path) return url;
+  if (kind === 'audio' && (canPlayWebmAudio || !/\.webm$/i.test(path))) return url;
   if (cache.has(url)) return cache.get(url);
   try {
     const snap = await getDoc(doc(db, 'media_variants', path.replace(/\//g, '|')));
@@ -47,15 +49,16 @@ export const resolvePoster = async (url?: string | null): Promise<string | null>
   } catch { return null; }
 };
 
-type Props = React.VideoHTMLAttributes<HTMLVideoElement> & { src?: string };
+type Props = React.VideoHTMLAttributes<HTMLVideoElement> & { src?: string; streamUrl?: string | null };
 
-const PlayableVideo = React.forwardRef<HTMLVideoElement, Props>(({ src, ...rest }, ref) => {
-  const [resolved, setResolved] = useState<string | undefined>(canPlayWebm ? src : undefined);
+const PlayableVideo = React.forwardRef<HTMLVideoElement, Props>(({ src, streamUrl, ...rest }, ref) => {
+  // The streaming copy when the post already carries it; otherwise wait for the lookup rather than start the heavy original
+  const [resolved, setResolved] = useState<string | undefined>(streamUrl || undefined);
   useEffect(() => {
     let active = true;
-    resolvePlayableVideo(src).then(u => { if (active) setResolved(u); });
+    resolvePlayableVideo(src, 'video', streamUrl).then(u => { if (active) setResolved(u); });
     return () => { active = false; };
-  }, [src]);
+  }, [src, streamUrl]);
   return <video ref={ref} src={resolved} {...rest} />;
 });
 PlayableVideo.displayName = 'PlayableVideo';

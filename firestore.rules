@@ -68,10 +68,6 @@ service cloud.firestore {
       );
     }
 
-    // Fields an author may never set/alter directly on a post
-    function protectedPostKeys() {
-      return ['userId', 'likes', 'likeCount', 'commentCount', 'reports', 'reportStatus', 'reportCount', 'timestamp', 'moderation'];
-    }
     // What an author may edit on their own sighting after publishing (words, not media or the guide's words)
     function authorTextKeys() {
       return ['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors',
@@ -428,6 +424,14 @@ service cloud.firestore {
     }
     // Feature flags and experiments: everyone reads (the app decides variants locally); only the admin writes
     // (the admin console goes through the server, which keeps history and an audit trail).
+    // Admin jobs (e.g. the poster backfill): started and watched from the admin console, run by a Cloud Function
+    match /admin_jobs/{jobId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.kind in ['posters']
+        && request.resource.data.status in ['requested', 'stopped'];
+      allow delete: if false;
+    }
     match /config/{configId} {
       allow read: if true;
       allow write: if isAdmin();

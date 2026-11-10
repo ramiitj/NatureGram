@@ -86,6 +86,8 @@ export function fillEmpty(target, media, { thumbs = true } = {}) {
     if (empty(t.thumbSmallUrl)) out.thumbSmallUrl = media.posterSmallUrl || media.posterUrl;
   }
   if (media.posterUrl && empty(t.posterUrl)) out.posterUrl = media.posterUrl;
+  // The quick-start streaming copy (720p-class H.264, moov first) that the app plays instead of the original
+  if (typeof media.streamUrl === 'string' && /^https:\/\//.test(media.streamUrl) && empty(t.streamUrl)) out.streamUrl = media.streamUrl;
   const w = cleanDim(media.w), h = cleanDim(media.h);
   if (w && h && empty(t.w) && empty(t.h)) {
     out.w = w; out.h = h;
@@ -136,7 +138,7 @@ export function needsPoster(p) {
   const isVideo = p.mediaType === 'video' || !!p.videoUrl;
   if (isVideo) {
     if (p.soundOnly === true) return !Array.isArray(p.mediaPaths) && mediaPathsOf(p).length > 0;
-    return !(p.thumbnailUrl || p.posterUrl) || !p.lqip || !p.w || !p.h || !Array.isArray(p.mediaPaths);
+    return !(p.thumbnailUrl || p.posterUrl) || !p.lqip || !p.w || !p.h || !p.streamUrl || !Array.isArray(p.mediaPaths);
   }
   const hasPicture = !!(p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl);
   if (hasPicture && (!p.lqip || !p.w || !p.h)) return true;

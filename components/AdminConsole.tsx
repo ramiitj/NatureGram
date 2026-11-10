@@ -767,25 +767,36 @@ const DataTools: React.FC = () => {
    * blur-up previews, sizes and the sound-only mark on older sightings, a few per call. It resumes
    * from where it stopped (the cursor is kept on this device) and is safe to run again.
    */
-  const POSTER_CURSOR = 'ng_admin_poster_cursor';
+  // The job runs in a Cloud Function triggered by admin_jobs/posters, so the browser never calls a function
+  // directly (that needs public invoker access some organisations forbid). Progress streams back here.
   const posters = async () => {
     setBusy('posters');
-    let after: string | null = null;
-    try { after = localStorage.getItem(POSTER_CURSOR); } catch { /* storage unavailable */ }
-    const t = { processed: 0, updated: 0, posters: 0, soundOnly: 0, failed: 0 };
+    setMsg('Starting… the first batch can take a minute while stills and streaming copies are made.');
     try {
-      const [{ getFunctions, httpsCallable }, { app }] = await Promise.all([import('firebase/functions'), import('../firebaseConfig')]);
-      const call = httpsCallable<{ after: string | null; limit: number }, typeof t & { next: string | null }>(getFunctions(app, 'asia-east1'), 'backfillPosters', { timeout: 540_000 });
-      do {
-        const { data: r } = await call({ after, limit: 8 });
-        (Object.keys(t) as (keyof typeof t)[]).forEach(k => { t[k] += r[k] || 0; });
-        after = r.next;
-        try { if (after) localStorage.setItem(POSTER_CURSOR, after); else localStorage.removeItem(POSTER_CURSOR); } catch { /* ignore */ }
-        setMsg(`Posters: ${t.processed} sightings checked, ${t.updated} filled in (${t.posters} stills made, ${t.soundOnly} sound only)…`);
-      } while (after);
-      setMsg(`Posters done: ${t.processed} sightings checked, ${t.updated} filled in, ${t.posters} stills made, ${t.soundOnly} marked sound only${t.failed ? `, ${t.failed} could not be read` : ''}.`);
+      const [{ db }, fs] = await Promise.all([import('../firebaseConfig'), import('firebase/firestore')]);
+      const ref = fs.doc(db, 'admin_jobs', 'posters');
+      const prev = await fs.getDoc(ref).catch(() => null);
+      const running = prev?.exists() && ['requested', 'running'].includes((prev.data() as any).status);
+      if (!running) {
+        await fs.setDoc(ref, {
+          kind: 'posters', status: 'requested', tick: 0, next: null,
+          totals: { processed: 0, updated: 0, posters: 0, soundOnly: 0, failed: 0 },
+          requestedAt: fs.serverTimestamp(), requestedBy: auth.currentUser?.uid || null,
+        });
+      }
+      await new Promise<void>((resolve) => {
+        const stop = fs.onSnapshot(ref, (snap) => {
+          const d: any = snap.data() || {};
+          const t = d.totals || {};
+          const line = `${t.processed || 0} sightings checked, ${t.updated || 0} filled in (${t.posters || 0} stills and streaming copies, ${t.soundOnly || 0} sound only)${t.failed ? `, ${t.failed} could not be read` : ''}`;
+          if (d.status === 'done') { setMsg(`Posters done: ${line}.`); stop(); resolve(); }
+          else if (d.status === 'error') { setMsg(`Stopped: ${d.error || 'the poster job failed'}. Press the button again to carry on.`); stop(); resolve(); }
+          else if (d.status === 'stopped') { setMsg(`Stopped after ${line}.`); stop(); resolve(); }
+          else setMsg(`Working: ${line}… You can close the console; it carries on by itself.`);
+        }, (e) => { setMsg(`Can't watch the job: ${e.message}`); resolve(); });
+      });
     } catch (e: any) {
-      setMsg(`Stopped after ${t.processed} sightings: ${e?.message || 'the poster function is not reachable (is it deployed?)'}. Run it again to carry on from there.`);
+      setMsg(`Couldn't start: ${e?.message || 'unknown error'}. Check that the latest rules and functions are deployed.`);
     } finally { setBusy(''); }
   };
   return (

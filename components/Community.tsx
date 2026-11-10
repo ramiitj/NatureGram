@@ -239,6 +239,7 @@ const FeedCard: React.FC<{
                             <PlayableVideo
                                 ref={startPreview}
                                 src={post.videoUrl}
+                                streamUrl={(post as any).streamUrl}
                                 muted
                                 loop
                                 playsInline
@@ -334,7 +335,7 @@ const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: Community
 };
 
 /** A sighting's video. Files that carry only sound (some recordings are saved as video) get a picture to listen by instead of a blank frame. */
-const SightingVideo: React.FC<{ src?: string; poster?: string | null; noDownload: boolean; label?: string | null }> = ({ src, poster, noDownload, label }) => {
+const SightingVideo: React.FC<{ src?: string; streamUrl?: string | null; poster?: string | null; noDownload: boolean; label?: string | null }> = ({ src, streamUrl, poster, noDownload, label }) => {
     const [soundOnly, setSoundOnly] = useState(false);
     const [playing, setPlaying] = useState(false);
     return (
@@ -343,6 +344,7 @@ const SightingVideo: React.FC<{ src?: string; poster?: string | null; noDownload
             <PlayableVideo
                 controlsList={noDownload ? 'nodownload' : undefined}
                 src={src}
+                streamUrl={streamUrl}
                 poster={soundOnly ? undefined : (poster || undefined)}
                 controls
                 playsInline
@@ -1899,7 +1901,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <SightingVideo src={item.videoUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
+                                                            <SightingVideo src={item.videoUrl} streamUrl={(item as any).streamUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : item.mediaType === 'audio' ? (
                                                             <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
                                                         ) : (
@@ -1949,7 +1951,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <SightingVideo src={currentItem.videoUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
+                                                <SightingVideo src={currentItem.videoUrl} streamUrl={(currentItem as any).streamUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : currentItem.mediaType === 'audio' ? (
                                                 <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
                                             ) : (

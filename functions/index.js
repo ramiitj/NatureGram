@@ -171,9 +171,10 @@ async function writeBack(path, media, { retries = 3 } = {}) {
 
 const variantMedia = (v) => (v ? {
   posterUrl: v.posterUrl || null, posterSmallUrl: v.posterSmallUrl || null, w: v.w || null, h: v.h || null,
+  streamUrl: v.soundOnly === true ? null : (v.mp4Url || null),
   lqip: v.lqip || null, tint: v.tint || null, soundOnly: v.soundOnly === true,
 } : null);
-const mediaComplete = (m) => !!m && (m.soundOnly === true || !!(m.posterUrl && m.lqip && m.w && m.h));
+const mediaComplete = (m) => !!m && (m.soundOnly === true || !!(m.posterUrl && m.lqip && m.w && m.h && m.streamUrl));
 
 async function transcodeObject(bucketName, name, contentType, { transcode = true } = {}) {
   const bucket = getStorage().bucket(bucketName);
@@ -190,14 +191,18 @@ async function transcodeObject(bucketName, name, contentType, { transcode = true
     const stem = basename(name).replace(/\.[^.]+$/, '');
     if (transcode) {
       if (isVideo && info?.hasVideo === false) await run(['-i', src, '-vn', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]);
-      else if (isVideo) await run(['-i', src, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-pix_fmt', 'yuv420p', '-vf', 'scale=trunc(min(1280\\,iw)/2)*2:-2', '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '128k', out]);
+      // Streaming copy: longest side at most 1280, capped bitrate, moov atom first so playback starts at once
+      else if (isVideo) await run(['-i', src, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p', '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '96k', out]);
       else await run(['-i', src, '-vn', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]);
-      variant.mp4Url = await uploader(bucket)(out, `${dir}/${stem}.${isVideo ? 'mp4' : 'm4a'}`, isVideo ? 'video/mp4' : 'audio/mp4');
+      // A different name from an MP4 original, so the original is never overwritten
+      const outName = /\.webm$/i.test(name) ? `${dir}/${stem}.${isVideo ? 'mp4' : 'm4a'}` : `${dir}/${stem}.stream.${isVideo ? 'mp4' : 'm4a'}`;
+      variant.mp4Url = await uploader(bucket)(out, outName, isVideo ? 'video/mp4' : 'audio/mp4');
     }
     let media = null;
     if (isVideo && name.startsWith('videos/')) {
       media = await postersFor(bucket, name, src, info, id).catch(e => { console.error('poster failed', name, e.message); return null; });
       if (media) Object.assign(variant, Object.fromEntries(Object.entries(media).filter(([, v]) => v !== null && v !== undefined)));
+      if (media && !media.soundOnly && variant.mp4Url) media.streamUrl = variant.mp4Url;
     }
     await variantRef(name).set(variant, { merge: true });
     return { variant, media };
@@ -212,7 +217,8 @@ export const transcodeMedia = onObjectFinalized({ region: 'asia-east1', memory: 
   const webm = MEDIA_RE.test(name);
   if (!webm && !POSTER_RE.test(name)) return;
   if (!webm && Number(size) > MAX_POSTER_BYTES) return;
-  const { media } = await transcodeObject(bucket, name, contentType, { transcode: webm });
+  // Every clip gets a streaming copy now (MP4s included): phones' originals are large and often not quick-start
+  const { media } = await transcodeObject(bucket, name, contentType, { transcode: true });
   if (media && name.startsWith('videos/')) await writeBack(name, media);
 });
 
@@ -243,7 +249,7 @@ async function mediaForClip(bucket, path) {
   const known = variantMedia(v.exists ? v.data() : null);
   if (mediaComplete(known)) return known;
   // An older variant with a still but no preview: read the still rather than the whole clip
-  if (known?.posterUrl && !known.soundOnly) {
+  if (known?.posterUrl && !known.soundOnly && known.streamUrl) {
     const fromStill = await mediaForImage(bucket, known.posterUrl).catch(() => null);
     if (fromStill) {
       const media = { ...known, w: known.w || fromStill.w, h: known.h || fromStill.h, lqip: known.lqip || fromStill.lqip, tint: known.tint || fromStill.tint, soundOnly: false };
@@ -256,7 +262,8 @@ async function mediaForClip(bucket, path) {
   const meta = (await bucket.file(path).getMetadata().catch(() => [{}]))[0] || {};
   if (Number(meta.size) > MAX_POSTER_BYTES) return null;
   const contentType = meta.contentType || 'video/webm';
-  const { media } = await transcodeObject(bucket.name, path, contentType, { transcode: false });
+  // Missing pieces (usually the streaming copy): convert now, which also refreshes the still and preview
+  const { media } = await transcodeObject(bucket.name, path, contentType, { transcode: true });
   return media;
 }
 
@@ -315,12 +322,8 @@ async function applyImage(ref, url, media) {
  * Idempotent: complete posts are skipped and filled fields are never overwritten. Returns `next`
  * (null when finished) so the console can call again and resume after an interruption.
  */
-export const backfillPosters = onCall({ region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (req) => {
-  const isAdmin = req.auth?.token?.admin === true && req.auth?.token?.email_verified === true;
-  if (!isAdmin) throw new HttpsError('permission-denied', 'Admins only');
-  const size = Math.min(25, Math.max(1, Number(req.data?.limit) || 8));
-  const after = typeof req.data?.after === 'string' ? req.data.after : '';
-  if (after && !/^[A-Za-z0-9_-]{1,128}$/.test(after)) throw new HttpsError('invalid-argument', 'Bad cursor');
+/** One batch of the poster backfill, from the post after `after`. Shared by the callable and the job runner. */
+async function posterBatch(after, size, { budgetMs = 420_000 } = {}) {
   let q = db.collection('ecosystem_feed').orderBy(FieldPath.documentId()).limit(size);
   if (after) q = q.startAfter(after);
   const snap = await q.get();
@@ -330,7 +333,7 @@ export const backfillPosters = onCall({ region: 'asia-east1', memory: '2GiB', cp
   let last = after || null;
   for (const doc of snap.docs) {
     // Leave time to answer: the rest is picked up on the next call
-    if (Date.now() - started > 420_000) break;
+    if (Date.now() - started > budgetMs) break;
     last = doc.id;
     tally.processed++;
     const p = doc.data();
@@ -363,6 +366,51 @@ export const backfillPosters = onCall({ region: 'asia-east1', memory: '2GiB', cp
   }
   const finished = tally.processed === snap.size && snap.size < size;
   return { ...tally, next: finished ? null : last };
+}
+
+export const backfillPosters = onCall({ region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (req) => {
+  const isAdmin = req.auth?.token?.admin === true && req.auth?.token?.email_verified === true;
+  if (!isAdmin) throw new HttpsError('permission-denied', 'Admins only');
+  const size = Math.min(25, Math.max(1, Number(req.data?.limit) || 8));
+  const after = typeof req.data?.after === 'string' ? req.data.after : '';
+  if (after && !/^[A-Za-z0-9_-]{1,128}$/.test(after)) throw new HttpsError('invalid-argument', 'Bad cursor');
+  return posterBatch(after, size);
+});
+
+/**
+ * Admin jobs that run without the browser calling a function directly (which needs public invoker
+ * access some Google Cloud organisations forbid). The admin console writes admin_jobs/{kind}
+ * (admin-only in the rules); this trigger runs one batch, writes progress back, and that write
+ * triggers the next batch until the job is done. Each batch is claimed by its tick in a transaction,
+ * so a repeated event never runs the same batch twice.
+ */
+export const runAdminJob = onDocumentWritten({ document: 'admin_jobs/{jobId}', region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (event) => {
+  const after = event.data?.after?.exists ? event.data.after.data() : null;
+  if (!after || after.kind !== 'posters' || !['requested', 'running'].includes(after.status)) return;
+  const ref = event.data.after.ref;
+  const tick = Number(after.tick || 0);
+  // Claim this tick; skip if another invocation already moved the job on
+  const claimed = await db.runTransaction(async (tx) => {
+    const cur = await tx.get(ref);
+    const d = cur.data() || {};
+    if (Number(d.tick || 0) !== tick || !['requested', 'running'].includes(d.status) || d.claimed === tick) return false;
+    tx.update(ref, { claimed: tick, status: 'running', heartbeatAt: FieldValue.serverTimestamp() });
+    return true;
+  });
+  if (!claimed) return;
+  try {
+    const r = await posterBatch(typeof after.next === 'string' ? after.next : '', 8);
+    const totals = after.totals || {};
+    const add = (k) => (Number(totals[k]) || 0) + (Number(r[k]) || 0);
+    await ref.update({
+      tick: tick + 1, next: r.next || null, status: r.next ? 'running' : 'done',
+      totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
+      updatedAt: FieldValue.serverTimestamp(), ...(r.next ? {} : { finishedAt: FieldValue.serverTimestamp() }),
+    });
+  } catch (e) {
+    console.error('admin job failed', event.params.jobId, e.message);
+    await ref.update({ status: 'error', error: String(e.message || e).slice(0, 300), updatedAt: FieldValue.serverTimestamp() }).catch(() => {});
+  }
 });
 
 
