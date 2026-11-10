@@ -202,7 +202,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           </div>
           <ul className="flex flex-col gap-2 md:gap-3 text-[13px] md:text-sm text-stone-700 leading-snug" role="list">
             <li className="flex items-center gap-2.5"><Glyph name="notebook" size={20} className="text-theme-accent" />A field notebook for every outing</li>
-            <li className="flex items-center gap-2.5"><Glyph name="fern" size={20} className="text-theme-accent" />A life list, species by species</li>
+            <li className="flex items-center gap-2.5"><Glyph name="plate" size={20} className="text-theme-accent" />A life list, species by species</li>
             <li className="flex items-center gap-2.5"><Glyph name="sealed" size={20} className="text-theme-accent" />Letters with other explorers</li>
           </ul>
         </div>

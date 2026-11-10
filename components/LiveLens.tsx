@@ -1459,7 +1459,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                                   >
                                       <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#b8892b] shadow" />
                                       <div className="aspect-square bg-[#efe7d6] overflow-hidden flex items-center justify-center">
-                                          {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" /> : <Glyph name={it.type === 'audio' ? 'sound' : 'fern'} size={26} className="text-[#b9a98a]" />}
+                                          {it.thumb ? <img src={it.thumb} alt="" className="w-full h-full object-cover" /> : <Glyph name={it.type === 'audio' ? 'sound' : 'leaf'} size={26} className="text-[#b9a98a]" />}
                                       </div>
                                       {it.name && <p className="mt-1 font-display italic text-[11px] leading-tight text-[#2f2a22] truncate">{it.name}</p>}
                                   </div>

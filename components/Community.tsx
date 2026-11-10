@@ -1510,7 +1510,7 @@ const Community: React.FC<CommunityProps> = ({
                                     <span className="relative block w-[84px] h-[100px] rounded-xl overflow-hidden bg-theme-primary/10 border border-theme-primary/10">
                                         {(r.post.thumbnailUrl || r.post.imageUrl)
                                             ? <img src={(r.post.thumbSmallUrl || r.post.thumbnailUrl || r.post.imageUrl)!} alt="" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
-                                            : <span className="w-full h-full flex items-center justify-center text-theme-primary/60"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'park'}</span></span>}
+                                            : <span className="w-full h-full flex items-center justify-center text-theme-primary/60"><span className="material-symbols-outlined" aria-hidden="true">{r.post.mediaType === 'audio' ? 'graphic_eq' : 'image'}</span></span>}
                                         {r.count > 1 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-black/45 backdrop-blur text-white text-[11px] font-semibold flex items-center justify-center tabular">{r.count}</span>}
                                     </span>
                                     <span className="text-xs font-display italic font-semibold text-theme-primary truncate w-full leading-tight">{r.post.labels?.[0] || 'New sighting'}</span>

@@ -695,12 +695,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <div role="tablist" aria-label="Profile sections" className="flex bg-day-bg/95 backdrop-blur border-b border-theme-primary/10 sticky top-0 z-10">
               {([
                 { key: 'posts', icon: 'landscape', label: 'Sightings' },
-                { key: 'lifelist', icon: 'fern', label: 'Life list' },
+                { key: 'lifelist', icon: 'plate', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
                 <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`flex-1 py-3 flex items-center justify-center gap-1.5 text-sm border-b-2 transition-colors ${tab === t.key ? 'border-theme-accent text-theme-primary font-display font-semibold text-[15px]' : 'border-transparent text-stone-500 font-semibold'}`}>
-                  {t.icon === 'fern'
-                    ? <Glyph name="fern" size={20} strokeWidth={tab === t.key ? 1.8 : 1.4} />
+                  {t.icon === 'plate'
+                    ? <Glyph name="plate" size={20} strokeWidth={tab === t.key ? 1.8 : 1.4} />
                     : <span className="material-symbols-outlined text-xl" style={{ fontVariationSettings: tab === t.key ? "'FILL' 1" : "'wght' 300" }} aria-hidden="true">{t.icon}</span>}{t.label}
                 </button>
               ))}
@@ -721,7 +721,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {tab === 'lifelist' && (
               lifeList.length === 0 ? (
                 <div className="text-center py-16 px-8 max-w-sm mx-auto text-stone-500">
-                  <Glyph name="fern" size={44} className="text-theme-accent/60 mb-3" />
+                  <Glyph name="seedling" size={44} className="text-theme-accent/60 mb-3" />
                   <p className="font-display text-xl text-stone-800">{isOwnProfile ? 'Your herbarium is waiting' : 'No plates yet'}</p>
                   <p className="text-sm mt-1">Every species {isOwnProfile ? 'you identify' : 'this explorer identifies'} becomes a numbered plate here, with the day, place and season it was first seen.</p>
                 </div>

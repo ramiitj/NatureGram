@@ -187,7 +187,7 @@ const matches = (p: CommunityPost, q: string) => {
 // ---------------------------------------------------------------------------- pieces
 
 const MountedPhoto: React.FC<{ c: Capture; tilt: number; pencil: boolean; onClick: () => void; label: string }> = ({ c, tilt, pencil, onClick, label }) => {
-  const group = c.label ? GROUP_GLYPH[groupOf({ labels: [c.label] })] : 'fern';
+  const group = c.label ? GROUP_GLYPH[groupOf({ labels: [c.label] })] : 'leaf';
   return (
     <button
       type="button"

@@ -71,7 +71,7 @@ export const fieldMoment = (d: Date = new Date()): { name: string; hint: string;
   if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'birdsong peaks now', icon: 'wb_twilight' };
   if (h >= 7 && h < 11) return { name: 'Morning', hint: 'butterflies are warming up', icon: 'emoji_nature' };
   if (h >= 11 && h < 15) return { name: 'Midday', hint: 'raptors ride the thermals', icon: 'airwave' };
-  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'forest' };
+  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'wb_sunny' };
   if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'bats begin to hunt', icon: 'wb_twilight' };
   return { name: 'Night', hint: 'owls are calling', icon: 'dark_mode' };
 };

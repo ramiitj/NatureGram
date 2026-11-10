@@ -48,7 +48,7 @@ export const SpecimenPlate: React.FC<{
         <div className={`mx-2 mt-1 aspect-[4/3] overflow-hidden ${ghost ? 'bg-stone-100/60' : 'bg-[#efe7d6]'} flex items-center justify-center`}>
           {data.thumb && !ghost
             ? <img src={data.thumb} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover sepia-[.08]" />
-            : <Glyph name={data.group ? GROUP_GLYPH[data.group] : 'fern'} size={size === 'lg' ? 48 : 28} className="text-[#b9a98a]" />}
+            : <Glyph name={data.group ? GROUP_GLYPH[data.group] : 'seedling'} size={size === 'lg' ? 48 : 28} className="text-[#b9a98a]" />}
         </div>
         <div className="px-2 pt-2 pb-2 flex-1 flex flex-col">
           <p className={`font-display italic leading-tight ${nameCls} ${ghost ? 'text-stone-400' : 'text-[#2f2a22]'} line-clamp-2`}>{data.name}</p>
