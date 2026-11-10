@@ -97,7 +97,8 @@ export const ThemeService = {
     root.style.setProperty('--theme-primary-gradient', theme.colors.primaryGradient);
     root.style.setProperty('--theme-shadow', theme.colors.shadow);
     root.style.setProperty('--theme-text', theme.colors.text);
-    root.style.setProperty('--font-display', theme.fontFamily?.includes('Space Grotesk') ? '"Playfair Display", serif' : (theme.fontFamily || '"Playfair Display", serif'));
+    // Newsreader is the only display face loaded; older stored themes may name fonts that aren't
+    root.style.setProperty('--font-display', '"Newsreader", Georgia, serif');
 
     const primary = toRgb(theme.colors.primary);
     if (primary) root.style.setProperty('--theme-primary-rgb', str(ensureContrast(primary, 7)));
