@@ -27,10 +27,16 @@ export const ThemeService = {
           // Stored theme docs carry a copy of the colours from when they were seeded. The designed
           // palettes in constants/palettes.json win, unless an admin deliberately overrides them
           // (colorsOverride: true on the theme doc).
-          const { colors: storedColors, colorsOverride, ...rest } = data as any;
+          // The photograph and its credit travel together: the chosen, attributed photo in
+          // constants/naturalists.ts wins over an older stored copy unless an admin overrides it
+          // (imageOverride: true, ideally with its own imageCredit).
+          const { colors: storedColors, colorsOverride, imageUrl: storedImage, imageCredit: storedCredit, imageOverride, ...rest } = data as any;
+          const useStoredImage = imageOverride === true && !!storedImage;
           mergedTheme = {
             ...mergedTheme,
             ...rest,
+            imageUrl: useStoredImage ? storedImage : (mergedTheme.imageUrl || storedImage),
+            imageCredit: useStoredImage ? storedCredit : mergedTheme.imageCredit,
             colors: colorsOverride === true && storedColors ? { ...mergedTheme.colors, ...storedColors } : mergedTheme.colors
           };
         }
@@ -137,7 +143,7 @@ export const ThemeService = {
   },
 
   getDailyTheme: async (): Promise<DailyTheme | null> => {
-    const stored = localStorage.getItem('daily_theme_v6');
+    const stored = localStorage.getItem('daily_theme_v7');
     if (!stored) return null;
     try {
       const theme = JSON.parse(stored);
@@ -161,7 +167,7 @@ export const ThemeService = {
   generateAndSaveDailyTheme: async (): Promise<DailyTheme | null> => {
     const theme = await ThemeService.generateDynamicTheme();
     if (theme) {
-      localStorage.setItem('daily_theme_v6', JSON.stringify(theme));
+      localStorage.setItem('daily_theme_v7', JSON.stringify(theme));
     }
     return theme;
   }

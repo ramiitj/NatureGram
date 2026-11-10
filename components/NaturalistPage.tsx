@@ -16,6 +16,7 @@ interface ThemeLike {
   naturalist: string;
   quote?: string;
   imageUrl?: string;
+  imageCredit?: { author: string; license: string; source: string };
   locationName?: string;
   locationCaption?: string;
 }
@@ -97,6 +98,15 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
             {extra.lifespan && <p className="font-display italic text-lg text-[#8a7a60] mt-0.5">{extra.lifespan}</p>}
             {extra.bio && <p className="text-[15px] text-stone-800 leading-relaxed mt-4">{extra.bio}</p>}
             {theme.locationCaption && <p className="text-sm text-stone-600 mt-2">{theme.locationName ? `${theme.locationName}: ` : ''}{theme.locationCaption}</p>}
+            {theme.imageUrl && theme.imageCredit?.author && (
+              <p className="text-xs text-stone-500 mt-3">
+                Photograph:{' '}
+                <a href={theme.imageCredit.source} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">
+                  {theme.imageCredit.author}
+                </a>
+                , {theme.imageCredit.license}, via Wikimedia Commons
+              </p>
+            )}
           </div>
         </header>
 
