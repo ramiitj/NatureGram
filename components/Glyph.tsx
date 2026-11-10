@@ -31,7 +31,7 @@ export type GlyphName =
   | 'frog'          // amphibians & reptiles
   | 'shell'         // molluscs & other life
   | 'sound'         // sound sightings
-  | 'mark'          // NatureGram's own mark (a hand lens over an uncurling fiddlehead)
+  | 'mark'          // NatureGram's own mark (the landing page's sun)
   | 'signpost'      // off the trail (errors, wrong turns)
   | 'key'          // a field-station key (password reset)
   | 'seal'          // audit & security (a wax seal with a keyhole)
@@ -62,7 +62,7 @@ const P: Record<GlyphName, React.ReactNode> = {
   frog: <><path d="M5 15c0-4 3-6.5 7-6.5s7 2.5 7 6.5c0 2-2 3.5-7 3.5S5 17 5 15z" /><circle cx="8.5" cy="8" r="2" /><circle cx="15.5" cy="8" r="2" /><path d="M9.5 14.5c1.5 1 3.5 1 5 0M5 17l-2 2.5M19 17l2 2.5" /></>,
   shell: <><path d="M12 20c-5 0-8-3.5-8-7.5C4 8 8 4 12 4s8 4 8 8.5c0 4-3 7.5-8 7.5z" /><path d="M12 20V4M12 20l-5-13M12 20l5-13" /></>,
   sound: <><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2" /></>,
-  mark: <><path d="M6.5 21c.8-3.2 2.3-6 4.7-7.8 2.6-2 3.1-4.8 1.2-5.7-1.7-.8-3.1.7-2.4 2.3.6 1.3 2.3 1.1 2.5-.1" /><circle cx="12.3" cy="9.8" r="5.6" /><path d="M16.3 13.8l3.6 3.6" strokeWidth={2.2} /></>,
+  mark: <><circle cx="12" cy="12" r="3.7" fill="currentColor" /><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7" strokeWidth={2} /></>,
   signpost: <><path d="M12 21V3.5" /><path d="M12 5.5h6.2l2 2-2 2H12" /><path d="M12 11.5H5.8l-2 2 2 2H12" /><path d="M8.5 21h7" /></>,
   key: <><circle cx="8" cy="16" r="4.5" /><circle cx="8" cy="16" r="1.3" /><path d="M11.2 12.8L20 4M15.5 8.5l2.5 2.5M18 6l2 2" /></>,
   seal: <><circle cx="12" cy="9.5" r="6.5" /><circle cx="12" cy="9.5" r="4.2" strokeDasharray="1.4 1.6" /><circle cx="12" cy="8.7" r="1.1" /><path d="M12 9.8v1.8M9 15.3 7.8 21l2.4-1.4L12 21l1.8-1.4 2.4 1.4L15 15.3" /></>,

@@ -5,6 +5,8 @@ import { FirebaseService } from '../services/firebaseService';
 import AiQualityPanel from './AiQualityPanel';
 import Glyph, { GlyphName } from './Glyph';
 import { PressingLoader } from './SkeletonPost';
+import { markSvg, resolveColors, BrandingConfig, isSafeIcon } from '../services/brandMark';
+import { NATURALIST_THEMES, getDailyTheme } from '../constants/naturalists';
 
 /**
  * NatureGram admin console: the curator's office. Every read and change goes through the server's
@@ -12,7 +14,7 @@ import { PressingLoader } from './SkeletonPost';
  * version and writes the audit log. Nothing here talks to the database directly.
  */
 
-type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'experiments' | 'data' | 'security';
+type Section = 'overview' | 'controls' | 'ai' | 'monitor' | 'review' | 'people' | 'letters' | 'experiments' | 'branding' | 'data' | 'security';
 
 const SECTIONS: { id: Section; label: string; glyph: GlyphName; blurb: string }[] = [
   { id: 'overview', label: 'Overview', glyph: 'plate', blurb: 'How the field station is doing today. The figures refresh every minute.' },
@@ -23,6 +25,7 @@ const SECTIONS: { id: Section; label: string; glyph: GlyphName; blurb: string }[
   { id: 'people', label: 'People', glyph: 'binoculars', blurb: 'Look up an explorer, see what they have been doing, and step in when needed.' },
   { id: 'letters', label: 'Reported letters', glyph: 'letter', blurb: 'Conversations an explorer has reported. Only these can be read.' },
   { id: 'experiments', label: 'Experiments', glyph: 'compass', blurb: 'Feature flags and A/B tests. Each explorer always lands in the same group.' },
+  { id: 'branding', label: 'Branding', glyph: 'sun', blurb: "NatureGram's mark in the browser tab and on home screens. By default it is the landing sun in the colours of the naturalist of the fortnight." },
   { id: 'data', label: 'Data explorer', glyph: 'notebook', blurb: 'Exports, maintenance jobs and a read-only look at the records.' },
   { id: 'security', label: 'Audit & security', glyph: 'seal', blurb: 'Who holds the keys, blocked networks, server safety settings and every admin action.' },
 ];
@@ -636,6 +639,97 @@ const Experiments: React.FC = () => {
   );
 };
 
+/** The favicon / home-screen mark: style, colours, or an uploaded image, with a live preview. */
+const Branding: React.FC = () => {
+  const [b, setB] = useState<BrandingConfig | null>(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api('/branding').then(r => setB(r.branding)).catch(e => setMsg(e.message)); }, []);
+  if (!b) return msg ? <Notice tone="warn" alert>{msg}</Notice> : <Loading label="Reading the branding" />;
+  const set = (patch: Partial<BrandingConfig>) => setB(x => ({ ...x!, ...patch }));
+  const now = getDailyTheme();
+  const previews = [now, ...NATURALIST_THEMES.filter(t => t.id !== now.id).slice(0, 5)];
+  const src = (colors: any) => b.style === 'custom' && isSafeIcon(b.customIcon)
+    ? b.customIcon!
+    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markSvg(resolveColors(colors, b), b.style === 'lens' ? 'lens' : 'sun'))}`;
+  const upload = (file?: File | null) => {
+    if (!file) return;
+    if (!/^image\/(png|webp|jpeg)$/.test(file.type)) { setMsg('Choose a PNG, WebP or JPEG image.'); return; }
+    const img = new Image();
+    img.onload = () => {
+      // Square it to 512 × 512 PNG so it is small, safe and sharp everywhere
+      const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+      const ctx = cv.getContext('2d')!; const side = Math.min(img.width, img.height);
+      ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 512, 512);
+      let url = cv.toDataURL('image/png');
+      if (url.length > 210_000) url = cv.toDataURL('image/webp', 0.85);
+      if (url.length > 210_000) { setMsg('That image is too detailed to use as an icon. Try a simpler one.'); return; }
+      set({ style: 'custom', customIcon: url }); setMsg('');
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(file);
+  };
+  const save = async () => {
+    setBusy(true);
+    try { const r = await api('/branding', { method: 'PUT', body: { branding: b } }); setB(r.branding); setMsg('Saved. Open apps change their icon within seconds.'); }
+    catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  const fixed = b.fixed || { ground: '#2d4a22', ground2: '#3e6330', ink: '#ffffff' };
+  const Choice: React.FC<{ on: boolean; onClick: () => void; title: string; sub: string; children?: React.ReactNode }> = ({ on, onClick, title, sub, children }) => (
+    <button type="button" onClick={onClick} aria-pressed={on} className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] ${on ? 'border-theme-accent bg-theme-accent/5' : 'border-[#e3d8c4] bg-white/60 hover:bg-white'}`}>
+      {children}<span><span className="block font-semibold text-stone-900 text-sm">{title}</span><span className="block text-xs text-stone-600">{sub}</span></span>
+    </button>
+  );
+  const sample = (style: 'sun' | 'lens') => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markSvg(resolveColors(now.colors, { ...b, style }), style))}`;
+  return (
+    <div className="space-y-4">
+      {msg && <Notice>{msg}</Notice>}
+      <Card title="The mark" actions={<Btn tone="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save branding'}</Btn>}>
+        <div className="grid sm:grid-cols-3 gap-2">
+          <Choice on={b.style !== 'lens' && b.style !== 'custom'} onClick={() => set({ style: 'sun' })} title="The landing sun" sub="The sun from the landing page. Recommended."><img src={sample('sun')} alt="" className="w-10 h-10" /></Choice>
+          <Choice on={b.style === 'lens'} onClick={() => set({ style: 'lens' })} title="Hand lens and fern" sub="A lens over an uncurling fiddlehead."><img src={sample('lens')} alt="" className="w-10 h-10" /></Choice>
+          <label className={`text-left p-3 rounded-lg border flex gap-3 items-center min-h-[64px] cursor-pointer ${b.style === 'custom' ? 'border-theme-accent bg-theme-accent/5' : 'border-[#e3d8c4] bg-white/60 hover:bg-white'}`}>
+            {b.style === 'custom' && isSafeIcon(b.customIcon) ? <img src={b.customIcon!} alt="" className="w-10 h-10 rounded-lg" /> : <Glyph name="plate" size={36} className="text-stone-400" />}
+            <span><span className="block font-semibold text-stone-900 text-sm">Your own image</span><span className="block text-xs text-stone-600">PNG, WebP or JPEG, square works best. It does not change colour.</span></span>
+            <input type="file" accept="image/png,image/webp,image/jpeg" className="sr-only" onChange={e => upload(e.target.files?.[0])} />
+          </label>
+        </div>
+      </Card>
+      {b.style !== 'custom' && (
+        <Card title="Colours">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <Choice on={b.colorMode !== 'fixed'} onClick={() => set({ colorMode: 'naturalist' })} title="Follow the naturalist of the fortnight" sub="Changes every fifteen days with the theme. Recommended." />
+            <Choice on={b.colorMode === 'fixed'} onClick={() => set({ colorMode: 'fixed', fixed })} title="Fixed colours" sub="The same colours all year." />
+          </div>
+          {b.colorMode === 'fixed' && (
+            <div className="flex flex-wrap gap-4 mt-3 text-sm text-stone-700">
+              {([['ground', 'Background'], ['ground2', 'Background, second'], ['ink', 'Sun and drawing']] as const).map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2">{label}
+                  <input type="color" value={(fixed as any)[k]} onChange={e => set({ colorMode: 'fixed', fixed: { ...fixed, [k]: e.target.value } })} className="w-10 h-10 rounded border border-stone-300 bg-white" />
+                </label>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+      <Card title="Preview">
+        <p className="text-sm text-stone-600 mb-3">How it looks in a browser tab (16 px), on a home screen and large, now and in coming fortnights.</p>
+        <ul className="space-y-3">
+          {previews.map((t, i) => (
+            <li key={t.id} className="flex items-center gap-3">
+              <img src={src(t.colors)} alt="" width={64} height={64} className="rounded-[14px]" />
+              <img src={src(t.colors)} alt="" width={32} height={32} className="rounded-[7px]" />
+              <img src={src(t.colors)} alt="" width={16} height={16} />
+              <span className="text-sm text-stone-700">{t.naturalist}{i === 0 ? ' (this fortnight)' : ''}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-stone-500 mt-3">Installed iOS and Android apps keep the icon they were built with; it is regenerated with <span className="font-mono">npm run assets:native</span> for the next store release.</p>
+      </Card>
+    </div>
+  );
+};
+
 /** Exports and one-off maintenance jobs. */
 const DataTools: React.FC = () => {
   const [msg, setMsg] = useState('');
@@ -1007,6 +1101,7 @@ const AdminConsole: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           {section === 'people' && <People uid={uid} setUid={setUid} />}
           {section === 'letters' && <Letters />}
           {section === 'experiments' && <Experiments />}
+          {section === 'branding' && <Branding />}
           {section === 'data' && <div className="space-y-4"><DataTools /><DataExplorer /></div>}
           {section === 'security' && <Security />}
         </main>

@@ -567,6 +567,44 @@ export function mountAdmin(app, deps) {
     res.json({ flags });
   }));
 
+  // ---------------------------------------------------------------- branding (config/branding, publicly readable)
+  // The favicon / home-screen mark: the landing sun by default, following the naturalist's colours.
+  const HEXC = /^#[0-9a-f]{6}$/i;
+  const validateBranding = (b) => {
+    const out = { style: 'sun', colorMode: 'naturalist', fixed: null, customIcon: null };
+    if (!b || typeof b !== 'object') return out;
+    if (['sun', 'lens', 'custom'].includes(b.style)) out.style = b.style;
+    if (b.colorMode === 'fixed') {
+      const f = b.fixed || {};
+      if (!HEXC.test(f.ground || '')) throw Object.assign(new Error('Pick a background colour as #rrggbb.'), { status: 400 });
+      out.colorMode = 'fixed';
+      out.fixed = { ground: f.ground, ground2: HEXC.test(f.ground2 || '') ? f.ground2 : f.ground, ink: HEXC.test(f.ink || '') ? f.ink : '#ffffff' };
+    }
+    if (out.style === 'custom') {
+      const icon = String(b.customIcon || '');
+      // PNG or WebP only (never SVG, which can carry script), and small enough for a favicon
+      if (!/^data:image\/(png|webp);base64,[A-Za-z0-9+/=]+$/.test(icon)) throw Object.assign(new Error('Upload a PNG or WebP image.'), { status: 400 });
+      if (icon.length > 210_000) throw Object.assign(new Error('That image is too large. Keep it under 150 KB (512 × 512 is plenty).'), { status: 400 });
+      out.customIcon = icon;
+    }
+    return out;
+  };
+  router.get('/branding', wrap(async (req, res) => {
+    const snap = await db().doc('config/branding').get();
+    const d = snap.exists ? snap.data() : {};
+    res.json({ branding: { style: d.style || 'sun', colorMode: d.colorMode || 'naturalist', fixed: d.fixed || null, customIcon: d.customIcon || null }, updatedAt: snap.exists ? plain(d.updatedAt) : null });
+  }));
+  router.put('/branding', express.json({ limit: '400kb' }), wrap(async (req, res) => {
+    const branding = validateBranding(req.body?.branding);
+    const ref = db().doc('config/branding');
+    const before = (await ref.get()).data() || {};
+    const { customIcon: _drop, ...beforeLite } = before;
+    await db().collection('admin_private/history/branding').add({ before: beforeLite, hadCustomIcon: Boolean(before.customIcon), patch: { ...branding, customIcon: branding.customIcon ? '(image)' : null }, by: req.admin.uid, email: req.admin.email, at: FieldValue.serverTimestamp() });
+    await ref.set({ ...branding, updatedAt: FieldValue.serverTimestamp(), updatedBy: req.admin.uid });
+    await audit(req.admin, 'branding.update', { style: branding.style, colorMode: branding.colorMode });
+    res.json({ branding });
+  }));
+
   // ---------------------------------------------------------------- search keys backfill (idempotent, batched)
   router.post('/backfill/search-tokens', wrap(async (req, res) => {
     const d = db();
