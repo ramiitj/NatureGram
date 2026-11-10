@@ -30,6 +30,9 @@ import { initSettings, getFlags, getSettings, ipBlocked } from './settings.js';
 import { initLedger, charge, record, usageFor, globalTokensToday, addGlobalTokens, logAi, isSuspended, storeHealth } from './ledger.js';
 import { mountPublish } from './publish.js';
 import { mountAdmin } from './admin.js';
+import { initLeases, acquire as acquireLease, hold as holdLease, leaseHealth } from './liveLeases.js';
+import { appCheckVerdict, appCheckStats, splitWsAppCheck } from './appCheck.js';
+import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +61,8 @@ const QUOTAS = {
   // Daily allowances and caps are admin settings (server/settings.js). These are technical limits.
   httpPerMinute: num(process.env.QUOTA_HTTP_PER_MIN, 20),
   maxConcurrentLive: num(process.env.QUOTA_MAX_CONCURRENT_LIVE, 1),
+  // All explorers together, across every server instance (shared leases); 0 = no global cap
+  maxConcurrentLiveGlobal: num(process.env.LIVE_GLOBAL_MAX_CONCURRENT, 0),
   liveSessionMaxMs: num(process.env.LIVE_SESSION_MAX_MIN, 15) * 60_000,
   maxBodyBytes: num(process.env.MAX_PROXY_BODY_MB, 25) * 1024 * 1024,
 };
@@ -124,6 +129,7 @@ try {
 } catch (e) { log('warn', 'shared store not initialised', { error: e.message }); }
 initSettings(firestoreDb);
 initLedger(firestoreDb);
+initLeases(firestoreDb);
 
 // One stray error must never take the whole server down
 process.on('unhandledRejection', (e) => log('error', 'unhandled rejection', { error: String(e?.message || e).slice(0, 300) }));
@@ -275,13 +281,13 @@ async function startServer() {
     if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net`,
+      `script-src 'self'${IS_PROD ? '' : " 'unsafe-inline'"} https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com https://www.googleadservices.com https://googleads.g.doubleclick.net https://www.google.com https://www.recaptcha.net`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' data: https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob: https:",
-      "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org",
-      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com",
+      "connect-src 'self' wss: https://www.google-analytics.com https://*.google-analytics.com https://www.googletagmanager.com https://*.doubleclick.net https://www.google.com https://www.googleadservices.com https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com https://nominatim.openstreetmap.org https://en.wikipedia.org https://*.wikipedia.org https://*.sentry.io",
+      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://td.doubleclick.net https://www.googletagmanager.com https://www.google.com https://recaptcha.google.com https://www.recaptcha.net",
       "worker-src 'self' blob:",
       "frame-ancestors 'self' https://aistudio.google.com",
       "base-uri 'self'",
@@ -297,7 +303,7 @@ async function startServer() {
     if (origin && isAllowedOrigin(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client, X-Firebase-AppCheck');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && isAllowedOrigin(origin) ? 204 : 403);
@@ -538,6 +544,8 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 
     let user;
     try { user = await verifyIdToken(String(bearer(req))); } catch { return fail(401, 'Please sign in again.'); }
+    const unverified = await appCheckVerdict(req.headers['x-firebase-appcheck'], { log, route: '/api-proxy', uid: user.uid });
+    if (unverified) return fail(unverified.status, unverified.message);
 
     const verdict = governGenerateRequest(url.pathname);
     if (!verdict.ok) {
@@ -697,7 +705,20 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   });
 
   mountPublish(app, { verifyIdToken, bearer, gate, clientIp, log, db: () => firestoreDb, apiKey: API_KEY, targetHost: TARGET_HOST, publicHost: PUBLIC_HOST });
-  mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth() });
+  mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth(),
+    status: () => ({ appCheck: appCheckStats(), leases: leaseHealth(), liveDirect: LIVE_DIRECT_TOKENS, moderationFailOpen: process.env.MODERATION_FAIL_OPEN !== 'false' }) });
+
+  // Per-network hourly cap on new live sessions (shared by the proxy and direct tokens)
+  const networkOpen = (ip, settings) => {
+    const hour = Math.floor(Date.now() / 3_600_000);
+    const net = networkLive.get(ip);
+    const n = net && net.hour === hour ? net : { hour, opened: 0, concurrent: net?.concurrent || 0 };
+    if (n.opened >= Number(settings.caps.liveSessionsPerNetworkPerHour || 20)) return 'Too many live sessions from this network. Please try later.';
+    n.opened++;
+    networkLive.set(ip, n);
+    return null;
+  };
+  mountLive(app, { verifyIdToken, bearer, gate, burstOk, clientIp, log, quotas: QUOTAS, networkOpen, apiKey: API_KEY });
 
   // -------------------------------------------------------------------------
   // Frontend
@@ -737,7 +758,8 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     if (req.headers.origin && !isAllowedOrigin(req.headers.origin)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return;
     }
-    const relPath = reqUrl.pathname.replace(/^\/api-proxy\/*/, '/');
+    const split = splitWsAppCheck(reqUrl.pathname.replace(/^\/api-proxy\/*/, '/'));
+    const relPath = split.path;
     if (!/bidigeneratecontent/i.test(relPath) || relPath.includes('..')) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); socket.destroy(); return;
     }
@@ -750,6 +772,8 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 
     const ip = clientIp(req);
     const refuse = (code, message) => wss.handleUpgrade(req, socket, head, (ws) => { try { ws.close(code, message.slice(0, 120)); } catch { /* noop */ } });
+    const unverified = await appCheckVerdict(split.token, { log, route: 'live', uid: user.uid });
+    if (unverified) return refuse(4401, unverified.message);
     const blocked = await gate(user, ip, { live: true });
     if (blocked) return refuse(blocked.status === 503 ? 1013 : 4403, blocked.message);
     const [flags, settings, used] = await Promise.all([getFlags(), getSettings(), usageFor(user.uid)]);
@@ -764,11 +788,17 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     if (n.opened >= Number(settings.caps.liveSessionsPerNetworkPerHour || 20)) return refuse(4429, 'Too many live sessions from this network. Please try later.');
     if (n.concurrent >= Number(settings.caps.liveConcurrentPerNetwork || 4)) return refuse(4429, 'Too many live sessions open on this network.');
     if (!API_KEY) return refuse(1011, 'AI is not configured on the server.');
+    // This instance's own count first (cheap), then the shared count across instances
+    if ((activeLive.get(user.uid)?.size || 0) >= QUOTAS.maxConcurrentLive) return refuse(4429, 'A live session is already open. Close other tabs and retry.');
+    const lease = await acquireLease(user.uid, { perUser: QUOTAS.maxConcurrentLive, global: QUOTAS.maxConcurrentLiveGlobal, kind: 'proxy' });
+    if (!lease.ok) return refuse(4429, lease.reason === 'global' ? 'The guide is very busy right now. Please try again in a minute.' : 'A live session is already open. Close other tabs and retry.');
+    const releaseLease = holdLease(lease);
+    socket.once('close', releaseLease); // idempotent; also covers an upgrade that never completes
 
     wss.handleUpgrade(req, socket, head, (clientWs) => {
       const closeWith = (code, reason) => { try { clientWs.close(code, reason); } catch { /* noop */ } };
       const conns = activeLive.get(user.uid) || new Set();
-      if (conns.size >= QUOTAS.maxConcurrentLive) return closeWith(4429, 'A live session is already open. Close other tabs and retry.');
+      if (conns.size >= QUOTAS.maxConcurrentLive) { releaseLease(); return closeWith(4429, 'A live session is already open. Close other tabs and retry.'); }
 
       const session = { startedAt: Date.now() };
       conns.add(session);
@@ -792,6 +822,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       const finish = () => {
         if (finished) return;
         finished = true;
+        releaseLease();
         clearTimeout(timeout);
         clearTimeout(idleTimer);
         const ms = Date.now() - session.startedAt;

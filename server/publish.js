@@ -16,10 +16,21 @@
  */
 import https from 'https';
 import express from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFlags, getSettings } from './settings.js';
 import { charge, usageFor, logAi, addGlobalTokens } from './ledger.js';
 import { moderationBody, policyText, findPolicyBreach } from './aiGovernance.js';
+import { textFlags } from './moderationText.js';
+import { searchTokensFor } from './searchTokens.js';
+import { appCheckMiddleware } from './appCheck.js';
+
+// When the image check cannot run (model error, timeout), publish normally and queue the sighting
+// for an after-the-fact look instead of holding it. MODERATION_FAIL_OPEN=false restores holding.
+export const MODERATION_FAIL_OPEN = process.env.MODERATION_FAIL_OPEN !== 'false';
+// Privacy problems the explorer can fix (crop or retake) vs safety problems the admin decides
+export const PRIVACY_REASONS = ['faces', 'people', 'plates', 'screen', 'notNature'];
+export const SAFETY_REASONS = ['unsafe', 'words', 'spam'];
+const SAFETY_FINISH = /^(SAFETY|PROHIBITED_CONTENT|BLOCKLIST|SPII|IMAGE_SAFETY)$/;
 
 const MAX_ITEMS = 10;
 const MODERATE_ITEMS = 4;
@@ -54,7 +65,15 @@ export function ownMedia(url, uid, kinds) {
   return kinds.some(k => p.startsWith(`${k}/${uid}/`));
 }
 
-export const textBreach = (...texts) => texts.some(t => t && SPAM.test(String(t)));
+/** When the photo was taken (EXIF), only if it is after 1990 and in the past. */
+const MIN_OBSERVED_MS = Date.UTC(1990, 0, 1);
+export function observedAtOf(ms, now = Date.now()) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return null;
+  if (ms <= MIN_OBSERVED_MS || ms > now) return null;
+  return Timestamp.fromMillis(Math.round(ms));
+}
+
+export const textBreach =(...texts) => texts.some(t => t && SPAM.test(String(t)));
 
 function cleanItem(it, uid) {
   const i = it && typeof it === 'object' ? it : {};
@@ -85,6 +104,7 @@ function cleanItem(it, uid) {
     // From the phone, only flags that make things stricter are believed
     aiFlags: { sensitiveSpecies: i.aiFlags?.sensitiveSpecies === true, peopleVisible: i.aiFlags?.peopleVisible === true, isNatureSubject: i.aiFlags?.isNatureSubject !== false },
     needsExpertReview: i.needsExpertReview === true,
+    observedAt: observedAtOf(i.takenAtMs),
   };
 }
 
@@ -118,6 +138,9 @@ function callModel({ apiKey, targetHost, publicHost }, model, body) {
         try {
           const json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           if (res.statusCode >= 400) return reject(new Error(`model ${res.statusCode}`));
+          // A safety block is an answer, not an error: the image itself tripped the filters
+          const blocked = json.promptFeedback?.blockReason || (SAFETY_FINISH.test(String(json.candidates?.[0]?.finishReason || '')) ? json.candidates[0].finishReason : null);
+          if (blocked) return resolve({ out: null, blocked: String(blocked), tokens: json.usageMetadata?.totalTokenCount || 0 });
           const text = json.candidates?.[0]?.content?.parts?.find(p => typeof p.text === 'string')?.text;
           resolve({ out: text ? JSON.parse(text) : null, tokens: json.usageMetadata?.totalTokenCount || 0 });
         } catch (e) { reject(e); }
@@ -136,9 +159,15 @@ async function moderateImages(deps, uid, items, settings) {
   for (const url of urls) {
     const started = Date.now();
     const img = await fetchImage(url);
-    const { out, tokens } = await callModel(deps, settings.models.moderate, moderationBody(settings, img.data, img.mimeType));
+    const { out, tokens, blocked } = await callModel(deps, settings.models.moderate, moderationBody(settings, img.data, img.mimeType));
     addGlobalTokens(tokens);
+    if (blocked) {
+      reasons.add('unsafe');
+      logAi({ uid, task: 'moderate', model: settings.models.moderate, status: 200, ms: Date.now() - started, totalTokens: tokens || null, blockReason: blocked, flags: { unsafe: true } });
+      continue;
+    }
     if (!out) throw new Error('empty moderation answer');
+    if (out.unsafe === true) reasons.add('unsafe');
     if (out.people) reasons.add('people');
     if (out.faces) reasons.add('faces');
     if (out.plates) reasons.add('plates');
@@ -152,7 +181,7 @@ async function moderateImages(deps, uid, items, settings) {
 export function mountPublish(app, deps) {
   const { verifyIdToken, bearer, gate, clientIp, log } = deps;
 
-  app.post('/api/publish', express.json({ limit: '256kb' }), async (req, res) => {
+  app.post('/api/publish', appCheckMiddleware(log, '/api/publish'), express.json({ limit: '256kb' }), async (req, res) => {
     const say = (status, code, message, extra = {}) => res.status(status).json({ ok: false, code, message, ...extra });
     const db = deps.db();
     if (!db) return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
@@ -222,24 +251,28 @@ export function mountPublish(app, deps) {
     const sensitive = items.some(i => i.aiFlags?.sensitiveSpecies);
     if (sensitive) items.forEach(i => { i.locationArea = ''; i.showLocation = false; });
 
-    // Image check
+    // Words: abuse and spam heuristics (no AI). A hit keeps the sighting out of the feed until reviewed.
+    const safety = new Set(textFlags([caption, title, description, behavior, ...tags, ...items.flatMap(i => [i.behavior, i.aiInsight, ...i.labels])], { extraWords: settings.moderationWords || [] }));
+
+    // Image check (once per sighting; re-run only if the picture is edited later)
     let reasons = [];
     let unchecked = false;
     if (items.some(i => i.aiFlags?.isNatureSubject === false)) reasons.push('notNature');
     if (items.some(i => i.aiFlags?.peopleVisible)) reasons.push('people');
     try {
       const m = await moderateImages(deps, user.uid, items, settings);
-      reasons = Array.from(new Set([...reasons, ...m.reasons]));
+      for (const r of m.reasons) (SAFETY_REASONS.includes(r) ? safety.add(r) : reasons.push(r));
+      reasons = Array.from(new Set(reasons));
     } catch (e) {
       unchecked = true;
-      log('warn', 'publish check unavailable', { uid: user.uid, error: String(e.message).slice(0, 120) });
+      log('warn', 'publish check unavailable', { uid: user.uid, failOpen: MODERATION_FAIL_OPEN, error: String(e.message).slice(0, 120) });
     }
+    const safetyReasons = [...safety];
 
     const wantsFeed = body.feed === true;
     const requestReview = body.requestReview === true;
     if (reasons.length && !requestReview) {
-      const order = ['faces', 'people', 'plates', 'screen', 'notNature'];
-      const first = order.find(r => reasons.includes(r));
+      const first = PRIVACY_REASONS.find(r => reasons.includes(r));
       return say(422, first, g[first], { reasons, fix: first === 'notNature' || first === 'screen' ? 'retake' : 'crop', canRequestReview: true });
     }
 
@@ -248,7 +281,11 @@ export function mountPublish(app, deps) {
     if (charged.unavailable) return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
     if (!charged.ok) return say(429, 'allowance', `You've shared today's ${limit} sightings. Sharing opens again at midnight UTC.`);
 
-    const held = reasons.length > 0 || unchecked;
+    // pending: safety flags, the admin decides. held: privacy review the explorer asked for (or an
+    // unchecked image when fail-open is off). Unchecked with fail-open: published, queued for a look.
+    const pending = safetyReasons.length > 0;
+    const held = pending || reasons.length > 0 || (unchecked && !MODERATION_FAIL_OPEN);
+    const lookLater = !held && unchecked;
     const profile = (await db.doc(`users/${user.uid}`).get().catch(() => null))?.data() || {};
     const primary = items[0];
     const labels = Array.from(new Set(items.flatMap(i => i.labels))).slice(0, 20);
@@ -277,13 +314,17 @@ export function mountPublish(app, deps) {
       isJournal: body.journal !== false || held,
       reportStatus: 'safe', reports: [],
       isHybrid: items.length > 1 || items.some(i => i.associatedImageUrls.length > 0),
-      items: items.map(({ aiResultId, ...rest }) => ({ ...rest, aiResultId })),
+      items: items.map(({ aiResultId, observedAt, ...rest }) => ({ ...rest, aiResultId, ...(observedAt ? { observedAt } : {}) })),
+      ...(items.find(i => i.observedAt) ? { observedAt: items.find(i => i.observedAt).observedAt } : {}),
       rotation: primary.rotation, timeToRecordMs: primary.timeToRecordMs, sessionRetakes: primary.sessionRetakes,
       humanDelta: items.some(i => i.humanDelta),
-      moderation: held
-        ? { status: 'held', reasons: unchecked && !reasons.length ? ['unchecked'] : reasons, requestedFeed: wantsFeed, at: FieldValue.serverTimestamp() }
-        : { status: 'clear', at: FieldValue.serverTimestamp() },
+      moderation: pending
+        ? { status: 'pending', reasons: [...safetyReasons, ...reasons], requestedFeed: wantsFeed, imageChecked: !unchecked, at: FieldValue.serverTimestamp() }
+        : held
+          ? { status: 'held', reasons: unchecked && !reasons.length ? ['unchecked'] : reasons, requestedFeed: wantsFeed, imageChecked: !unchecked, at: FieldValue.serverTimestamp() }
+          : { status: 'clear', ...(unchecked ? { unchecked: true } : {}), imageChecked: !unchecked, at: FieldValue.serverTimestamp() },
     };
+    post.searchTokens = searchTokensFor({ ...post, title });
     if (title) post.title = title;
     if (description) post.description = description;
 
@@ -291,9 +332,10 @@ export function mountPublish(app, deps) {
     const batch = db.batch();
     batch.set(ref, post);
     if (post.isPublic) batch.set(db.doc(`feed_thumbnails/${ref.id}`), thumbnailOf(ref.id, post));
-    if (held) {
+    if (held || lookLater) {
       batch.set(db.doc(`review_queue/${ref.id}`), {
-        postId: ref.id, userId: user.uid, reasons: post.moderation.reasons, requestedFeed: wantsFeed,
+        kind: pending ? 'safety' : lookLater ? 'unchecked' : 'privacy',
+        postId: ref.id, userId: user.uid, reasons: lookLater ? ['unchecked'] : post.moderation.reasons, requestedFeed: wantsFeed, published: post.isPublic,
         requestedByExplorer: requestReview, note: str(body.reviewNote, 300) || null,
         thumb: primary.thumbSmallUrl || primary.thumbnailUrl || primary.imageUrl || null,
         createdAt: FieldValue.serverTimestamp(), status: 'open',
@@ -311,7 +353,7 @@ export function mountPublish(app, deps) {
       return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
     }
 
-    log('info', 'published', { uid: user.uid, postId: ref.id, held, reasons: post.moderation.reasons || [] });
+    log('info', 'published', { uid: user.uid, postId: ref.id, held, pending, unchecked, reasons: post.moderation.reasons || [] });
     res.json({
       ok: true, id: ref.id, held, isPublic: post.isPublic,
       url: primary.imageUrl || undefined, videoUrl: primary.videoUrl || undefined, audioUrl: primary.audioUrl || undefined,
@@ -322,7 +364,7 @@ export function mountPublish(app, deps) {
   });
 
   // Share a journal-only sighting to the feed later (only one that passed the checks)
-  app.post('/api/posts/:id/visibility', express.json({ limit: '4kb' }), async (req, res) => {
+  app.post('/api/posts/:id/visibility', appCheckMiddleware(log, '/api/posts/visibility'), express.json({ limit: '4kb' }), async (req, res) => {
     const db = deps.db();
     if (!db) return res.status(503).json({ ok: false, message: 'Unavailable for a moment.' });
     let user;
@@ -349,8 +391,20 @@ export function mountPublish(app, deps) {
       const settings = await getSettings();
       try {
         const { reasons } = await moderateImages(deps, user.uid, [post], settings);
+        const unsafe = reasons.filter(r => SAFETY_REASONS.includes(r));
+        if (unsafe.length) {
+          // Not something the explorer can crop away: the admin decides
+          const batch = db.batch();
+          batch.update(ref, { isPublic: false, moderation: { status: 'pending', reasons, requestedFeed: true, imageChecked: true, at: FieldValue.serverTimestamp() } });
+          batch.set(db.doc(`review_queue/${id}`), {
+            kind: 'safety', postId: id, userId: user.uid, reasons, requestedFeed: true, published: false, requestedByExplorer: false, note: null,
+            thumb: post.thumbSmallUrl || post.thumbnailUrl || post.imageUrl || null, createdAt: FieldValue.serverTimestamp(), status: 'open',
+          });
+          await batch.commit();
+          return res.status(202).json({ ok: false, code: 'pending', message: 'Saved to your journal. It will appear in the feed once it has been reviewed.' });
+        }
         if (reasons.length) {
-          const first = ['faces', 'people', 'plates', 'screen', 'notNature'].find(r => reasons.includes(r));
+          const first = PRIVACY_REASONS.find(r => reasons.includes(r));
           return res.status(422).json({ ok: false, code: first, message: settings.guidance[first], reasons });
         }
         recheck = { status: 'clear', at: FieldValue.serverTimestamp() };
@@ -384,5 +438,7 @@ export function thumbnailOf(id, post) {
     aiInsight: post.aiInsight || null, aiConfidence: post.aiConfidence || null,
     locationArea: post.showLocation === false ? '' : (post.locationArea || ''),
     isHybrid: !!post.isHybrid,
+    searchTokens: Array.isArray(post.searchTokens) ? post.searchTokens : [],
+    ...(post.communityVerified === true ? { communityVerified: true, idAgreeCount: post.idAgreeCount || 2 } : {}),
   };
 }

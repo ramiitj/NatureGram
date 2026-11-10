@@ -1,4 +1,6 @@
 import { apiUrl } from './apiOrigin';
+import { appCheckHeaders } from './appCheck';
+import { searchTokensFor, queryTokens, sameTokens } from './searchTokens';
 
 import {
   collection,
@@ -68,6 +70,26 @@ export class PublishError extends Error {
     super(message);
   }
 }
+
+// Muted explorers of the signed-in account (users/{me}/muted/{uid}), cached for filtering lists
+let mutedCache: { uid: string | null; ids: Set<string>; at: number; loading: Promise<Set<string>> | null } = { uid: null, ids: new Set(), at: 0, loading: null };
+const mutedListeners = new Set<() => void>();
+const loadMuted = (force = false): Promise<Set<string>> => {
+  const me = auth.currentUser?.uid || null;
+  if (!me) { mutedCache = { uid: null, ids: new Set(), at: Date.now(), loading: null }; return Promise.resolve(mutedCache.ids); }
+  if (!force && mutedCache.uid === me && Date.now() - mutedCache.at < 5 * 60_000) return Promise.resolve(mutedCache.ids);
+  if (mutedCache.loading && mutedCache.uid === me) return mutedCache.loading;
+  const loading = getDocs(collection(db, 'users', me, 'muted'))
+    .then(snap => new Set(snap.docs.map(d => d.id)))
+    .catch(() => new Set<string>())
+    .then(ids => { mutedCache = { uid: me, ids, at: Date.now(), loading: null }; mutedListeners.forEach(l => l()); return ids; });
+  mutedCache = { ...mutedCache, uid: me, loading };
+  return loading;
+};
+/** Synchronous view of the muted set (may be empty until the first load finishes). */
+const mutedNow = () => (mutedCache.uid && mutedCache.uid === auth.currentUser?.uid ? mutedCache.ids : new Set<string>());
+const withoutMuted = <T extends { userId?: string; senderId?: string }>(list: T[], muted: Set<string> = mutedNow()): T[] =>
+  muted.size ? list.filter(x => !muted.has(String(x.userId || x.senderId || ''))) : list;
 
 /** What an explorer has left today (same allowance for everyone, set by the admin). */
 export const getMyAllowance = async (): Promise<null | { posts: { limit: number; used: number }; liveMinutes: { limit: number; used: number; usedMs?: number }; identifications: { limit: number; used: number }; resetsAt: string }> => {
@@ -284,7 +306,11 @@ export const FirebaseService = {
     return cred;
   },
 
-  registerUser: async (email: string, pass: string, username?: string) => {
+  /**
+   * @param opts.ageConfirmed  the explorer passed the 13+ check at sign-up. Only the fact and the
+   *   time are stored (never the date of birth).
+   */
+  registerUser: async (email: string, pass: string, username?: string, opts: { ageConfirmed?: boolean } = {}) => {
     // Upgrade a guest session in place so the explorer keeps the same identity
     const current = auth.currentUser;
     const cred = current && current.isAnonymous
@@ -294,6 +320,7 @@ export const FirebaseService = {
         await FirebaseService.ensureUserProfile(cred.user.uid, email, false);
         const desired = (username || '').trim().replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
         const updates: any = { isAnonymous: false };
+        if (opts.ageConfirmed) { updates.ageConfirmed = true; updates.ageConfirmedAt = serverTimestamp(); }
         if (desired) { updates.username = desired; updates.usernameLower = desired.toLowerCase(); }
         await updateDoc(doc(db, "users", cred.user.uid), updates);
         if (desired) await updateProfile(cred.user, { displayName: desired });
@@ -615,6 +642,8 @@ export const FirebaseService = {
         aiProposedBehavior: snapshot.aiProposedBehavior || null,
         humanDelta: snapshot.humanDelta || false,
         sessionRetakes: snapshot.sessionRetakes || null,
+        // When the photo was taken (EXIF, already coarse); the server checks and stores it as observedAt
+        takenAtMs: typeof (snapshot as any).takenAtMs === 'number' && Number.isFinite((snapshot as any).takenAtMs) ? (snapshot as any).takenAtMs : null,
       };
   },
 
@@ -653,7 +682,7 @@ export const FirebaseService = {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch(apiUrl('/api/publish'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}`, ...(await appCheckHeaders()) },
         body: JSON.stringify({
           items, tags, caption, feed: flags.feed, journal: flags.journal,
           title: extra.title, description: extra.description, behavior: extra.behavior,
@@ -721,7 +750,7 @@ export const FirebaseService = {
   },
 
   // ------------------------------------------------------------------ community identification
-  getIdentifications: async (postId: string): Promise<{ id: string; name: string; scientificName?: string; note?: string; userName?: string; agree?: boolean }[]> => {
+  getIdentifications: async (postId: string): Promise<{ id: string; name: string; scientificName?: string; note?: string; userName?: string; agree?: boolean; thanked?: boolean }[]> => {
     try {
       const snap = await getDocs(collection(db, 'ecosystem_feed', postId, 'identifications'));
       return snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
@@ -738,7 +767,7 @@ export const FirebaseService = {
       userName: (profile?.username || me.displayName || 'Explorer').slice(0, 60),
       agree: !!data.agree,
       createdAt: serverTimestamp(),
-    });
+    }, { merge: true }); // merge keeps a thank-you from the post's author
     // Close the loop for the explorer who posted it: their ID was confirmed or questioned.
     // Best effort: needs the 'identification' notification type in firestore.rules.
     try {
@@ -758,6 +787,13 @@ export const FirebaseService = {
     } catch (notifErr) {
       console.warn('Identification notification skipped:', notifErr);
     }
+  },
+  /** The post's author thanks an explorer for their identification (shown as "Thanked"). */
+  thankIdentification: async (postId: string, identifierId: string) => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw new Error('Please sign in to thank explorers.');
+    if (identifierId === me.uid) return;
+    await updateDoc(doc(db, 'ecosystem_feed', postId, 'identifications', identifierId), { thanked: true, thankedAt: serverTimestamp() });
   },
   removeIdentification: async (postId: string) => {
     const me = auth.currentUser?.uid;
@@ -827,6 +863,7 @@ export const FirebaseService = {
   },
 
   getMorePosts: async (lastVisible: any, searchTag?: string | null, pageSize: number = PAGE_SIZE): Promise<{ posts: CommunityPost[], lastVisible: any }> => {
+      const muted = await loadMuted();
       // First page: plain JSON from the server (often already fetched by a preload in index.html)
       if (!lastVisible && !searchTag) {
           try {
@@ -839,7 +876,7 @@ export const FirebaseService = {
                   if (Array.isArray(j.posts) && j.posts.length) {
                       const posts = j.posts.filter((p: any) => !isSeedPost(p.id, p)).map((p: any) => ({ ...p, timestamp: Timestamp.fromMillis(p.ts || 0) })) as CommunityPost[];
                       const last = j.posts[j.posts.length - 1];
-                      return { posts, lastVisible: j.more ? Timestamp.fromMillis(last.ts || 0) : null };
+                      return { posts: withoutMuted(posts, muted), lastVisible: j.more ? Timestamp.fromMillis(last.ts || 0) : null };
                   }
               }
           } catch { /* fall back to the database */ }
@@ -888,7 +925,7 @@ export const FirebaseService = {
       });
       const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
       posts.sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
-      return { posts, lastVisible: snapshot.docs.length === pageSize ? snapshot.docs[snapshot.docs.length - 1] : null };
+      return { posts: withoutMuted(posts, muted), lastVisible: snapshot.docs.length === pageSize ? snapshot.docs[snapshot.docs.length - 1] : null };
   },
 
   subscribeToUserJournal: (userId: string, callback: (posts: CommunityPost[]) => void, opts: { publicOnly?: boolean } = {}) => {
@@ -1083,7 +1120,12 @@ export const FirebaseService = {
     const q = query(collection(db, "ecosystem_feed", postId, "comments"), orderBy("timestamp", "asc"));
     return onSnapshot(q, (snapshot) => {
         const comments: Comment[] = [];
-        snapshot.forEach(doc => comments.push({ id: doc.id, ...doc.data() } as Comment));
+        const me = auth.currentUser?.uid;
+        snapshot.forEach(doc => {
+          const c: any = doc.data();
+          if (c.hidden === true && c.userId !== me) return;
+          comments.push({ id: doc.id, ...c } as Comment);
+        });
         callback(comments);
     }, (error) => {
         handleFirestoreError(error, OperationType.GET, `ecosystem_feed/${postId}/comments`);
@@ -1110,16 +1152,22 @@ export const FirebaseService = {
       return () => {};
     }
     const q = query(collection(db, "users", userId, "notifications"), orderBy("timestamp", "desc"), limit(20));
-    return onSnapshot(q, (snapshot) => {
+    // Notifications from muted explorers are left out (and re-filtered when the muted list changes)
+    let last: FieldNotification[] | null = null;
+    const emit = () => { if (last) callback(withoutMuted(last as any[]) as FieldNotification[]); };
+    const offMuted = FirebaseService.onMutedChange(emit);
+    const unsub = onSnapshot(q, (snapshot) => {
       const notifs: FieldNotification[] = [];
       snapshot.forEach(doc => {
         const data = doc.data();
         notifs.push({ id: doc.id, ...data } as FieldNotification);
       });
-      callback(notifs);
+      last = notifs;
+      emit();
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, `users/${userId}/notifications`);
     });
+    return () => { offMuted(); unsub(); };
   },
 
   markNotificationRead: async (userId: string, notifId: string) => {
@@ -1173,6 +1221,73 @@ export const FirebaseService = {
     return [...a, ...b, ...c].filter(u => !u.isAnonymous && !seen.has(u.uid) && seen.add(u.uid)).slice(0, max);
   },
 
+  /**
+   * Full-text sighting search: array-contains on the longest word's prefix key (`searchTokens`),
+   * then every other word is checked here. Falls back to the hashtag search for sightings that
+   * have no search keys yet (before the backfill) or when the index isn't deployed.
+   */
+  searchPosts: async (term: string, max = 40): Promise<CommunityPost[]> => {
+    const tokens = queryTokens(term);
+    if (!tokens.length) return [];
+    const first = [...tokens].sort((a, b) => b.length - a.length)[0];
+    const rest = tokens.filter(t => t !== first);
+    const muted = await loadMuted();
+    const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
+    let docs: any[] = [];
+    try {
+      const snap = await getDocs(query(collection(db, 'feed_thumbnails'), where('searchTokens', 'array-contains', first), where('isPublic', '==', true), orderBy('timestamp', 'desc'), limit(120)));
+      docs = snap.docs;
+    } catch (e: any) {
+      if (e?.code === 'failed-precondition') {
+        try { docs = (await getDocs(query(collection(db, 'feed_thumbnails'), where('searchTokens', 'array-contains', first), where('isPublic', '==', true), limit(120)))).docs; } catch { docs = []; }
+      }
+    }
+    let posts = docs
+      .map(d => ({ id: d.id, ...(d.data() as any), labels: (d.data() as any).labels || ['Nature'] } as CommunityPost))
+      .filter(p => p.isPublic === true && !isSeedPost(p.id, p))
+      .filter(p => { const have = new Set((p as any).searchTokens || []); return rest.every(t => have.has(t)); });
+    if (posts.length < 5 && tokens.length === 1) {
+      // Older sightings without search keys: the original hashtag search
+      try {
+        const legacy = (await FirebaseService.getMorePosts(null, first, 30)).posts;
+        const seen = new Set(posts.map(p => p.id));
+        posts = [...posts, ...legacy.filter(p => !seen.has(p.id))];
+      } catch { /* keep what we have */ }
+    }
+    return withoutMuted(posts, muted).sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp)).slice(0, max);
+  },
+
+  // ------------------------------------------------------------------ explore
+  /** Recent public sightings (for Explore's places, kinds of life and challenge sections). */
+  getRecentPublic: async (max = 60): Promise<CommunityPost[]> => {
+    const muted = await loadMuted();
+    try {
+      const snap = await getDocs(query(collection(db, 'feed_thumbnails'), where('isPublic', '==', true), orderBy('timestamp', 'desc'), limit(max)));
+      return withoutMuted(snap.docs.map(d => ({ id: d.id, ...(d.data() as any), labels: (d.data() as any).labels || ['Nature'] } as CommunityPost)).filter(p => !isSeedPost(p.id, p)), muted);
+    } catch {
+      return (await FirebaseService.getMorePosts(null, null, Math.min(max, 30)).catch(() => ({ posts: [] as CommunityPost[] }))).posts;
+    }
+  },
+
+  /** Public sightings at least two explorers have confirmed, newest first. */
+  getRecentlyConfirmed: async (max = 12): Promise<CommunityPost[]> => {
+    const muted = await loadMuted();
+    const toPost = (d: any) => ({ id: d.id, ...(d.data() as any), labels: (d.data() as any).labels || ['Nature'] } as CommunityPost);
+    try {
+      // Kept on the post by the syncCommunityVerification Cloud Function
+      const snap = await getDocs(query(collection(db, 'feed_thumbnails'), where('communityVerified', '==', true), where('isPublic', '==', true), orderBy('timestamp', 'desc'), limit(max)));
+      if (!snap.empty) return withoutMuted(snap.docs.map(toPost).filter(p => !isSeedPost(p.id, p)), muted);
+    } catch { /* index or function not deployed yet: work it out below */ }
+    // Fallback: check the identifications of recent sightings (same rule as CommunityId: 2+ agree)
+    const recent = await FirebaseService.getRecentPublic(30);
+    const checked = await Promise.all(recent.map(async p => {
+      const ids = await FirebaseService.getIdentifications(p.id);
+      const primary = String(p.labels?.[0] || '').trim().toLowerCase();
+      return ids.filter(i => String(i.name || '').trim().toLowerCase() === primary).length >= 2 ? p : null;
+    }));
+    return checked.filter(Boolean).slice(0, max) as CommunityPost[];
+  },
+
   findUserByUsername: async (username: string): Promise<UserProfileData | null> => {
     const u = username.replace(/^@/, '');
     for (const [field, value] of [['usernameLower', u.toLowerCase()], ['username', u]] as const) {
@@ -1224,7 +1339,7 @@ export const FirebaseService = {
     const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
     const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) } as CommunityPost)).filter(p => !isSeedPost(p.id, p));
     if (!ordered) posts.sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
-    return { posts, lastVisible: ordered && snap.docs.length === pageSize ? snap.docs[snap.docs.length - 1] : null };
+    return { posts: withoutMuted(posts, await loadMuted()), lastVisible: ordered && snap.docs.length === pageSize ? snap.docs[snap.docs.length - 1] : null };
   },
 
   // ------------------------------------------------------------------ direct messages
@@ -1375,7 +1490,7 @@ export const FirebaseService = {
       }
     }));
     const toMs = (t: any) => t?.toMillis ? t.toMillis() : (t?.seconds ? t.seconds * 1000 : 0);
-    return results.flat().sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
+    return withoutMuted(results.flat(), await loadMuted()).sort((a, b) => toMs(b.timestamp) - toMs(a.timestamp));
   },
 
   // ------------------------------------------------------------------ safety: block & save
@@ -1395,6 +1510,35 @@ export const FirebaseService = {
     if (!me) return;
     await deleteDoc(doc(db, "users", me, "blocked", targetUid));
   },
+
+  // ------------------------------------------------------------------ safety: mute (quieter than block)
+  // Muting hides an explorer's sightings, Moments and notifications from you. Unlike blocking it
+  // doesn't unfollow, doesn't stop letters, and they are never told. Stored only under your account.
+  getMutedIds: async (): Promise<string[]> => [...(await loadMuted())],
+  isMuted: async (targetUid: string): Promise<boolean> => (await loadMuted()).has(targetUid),
+  muteUser: async (targetUid: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me || me === targetUid || auth.currentUser?.isAnonymous) throw new Error('Please sign in to mute explorers.');
+    await setDoc(doc(db, "users", me, "muted", targetUid), { createdAt: serverTimestamp() });
+    mutedCache.ids = new Set([...mutedNow(), targetUid]); mutedCache.uid = me; mutedCache.at = Date.now();
+    mutedListeners.forEach(l => l());
+  },
+  unmuteUser: async (targetUid: string) => {
+    const me = auth.currentUser?.uid;
+    if (!me) return;
+    await deleteDoc(doc(db, "users", me, "muted", targetUid));
+    const next = new Set(mutedNow()); next.delete(targetUid);
+    mutedCache.ids = next; mutedCache.at = Date.now();
+    mutedListeners.forEach(l => l());
+  },
+  /**
+   * Drop posts, Moments or notifications from muted explorers. Pass `muted` from getMutedIds()
+   * for an exact result; without it the cached set is used (loaded on first use).
+   */
+  filterMuted: <T extends { userId?: string; senderId?: string }>(list: T[], muted?: string[] | Set<string>): T[] =>
+    withoutMuted(list, muted ? new Set(muted) : mutedNow()),
+  /** Be told when the muted list changes (to re-filter what's on screen). Returns an unsubscribe. */
+  onMutedChange: (cb: () => void) => { mutedListeners.add(cb); loadMuted(); return () => { mutedListeners.delete(cb); }; },
 
   isSaved: async (postId: string): Promise<boolean> => {
     const me = auth.currentUser?.uid;
@@ -1742,7 +1886,7 @@ export const FirebaseService = {
   setPostVisibility: async (postId: string, isPublic: boolean): Promise<void> => {
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch(apiUrl(`/api/posts/${encodeURIComponent(postId)}/visibility`), {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}`, ...(await appCheckHeaders()) },
         body: JSON.stringify({ isPublic }),
       });
       const out: any = await res.json().catch(() => ({}));
@@ -1775,6 +1919,19 @@ export const FirebaseService = {
           }
       } catch (e) {
           /* journal-only sightings have no feed entry */
+      }
+      // Keep the search keys in step with the words (best effort: never undoes the edit above)
+      if (['caption', 'title', 'tags', 'labels', 'locationArea', 'showLocation'].some(k => k in updates)) {
+          try {
+              const snap = await getDoc(doc(db, "ecosystem_feed", postId));
+              if (snap.exists()) {
+                  const tokens = searchTokensFor(snap.data());
+                  if (!sameTokens(tokens, snap.data().searchTokens)) {
+                      await updateDoc(doc(db, "ecosystem_feed", postId), { searchTokens: tokens });
+                      await updateDoc(doc(db, "feed_thumbnails", postId), { searchTokens: tokens }).catch(() => {});
+                  }
+              }
+          } catch { /* rules not deployed yet, or offline: the admin backfill catches up */ }
       }
   }
 };

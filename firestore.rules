@@ -75,7 +75,25 @@ service cloud.firestore {
     // What an author may edit on their own sighting after publishing (words, not media or the guide's words)
     function authorTextKeys() {
       return ['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors',
-              'showLocation', 'locationArea', 'isJournal', 'userName', 'userAvatar'];
+              'showLocation', 'locationArea', 'isJournal', 'userName', 'userAvatar', 'searchTokens', 'observedAt'];
+    }
+    // Search keys are word prefixes the app recomputes after an edit (capped like the server's)
+    function searchTokensOk() {
+      return !('searchTokens' in incoming()) || (incoming().searchTokens is list && incoming().searchTokens.size() <= 100);
+    }
+    function observedAtOk() {
+      return !('observedAt' in incoming()) || incoming().observedAt == null || incoming().observedAt is timestamp;
+    }
+    // Thank-you marks on an identification are the post author's to give; the identifier only carries them
+    function keepsThanks() {
+      return resource == null
+        ? !('thanked' in incoming()) && !('thankedAt' in incoming())
+        : incoming().get('thanked', null) == resource.data.get('thanked', null)
+          && incoming().get('thankedAt', null) == resource.data.get('thankedAt', null);
+    }
+    // A profile's age confirmation can only ever say yes
+    function ageOk() {
+      return !('ageConfirmed' in incoming()) || incoming().ageConfirmed == true;
     }
     // Changing the picture takes the sighting out of the feed until the server checks it again
     function authorMediaEdit() {
@@ -92,12 +110,13 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && incoming().uid == userId
         && !incoming().keys().hasAny(['admin', 'role', 'verified', 'followersCount', 'followingCount'])
-        && isStr(incoming().username, 40)
+        && isStr(incoming().username, 40) && ageOk()
         && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60);
       allow update: if isAdmin()
         || (isOwner(userId)
             && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount'])
             && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
+            && ageOk()
             && optStr('username', 40) && optStr('usernameLower', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
         // Followers counter: only moves with the caller's own follower doc (batched write)
         || (isMember() && !isOwner(userId)
@@ -150,6 +169,12 @@ service cloud.firestore {
       match /blocked/{targetId} {
         allow read, write: if isOwner(userId);
       }
+      // Muted explorers: private to the person who muted (the muted explorer never knows)
+      match /muted/{targetId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && targetId != userId
+          && incoming().keys().hasOnly(['createdAt']);
+      }
       match /saved/{postId} {
         allow read, write: if isOwner(userId);
       }
@@ -180,6 +205,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isOwner(existing().userId)
             && optStr('caption', 2200) && optStr('title', 200) && optStr('description', 5000)
+            && searchTokensOk() && observedAtOk()
             && (
               // words only; visibility may only be switched off here (on goes through the server)
               (changedKeys().hasOnly(authorTextKeys().concat(['isPublic'])) && (!('isPublic' in changedKeys()) || incoming().isPublic == false))
@@ -231,7 +257,14 @@ service cloud.firestore {
         allow create, update: if isOwner(identifierId) && isMember()
           && isStr(incoming().name, 80) && incoming().name.size() > 0
           && optStr('scientificName', 80) && optStr('note', 280) && optStr('userName', 60)
-          && incoming().keys().hasOnly(['name', 'scientificName', 'note', 'userName', 'agree', 'createdAt']);
+          && incoming().keys().hasOnly(['name', 'scientificName', 'note', 'userName', 'agree', 'createdAt', 'thanked', 'thankedAt'])
+          // The identifier can keep a thank-you when re-saving, never award one
+          && keepsThanks();
+        // The post's author can thank an identifier (and only that)
+        allow update: if isMember() && !isOwner(identifierId)
+          && isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
+          && changedKeys().hasOnly(['thanked', 'thankedAt'])
+          && incoming().thanked == true;
         allow delete: if isOwner(identifierId) || isAdmin();
       }
 
@@ -260,7 +293,7 @@ service cloud.firestore {
       // Written by the server when a checked sighting joins the feed
       allow create: if false;
       allow update: if isAdmin()
-        || (isOwner(existing().userId) && changedKeys().hasOnly(['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar']))
+        || (isOwner(existing().userId) && changedKeys().hasOnly(['caption', 'title', 'description', 'tags', 'labels', 'behavior', 'ethologicalDescriptors', 'locationArea', 'userName', 'userAvatar', 'searchTokens']) && searchTokensOk())
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
         || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'));
@@ -329,6 +362,12 @@ service cloud.firestore {
     match /admin_config/{configId} {
       allow read, write: if isAdmin();
     }
+    // Feature flags and experiments: everyone reads (the app decides variants locally); only the admin writes
+    // (the admin console goes through the server, which keeps history and an audit trail).
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     // Public switches and allowances. Changed only through the admin API, which keeps history and an audit trail.
     match /app_config/{configId} {
       allow read: if true;
@@ -346,6 +385,7 @@ service cloud.firestore {
     match /suspended/{id} { allow read, write: if false; }
     match /review_queue/{id} { allow read, write: if false; }
     match /admin_audit/{id} { allow read, write: if false; }
+    match /live_leases/{id} { allow read, write: if false; }
     match /naturalist_profiles/{profileId} {
       allow read: if true;
       allow write: if isAdmin();

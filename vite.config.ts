@@ -22,6 +22,8 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('@google/genai')) return 'vendor-genai';
+          // App Check loads only when a site key is set (services/appCheck.ts): keep it out of the shared chunk
+          if (id.includes('app-check')) return 'vendor-appcheck';
           if (id.includes('firebase/firestore') || id.includes('@firebase/firestore')) return 'vendor-firestore';
           if (id.includes('firebase') || id.includes('@firebase')) return 'vendor-firebase';
           if (id.includes('motion') || id.includes('framer')) return 'vendor-motion';
