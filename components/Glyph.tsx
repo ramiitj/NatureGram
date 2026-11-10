@@ -31,9 +31,11 @@ export type GlyphName =
   | 'frog'          // amphibians & reptiles
   | 'shell'         // molluscs & other life
   | 'sound'         // sound sightings
-  | 'mark'          // NatureGram's own mark (a sun rising over an opening leaf)
+  | 'mark'          // NatureGram's own mark (a hand lens over an uncurling fiddlehead)
   | 'signpost'      // off the trail (errors, wrong turns)
-  | 'key';          // a field-station key (password reset)
+  | 'key'          // a field-station key (password reset)
+  | 'seal'          // audit & security (a wax seal with a keyhole)
+  | 'scales';       // allowances and limits (a balance)
 
 const P: Record<GlyphName, React.ReactNode> = {
   notebook: <><path d="M6 3.5h11a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H6z" /><path d="M6 3.5v17M4 7h3M4 12h3M4 17h3" /><path d="M10 8h5M10 11h4" /></>,
@@ -63,6 +65,8 @@ const P: Record<GlyphName, React.ReactNode> = {
   mark: <><path d="M6.5 21c.8-3.2 2.3-6 4.7-7.8 2.6-2 3.1-4.8 1.2-5.7-1.7-.8-3.1.7-2.4 2.3.6 1.3 2.3 1.1 2.5-.1" /><circle cx="12.3" cy="9.8" r="5.6" /><path d="M16.3 13.8l3.6 3.6" strokeWidth={2.2} /></>,
   signpost: <><path d="M12 21V3.5" /><path d="M12 5.5h6.2l2 2-2 2H12" /><path d="M12 11.5H5.8l-2 2 2 2H12" /><path d="M8.5 21h7" /></>,
   key: <><circle cx="8" cy="16" r="4.5" /><circle cx="8" cy="16" r="1.3" /><path d="M11.2 12.8L20 4M15.5 8.5l2.5 2.5M18 6l2 2" /></>,
+  seal: <><circle cx="12" cy="9.5" r="6.5" /><circle cx="12" cy="9.5" r="4.2" strokeDasharray="1.4 1.6" /><circle cx="12" cy="8.7" r="1.1" /><path d="M12 9.8v1.8M9 15.3 7.8 21l2.4-1.4L12 21l1.8-1.4 2.4 1.4L15 15.3" /></>,
+  scales: <><path d="M12 4v15.5M8.5 20h7M5 7h14M12 4.5l-1 2.5h2z" /><path d="M7 7.5 4.5 13h5zM17 7.5 14.5 13h5z" /><path d="M4.5 13a2.5 1.8 0 0 0 5 0M14.5 13a2.5 1.8 0 0 0 5 0" /></>,
 };
 
 export const Glyph: React.FC<{ name: GlyphName; className?: string; size?: number; strokeWidth?: number; title?: string }> = ({ name, className = '', size = 22, strokeWidth = 1.5, title }) => (
