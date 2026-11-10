@@ -755,7 +755,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     // Friendly addresses for the legal pages
     app.get(['/privacy', '/terms'], (req, res) => res.redirect(301, `${req.path}.html`));
     // Only real app routes get the app; anything else is a proper 404
-    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
+    const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|explore\/?$|guardian\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
       res.setHeader('Cache-Control', 'no-cache');
