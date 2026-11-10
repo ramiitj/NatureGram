@@ -8,7 +8,7 @@ import { PUBLIC_ORIGIN } from '../utils';
 import { track } from '../services/analytics';
 import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
 import { getCorsProxyUrl } from '../services/firebaseService';
-import { buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
+import { lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
@@ -486,6 +486,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
   const username = profile?.username || (isOwnProfile ? auth.currentUser?.displayName : '') || 'Explorer';
   const visiblePosts = useMemo(() => isOwnProfile ? posts : posts.filter(p => p.isPublic), [posts, isOwnProfile]);
+  // The same public count shown beside this explorer's name everywhere else (server stats use the same rule)
+  const headerStats = useMemo(() => lifeStats(posts), [posts]);
 
   // Life list: every distinct species, numbered in the order it was first found
   const lifeList = useMemo(() => buildLifeList(visiblePosts), [visiblePosts]);
@@ -672,12 +674,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           <section aria-label="Field page" className="mt-5 py-4 border-y border-theme-primary/15">
             <div className="flex items-baseline gap-6">
               <button onClick={() => setTab('lifelist')} className="text-left group">
-                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{lifeList.length}</span>
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.species}</span>
                 <span className="block text-xs text-stone-500 mt-1">species</span>
               </button>
               <button onClick={() => setTab('posts')} className="text-left group">
-                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{visiblePosts.length}</span>
-                <span className="block text-xs text-stone-500 mt-1">{visiblePosts.length === 1 ? 'sighting' : 'sightings'}</span>
+                <span className="block text-[28px] leading-none font-display text-theme-primary tabular group-hover:underline decoration-theme-accent/40 underline-offset-4">{headerStats.sightings}</span>
+                <span className="block text-xs text-stone-500 mt-1">{headerStats.sightings === 1 ? 'sighting' : 'sightings'}</span>
               </button>
               <p className="ml-auto self-center text-sm text-stone-500 text-right">
                 <button onClick={() => setSheet('followers')} className="hover:text-theme-primary hover:underline underline-offset-4">{(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'follower' : 'followers'}</button>

@@ -12,7 +12,7 @@
     "build:native": "vite build && cap sync",
     "open:ios": "cap open ios",
     "open:android": "cap open android",
-    "test:server": "node --test server/test/governance.test.mjs server/test/roadmap.test.mjs server/test/authMail.test.mjs server/test/guardian.test.mjs server/test/seo.test.mjs server/test/palettes.test.mjs server/test/feedMedia.test.mjs",
+    "test:server": "node --test server/test/governance.test.mjs server/test/roadmap.test.mjs server/test/authMail.test.mjs server/test/guardian.test.mjs server/test/seo.test.mjs server/test/palettes.test.mjs server/test/feedMedia.test.mjs server/test/userStats.test.mjs",
     "assets:native": "node scripts/generate-native-assets.mjs",
     "set-admin": "node scripts/set-admin.mjs"
   },
