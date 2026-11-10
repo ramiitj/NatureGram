@@ -55,3 +55,6 @@ export async function appCheckHeaders(): Promise<Record<string, string>> {
 
 /** Start App Check early (call once at startup); harmless when it is off. */
 export const initAppCheck = () => { instance(); };
+
+// Warm up shortly after start (off the critical path) so the first protected call doesn't wait
+if (appCheckEnabled) setTimeout(() => { instance(); }, 2500);
