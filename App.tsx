@@ -20,6 +20,7 @@ import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import ChangingOfTheGuard, { pendingHandover } from './components/ChangingOfTheGuard.tsx';
+import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
 import { db } from './firebaseConfig.ts';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
@@ -214,6 +215,9 @@ const App: React.FC = () => {
 
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [skipTourOnce, setSkipTourOnce] = useState(false);
+  // The first walk around the app: queued when someone steps in from the landing, shown on the feed
+  // (after the first-look Lens, never on top of it or any other sheet)
+  const [tourPending, setTourPending] = useState(false);
   // Weekly field letter: shown at the top of Activity, marked new once a week
   const thisWeek = weekKey();
   const [letterSeenWeek, setLetterSeenWeek] = useState<string>(() => { try { return localStorage.getItem('naturegram_letter_week') || ''; } catch { return ''; } });
@@ -342,7 +346,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     FirebaseService.getGeminiConfig().then(setConfig);
-    if (!localStorage.getItem('naturegram_has_seen_tour')) setIsFirstTime(true);
+    try { if (!localStorage.getItem('naturegram_has_seen_tour')) setIsFirstTime(true); } catch { /* storage blocked */ }
 
     const unsubscribeAuth = FirebaseService.subscribeToAuthChanges((user) => {
       identify(user && !user.isAnonymous ? user.uid : null);
@@ -646,6 +650,7 @@ const App: React.FC = () => {
         setUserMode({ type: 'anonymous', userId: 'explorer_guest', isAnonymous: true });
       }
     }
+    if (!hasSeenFirstRunTour()) setTourPending(true);
     // The very first time, Explore Wild opens the Lens with the guide talking: wonder first, setup later.
     // The mode choice and the tour wait for a later visit.
     let firstLook = false;
@@ -787,8 +792,8 @@ const App: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-t from-theme-primary-gradient to-theme-primary opacity-40 mix-blend-multiply" aria-hidden="true"></div>
             <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/40 to-transparent" aria-hidden="true"></div>
 
-            <div className="max-w-xl w-full flex flex-col items-center relative z-10 min-h-full justify-between py-12 safe-pt">
-              <div className="text-center pb-[50px]">
+            <div className="max-w-xl w-full flex flex-col items-center relative z-10 min-h-full justify-between py-12 [@media(max-height:700px)]:py-6 safe-pt">
+              <div className="text-center pb-[50px] [@media(max-height:700px)]:pb-6">
                 <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-tr from-theme-primary to-theme-primary-gradient flex items-center justify-center shadow-xl shadow-theme-shadow mx-auto mb-4 animate-float" aria-hidden="true">
                   <span className="material-symbols-outlined text-3xl md:text-4xl text-white">wb_sunny</span>
                 </div>
@@ -796,14 +801,20 @@ const App: React.FC = () => {
                 <p className="text-white/90 font-bold uppercase tracking-[0.4em] text-[11px] mt-2 drop-shadow-md">The Living Field Guide</p>
               </div>
 
-              <div className="w-full max-w-xs px-6">
-                <button onClick={enterApp} className="w-full bg-white/10 backdrop-blur-xl p-8 rounded-[2.5rem] flex flex-col items-center gap-5 text-center transition-all hover:scale-[1.02] active:scale-95 shadow-2xl border border-white/20">
-                  <span className="w-16 h-16 rounded-[1.5rem] bg-theme-primary text-white flex items-center justify-center shrink-0 shadow-lg shadow-theme-shadow" aria-hidden="true">
-                    <span className="material-symbols-outlined text-3xl">explore</span>
+              <div className="w-full flex justify-center py-4 [@media(max-height:700px)]:py-1">
+                <button onClick={enterApp} aria-label="Explore the wild" className="wild-orb group flex flex-col items-center gap-4 rounded-full px-6 py-2 text-center">
+                  <span className="relative block w-[104px] h-[104px] md:w-[120px] md:h-[120px]" aria-hidden="true">
+                    <span className="orb-halo" />
+                    <span className="orb-ring" />
+                    <span className="orb-ring" />
+                    <span className="orb-ring" />
+                    <span className="orb-core w-full h-full rounded-full flex items-center justify-center text-white">
+                      <Glyph name="compass" size={44} strokeWidth={1.5} className="drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]" />
+                    </span>
                   </span>
-                  <span>
-                    <span className="block font-bold text-2xl leading-tight font-display italic text-white">Explore Wild</span>
-                    <span className="block text-white/75 text-[11px] mt-2 tracking-[0.4em] uppercase font-bold">Begin Expedition</span>
+                  <span className="block">
+                    <span className="block font-display italic font-semibold text-2xl md:text-[28px] leading-tight text-white drop-shadow-md">Explore the wild</span>
+                    <span className="orb-hint block text-white/75 text-sm mt-1">Tap to begin</span>
                   </span>
                 </button>
               </div>
@@ -816,7 +827,7 @@ const App: React.FC = () => {
                 onClick={openNaturalist}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNaturalist(); } }}
               >
-                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px]">"{dailyTheme.quote}"</blockquote>
+                <blockquote className="text-lg md:text-xl italic font-display text-white leading-relaxed drop-shadow-md pt-[50px] [@media(max-height:700px)]:pt-6">"{dailyTheme.quote}"</blockquote>
                 <figcaption className="mt-6 flex flex-col items-center gap-1">
                   <span className="text-white font-bold tracking-widest uppercase text-[11px]">{dailyTheme.naturalist}</span>
                   <span className="flex items-center gap-1 text-white/70 mt-1">
@@ -996,6 +1007,7 @@ const App: React.FC = () => {
                   onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
+                  onRetakeTour={() => { resetFirstRunTour(); setTourPending(true); handleNavigationRequest(AppView.COMMUNITY); }}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
                     // Errors go back to the profile, which says what went wrong.
@@ -1137,6 +1149,9 @@ const App: React.FC = () => {
             />
           </Suspense>
         )}
+        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showModeSelection && !showUploadModal && (
+          <FirstRunTour onClose={() => setTourPending(false)} />
+        )}
       </main>
 
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
@@ -1146,12 +1161,13 @@ const App: React.FC = () => {
         <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
                 <Glyph name="lens" size={28} strokeWidth={1.6} />
               </button>
             ) : (
               <button
                 key={item.key}
+                data-tour={item.key}
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}

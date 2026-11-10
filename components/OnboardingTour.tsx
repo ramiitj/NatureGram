@@ -42,7 +42,8 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const hasSeen = localStorage.getItem('naturegram_has_seen_tour');
+    let hasSeen: string | null = 'true';
+    try { hasSeen = localStorage.getItem('naturegram_has_seen_tour'); } catch { /* storage blocked: skip the tour */ }
     if (!hasSeen) {
       setIsVisible(true);
     } else {
@@ -70,7 +71,7 @@ const OnboardingTour: React.FC<OnboardingTourProps> = ({ onComplete }) => {
   });
 
   const finishTour = () => {
-    localStorage.setItem('naturegram_has_seen_tour', 'true');
+    try { localStorage.setItem('naturegram_has_seen_tour', 'true'); } catch { /* storage blocked */ }
     setIsVisible(false);
     setTimeout(onComplete, 300);
   };
