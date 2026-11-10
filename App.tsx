@@ -13,6 +13,7 @@ import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
+import TeenBanner from './components/TeenBanner.tsx';
 import { weekKey, seasonNote, fieldMoment, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
@@ -25,6 +26,7 @@ import { collection, getDocs, limit, orderBy, query, where } from 'firebase/fire
 
 // Heavy, rarely-first views are loaded on demand to keep first paint fast
 const LiveLens = lazy(() => import('./components/LiveLens.tsx'));
+const GuardianConsent = lazy(() => import('./components/GuardianConsent.tsx'));
 const AdminConsole = lazy(() => import('./components/AdminConsole.tsx'));
 const PostSessionView = lazy(() => import('./components/PostSessionView.tsx'));
 const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
@@ -1138,6 +1140,7 @@ const App: React.FC = () => {
       </main>
 
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <ConsentBanner />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (
         <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
@@ -1169,4 +1172,9 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+// A parent's consent page (/guardian?t=…, from the letter) stands on its own, outside the app shell
+const Root: React.FC = () => (window.location.pathname.startsWith('/guardian')
+  ? <Suspense fallback={null}><GuardianConsent /></Suspense>
+  : <App />);
+
+export default Root;

@@ -34,6 +34,7 @@ import { initLeases, acquire as acquireLease, hold as holdLease, leaseHealth } f
 import { appCheckVerdict, appCheckStats, splitWsAppCheck } from './appCheck.js';
 import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
+import { mountGuardian } from './guardian.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -721,6 +722,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   });
 
   mountPublish(app, { verifyIdToken, bearer, gate, clientIp, log, db: () => firestoreDb, apiKey: API_KEY, targetHost: TARGET_HOST, publicHost: PUBLIC_HOST });
+  mountGuardian(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth(), theme: () => shareTheme() });
   mountAdmin(app, { verifyIdToken, bearer, clientIp, log, db: () => firestoreDb, auth: () => getAuth(),
     status: () => ({ appCheck: appCheckStats(), leases: leaseHealth(), liveDirect: LIVE_DIRECT_TOKENS, moderationFailOpen: process.env.MODERATION_FAIL_OPEN !== 'false' }) });
 

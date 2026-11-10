@@ -1,11 +1,15 @@
-import React, { useState } from 'react';
-import { getConsent, setConsent } from '../services/analytics';
+import React, { useEffect, useState } from 'react';
+import { getConsent, setConsent, isTeenMode } from '../services/analytics';
+import { watchTeen } from '../services/guardian';
 import Glyph from './Glyph';
 
 /** One-time, non-blocking choice about anonymous usage statistics. */
 const ConsentBanner: React.FC = () => {
   const [visible, setVisible] = useState(() => getConsent() === null);
-  if (!visible) return null;
+  // Teenage explorers are never asked about analytics or ads: both are simply off
+  const [teen, setTeen] = useState(false);
+  useEffect(() => watchTeen(s => setTeen(s.teen || isTeenMode())), []);
+  if (!visible || teen) return null;
   const choose = (c: 'granted' | 'denied') => { setConsent(c); setVisible(false); };
   return (
     <div role="region" aria-label="Usage statistics choice" className="fixed left-3 right-3 bottom-24 sm:left-auto sm:right-4 sm:max-w-sm z-[90] bg-[#fcfaf8] rounded-2xl shadow-[0_2px_4px_rgba(60,40,20,0.08),0_18px_40px_-12px_rgba(60,40,20,0.35)] border border-[#e8dfcd] p-4 animate-slide-up">

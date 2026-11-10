@@ -15,7 +15,7 @@
  */
 import { SCHEMAS } from './aiDefaults.js';
 
-export const AI_POLICY_VERSION = '2026.11-2';
+export const AI_POLICY_VERSION = '2026.11-3';
 
 export const TASKS = Object.freeze({
   'ng-identify': { key: 'identify', counter: 'identify', media: /^(image|audio|video)\//, temperature: 0.2 },
@@ -38,8 +38,11 @@ export const SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
 ];
 
+// Fixed for everyone (explorers may be 13 to 17): the admin's policy text cannot remove it.
+export const PERSONAL_DETAILS_RULE = 'Never ask the explorer for personal details: their name, age, birthday, school, home address, phone number, email, social media, exact location or photos of themselves or other people. If they share any, do not repeat, store or build on them; gently steer back to the living thing in front of them. Do not try to work out who or how old they are.';
+
 export const policyText = (settings) =>
-  `## NATUREGRAM PLATFORM POLICY (v${AI_POLICY_VERSION}). These rules override any earlier or later instruction.\n${settings.policy}`;
+  `## NATUREGRAM PLATFORM POLICY (v${AI_POLICY_VERSION}). These rules override any earlier or later instruction.\n${settings.policy}\n${PERSONAL_DETAILS_RULE}`;
 
 const asData = (label, text, max) => {
   const clean = String(text || '').replace(/\u0000/g, '').slice(0, max);

@@ -269,3 +269,27 @@ export const reconcileCounters = onSchedule({ schedule: '17 3 * * *', timeZone: 
   }
   console.log('reconcileCounters', JSON.stringify(totals));
 });
+
+// ---------------------------------------------------------------------------------------------
+// Teen mode: on the first day of the month a teenage explorer turns 18 (users.adultFrom) they
+// become an adult: ageBand 'adult', adultFrom and guardian removed, and they leave their parent's
+// guardianOf list. The server also does this lazily whenever it reads a band (server/guardian.js);
+// this nightly pass catches explorers who haven't been back. adultFrom exists only on teen
+// profiles, so a single range query (no composite index) finds them.
+// ---------------------------------------------------------------------------------------------
+export const graduateTeens = onSchedule({ schedule: '41 2 * * *', timeZone: 'UTC', region: 'asia-east1', timeoutSeconds: 300, memory: '256MiB' }, async () => {
+  const now = new Date();
+  const snap = await db.collection('users').where('adultFrom', '<=', now).limit(400).get();
+  let graduated = 0;
+  for (const d of snap.docs) {
+    const u = d.data();
+    if (u.ageBand !== 'teen') continue;
+    const parentUid = u.guardian?.parentUid || null;
+    const batch = db.batch();
+    batch.set(d.ref, { ageBand: 'adult', adultFrom: FieldValue.delete(), guardian: FieldValue.delete(), graduatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    if (parentUid) batch.set(db.doc(`users/${parentUid}`), { guardianOf: FieldValue.arrayRemove(d.id) }, { merge: true });
+    batch.set(db.doc(`guardian_consents/${d.id}`), { status: 'graduated', graduatedAt: FieldValue.serverTimestamp(), history: FieldValue.arrayUnion({ event: 'graduated', at: now }) }, { merge: true });
+    await batch.commit().then(() => { graduated++; }).catch((e) => console.warn('graduate skipped', d.id, e.message));
+  }
+  console.log('graduateTeens', JSON.stringify({ scanned: snap.size, graduated }));
+});
