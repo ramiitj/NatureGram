@@ -37,6 +37,7 @@ import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
+import { feedFirstPost, firstTilesJson } from './media.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -696,35 +697,53 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
 
   // First page of the feed as plain JSON: arrives before the database SDK has even started,
   // and is shared by everyone for a few seconds (fast on slow connections, cheap to serve).
-  let firstPage = { at: 0, body: null };
+  // The same page feeds the first tiles inlined into index.html (see server/media.js).
+  let firstPage = { at: 0, body: null, tiles: null };
+  let firstPageLoading = null;
   // When this server's credentials can't read Firestore (e.g. a preview environment), say so once and
   // stop asking for 10 minutes: the app loads the feed directly from Firestore either way.
   let firstPageDeniedUntil = 0;
+  async function loadFirstPage() {
+    const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
+    const posts = snap.docs.map(d => feedFirstPost(d.id, d.data()));
+    firstPage = {
+      at: Date.now(),
+      body: JSON.stringify({ posts, more: snap.size === 12 }),
+      tiles: firstTilesJson(posts),
+    };
+    return firstPage;
+  }
+  function refreshFirstPage() {
+    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return Promise.reject(new Error('unavailable'));
+    if (!firstPageLoading) {
+      firstPageLoading = loadFirstPage().catch((e) => {
+        const msg = String(e.message).slice(0, 120);
+        // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
+        // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
+        const denied = /PERMISSION_DENIED/.test(msg);
+        if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
+        log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
+        throw e;
+      }).finally(() => { firstPageLoading = null; });
+    }
+    return firstPageLoading;
+  }
+  /** The first tiles for the page, from the cached first page (refreshed in the background, never awaited). */
+  const firstTilesNow = () => {
+    if (Date.now() - firstPage.at > 20_000) refreshFirstPage().catch(() => {});
+    // An old page is fine for a first paint (the app refreshes it at once), but not a very old one
+    return firstPage.tiles && Date.now() - firstPage.at < 15 * 60_000 ? firstPage.tiles : null;
+  };
+  refreshFirstPage().catch(() => {});
   app.get('/api/feed/first', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=30, stale-while-revalidate=120');
     if (firstPage.body && Date.now() - firstPage.at < 20_000) return res.type('json').send(firstPage.body);
-    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return res.status(503).json({ posts: [] });
     try {
-      const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
-      const posts = snap.docs.map(d => {
-        const x = d.data();
-        return {
-          id: d.id, mediaType: x.mediaType || 'image', thumbnailUrl: x.thumbnailUrl || '', thumbSmallUrl: x.thumbSmallUrl || null, videoUrl: x.videoUrl || null,
-          title: x.title || null, caption: x.caption || null, userId: x.userId, userName: x.userName || null, userAvatar: x.userAvatar || null,
-          likes: x.likes || [], likeCount: x.likeCount || 0, commentCount: x.commentCount || 0, isPublic: true, tags: x.tags || [], labels: x.labels || [],
-          behavior: x.behavior || '', aiInsight: x.aiInsight || null, locationArea: x.locationArea || '', isHybrid: !!x.isHybrid, curatorNote: null,
-          ts: x.timestamp?.toMillis?.() || 0,
-        };
-      });
-      firstPage = { at: Date.now(), body: JSON.stringify({ posts, more: snap.size === 12 }) };
-      res.type('json').send(firstPage.body);
-    } catch (e) {
-      const msg = String(e.message).slice(0, 120);
-      // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
-      // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
-      const denied = /PERMISSION_DENIED/.test(msg);
-      if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
-      log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
+      const page = await refreshFirstPage();
+      res.type('json').send(page.body);
+    } catch {
+      // A slightly old page beats an empty one
+      if (firstPage.body) return res.type('json').send(firstPage.body);
       res.status(503).json({ posts: [] });
     }
   });
@@ -769,7 +788,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   const server = http.createServer(app);
   // Only real app routes get the app; anything else is a proper 404
   const APP_ROUTE = /^\/(?:$|feed\/?$|journal\/?$|drafts\/?$|messages\/?$|reels\/?$|explore\/?$|guardian\/?$|lens\/?$|review\/?$|admin\/?$|auth\/action\/?$|welcome\/?$|profile(?:\/[^/]+)?\/?$|post\/[A-Za-z0-9_-]{1,128}\/?$)/;
-  const seoDeps = { db: () => firestoreDb, log, publicHost: PUBLIC_HOST, iosUrl: process.env.IOS_APP_URL || '', androidUrl: process.env.ANDROID_APP_URL || '' };
+  const seoDeps = { db: () => firestoreDb, firstTiles: firstTilesNow, log, publicHost: PUBLIC_HOST, iosUrl: process.env.IOS_APP_URL || '', androidUrl: process.env.ANDROID_APP_URL || '' };
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa', root: ROOT_DIR });

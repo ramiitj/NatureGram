@@ -750,12 +750,40 @@ const DataTools: React.FC = () => {
       setMsg(`Search keys done: ${processed} sightings checked, ${updated} updated.`);
     } catch (e: any) { setMsg(`Stopped after ${processed} sightings: ${e.message}. Run it again to carry on.`); } finally { setBusy(''); }
   };
+  /**
+   * "Give every video a poster": the backfillPosters Cloud Function (it has ffmpeg) fills stills,
+   * blur-up previews, sizes and the sound-only mark on older sightings, a few per call. It resumes
+   * from where it stopped (the cursor is kept on this device) and is safe to run again.
+   */
+  const POSTER_CURSOR = 'ng_admin_poster_cursor';
+  const posters = async () => {
+    setBusy('posters');
+    let after: string | null = null;
+    try { after = localStorage.getItem(POSTER_CURSOR); } catch { /* storage unavailable */ }
+    const t = { processed: 0, updated: 0, posters: 0, soundOnly: 0, failed: 0 };
+    try {
+      const [{ getFunctions, httpsCallable }, { app }] = await Promise.all([import('firebase/functions'), import('../firebaseConfig')]);
+      const call = httpsCallable<{ after: string | null; limit: number }, typeof t & { next: string | null }>(getFunctions(app, 'asia-east1'), 'backfillPosters', { timeout: 540_000 });
+      do {
+        const { data: r } = await call({ after, limit: 8 });
+        (Object.keys(t) as (keyof typeof t)[]).forEach(k => { t[k] += r[k] || 0; });
+        after = r.next;
+        try { if (after) localStorage.setItem(POSTER_CURSOR, after); else localStorage.removeItem(POSTER_CURSOR); } catch { /* ignore */ }
+        setMsg(`Posters: ${t.processed} sightings checked, ${t.updated} filled in (${t.posters} stills made, ${t.soundOnly} sound only)…`);
+      } while (after);
+      setMsg(`Posters done: ${t.processed} sightings checked, ${t.updated} filled in, ${t.posters} stills made, ${t.soundOnly} marked sound only${t.failed ? `, ${t.failed} could not be read` : ''}.`);
+    } catch (e: any) {
+      setMsg(`Stopped after ${t.processed} sightings: ${e?.message || 'the poster function is not reachable (is it deployed?)'}. Run it again to carry on from there.`);
+    } finally { setBusy(''); }
+  };
   return (
     <Card title="Exports and maintenance">
       <div className="flex flex-wrap gap-2">
         <Btn onClick={exportDwc} disabled={!!busy}>{busy === 'dwc' ? 'Exporting…' : 'Download the Darwin Core archive (GBIF)'}</Btn>
         <AskButton disabled={!!busy} label={busy === 'search' ? 'Adding search keys…' : 'Add search keys to older sightings'}
           question="Add search keys to every sighting that is missing them? Safe to run more than once." yes="Add search keys" onYes={backfill} />
+        <AskButton disabled={!!busy} label={busy === 'posters' ? 'Giving videos posters…' : 'Give every video a poster'}
+          question="Make a still, a blurred preview and a size for every older video and photo that lacks them, and mark sound-only recordings? Nothing is overwritten or deleted, and it is safe to run more than once." yes="Make posters" onYes={posters} />
       </div>
       <p className="text-xs text-stone-500 mt-2">The archive holds public sightings with a scientific name only, licensed CC BY-NC 4.0, with coordinates rounded to 0.1° and withheld for sensitive species and for explorers who didn't share the place.</p>
       {msg && <p role="status" className="text-sm text-stone-800 mt-2">{msg}</p>}

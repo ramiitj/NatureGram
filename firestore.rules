@@ -144,9 +144,11 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/users/$(b)/following/$(a)));
     }
 
-    // Changing the picture takes the sighting out of the feed until the server checks it again
+    // Changing the picture takes the sighting out of the feed until the server checks it again.
+    // mediaPaths: the clips' storage paths, kept in step with a new clip (the poster function finds posts by them)
     function authorMediaEdit() {
-      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation']))
+      return changedKeys().hasOnly(authorTextKeys().concat(['imageUrl', 'videoUrl', 'audioUrl', 'thumbnailUrl', 'thumbSmallUrl', 'rotation', 'items', 'isPublic', 'moderation', 'mediaPaths']))
+        && (!('mediaPaths' in changedKeys()) || (incoming().mediaPaths is list && incoming().mediaPaths.size() <= 24))
         && incoming().isPublic == false
         && incoming().moderation.keys().hasOnly(['status'])
         && incoming().moderation.status == 'edited';

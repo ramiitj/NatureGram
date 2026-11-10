@@ -39,6 +39,8 @@ export default defineConfig({
           if (id.includes('@google/genai')) return 'vendor-genai';
           // App Check loads only when a site key is set (services/appCheck.ts): keep it out of the shared chunk
           if (id.includes('app-check')) return 'vendor-appcheck';
+          // Cloud Functions client: only the admin console's poster backfill uses it
+          if (id.includes('firebase/functions') || id.includes('@firebase/functions')) return 'vendor-functions';
           if (id.includes('firebase/firestore') || id.includes('@firebase/firestore')) return 'vendor-firestore';
           if (id.includes('firebase') || id.includes('@firebase')) return 'vendor-firebase';
           if (id.includes('motion') || id.includes('framer')) return 'vendor-motion';

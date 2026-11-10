@@ -27,6 +27,10 @@ await t('owner cannot clear moderation', assertFails(updateDoc(doc(A, 'ecosystem
 await t('owner cannot change the guide words', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { aiInsight: 'fake' })));
 await t('owner cannot swap picture and stay public', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { imageUrl: 'b', isPublic: true, moderation: { status: 'edited' } })));
 await t('owner can swap picture going private+edited', assertSucceeds(updateDoc(doc(A, 'ecosystem_feed/p1'), { imageUrl: 'b', isPublic: false, moderation: { status: 'edited' } })));
+await t('owner can swap a clip with its paths list', assertSucceeds(updateDoc(doc(A, 'ecosystem_feed/p1'), { videoUrl: 'v2', mediaPaths: ['videos/alice/v2.webm'], isPublic: false, moderation: { status: 'edited' } })));
+await t('paths list must be a short list', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { videoUrl: 'v3', mediaPaths: 'videos/alice/v3.webm', isPublic: false, moderation: { status: 'edited' } })));
+await t('owner cannot set preview fields directly', assertFails(updateDoc(doc(A, 'ecosystem_feed/p1'), { lqip: 'data:image/webp;base64,AAAA' })));
+await t('owner cannot set preview fields on the feed entry', assertFails(updateDoc(doc(A, 'feed_thumbnails/p2'), { tint: '#000000', posterUrl: 'x' })));
 await t('client cannot create thumbnail', assertFails(setDoc(doc(A, 'feed_thumbnails/p9'), { userId: 'alice', id: 'p9' })));
 await t('owner cannot swap thumbnail image', assertFails(updateDoc(doc(A, 'feed_thumbnails/p2'), { thumbnailUrl: 'evil' })));
 await t('owner can edit thumbnail caption', assertSucceeds(updateDoc(doc(A, 'feed_thumbnails/p2'), { caption: 'new' })));

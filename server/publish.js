@@ -25,6 +25,7 @@ import { searchTokensFor } from './searchTokens.js';
 import { appCheckMiddleware } from './appCheck.js';
 import { teenPolicy, graduateIfDue } from './guardian.js';
 import { queueIndexNow } from './indexNow.js';
+import { previewFields, serverPreview, hasSharp } from './media.js';
 
 // When the image check cannot run (model error, timeout), publish normally and queue the sighting
 // for an after-the-fact look instead of holding it. MODERATION_FAIL_OPEN=false restores holding.
@@ -59,6 +60,22 @@ export function storagePathOf(url) {
   return null;
 }
 
+/**
+ * Storage paths of a post's clips and recordings (post and items). The poster function finds the
+ * posts that use a clip by this list (array-contains), so it is written on every new post.
+ */
+export function mediaPathsOf(post) {
+  const p = post && typeof post === 'object' ? post : {};
+  const out = new Set();
+  for (const i of [p, ...(Array.isArray(p.items) ? p.items : [])]) {
+    for (const u of [i?.videoUrl, i?.audioUrl]) {
+      const path = u ? storagePathOf(u) : null;
+      if (path && !path.includes('..') && /^(videos|audio)\/[^/]+\/[^/]+$/.test(path)) out.add(path);
+    }
+  }
+  return [...out].slice(0, 24);
+}
+
 /** Media may only come from the explorer's own folders. */
 export function ownMedia(url, uid, kinds) {
   if (url == null || url === '') return true;
@@ -79,8 +96,9 @@ export const textBreach =(...texts) => texts.some(t => t && SPAM.test(String(t))
 
 function cleanItem(it, uid) {
   const i = it && typeof it === 'object' ? it : {};
-  const images = ['imageUrl', 'thumbnailUrl', 'thumbSmallUrl', 'originalImageUrl'];
-  for (const k of images) if (!ownMedia(i[k], uid, ['snapshots'])) throw Object.assign(new Error('media'), { code: 'media' });
+  for (const k of ['imageUrl', 'originalImageUrl']) if (!ownMedia(i[k], uid, ['snapshots'])) throw Object.assign(new Error('media'), { code: 'media' });
+  // A clip's still may be the one the poster function made beside it in videos/
+  for (const k of ['thumbnailUrl', 'thumbSmallUrl']) if (!ownMedia(i[k], uid, ['snapshots', 'videos'])) throw Object.assign(new Error('media'), { code: 'media' });
   if (!ownMedia(i.videoUrl, uid, ['videos'])) throw Object.assign(new Error('media'), { code: 'media' });
   if (!ownMedia(i.audioUrl, uid, ['audio', 'videos'])) throw Object.assign(new Error('media'), { code: 'media' });
   const assoc = Array.isArray(i.associatedImageUrls) ? i.associatedImageUrls.slice(0, 8) : [];
@@ -90,6 +108,8 @@ function cleanItem(it, uid) {
     imageUrl: i.imageUrl || null, thumbnailUrl: i.thumbnailUrl || null, thumbSmallUrl: i.thumbSmallUrl || null,
     originalImageUrl: i.originalImageUrl || null, videoUrl: i.videoUrl || null, audioUrl: i.audioUrl || null,
     associatedImageUrls: assoc, mediaType,
+    // Blur-up preview, main colour and size, made on the phone (checked: small data URL, hex, integers)
+    ...previewFields(i, mediaType),
     labels: strList(i.labels, 12, 80),
     behavior: str(i.behavior, 1000) || 'Observation.',
     showLocation: i.showLocation === true,
@@ -293,6 +313,16 @@ export function mountPublish(app, deps) {
     const held = pending || reasons.length > 0 || (unchecked && !MODERATION_FAIL_OPEN);
     const lookLater = !held && unchecked;
     const primary = items[0];
+    // Older apps send no preview: make one here when the server can (sharp installed), never delaying long
+    if (!primary.lqip && await hasSharp()) {
+      const still = primary.thumbSmallUrl || primary.thumbnailUrl || primary.imageUrl;
+      const made = still ? await Promise.race([
+        fetchImage(still).then(img => serverPreview(Buffer.from(img.data, 'base64'))),
+        new Promise(r => setTimeout(() => r(null), 2500)),
+      ]).catch(() => null) : null;
+      if (made) Object.assign(primary, Object.fromEntries(Object.entries(made).filter(([k]) => !(k in primary))));
+    }
+    const preview = previewFields(primary, primary.mediaType);
     const labels = Array.from(new Set(items.flatMap(i => i.labels))).slice(0, 20);
     const post = {
       userId: user.uid,
@@ -301,6 +331,7 @@ export function mountPublish(app, deps) {
       imageUrl: primary.imageUrl, thumbnailUrl: primary.thumbnailUrl, thumbSmallUrl: primary.thumbSmallUrl,
       originalImageUrl: primary.originalImageUrl, videoUrl: primary.videoUrl, audioUrl: primary.audioUrl,
       associatedImageUrls: primary.associatedImageUrls, mediaType: primary.mediaType,
+      ...preview,
       labels,
       behavior: behavior || description || primary.behavior,
       aiInsight: primary.aiInsight, aiConfidence: primary.aiConfidence,
@@ -330,6 +361,8 @@ export function mountPublish(app, deps) {
           : { status: 'clear', ...(unchecked ? { unchecked: true } : {}), imageChecked: !unchecked, at: FieldValue.serverTimestamp() },
     };
     post.searchTokens = searchTokensFor({ ...post, title });
+    const mediaPaths = mediaPathsOf(post);
+    if (mediaPaths.length) post.mediaPaths = mediaPaths;
     if (title) post.title = title;
     if (description) post.description = description;
 
@@ -389,8 +422,8 @@ export function mountPublish(app, deps) {
     if (makePublic) {
       // Every picture, clip and sound must still be the explorer's own upload
       const urls = [post, ...(Array.isArray(post.items) ? post.items : [])].flatMap(i => [
-        [i?.imageUrl, ['snapshots']], [i?.thumbnailUrl, ['snapshots']], [i?.thumbSmallUrl, ['snapshots']],
-        [i?.videoUrl, ['videos']], [i?.audioUrl, ['audio', 'videos']]]);
+        [i?.imageUrl, ['snapshots']], [i?.thumbnailUrl, ['snapshots', 'videos']], [i?.thumbSmallUrl, ['snapshots', 'videos']],
+        [i?.posterUrl, ['videos']], [i?.videoUrl, ['videos']], [i?.audioUrl, ['audio', 'videos']]]);
       if (!urls.every(([u, kinds]) => ownMedia(u, user.uid, kinds))) {
         return res.status(400).json({ ok: false, message: 'This sighting has media from outside NatureGram, so it can only stay in your journal.' });
       }
@@ -450,6 +483,9 @@ export function thumbnailOf(id, post) {
     locationArea: post.showLocation === false ? '' : (post.locationArea || ''),
     isHybrid: !!post.isHybrid,
     searchTokens: Array.isArray(post.searchTokens) ? post.searchTokens : [],
+    // The tile paints at its size with a blurred preview before the picture arrives
+    ...previewFields(post, post.mediaType),
+    ...(typeof post.posterUrl === 'string' && post.posterUrl ? { posterUrl: post.posterUrl } : {}),
     ...(post.communityVerified === true ? { communityVerified: true, idAgreeCount: post.idAgreeCount || 2 } : {}),
   };
 }

@@ -44,6 +44,8 @@ GROUP BY event;
 | `search` / `tag_open` | Discovery | `length` / `tag` |
 | `push_permission` | Notification permission answered | `result` |
 | `web_vitals` | Page hidden | `lcp_ms`, `cls`, `inp_ms` |
+| `feed_first_tile_ms` | First feed tile painted, with its blurred preview or its picture (once per page load) | `ms` (from navigation start), `kind` (`lqip` or `image`), `source` (`inline`: tiles from the page; `network`: fetched) |
+| `feed_blank_tiles` | 3 s after the feed first shows (once per page load) | `count` (tiles near the viewport with no picture, still, preview or sound drawing), `tiles` (tiles counted) |
 | `client_error` | JS error or render crash | `message`, `source`, `line`, `boundary` |
 
 ## North-star and health metrics
@@ -53,3 +55,4 @@ GROUP BY event;
 - **D1 / D7 retention** by signup week.
 - **Crash-free sessions**: sessions without `client_error`.
 - **p75 LCP** under 2.5 s; **p75 INP** under 200 ms.
+- **Feed first tile**: p75 `feed_first_tile_ms` under 1.0 s on 4G; `feed_blank_tiles.count` zero (anything above zero means a sighting has no still and no preview: run "Give every video a poster" in the admin console).

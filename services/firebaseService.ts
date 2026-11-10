@@ -52,6 +52,7 @@ import { auth, db, storage } from "../firebaseConfig";
 import { GeminiConfig, CommunityPost, Snapshot, Comment, NaturalistMemory, UserProfileData, FieldNotification, ExpeditionDraft, NaturalistPersona, Conversation, DirectMessage } from "../types";
 import { SYSTEM_INSTRUCTION } from "../constants/prompts";
 import { generateThumbnail, reencodeImage } from "../utils";
+import { clipStill, imagePreview, isLqip, isTint, mediaPathsOf, ClipStill, MediaPreview } from "./mediaPreview";
 
 export const AI_CLIENT_POLICY_VERSION = "2026.11-1";
 const PAGE_SIZE = 18;
@@ -201,6 +202,36 @@ const brandedAuthMail = async (path: string, body: object, token?: string): Prom
     return j.sent ? 'sent' : j.verified ? 'sent' : 'fallback';
   } catch { return 'fallback'; }
 };
+
+/**
+ * The feed's first tiles, inlined into the page by the server (<script id="ng-first">, see
+ * server/media.js). Read synchronously so the first screen paints before any request. They are
+ * parsed once and kept until the feed has its real first page (releaseFirstTiles); after that,
+ * visits to the feed load normally. Empty when the page carries none.
+ */
+let firstTiles: CommunityPost[] | null = null;
+export const peekFirstTiles = (): CommunityPost[] => {
+  if (firstTiles) return firstTiles;
+  firstTiles = [];
+  if (typeof document === 'undefined') return firstTiles;
+  try {
+    const el = document.getElementById('ng-first');
+    if (!el?.textContent) return firstTiles;
+    const j = JSON.parse(el.textContent);
+    el.remove();
+    // Very old pages (a tab restored hours later) wait for the network instead
+    if (!Array.isArray(j?.posts) || (typeof j.at === 'number' && Date.now() - j.at > 60 * 60_000)) return firstTiles;
+    firstTiles = withoutMuted(j.posts
+      .filter((p: any) => p && typeof p.id === 'string' && !isSeedPost(p.id, p))
+      .map((p: any) => ({
+        likes: [], tags: [], commentCount: 0, isPublic: true, thumbnailUrl: '', ...p,
+        labels: Array.isArray(p.labels) && p.labels.length ? p.labels : (p.title ? [p.title] : ['Nature']),
+        timestamp: Timestamp.fromMillis(p.ts || 0),
+      }))) as CommunityPost[];
+  } catch { /* malformed: load from the network */ }
+  return firstTiles;
+};
+export const releaseFirstTiles = () => { firstTiles = []; };
 
 export const FirebaseService = {
   getUserProfile: async (userId: string): Promise<UserProfileData | null> => {
@@ -635,27 +666,62 @@ export const FirebaseService = {
     return await getDownloadURL(storageRef);
   },
 
-  /** Uploads all media for one snapshot and returns the public item (no precise location). */
+  /**
+   * Uploads all media for one snapshot and returns the public item (no precise location).
+   * Also makes the tile's preview on the device: a blurred 16 px preview, main colour and size for
+   * every picture, and for a clip a still frame (uploaded as its thumbnail) and whether it is sound
+   * only. None of that can fail or hold up the upload.
+   */
   uploadSnapshotItem: async (snapshot: Snapshot, uid: string) => {
       let imageUrl: string | null = null;
       let thumbnailUrl: string | null = null;
       let originalImageUrl: string | null = null;
       let thumbSmallUrl: string | null = null;
+      let preview: MediaPreview | null = null;
+      let soundOnly = false;
       const uploadSource = snapshot.blob || snapshot.url;
+      const isVideo = snapshot.type === 'video';
+      // The clip uploads while its still is taken
+      const videoUpload = snapshot.videoBlob ? FirebaseService.uploadMedia(snapshot.videoBlob, uid, 'video') : null;
+      videoUpload?.catch(() => {});
+      const still: Promise<ClipStill | null> = isVideo && snapshot.videoBlob ? clipStill(snapshot.videoBlob).catch(() => null) : Promise.resolve(null);
       if (uploadSource) {
           if (snapshot.blob && snapshot.type === 'image') {
               originalImageUrl = await FirebaseService.uploadMedia(snapshot.blob, uid, 'image');
-              const [thumbBlob, smallBlob] = await Promise.all([generateThumbnail(snapshot.blob, 800), generateThumbnail(snapshot.blob, 400)]);
+              const [thumbBlob, smallBlob, pv] = await Promise.all([generateThumbnail(snapshot.blob, 800), generateThumbnail(snapshot.blob, 400), imagePreview(snapshot.blob).catch(() => null)]);
               [thumbnailUrl, thumbSmallUrl] = await Promise.all([
                 FirebaseService.uploadMedia(thumbBlob, uid, 'image'),
                 FirebaseService.uploadMedia(smallBlob, uid, 'image'),
               ]);
               imageUrl = thumbnailUrl;
+              preview = pv;
           } else {
               imageUrl = await FirebaseService.uploadMedia(uploadSource, uid, 'image');
+              // A sound's habitat photo: its preview paints the sound tile
+              if (!isVideo && snapshot.blob) preview = await imagePreview(snapshot.blob).catch(() => null);
           }
       }
-      const videoUrl = snapshot.videoBlob ? await FirebaseService.uploadMedia(snapshot.videoBlob, uid, 'video') : (snapshot.videoUrl && snapshot.videoUrl.startsWith('https://') ? snapshot.videoUrl : null);
+      if (isVideo) {
+          try {
+              const grab = await still;
+              if (grab?.soundOnly) soundOnly = true;
+              // The clip's own frame, else the camera still taken with it (live lens)
+              const posterBlob = grab?.poster || (snapshot.blob && snapshot.blob.type.startsWith('image/') ? snapshot.blob : null);
+              if (posterBlob && !soundOnly) {
+                  const [big, small] = await Promise.all([reencodeImage(posterBlob, 800, 'image/jpeg', 0.82), reencodeImage(posterBlob, 400, 'image/jpeg', 0.8)]);
+                  [thumbnailUrl, thumbSmallUrl] = await Promise.all([
+                    FirebaseService.uploadMedia(big, uid, 'image'),
+                    FirebaseService.uploadMedia(small, uid, 'image'),
+                  ]);
+                  preview = grab?.preview || await imagePreview(posterBlob).catch(() => null);
+              }
+              // The clip's real size wins over the still's
+              if (grab?.w && grab?.h) preview = { ...(preview || {}), w: grab.w, h: grab.h };
+          } catch (e) {
+              console.warn('Clip still skipped:', e);
+          }
+      }
+      const videoUrl = videoUpload ? await videoUpload : (snapshot.videoUrl && snapshot.videoUrl.startsWith('https://') ? snapshot.videoUrl : null);
       const audioUrl = snapshot.audioBlob ? await FirebaseService.uploadMedia(snapshot.audioBlob, uid, 'audio') : (snapshot.audioUrl && snapshot.audioUrl.startsWith('https://') ? snapshot.audioUrl : null);
       const associatedImageUrls: string[] = snapshot.associatedImages?.length
           ? await Promise.all(snapshot.associatedImages.map(img => FirebaseService.uploadMedia(img.blob || img.url!, uid, 'image')))
@@ -669,6 +735,10 @@ export const FirebaseService = {
         audioUrl,
         associatedImageUrls,
         mediaType: snapshot.type,
+        ...(preview && isLqip(preview.lqip) ? { lqip: preview.lqip } : {}),
+        ...(preview && isTint(preview.tint) ? { tint: preview.tint } : {}),
+        ...(preview?.w && preview?.h ? { w: preview.w, h: preview.h } : {}),
+        ...(soundOnly ? { soundOnly: true } : {}),
         labels: snapshot.labels || [],
         behavior: snapshot.behavior || "Observation.",
         aiInsight: snapshot.aiInsight || null,
@@ -1967,7 +2037,10 @@ export const FirebaseService = {
           // A changed picture leaves the feed until the server has checked it again
           const before = await getDoc(doc(db, "ecosystem_feed", postId));
           const wasPublic = before.exists() && before.data().isPublic === true;
-          await updateDoc(doc(db, "ecosystem_feed", postId), { ...updates, isPublic: false, moderation: { status: 'edited' } } as any);
+          // The poster function finds a post by its clips' paths: keep them in step with a new clip
+          const paths = before.exists() ? mediaPathsOf({ ...before.data(), ...updates }) : [];
+          const withPaths = paths.length ? { mediaPaths: paths } : {};
+          await updateDoc(doc(db, "ecosystem_feed", postId), { ...updates, ...withPaths, isPublic: false, moderation: { status: 'edited' } } as any);
           try { await deleteDoc(doc(db, "feed_thumbnails", postId)); } catch { /* may not exist */ }
           if (wasPublic) await FirebaseService.setPostVisibility(postId, true);
           return;
