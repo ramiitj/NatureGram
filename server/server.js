@@ -671,10 +671,13 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   // First page of the feed as plain JSON: arrives before the database SDK has even started,
   // and is shared by everyone for a few seconds (fast on slow connections, cheap to serve).
   let firstPage = { at: 0, body: null };
+  // When this server's credentials can't read Firestore (e.g. a preview environment), say so once and
+  // stop asking for 10 minutes: the app loads the feed directly from Firestore either way.
+  let firstPageDeniedUntil = 0;
   app.get('/api/feed/first', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=20, s-maxage=30, stale-while-revalidate=120');
     if (firstPage.body && Date.now() - firstPage.at < 20_000) return res.type('json').send(firstPage.body);
-    if (!firestoreDb) return res.status(503).json({ posts: [] });
+    if (!firestoreDb || Date.now() < firstPageDeniedUntil) return res.status(503).json({ posts: [] });
     try {
       const snap = await firestoreDb.collection('feed_thumbnails').where('isPublic', '==', true).orderBy('timestamp', 'desc').limit(12).get();
       const posts = snap.docs.map(d => {
@@ -693,7 +696,9 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       const msg = String(e.message).slice(0, 120);
       // The Admin SDK ignores security rules: PERMISSION_DENIED here means this server's Google service account has
       // no access to the Firebase project's Firestore (set FIREBASE_SERVICE_ACCOUNT, or grant it Cloud Datastore User).
-      log('warn', 'first page failed', { error: msg, ...(/PERMISSION_DENIED/.test(msg) ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role.` } : {}) });
+      const denied = /PERMISSION_DENIED/.test(msg);
+      if (denied) firstPageDeniedUntil = Date.now() + 10 * 60_000;
+      log('warn', 'first page failed', { error: msg, ...(denied ? { hint: `Server credentials can't read Firestore in ${firebaseProjectId}. Set FIREBASE_SERVICE_ACCOUNT or grant the runtime service account the Cloud Datastore User role. Not retried for 10 minutes; the app reads the feed directly meanwhile.` } : {}) });
       res.status(503).json({ posts: [] });
     }
   });

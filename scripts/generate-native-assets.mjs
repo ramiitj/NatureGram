@@ -28,8 +28,8 @@ const inner = svg.replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '');
 const defs = (inner.match(/<defs>[\s\S]*?<\/defs>/) || [''])[0];
 const motif = inner.replace(/<defs>[\s\S]*?<\/defs>/, '').replace(/<rect[^>]*\/>/, '');
 
-// The sun-and-leaf motif sits roughly in x 120..392, y 96..420 of the 512 canvas.
-const MOTIF_CX = 256, MOTIF_CY = 258, MOTIF_SPAN = 330;
+// The lens-and-fiddlehead motif sits roughly in x 140..420, y 90..456 of the 512 canvas.
+const MOTIF_CX = 280, MOTIF_CY = 272, MOTIF_SPAN = 370;
 
 const icon = ({ square = false, round = false } = {}) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${defs}
   ${round ? '<circle cx="256" cy="256" r="256" fill="url(#g)"/>' : `<rect width="512" height="512" ${square ? '' : 'rx="112"'} fill="url(#g)"/>`}

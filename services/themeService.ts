@@ -1,3 +1,4 @@
+import { applyMark, markColorsFor } from './brandMark';
 import { NaturalistTheme, getDailyTheme } from '../constants/naturalists';
 import { db, storage } from '../firebaseConfig';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -111,6 +112,8 @@ export const ThemeService = {
     }
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', theme.colors.shadow || '#1c1917');
+    // The favicon and home-screen icon wear the fortnight's colours too
+    applyMark(markColorsFor(theme.colors));
   },
 
   getDailyTheme: async (): Promise<DailyTheme | null> => {

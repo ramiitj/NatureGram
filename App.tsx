@@ -1120,7 +1120,7 @@ const App: React.FC = () => {
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
               <button key={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
-                <span className="material-symbols-outlined text-[28px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">camera</span>
+                <Glyph name="lens" size={28} strokeWidth={1.6} />
               </button>
             ) : (
               <button
