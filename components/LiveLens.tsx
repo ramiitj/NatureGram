@@ -1515,7 +1515,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           </button>
       </div>
       {firstLine && agentState !== 'FINALIZING' && !sessionError && (
-          <div className="absolute top-[calc(var(--sat)+7.25rem)] inset-x-4 z-[117] flex justify-center pointer-events-none">
+          <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+14.5rem)] inset-x-4 z-[117] flex justify-center pointer-events-none">
               <p className="pointer-events-auto max-w-sm bg-[#fbf7ef] text-[#2f2a22] rounded-full pl-4 pr-1 py-1 shadow-xl flex items-center gap-2 text-sm">
                   <Glyph name="guide" size={15} className="text-[rgb(var(--theme-accent-rgb))] shrink-0" />
                   <span>Point at anything alive. Tap to capture; your guide looks with you.</span>
