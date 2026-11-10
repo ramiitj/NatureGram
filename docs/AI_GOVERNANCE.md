@@ -71,6 +71,33 @@ NatureGram's purpose is to help people **notice, understand and care for** the l
 | Community ID | Explorers agree or suggest IDs. 2 or more agreeing marks a post **Community verified**. Majority disagreement shows **ID disputed**. |
 | Admin prompt change | A change note is required, and the previous version is archived in `admin_config/gemini_history_*`. |
 
+### Automated moderation on publish (`server/publish.js`, `server/moderationText.js`)
+Every sighting is checked once, on the server, before it can reach the feed. Nothing is rejected for safety reasons: a flagged sighting is saved to the explorer's journal and waits for the admin.
+
+| Check | How | Outcome |
+|---|---|---|
+| Links, contact details, promotions | Existing pattern check on caption, title, notes, tags | Refused with words the explorer can act on (unchanged) |
+| Edibility or medicinal claims | `findPolicyBreach` | Refused with the safety guidance (unchanged) |
+| Abuse, slurs, sexual words | Whole-word list (`BASE_WORDS`) plus the admin's own words (`settings.moderationWords`, Admin → Review) | `moderation: { status: 'pending', reasons: ['words'] }`, not public, queued |
+| Spam patterns | Promotions, shouting, repeated characters or words, hashtag or mention floods | `pending`, reason `spam` |
+| People, faces, number plates, screens, no nature subject | The governed image check (`settings.models.moderate`, same policy and safety settings as every call) | Explorer is asked to crop or retake, or can request a review (unchanged) |
+| Unsafe imagery | Same call: the schema's `unsafe` field (gore, nudity, hate symbols, cruelty to animals), **and** any safety block from the model (`promptFeedback.blockReason`, finish reason `SAFETY`, `PROHIBITED_CONTENT`, `IMAGE_SAFETY`…) counts as a flag | `pending`, reason `unsafe` |
+
+- **One check per sighting.** The image check runs once at publish (up to four pictures) and again only if the explorer later changes the picture. Results are stored as `moderation.imageChecked`.
+- **Fail-open.** If the image check itself fails (model error, timeout), the sighting is published normally, marked `moderation.unchecked: true`, logged, and queued as *Published while the image check was down* so the admin can look afterwards. `MODERATION_FAIL_OPEN=false` restores the previous behaviour (hold until reviewed).
+- **Field notes (comments)** are written by the app directly, so the `moderateComment` Cloud Function runs the same word and spam checks on each new note. A flagged note gets `hidden: true` (the app shows it only to its author) and is queued; nothing is deleted.
+- **Review queue** (Admin → Review → Moderation queue): kinds *safety*, *privacy*, *unchecked* and *field note*, each with approve or hide. Every decision is in the audit log.
+
+### App Check (`server/appCheck.js`, `services/appCheck.ts`)
+- The web app initialises Firebase App Check with reCAPTCHA Enterprise (or v3) **only when `VITE_APPCHECK_SITE_KEY` is set**, and sends `X-Firebase-AppCheck` on the AI proxy, publishing, visibility and live-token calls. For the live websocket the token travels as a path segment (`/api-proxy/ac/<token>/…`), which the server strips before anything reaches Gemini.
+- The server verifies the token on those routes. With `APPCHECK_ENFORCE=true` a missing or invalid token is refused (401); otherwise the request goes ahead and the outcome is counted and logged (`appcheck` log lines; counts under Admin → Audit & security). Use monitoring mode to confirm coverage before enforcing.
+- Native apps have no App Check provider yet; enforcing would cut them off. See `docs/OPERATIONS.md`.
+
+### Live sessions: shared limits, and optional direct connection
+- **Shared concurrency.** Each live session holds a lease in `live_leases` (heartbeat every 30 s, ignored after 90 s without one, deleted at the end). The per-explorer cap (`QUOTA_MAX_CONCURRENT_LIVE`) and an optional all-explorers cap (`LIVE_GLOBAL_MAX_CONCURRENT`) are therefore enforced across every server instance. If the shared store refuses (for example the server's service account lacks Firestore access), each instance falls back to its own in-memory count; live keeps working.
+- **Direct mode (`LIVE_DIRECT_TOKENS=true`, off by default).** The app asks `/api/live/token` for a Gemini ephemeral token instead of streaming through the server. The token is minted only after the same checks as the proxy (switches, suspension, blocked networks, spending ceiling, per-minute rate, today's live minutes, per-network hourly cap, shared lease). It works once (`uses: 1`), must open a session within a minute, and expires at the session-length cap or when today's minutes run out. `liveConnectConstraints` lock the model to the admin's live model and the config to exactly what the proxy writes into the setup frame (admin live prompt, the app's session context as quoted DATA, the platform policy, NatureGram's own camera tools, generation settings) **plus** the safety settings; `lockAdditionalFields: []` locks every field that is set. If minting or connecting fails, the app falls back to the proxy automatically.
+- **What changes in direct mode.** The server no longer sees the stream, so it cannot refuse a second setup frame, unknown message types or idle sessions mid-way; the token's constraints and lifetime take their place, and Gemini enforces them. Telemetry has the mint (`ai_log` task `live-token`) and the session length (task `live`, flag `direct`), never content. Live minutes are charged from the app's end report, never less than its last heartbeat and never more than the token's lifetime; if no report arrives the full lifetime is charged. Server bandwidth and CPU for live drop to almost nothing; Gemini token cost is unchanged.
+
 ---
 
 ## 4. Measurement (Measure)
