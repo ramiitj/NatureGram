@@ -163,7 +163,7 @@
 .wild-orb:active .orb-core { transform: scale(0.9, 0.86); filter: brightness(1.22) saturate(1.1); transition-duration: 90ms; }
 .wild-orb:focus-visible { outline: none; }
 .wild-orb:focus-visible .orb-core { box-shadow: 0 0 0 3px rgb(255 255 255 / 0.95), 0 0 0 7px rgb(var(--theme-primary-rgb) / 0.6), 0 14px 40px -8px rgb(var(--theme-primary-rgb) / 0.75); }
-.wild-orb .orb-hint { opacity: 0; animation: orbHint 900ms ease 2.2s forwards; }
+.wild-orb .orb-hint { opacity: 0; animation: orbHint 600ms ease 300ms forwards; }
 @keyframes orbBreath { 0%, 100% { scale: 1; } 50% { scale: 1.045; } }
 @keyframes orbHalo { 0%, 100% { opacity: 0.4; transform: scale(0.92); } 50% { opacity: 0.75; transform: scale(1.08); } }
 @keyframes orbRipple { 0% { opacity: 0; transform: scale(1); } 12% { opacity: 0.7; } 100% { opacity: 0; transform: scale(1.9); } }

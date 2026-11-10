@@ -651,18 +651,9 @@ const App: React.FC = () => {
       }
     }
     if (!hasSeenFirstRunTour()) setTourPending(true);
-    // The very first time, Explore Wild opens the Lens with the guide talking: wonder first, setup later.
-    // The mode choice and the tour wait for a later visit.
-    let firstLook = false;
-    try { firstLook = !localStorage.getItem(FIRST_LOOK_KEY); } catch { /* storage blocked */ }
-    if (firstLook && allowSession('conversation')) {
-      try { localStorage.setItem(FIRST_LOOK_KEY, '1'); } catch { /* storage blocked */ }
-      track('lens_open', { mode: 'conversation', first_look: true });
-      setSkipTourOnce(true);
-      setSelectedMode('conversation');
-      setCurrentView(AppView.LENS);
-      return;
-    }
+    // Explore the wild always lands on the feed: explorers look around first, the tour shows them
+    // the way, and the Lens is one tap away in the middle of the nav.
+    try { localStorage.setItem(FIRST_LOOK_KEY, '1'); } catch { /* storage blocked */ }
     setCurrentView(AppView.COMMUNITY);
   };
 
