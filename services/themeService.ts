@@ -136,7 +136,8 @@ export const ThemeService = {
     root.style.setProperty('--font-display', '"Newsreader", Georgia, serif');
 
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', hex(deep));
+    // The browser chrome is the paper itself; the fortnight's colour stays a fine accent inside the page
+    if (meta) meta.setAttribute('content', '#fcfaf8');
     // The favicon and home-screen icon wear the fortnight's colours too
     applyThemeMark(c);
     startBranding();

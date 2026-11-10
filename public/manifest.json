@@ -7,7 +7,7 @@
   "scope": "/",
   "display": "standalone",
   "background_color": "#fcfaf8",
-  "theme_color": "#1c1917",
+  "theme_color": "#fcfaf8",
   "orientation": "portrait",
   "categories": ["education", "photo", "social"],
   "icons": [

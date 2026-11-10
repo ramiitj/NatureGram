@@ -372,7 +372,7 @@ async function contactSheet(entries: LifeEntry[]): Promise<Blob | null> {
   const c = document.createElement('canvas');
   c.width = cols * cw + (cols + 1) * gap; c.height = rows * ch + (rows + 1) * gap;
   const ctx = c.getContext('2d'); if (!ctx) return null;
-  ctx.fillStyle = '#f3ede1'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#fcfaf8'; ctx.fillRect(0, 0, c.width, c.height);
   for (let i = 0; i < pick.length; i++) {
     const blob = await renderPlate(forCanvas(plateOf(pick[i]))).catch(() => null);
     if (!blob) continue;
