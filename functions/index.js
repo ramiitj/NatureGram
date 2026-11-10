@@ -17,6 +17,7 @@ import { unlink } from 'node:fs/promises';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { statsFromPosts, affectsStats, recomputeUserStats } from './userStats.js';
 
 initializeApp();
 const db = getFirestore();
@@ -199,7 +200,7 @@ export const syncCommunityVerification = onDocumentWritten({ document: 'ecosyste
 // Nightly counter reconciliation. Recomputes, from the source documents:
 //   posts: likeCount (like documents not already counted in the legacy likes array, so that
 //          likeTotal = likeCount + likes.length counts each explorer once) and commentCount;
-//   users: followersCount and followingCount.
+//   users: followersCount and followingCount, and stats.species / stats.sightings (stats.reconciledAt).
 // Works in pages with a cursor saved in admin_private/reconcile, so a large database is covered
 // over several nights. Writes only when a number is different. Never deletes anything.
 // ---------------------------------------------------------------------------------------------
@@ -220,12 +221,37 @@ export async function reconcilePost(doc) {
 
 export async function reconcileUser(doc) {
   const u = doc.data();
-  const [followers, following] = await Promise.all([countOf(doc.ref.collection('followers')), countOf(doc.ref.collection('following'))]);
+  const [followers, following, posts] = await Promise.all([
+    countOf(doc.ref.collection('followers')), countOf(doc.ref.collection('following')),
+    db.collection('ecosystem_feed').where('userId', '==', doc.id).select('isPublic', 'labels').get(),
+  ]);
   const patch = {};
   if ((u.followersCount || 0) !== followers) patch.followersCount = followers;
   if ((u.followingCount || 0) !== following) patch.followingCount = following;
+  // One true count (server/userStats.js): species and sightings from public sightings, life-list names
+  const st = statsFromPosts(posts.docs.map(d => d.data()));
+  const have = u.stats || {};
+  if (have.species !== st.species || have.sightings !== st.sightings || !have.reconciledAt) {
+    patch['stats.species'] = st.species;
+    patch['stats.sightings'] = st.sightings;
+    patch['stats.reconciledAt'] = FieldValue.serverTimestamp();
+  }
   return patch;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Keep users/{uid}.stats in step whenever a sighting is created, deleted, shared, hidden or renamed,
+// wherever that happened (the app deletes posts directly; the admin and guardian paths hide them).
+// Likes, notes and other edits don't move the counts, so they are skipped.
+// ---------------------------------------------------------------------------------------------
+export const syncUserStats = onDocumentWritten({ document: 'ecosystem_feed/{postId}', region: 'asia-east1' }, async (event) => {
+  const before = event.data?.before?.exists ? event.data.before.data() : null;
+  const after = event.data?.after?.exists ? event.data.after.data() : null;
+  if (!before && !after) return;
+  if (!affectsStats(before, after)) return;
+  const uids = new Set([before?.userId, after?.userId].filter(Boolean));
+  for (const uid of uids) await recomputeUserStats(db, uid, FieldValue).catch(e => console.warn('stats recount failed', uid, e.message));
+});
 
 async function reconcilePage(collectionName, after, fix, onFixed) {
   let q = db.collection(collectionName).orderBy(FieldPath.documentId()).limit(RECONCILE_PAGE);

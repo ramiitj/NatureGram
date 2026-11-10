@@ -3,7 +3,7 @@ import { FirebaseService } from '../services/firebaseService';
 import { track } from '../services/analytics';
 import { PlateStamp } from './SpecimenPlate';
 import Glyph from './Glyph';
-import { fieldDate, toMs } from '../services/lifeList';
+import { fieldDate, toMs, reconciledStats } from '../services/lifeList';
 
 interface Props {
   postId: string;
@@ -51,15 +51,14 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
     });
   }, [postId]);
 
-  // Each identifier's standing, from their profile: species on their list, else sightings shared
+  // Each identifier's standing: species on their list, once the server has reconciled the count
   useEffect(() => {
     const todo = ids.map(i => i.id).filter(id => !(id in standing)).slice(0, 12);
     if (!todo.length) return;
     let alive = true;
     Promise.all(todo.map(id => FirebaseService.getUserProfile(id).then(p => {
-      const st: any = (p as any)?.stats || {};
-      const line = typeof st.species === 'number' && st.species > 0 ? `${st.species} species on their list`
-        : typeof st.observations === 'number' && st.observations > 0 ? `${st.observations} sightings` : '';
+      const st = reconciledStats(p);
+      const line = st && st.species > 0 ? `${st.species} species on their list` : '';
       return [id, line] as const;
     }).catch(() => [id, ''] as const))).then(rows => { if (alive) setStanding(prev => ({ ...prev, ...Object.fromEntries(rows) })); });
     return () => { alive = false; };
@@ -125,8 +124,9 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
     }
   };
 
-  // Nothing to show the author until someone else has weighed in
-  if (isAuthor && tally.length === 0) return null;
+  // Only signed-in explorers are asked "Is this right?"; the author and guests see determinations once there are some
+  const canDetermine = isMember && !isAuthor;
+  if (!canDetermine && tally.length === 0) return null;
 
   const shown = showAll ? slips : slips.slice(0, 4);
 
@@ -134,7 +134,7 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
     <section aria-labelledby={`cid-${postId}`} className="relative rounded-[3px] border border-theme-primary/15 p-4 space-y-3">
       <div className="flex items-start justify-between gap-2 pr-16">
         <div>
-          <h3 id={`cid-${postId}`} className="text-[17px] font-display text-theme-primary">{isAuthor ? 'Determinations' : 'Is this right?'}</h3>
+          <h3 id={`cid-${postId}`} className="text-[17px] font-display text-theme-primary">{canDetermine ? 'Is this right?' : 'Determinations'}</h3>
           {tally.length > 0 && (
             <p className="text-xs text-stone-500 mt-0.5">
               {ids.length} {ids.length === 1 ? 'explorer has' : 'explorers have'} weighed in{disputed ? ', and they disagree' : ''}
@@ -191,7 +191,7 @@ const CommunityId: React.FC<Props> = ({ postId, authorId, primaryLabel, currentU
         </button>
       )}
 
-      {!isAuthor && (
+      {canDetermine && (
         mine ? (
           <div className="flex items-center justify-between text-sm text-stone-600">
             <span>Your determination: <em className="font-display text-stone-900">{mine.name}</em></span>

@@ -25,6 +25,7 @@ import { searchTokensFor } from './searchTokens.js';
 import { appCheckMiddleware } from './appCheck.js';
 import { teenPolicy, graduateIfDue } from './guardian.js';
 import { queueIndexNow } from './indexNow.js';
+import { recomputeUserStats } from './userStats.js';
 
 // When the image check cannot run (model error, timeout), publish normally and queue the sighting
 // for an after-the-fact look instead of holding it. MODERATION_FAIL_OPEN=false restores holding.
@@ -359,6 +360,8 @@ export function mountPublish(app, deps) {
     }
 
     log('info', 'published', { uid: user.uid, postId: ref.id, held, pending, unchecked, reasons: post.moderation.reasons || [] });
+    // One true count: species and sightings from public sightings (never delays the explorer)
+    if (post.isPublic) recomputeUserStats(db, user.uid, FieldValue).catch(e => log('warn', 'stats recount failed', { uid: user.uid, error: String(e.message).slice(0, 120) }));
     // Search engines hear about a new public sighting at once (never a teen's: they stay out of search)
     if (post.isPublic && !teen.teen) queueIndexNow([`https://${deps.publicHost}/post/${ref.id}`], { host: deps.publicHost, log });
     res.json({
@@ -432,6 +435,9 @@ export function mountPublish(app, deps) {
     if (makePublic) batch.set(db.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, ...hidePlace, isPublic: true }));
     else batch.delete(db.doc(`feed_thumbnails/${id}`));
     await batch.commit();
+    if ((post.isPublic === true) !== makePublic) {
+      recomputeUserStats(db, user.uid, FieldValue).catch(e => log('warn', 'stats recount failed', { uid: user.uid, error: String(e.message).slice(0, 120) }));
+    }
     res.json({ ok: true, isPublic: makePublic });
   });
 }

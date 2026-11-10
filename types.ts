@@ -58,9 +58,12 @@ export interface UserProfileData {
   location?: string;
   lastVisit?: any;
   joinedAt: any;
+  /** Written by the server only (server/userStats.js); trust species/sightings once reconciledAt exists */
   stats?: {
     observations: number;
     species: number;
+    sightings?: number;
+    reconciledAt?: any;
   }
   /** Teen mode (13 to 17). Missing on older profiles, which are adults. */
   ageBand?: 'teen' | 'adult';

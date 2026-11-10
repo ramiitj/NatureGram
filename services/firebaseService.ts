@@ -751,13 +751,7 @@ export const FirebaseService = {
         if (out.isPublic) await updateDoc(doc(db, "feed_thumbnails", postId), { ethologicalDescriptors: desc }).catch(() => {});
       }).catch(() => {});
 
-      try {
-        // Species = distinct primary labels across the explorer's sightings (the life list), not labels per post
-        const lifeList = await FirebaseService.getMySpeciesSet();
-        await updateDoc(doc(db, "users", effectiveUserId), { "stats.species": lifeList.size });
-      } catch (statsErr) {
-        console.warn("Failed to update user stats:", statsErr);
-      }
+      // Species and sightings are counted by the server (server/userStats.js); clients cannot write stats
       return { id: postId, url: primaryItem.imageUrl || undefined, videoUrl: primaryItem.videoUrl || undefined, audioUrl: primaryItem.audioUrl || undefined,
         held: !!out.held, isPublic: !!out.isPublic, message: out.message as string | undefined, note: out.note as string | undefined, left: out.left as number | undefined };
   },
