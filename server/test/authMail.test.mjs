@@ -133,3 +133,24 @@ test('send-verification: needs a token, sends our letter, rate-limits per explor
     assert.ok(!s.logs.some(l => /SECRETCODE|oobCode|good/.test(l)));
   } finally { s.close(); }
 });
+
+test('send-reset with enumeration protection: unknown addresses answer like known ones', async () => {
+  // Firebase with email enumeration protection: no link for unknown addresses, only a bare internal-error
+  const known = ['known@example.com'];
+  const auth = {
+    getUserByEmail: async (email) => { if (!known.includes(email)) { const e = new Error('no user'); e.code = 'auth/user-not-found'; throw e; } return { uid: 'u1' }; },
+    generatePasswordResetLink: async (email) => {
+      if (!known.includes(email)) { const e = new Error('An internal error has occurred.'); e.code = 'auth/internal-error'; throw e; }
+      return `${FB}?mode=resetPassword&oobCode=SECRETCODE&apiKey=k`;
+    },
+  };
+  const sent = [];
+  const s = await serve({ auth: () => auth, mailConfigured: () => true, sendMail: async (m) => { sent.push(m); return { sent: true }; } });
+  try {
+    const a = await s.post('/api/auth/send-reset', { email: 'known@example.com' }, { 'x-test-ip': 'e1' });
+    const b = await s.post('/api/auth/send-reset', { email: 'nobody@example.com' }, { 'x-test-ip': 'e2' });
+    assert.deepEqual(a, { status: 200, body: { sent: true } });
+    assert.deepEqual(a, b);
+    assert.equal(sent.length, 1);
+  } finally { s.close(); }
+});

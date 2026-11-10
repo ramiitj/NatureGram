@@ -18,6 +18,7 @@ import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
 import { PlateStamp } from './SpecimenPlate';
 import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs } from '../services/lifeList';
+import { speciesPath } from '../services/speciesSlug';
 import AuthModal from './AuthModal';
 import { WonderIcon, WonderBurst, wonderLabel, fieldMoment, observedBehaviour, insightBeyond, SoundScape } from './Wonder';
 import { hapticFeedback } from '../utils';
@@ -1361,6 +1362,12 @@ const Community: React.FC<CommunityProps> = ({
                                     </p>
                                 </>
                             )}
+                            {speciesPage.explorers > 0 && speciesPath(speciesPage.scientific || selectedSpecies.name) && (
+                                <a href={speciesPath(speciesPage.scientific || selectedSpecies.name)!} className="inline-flex items-center gap-2 min-h-[44px] text-sm text-theme-primary hover:underline decoration-[rgb(var(--theme-accent-rgb))]/40 underline-offset-4">
+                                    <Glyph name="notebook" size={16} className="text-theme-accent" />
+                                    The field guide page for <span className="font-display italic">{selectedSpecies.name}</span>
+                                </a>
+                            )}
 
                             {speciesPage.lookAlikes.length > 0 && (
                                 <section aria-labelledby="lookalikes" className="pt-4 border-t border-[#e3d8c4]">
@@ -1441,18 +1448,18 @@ const Community: React.FC<CommunityProps> = ({
                     {headerActions}
                     {!isJournalOnly && onOpenActivity && (
                         <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
-                            <Glyph name="tracks" size={24} />
+                            <Glyph name="ripples" size={24} />
                             {unreadActivity > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
                     {!isJournalOnly && onOpenExplore && (
                         <button onClick={onOpenExplore} aria-label="Explore" data-tour="explore" className="w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
-                            <Glyph name="compass" size={24} />
+                            <Glyph name="leafCompass" size={24} />
                         </button>
                     )}
                     {!isJournalOnly && onOpenMessages && (
                         <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} data-tour="letters" className="relative w-11 h-11 rounded-full flex items-center justify-center text-theme-primary hover:bg-theme-primary/5">
-                            <span className="material-symbols-outlined text-[24px]" style={{ fontVariationSettings: "'wght' 300" }} aria-hidden="true">{unreadMessages > 0 ? 'mark_email_unread' : 'mail'}</span>
+                            <Glyph name="sealed" size={24} />
                             {unreadMessages > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
                         </button>
                     )}
@@ -1873,7 +1880,9 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="py-24 sm:py-40 flex flex-col items-center justify-center text-center px-8">
-                    <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : isJournalOnly && !searchQuery && !searchTag ? 'fingerprint' : 'travel_explore'}</span>
+                    {isJournalOnly && !searchQuery && !searchTag && feedMode !== 'following'
+                      ? <Glyph name="rings" size={48} strokeWidth={1.1} className="text-theme-primary/25 mb-6" />
+                      : <span className="material-symbols-outlined text-5xl text-theme-primary/25 mb-6 select-none" style={{ fontVariationSettings: "'wght' 200" }} aria-hidden="true">{feedMode === 'following' && !searchQuery ? 'nature_people' : 'travel_explore'}</span>}
                     {feedMode === 'following' && !searchQuery ? (
                         <>
                             <h3 className="text-xl font-display text-stone-800 mb-2 font-semibold">No fellow explorers yet</h3>

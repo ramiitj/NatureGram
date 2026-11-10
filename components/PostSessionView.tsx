@@ -473,7 +473,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                    )}
                    {shareNote && <p className="text-xs text-stone-600" role="status">{shareNote}</p>}
                    <button onClick={onViewFeed} className="w-full bg-theme-primary text-white px-6 py-4 rounded-2xl font-bold text-base">See it in the wild</button>
-                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="lens" size={20} />Keep looking</button>}
+                   {onCaptureMore && <button onClick={onCaptureMore} className="w-full border border-theme-primary/15 text-theme-primary px-6 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2"><Glyph name="eyeEar" size={20} />Keep looking</button>}
                </div>
           </div>
       );
@@ -820,7 +820,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   ]).map(opt => (
                                       <label key={String(opt.v)} className={`cursor-pointer p-4 rounded-2xl border-2 transition-all ${postToFeed === opt.v ? 'border-theme-accent bg-theme-accent/5' : 'border-stone-200 bg-white'}`}>
                                           <input type="radio" name="audience" className="sr-only" checked={postToFeed === opt.v} onChange={() => setPostToFeed(opt.v)} />
-                                          <span className="flex items-center gap-2 font-bold text-stone-900"><span className="material-symbols-outlined text-xl" aria-hidden="true">{opt.icon}</span>{opt.title}</span>
+                                          <span className="flex items-center gap-2 font-bold text-stone-900">{opt.icon === 'fingerprint' ? <Glyph name="rings" size={20} /> : <span className="material-symbols-outlined text-xl" aria-hidden="true">{opt.icon}</span>}{opt.title}</span>
                                           <span className="block text-xs text-stone-600 mt-1">{opt.desc}</span>
                                       </label>
                                   ))}
@@ -866,7 +866,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                       </>
                   ) : (
                       <>
-                          <span className="material-symbols-outlined" aria-hidden="true">{postToFeed ? 'public' : 'fingerprint'}</span>
+                          {postToFeed ? <span className="material-symbols-outlined" aria-hidden="true">public</span> : <Glyph name="rings" size={22} />}
                           <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? `Share ${selectedIndices.size > 1 ? `${selectedIndices.size} sightings` : 'sighting'}` : 'Save to journal'}</span>
                       </>
                   ))}

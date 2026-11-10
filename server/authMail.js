@@ -139,6 +139,13 @@ const escapeName = (s) => String(s || 'explorer').slice(0, 40).replace(/[&<>"']/
  * @param deps { verifyIdToken, bearer, clientIp, log, auth: () => AdminAuth,
  *               sendMail?, mailConfigured?, origin?, minResetMs? }
  */
+/** Firebase's own reason for a failed link (no addresses, codes or links), for the log. */
+const reasonOf = (e) => String(e?.message || '')
+  .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
+  .replace(/https?:\/\/\S+/g, '<url>')
+  .replace(/oobCode=[^&\s"]+/g, 'oobCode=<code>')
+  .slice(0, 300);
+
 export function mountAuthMail(app, deps) {
   const { verifyIdToken, bearer, clientIp, log } = deps;
   const sendMail = deps.sendMail || defaultSendMail;
@@ -176,7 +183,7 @@ export function mountAuthMail(app, deps) {
     try {
       link = rewriteActionLink(await deps.auth().generateEmailVerificationLink(user.email, { url: origin() + '/welcome' }), origin());
     } catch (e) {
-      log('warn', 'auth mail: verification link failed, falling back', { uid: user.uid, code: e?.code || e?.errorInfo?.code || 'error' });
+      log('warn', 'auth mail: verification link failed, falling back', { uid: user.uid, code: e?.code || e?.errorInfo?.code || 'error', reason: reasonOf(e) });
       return res.json(FALLBACK);
     }
     const letter = verificationLetter({ username: username || user.email.split('@')[0], link });
@@ -196,13 +203,23 @@ export function mountAuthMail(app, deps) {
     if (!mailConfigured() || Date.now() < mailDownUntil) return answer(FALLBACK);
     const who = hashOf(email);
     if (!resetByEmail.allow(who)) { log('info', 'auth mail: reset rate-limited', { who }); return answer({ sent: true }); }
+    // Look the address up first. With Firebase's email enumeration protection on, asking for a link
+    // for an unknown address fails with a bare internal-error; answering that differently from a real
+    // account would reveal who has one. Unknown addresses get the same answer as real ones.
+    try {
+      if (typeof deps.auth().getUserByEmail === 'function') await deps.auth().getUserByEmail(email);
+    } catch (e) {
+      const code = String(e?.code || e?.errorInfo?.code || e?.message || 'error');
+      if (/user-not-found|email-not-found|invalid-email/i.test(code)) { log('info', 'auth mail: reset for no account', { who }); return answer({ sent: true }); }
+      if (SETUP_ERROR.test(code)) { log('warn', 'auth mail: reset lookup failed, falling back', { code: code.slice(0, 80), reason: reasonOf(e) }); return answer(FALLBACK); }
+    }
     let link;
     try {
       link = rewriteActionLink(await deps.auth().generatePasswordResetLink(email, { url: origin() + '/feed' }), origin());
     } catch (e) {
       const code = String(e?.code || e?.errorInfo?.code || e?.message || 'error');
       if (/user-not-found|email-not-found|invalid-email/i.test(code)) { log('info', 'auth mail: reset for no account', { who }); return answer({ sent: true }); }
-      if (SETUP_ERROR.test(code)) { log('warn', 'auth mail: reset link failed, falling back', { code: code.slice(0, 80) }); return answer(FALLBACK); }
+      if (SETUP_ERROR.test(code)) { log('warn', 'auth mail: reset link failed, falling back', { code: code.slice(0, 80), reason: reasonOf(e) }); return answer(FALLBACK); }
       log('warn', 'auth mail: reset link error', { who, code: code.slice(0, 80) });
       return answer({ sent: true });
     }

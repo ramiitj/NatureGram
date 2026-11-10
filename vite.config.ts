@@ -1,13 +1,28 @@
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import { NATURALIST_THEMES } from './constants/naturalists';
+import { NATURALIST_EXTRAS } from './constants/naturalistExtras';
+
+/**
+ * The server renders public naturalist pages (/naturalists/:id) but ships without the app's
+ * TypeScript sources, so the naturalists travel with the build as plain JSON (dist/seo/naturalists.json).
+ */
+const seoData = (): Plugin => ({
+  name: 'naturegram-seo-data',
+  apply: 'build',
+  generateBundle() {
+    const themes = NATURALIST_THEMES.map(({ id, naturalist, quote, locationName, locationCaption }) => ({ id, naturalist, quote, locationName, locationCaption }));
+    this.emitFile({ type: 'asset', fileName: 'seo/naturalists.json', source: JSON.stringify({ themes, extras: NATURALIST_EXTRAS }) });
+  },
+});
 
 export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
   },
-  plugins: [react()],
+  plugins: [react(), seoData()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

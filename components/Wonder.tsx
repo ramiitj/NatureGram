@@ -2,18 +2,19 @@ import React, { useMemo } from 'react';
 
 /**
  * NatureGram's appreciation gesture. Explorers don't "like" a sighting, they marvel at it.
- * The glyph is a small starburst rather than a heart, and the double-tap response is a drift
+ * The glyph is a spark rather than a heart, and the double-tap response is a drift
  * of fireflies rising from the point of the tap instead of a stamped icon.
  */
-export const WONDER_ICON = 'flare';
+export const WONDER_ICON = 'spark';
 
-/** Filled/unfilled Wonder glyph, sized by className. */
+/** Filled/unfilled Wonder spark, sized by className (it follows the text size, e.g. text-[20px]). */
 export const WonderIcon: React.FC<{ active?: boolean; className?: string }> = ({ active, className = 'text-[22px]' }) => (
-  <span
-    className={`material-symbols-outlined ${className} transition-transform duration-300 ${active ? 'scale-110' : ''}`}
-    style={active ? { fontVariationSettings: "'FILL' 1, 'wght' 500" } : { fontVariationSettings: "'FILL' 0, 'wght' 300" }}
-    aria-hidden="true"
-  >{WONDER_ICON}</span>
+  <span className={`inline-flex ${className} transition-transform duration-300 ${active ? 'scale-110' : ''}`} aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 1.4 : 1.6} strokeLinejoin="round">
+      <path d="M12 3.5c.6 4.4 2.2 6 6.5 6.5-4.3.5-5.9 2.1-6.5 6.5-.6-4.4-2.2-6-6.5-6.5 4.3-.5 5.9-2.1 6.5-6.5z" />
+      {active && <><circle cx="18.6" cy="17.6" r="1.1" stroke="none" /><circle cx="5.6" cy="18.4" r=".8" stroke="none" /></>}
+    </svg>
+  </span>
 );
 
 /**
