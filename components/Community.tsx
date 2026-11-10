@@ -2,7 +2,7 @@
 import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import PlayableVideo, { PlayableAudio, resolvePoster } from './PlayableVideo';
-import { FirebaseService } from '../services/firebaseService';
+import { FirebaseService, peekFirstTiles, releaseFirstTiles } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import { isFungiPost, FungiWarning } from './AiBadge';
 import RichText from './RichText';
@@ -10,6 +10,7 @@ import CommunityId from './CommunityId';
 import { UserProfileData, NaturalistPersona } from '../types';
 import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
+import { markFirstTile, registerTile, unregisterTile, scheduleBlankCount, setFirstSource } from '../services/feedMetrics';
 import { CommunityPost, UserMode, Comment } from '../types';
 const ShareStudio = React.lazy(() => import('./ShareStudio'));
 const PublisherStudio = React.lazy(() => import('./PublisherStudio'));
@@ -33,132 +34,247 @@ const visibleTags = (post: CommunityPost): string[] => {
     });
 };
 
+// ------------------------------------------------------------------ feed tiles
+// A tile paints at once at its exact shape: its main colour (or the naturalist's gradient), then the
+// blurred preview, then the picture fading in over it. Nothing is ever a black box. Clips get one
+// small corner mark; sound-only recordings are drawn as sounds. See docs/CLARITY_PLAN.md, section A.
+
+/** Tile widths as the grid lays them out, for choosing between the 400 px and 800 px pictures. */
+const TILE_SIZES = '(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw';
+const THEME_WASH = 'linear-gradient(160deg, rgb(var(--theme-primary-rgb) / 0.16), rgb(var(--theme-accent-rgb) / 0.20))';
+const BINOMIAL = /^[A-Z][a-z]+ [a-z-]+(?: [a-z-]+)?$/;
+
+const isSoundTile = (post: CommunityPost) =>
+    post.soundOnly === true || (post.mediaType === 'audio' && !(post.thumbSmallUrl || post.thumbnailUrl || post.imageUrl));
+
+/** Its own shape when known (kept between 1:2 and 2:1); otherwise 4:5 photos, 9:16 clips, 1:1 sounds. */
+const tileAspect = (post: CommunityPost): number => {
+    if (isSoundTile(post)) return 1;
+    const w = Number(post.w), h = Number(post.h);
+    if (w > 0 && h > 0) return Math.min(2, Math.max(0.5, w / h));
+    return post.mediaType === 'video' ? 9 / 16 : 4 / 5;
+};
+
+const isLatin = (s?: string | null) => !!s && BINOMIAL.test(s.trim());
+/**
+ * The Latin name to show under a common name: the second label when it is one ("Vulpes vulpes"),
+ * the same reading the species page uses. When the first label is itself the Latin name, it is the
+ * title (in italics) and nothing goes beneath: a second Latin label there is another species.
+ */
+const latinOf = (post: CommunityPost): string | null => {
+    const first = (post.labels?.[0] || '').trim();
+    const l = (post.labels?.[1] || '').trim();
+    return first && !isLatin(first) && isLatin(l) && l.toLowerCase() !== first.toLowerCase() ? l : null;
+};
+
+/** The scroller the feed lives in, so "near the viewport" means near what the explorer can scroll to. */
+const scrollRootOf = (el: Element | null): Element | null => el?.closest('#main-scroll') || null;
+
+// Moving previews: never more than one, only when the device can afford it and nobody asked for stillness
+const previewsAllowed = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false; } catch { /* ignore */ }
+    const c: any = (navigator as any).connection;
+    if (c && (c.saveData || /(^|-)2g$/.test(String(c.effectiveType || '')))) return false;
+    return true;
+};
+const previewTurn = { current: null as string | null, waiting: [] as string[], listeners: new Set<() => void>() };
+const notifyPreview = () => previewTurn.listeners.forEach(l => l());
+const claimPreview = (id: string) => {
+    if (!previewTurn.waiting.includes(id)) previewTurn.waiting.push(id);
+    if (!previewTurn.current) { previewTurn.current = id; notifyPreview(); }
+};
+const releasePreview = (id: string) => {
+    previewTurn.waiting = previewTurn.waiting.filter(x => x !== id);
+    if (previewTurn.current === id) { previewTurn.current = previewTurn.waiting[0] || null; notifyPreview(); }
+};
+const usePreviewTurn = (id: string) => {
+    const [mine, setMine] = useState(previewTurn.current === id);
+    useEffect(() => {
+        const l = () => setMine(previewTurn.current === id);
+        previewTurn.listeners.add(l);
+        return () => { previewTurn.listeners.delete(l); releasePreview(id); };
+    }, [id]);
+    return mine;
+};
+
+/** A sound drawn as one: the waveform the post page's SoundScape uses, sized for a tile. */
+const SoundTile: React.FC<{ seed: string }> = ({ seed }) => {
+    const offset = Array.from(seed).reduce((n, c) => n + c.charCodeAt(0), 0) % 7;
+    const bars = Array.from({ length: 18 }, (_, i) => 22 + Math.round(70 * Math.abs(Math.sin((i + offset) * 0.62) * Math.cos((i + offset) * 0.21))));
+    return (
+        <div className="absolute inset-0 bg-gradient-to-b from-theme-primary to-stone-950 flex items-center justify-center" aria-hidden="true">
+            <div className="flex items-center justify-center gap-[3px] h-2/5 w-3/4">
+                {bars.map((h, i) => <span key={i} className="w-[3px] rounded-full bg-white/70" style={{ height: `${h}%` }} />)}
+            </div>
+        </div>
+    );
+};
+
 const FeedCard: React.FC<{
     post: CommunityPost;
     onPostClick: (post: CommunityPost) => void;
-    loadedImages: Record<string, boolean>;
-    onImageLoad: (id: string) => void;
-}> = ({ post, onPostClick, loadedImages, onImageLoad }) => {
-    const hasThumb = !!(post.thumbnailUrl || post.imageUrl);
-    const isLoaded = post.mediaType === 'audio' || !hasThumb ? true : loadedImages[post.id];
+    /** The first tiles: fetched at once and first */
+    priority?: boolean;
+}> = ({ post, onPostClick, priority = false }) => {
     const label = post.labels?.[0] || post.title || 'Sighting';
-    const [isHovered, setIsHovered] = useState(false);
-    const [fullMedia, setFullMedia] = useState<{videoUrl?: string, audioUrl?: string}|null>(null);
+    const latin = latinOf(post);
+    const sound = isSoundTile(post);
+    const isVideo = post.mediaType === 'video' && !post.soundOnly;
     const cardRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
+    const [near, setNear] = useState(priority);
+    const [loaded, setLoaded] = useState(false);
+    const [failed, setFailed] = useState(false);
+    const [legacyPoster, setLegacyPoster] = useState<string | null>(null);
 
+    // Near the viewport (600 px ahead): load the picture, and look up a still for older clips
     useEffect(() => {
-        const isMobile = window.matchMedia("(hover: none)").matches;
-        if (!isMobile || !cardRef.current) return;
+        if (near) return;
+        const el = cardRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') { setNear(true); return; }
+        const io = new IntersectionObserver((entries) => {
+            if (entries.some(e => e.isIntersecting)) { setNear(true); io.disconnect(); }
+        }, { root: scrollRootOf(el), rootMargin: '600px 0px' });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [near]);
 
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    // Start playing if at least 60% of the card is visible
-                    setIsHovered(entry.isIntersecting);
-                });
-            },
-            { threshold: 0.6 }
-        );
-        
-        observer.observe(cardRef.current);
-        return () => observer.disconnect();
-    }, []);
+    const big = post.thumbnailUrl || post.imageUrl || post.posterUrl || legacyPoster || '';
+    const small = post.thumbSmallUrl || '';
+    const src = sound ? '' : (big || small);
+    const srcSet = !sound && small && big && small !== big ? `${small} 400w, ${big} 800w` : undefined;
+    const lqip = !sound && post.lqip && post.lqip.startsWith('data:image/') ? post.lqip : null;
 
+    // Older clips have no still on their post: the one the server made is in media_variants
     useEffect(() => {
-        let active = true;
-        if (isHovered && !post.videoUrl && !post.audioUrl && (post.mediaType === 'video' || post.mediaType === 'audio')) {
-            FirebaseService.getFullPost(post.id).then(full => {
-                if (active && full) {
-                    setFullMedia({ videoUrl: full.videoUrl, audioUrl: full.audioUrl });
-                }
-            });
-        }
-        return () => { active = false; };
-    }, [isHovered, post]);
-
-    const videoUrl = post.videoUrl || fullMedia?.videoUrl;
-    const audioUrl = post.audioUrl || fullMedia?.audioUrl;
-    // Video sightings without a still: use the frame the server made when it converted the video
-    const [poster, setPoster] = useState<string | null>(null);
-    useEffect(() => {
-        if (post.mediaType !== 'video' || post.thumbnailUrl || post.imageUrl || !isHovered) return;
+        if (!near || !isVideo || post.thumbnailUrl || post.imageUrl || post.posterUrl || post.thumbSmallUrl) return;
         let live = true;
-        (videoUrl ? Promise.resolve(videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
-          .then(u => resolvePoster(u)).then(p => { if (live && p) setPoster(p); });
+        (post.videoUrl ? Promise.resolve(post.videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
+            .then(u => resolvePoster(u)).then(p => { if (live && p) setLegacyPoster(p); }).catch(() => {});
         return () => { live = false; };
-    }, [post.id, post.mediaType, post.thumbnailUrl, post.imageUrl, isHovered, videoUrl]);
+    }, [near, isVideo, post.id, post.videoUrl, post.thumbnailUrl, post.imageUrl, post.posterUrl, post.thumbSmallUrl]);
+
+    // A picture already in the cache is shown without the fade
+    useEffect(() => {
+        const img = imgRef.current;
+        if (img && img.complete && img.naturalWidth > 0) { setLoaded(true); markFirstTile('image'); }
+    }, [src, near]);
+
+    // Blank-tile count: anything to show at all (a picture, a still, a preview or the sound drawing)
+    const hasSource = sound || !!lqip || (!!src && !failed);
+    useEffect(() => { if (near) registerTile(post.id, hasSource); else unregisterTile(post.id); }, [post.id, hasSource, near]);
+    useEffect(() => () => unregisterTile(post.id), [post.id]);
+
+    // One gentle moving preview at a time, while the clip is at least 60% visible
+    const canPreview = isVideo && !!post.videoUrl && previewsAllowed();
+    const myTurn = usePreviewTurn(post.id);
+    const [playing, setPlaying] = useState(false);
+    useEffect(() => {
+        const el = cardRef.current;
+        if (!canPreview || !el || typeof IntersectionObserver === 'undefined') return;
+        const io = new IntersectionObserver((entries) => {
+            const e = entries[entries.length - 1];
+            if (e.isIntersecting && e.intersectionRatio >= 0.6) claimPreview(post.id); else releasePreview(post.id);
+        }, { root: scrollRootOf(el), threshold: [0, 0.6, 1] });
+        io.observe(el);
+        return () => { io.disconnect(); releasePreview(post.id); };
+    }, [canPreview, post.id]);
+    useEffect(() => { if (!myTurn) setPlaying(false); }, [myTurn]);
+    const startPreview = useCallback((v: HTMLVideoElement | null) => { if (v) { v.muted = true; v.play().catch(() => {}); } }, []);
+
+    const open = () => { releasePreview(post.id); onPostClick(post); };
+    const showFallback = !sound && (!src || failed) && !lqip;
+    const where = post.locationArea;
 
     return (
-        <div 
+        <div
             ref={cardRef}
             role="button"
             tabIndex={0}
-            aria-label={`${label} by ${post.userName || 'an explorer'}`}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPostClick(post); } }}
-            onClick={() => { setIsHovered(false); onPostClick(post); }} 
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-            className={`relative group cursor-pointer transition-all duration-700 break-inside-avoid ${isLoaded ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-4 scale-[0.98]'}`}
+            aria-label={`${label}${latin ? ` (${latin})` : ''} by ${post.userName || 'an explorer'}`}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+            onClick={open}
+            data-feed-tile={post.id}
+            className="relative group cursor-pointer"
         >
-            <div className="relative overflow-hidden bg-theme-primary/10 shadow-sm border border-theme-primary/10 rounded-lg">
-                {post.mediaType === 'audio' ? (
-                    <div className="w-full h-48 bg-theme-primary/90 flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl ? (
-                            <img src={post.thumbnailUrl || post.imageUrl} className="absolute inset-0 w-full h-full object-cover opacity-60 font-display" alt="" loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
-                        ) : null}
-                        <span className="material-symbols-outlined text-theme-accent text-4xl relative z-10">mic</span>
-                    </div>
-                ) : post.mediaType === 'video' ? (
-                    <div className="w-full aspect-[9/16] bg-black flex items-center justify-center transition-transform duration-1000 group-hover:scale-105 relative overflow-hidden">
-                        {post.thumbnailUrl || post.imageUrl || poster ? (
-                            <img src={post.thumbnailUrl || post.imageUrl || poster!} className="w-full h-full object-cover opacity-80 font-display" alt={`Video: ${label}`} loading="lazy" onLoad={() => onImageLoad(post.id)} onError={() => onImageLoad(post.id)} />
-                        ) : (
-                            <div className="w-full h-full bg-stone-900 flex items-center justify-center">
-                                <span className="material-symbols-outlined text-white/50 text-4xl">movie</span>
+            <div
+                className="relative overflow-hidden shadow-sm border border-theme-primary/10 rounded-lg"
+                style={{ aspectRatio: String(tileAspect(post)), background: post.tint && /^#[0-9a-f]{6}$/i.test(post.tint) ? post.tint : THEME_WASH }}
+            >
+                {sound ? <SoundTile seed={post.id} /> : (
+                    <>
+                        {lqip && (
+                            <img
+                                src={lqip}
+                                alt=""
+                                aria-hidden="true"
+                                decoding="sync"
+                                onLoad={() => markFirstTile('lqip')}
+                                className={`absolute inset-0 w-full h-full object-cover scale-110 blur-lg transition-opacity duration-500 ${loaded ? 'opacity-0' : 'opacity-100'}`}
+                            />
+                        )}
+                        {src && !failed && (near || priority) && (
+                            <img
+                                ref={imgRef}
+                                src={src}
+                                srcSet={srcSet}
+                                sizes={srcSet ? TILE_SIZES : undefined}
+                                alt={isVideo ? `Clip: ${label}` : label}
+                                loading={priority ? 'eager' : 'lazy'}
+                                fetchPriority={priority ? 'high' : 'auto'}
+                                decoding="async"
+                                onLoad={() => { setLoaded(true); markFirstTile('image'); }}
+                                onError={() => setFailed(true)}
+                                className={`absolute inset-0 w-full h-full object-cover transition-[opacity,transform] duration-700 group-hover:scale-105 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        )}
+                        {showFallback && (
+                            <div className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+                                <Glyph name={GROUP_GLYPH[groupOf(post)]} size={30} strokeWidth={1.2} className="text-theme-primary/35" />
                             </div>
                         )}
-                        <span className="material-symbols-outlined text-white text-4xl absolute z-10 drop-shadow-md">play_circle</span>
-                    </div>
-                ) : (
-                    <img 
-                        src={post.thumbnailUrl || post.imageUrl} 
-                        alt={label}
-                        srcSet={post.thumbSmallUrl ? `${post.thumbSmallUrl} 400w, ${post.thumbnailUrl || post.imageUrl} 800w` : undefined}
-                        sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
-                        loading="lazy" 
-                        decoding="async"
-                        onLoad={() => onImageLoad(post.id)}
-                        onError={() => onImageLoad(post.id)}
-                        className={`w-full h-auto object-contain transition-transform duration-1000 group-hover:scale-105`} 
-                    />
+                        {canPreview && myTurn && (
+                            <PlayableVideo
+                                ref={startPreview}
+                                src={post.videoUrl}
+                                muted
+                                loop
+                                playsInline
+                                autoPlay
+                                preload="metadata"
+                                aria-hidden="true"
+                                tabIndex={-1}
+                                onPlaying={() => setPlaying(true)}
+                                // Loops the first three seconds: a glimpse, not the whole clip
+                                onTimeUpdate={(e) => { if (e.currentTarget.currentTime > 3) e.currentTarget.currentTime = 0; }}
+                                className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-500 ${playing ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        )}
+                    </>
                 )}
                 {post.items && post.items.length > 1 && (
-                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center z-20">
+                    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center z-20" aria-hidden="true">
                         <span className="material-symbols-outlined text-white text-[12px]">filter_none</span>
                     </div>
                 )}
-                {post.mediaType === 'video' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">play_arrow</span>
+                {(isVideo || sound || post.audioUrl) && (
+                    <div className="absolute bottom-2 right-2 w-6 h-6 rounded-full bg-black/35 backdrop-blur-sm flex items-center justify-center text-white z-20" aria-hidden="true">
+                        {isVideo
+                            ? <span className="material-symbols-outlined text-[15px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                            : <Glyph name="sound" size={14} strokeWidth={1.6} />}
                     </div>
-                ) : post.mediaType === 'audio' ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">mic</span>
-                    </div>
-                ) : post.audioUrl ? (
-                    <div className={`absolute top-2 ${post.items && post.items.length > 1 ? 'right-10' : 'right-2'} w-5 h-5 rounded-full bg-black/10 backdrop-blur-md flex items-center justify-center`}>
-                        <span className="material-symbols-outlined text-white text-xs">music_note</span>
-                    </div>
-                ) : null}
+                )}
             </div>
-            
-            <div className={`px-1 mt-2 transition-opacity duration-300 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
-                <h3 className="text-sm font-display italic font-semibold text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors">
+
+            <div className="px-1 mt-2">
+                <h3 className={`text-sm font-display font-semibold text-theme-primary leading-tight truncate group-hover:text-theme-accent transition-colors ${isLatin(label) ? 'italic' : ''}`}>
                     {label}
                 </h3>
+                {latin && <p className="font-display italic text-xs text-stone-500 leading-tight truncate mt-0.5">{latin}</p>}
                 <div className="flex items-center gap-1 mt-1 text-[11px] text-stone-500 min-w-0">
-                    {post.locationArea
-                        ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{post.locationArea}</span></>
+                    {where
+                        ? <><span className="material-symbols-outlined text-[13px] shrink-0" aria-hidden="true">location_on</span><span className="truncate">{where}</span></>
                         : <span className="truncate">{post.userName || 'Explorer'}</span>}
                     {likeTotal(post) > 0 && (
                         <span className="ml-auto flex items-center gap-0.5 shrink-0 text-theme-accent" aria-label={wonderLabel(likeTotal(post))}>
@@ -168,6 +284,50 @@ const FeedCard: React.FC<{
                     )}
                 </div>
             </div>
+        </div>
+    );
+};
+
+/** Columns by breakpoint, as the old CSS columns had them (2, 3, 4, 5). */
+const columnsFor = (w: number) => (w >= 1280 ? 5 : w >= 1024 ? 4 : w >= 768 ? 3 : 2);
+const useColumnCount = () => {
+    const [n, setN] = useState(() => (typeof window === 'undefined' ? 2 : columnsFor(window.innerWidth)));
+    useEffect(() => {
+        const on = () => setN(columnsFor(window.innerWidth));
+        window.addEventListener('resize', on);
+        return () => window.removeEventListener('resize', on);
+    }, []);
+    return n;
+};
+
+/**
+ * The feed grid. Tiles go to the shortest column, by their known shape, in order: the first tiles
+ * sit across the top row, and tiles added later never move the ones already shown (CSS columns
+ * reshuffled everything whenever a page arrived).
+ */
+const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: CommunityPost) => void }> = ({ posts, onPostClick }) => {
+    const n = useColumnCount();
+    const columns = React.useMemo(() => {
+        const cols: { post: CommunityPost; index: number }[][] = Array.from({ length: n }, () => []);
+        const heights = new Array(n).fill(0);
+        posts.forEach((post, index) => {
+            let c = 0;
+            for (let i = 1; i < n; i++) if (heights[i] < heights[c] - 0.001) c = i;
+            cols[c].push({ post, index });
+            heights[c] += 1 / tileAspect(post) + 0.32; // the name and place beneath
+        });
+        return cols;
+    }, [posts, n]);
+    useEffect(() => { if (posts.length) scheduleBlankCount(); }, [posts.length]);
+    return (
+        <div className="flex items-start gap-2 md:gap-4">
+            {columns.map((col, ci) => (
+                <div key={ci} className="flex-1 min-w-0 flex flex-col gap-2 md:gap-4">
+                    {col.map(({ post, index }) => (
+                        <FeedCard key={post.id} post={post} onPostClick={onPostClick} priority={index < 2} />
+                    ))}
+                </div>
+            ))}
         </div>
     );
 };
@@ -263,7 +423,16 @@ const Community: React.FC<CommunityProps> = ({
     onOpenNaturalist,
     onOpenExplore
 }) => {
-  const [posts, setPosts] = useState<CommunityPost[]>([]);
+  // The first tiles arrive inside the page itself (server/media.js): paint them before any request
+  const [bootPosts] = useState<CommunityPost[]>(() => {
+    const boot = !isJournalOnly && !detailOnly ? peekFirstTiles() : [];
+    // Before any tile mounts, so the first-tile metric knows where its data came from
+    setFirstSource(boot.length ? 'inline' : 'network');
+    return boot;
+  });
+  const [posts, setPosts] = useState<CommunityPost[]>(bootPosts);
+  // Tiles already on screen keep their places when the full first page arrives
+  const pinnedIdsRef = useRef<string[]>(bootPosts.map(p => p.id));
   const sendAsLetter = onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
           // Letters have no recipient picker yet: carry the link over so it can be pasted into any letter.
           const url = `${window.location.origin}/s/${post.id}`;
@@ -275,10 +444,9 @@ const Community: React.FC<CommunityProps> = ({
   const [activePost, setActivePost] = useState<CommunityPost | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(bootPosts.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [searchTag, setSearchTag] = useState<string | null>(null);
-  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [feedMode, setFeedMode] = useState<'foryou' | 'following'>('foryou');
@@ -524,10 +692,12 @@ const Community: React.FC<CommunityProps> = ({
     const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !searchQuery.trim()
       && activeExploreTab === 'all' && sortOrder === 'newest' && mediaFilter === 'all' && dateFilter === 'all' && selectedLabels.length === 0 && selectedGroups.length === 0;
     if (!ranked) return filteredAndSortedPosts;
-    // AI-curated picks (persona) stay first; the rest is ranked transparently
-    const curated = filteredAndSortedPosts.filter(p => p.curatorNote);
-    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote);
-    return [...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
+    // Tiles painted from the page keep their places; AI-curated picks (persona) come next; the rest is ranked transparently
+    const pinned = new Set(pinnedIdsRef.current);
+    const first = pinnedIdsRef.current.map(id => filteredAndSortedPosts.find(p => p.id === id)).filter(Boolean) as CommunityPost[];
+    const curated = filteredAndSortedPosts.filter(p => p.curatorNote && !pinned.has(p.id));
+    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote && !pinned.has(p.id));
+    return [...first, ...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
   }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, searchQuery, activeExploreTab, sortOrder, mediaFilter, dateFilter, selectedLabels, selectedGroups, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
 
   // Extract all categories / species labels currently present in observations for selection
@@ -844,24 +1014,41 @@ const Community: React.FC<CommunityProps> = ({
 
   useEffect(() => {
     if (isJournalOnly || feedMode !== 'foryou') return;
-    
-    window.scrollTo(0, 0);
-    const container = document.getElementById('community-scroll-container');
-    if (container) container.scrollTop = 0;
-    
-    setIsLoading(true);
-    setPosts([]);
+    let live = true;
+    // First visit with tiles from the page: they stay on screen while the full first page loads
+    const fromPage = !searchTag && peekFirstTiles().length > 0 && pinnedIdsRef.current.length > 0;
+
+    if (!fromPage) {
+      window.scrollTo(0, 0);
+      const container = document.getElementById('community-scroll-container');
+      if (container) container.scrollTop = 0;
+      pinnedIdsRef.current = [];
+      setIsLoading(true);
+      setPosts([]);
+    } else {
+      // No "load more" until the real first page (and its cursor) is here
+      setLoadMoreState('loading');
+    }
     setLastVisible(null);
     setHasMore(true);
     setError(null);
-    
+
     FirebaseService.getMorePosts(null, searchTag).then(({ posts: newPosts, lastVisible: newLastVisible }) => {
+        if (!live) return;
+        releaseFirstTiles();
         setPosts(newPosts);
         setLastVisible(newLastVisible);
         setHasMore(newLastVisible !== null);
         setIsLoading(false);
+        if (fromPage) setLoadMoreState('idle');
     }).catch(err => {
+        if (!live) return;
         console.error("Failed to load initial posts:", err);
+        if (fromPage) {
+          // Keep the tiles from the page; the explorer can retry for more
+          setLoadMoreState('error');
+          return;
+        }
         let msg = err.message || String(err);
         try {
             const parsed = JSON.parse(msg);
@@ -870,6 +1057,7 @@ const Community: React.FC<CommunityProps> = ({
         setError(msg);
         setIsLoading(false);
     });
+    return () => { live = false; };
   }, [searchTag, isJournalOnly, feedMode]);
 
   useEffect(() => {
@@ -1293,10 +1481,6 @@ const Community: React.FC<CommunityProps> = ({
 
   const clearSearch = () => {
       setSearchTag(null);
-  };
-
-  const onImageLoad = (postId: string) => {
-    setLoadedImages(prev => ({ ...prev, [postId]: true }));
   };
 
   return (
@@ -1903,17 +2087,7 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
             ) : (
-                <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-2 md:gap-4 space-y-2 md:space-y-4">
-                    {displayPosts.map((post) => (
-                        <FeedCard 
-                            key={post.id} 
-                            post={post} 
-                            onPostClick={handlePostClick} 
-                            loadedImages={loadedImages} 
-                            onImageLoad={onImageLoad} 
-                        />
-                    ))}
-                </div>
+                <FeedGrid posts={displayPosts} onPostClick={handlePostClick} />
             )}
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
                 <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">

@@ -121,6 +121,7 @@ Firestore → TTL: add policies on field `expireAt` for collection groups `ai_us
 
 ### 7. One-off jobs
 - Convert older WebM videos (for iPhone playback and video stills): call the `backfillTranscodes` function while signed in as admin.
+- Posters and blur-up previews for older sightings: deploy the functions (`firebase deploy --only functions`) and the indexes (`firebase deploy --only firestore:indexes`, for `mediaPaths`), then in the admin console → Data explorer → Exports and maintenance, tap **Give every video a poster**. It calls the `backfillPosters` function a few sightings at a time, fills stills (`thumbnailUrl`, `thumbSmallUrl`, `posterUrl`), previews (`lqip`, `tint`), sizes (`w`, `h`, `aspect`), `soundOnly` and `mediaPaths`, never overwriting a filled field, and resumes where it stopped if interrupted. New clips get all of this from `transcodeMedia` on upload.
 - Older posts have no `moderation` field. They stay as they are; when an explorer moves one from the journal to the feed, the server checks its picture first.
 
 ### What changes for explorers

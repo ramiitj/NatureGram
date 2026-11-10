@@ -21,6 +21,7 @@ import {
   shellHead, injectShell, postFallbackBody,
 } from './seoPages.js';
 import { INDEXNOW_KEY } from './indexNow.js';
+import { injectFirstTiles } from './media.js';
 
 const num = (v, d) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 const CORPUS_LIMIT = Math.min(10_000, Math.max(50, num(process.env.SEO_CORPUS_LIMIT, 2000)));
@@ -67,7 +68,7 @@ export function canonicalHost(publicHost) {
 }
 
 /**
- * deps: { db, log, publicHost, shell(url) -> index.html, naturalists() -> { themes, extras }, notFoundFile, iosUrl, androidUrl }
+ * deps: { db, log, publicHost, shell(url) -> index.html, firstTiles() -> inline JSON | null, naturalists() -> { themes, extras }, notFoundFile, iosUrl, androidUrl }
  * Returns { appShell } for the app-route fallback.
  */
 export function mountSeo(app, deps) {
@@ -388,7 +389,11 @@ export function mountSeo(app, deps) {
         ld: baseLd(m.crumb ? [breadcrumbLd(host, [{ name: 'NatureGram', path: '/' }, { name: m.crumb, path }])] : []),
       });
     }
-    res.status(status).type('html').send(injectShell(html, head, root));
+    let page = injectShell(html, head, root);
+    // The feed's first tiles, so they paint before any request (the app reads #ng-first at boot)
+    const tiles = deps.firstTiles?.();
+    if (tiles) page = injectFirstTiles(page, tiles);
+    res.status(status).type('html').send(page);
   }
 
   /** For /s/:postId share cards: null when the store can't say, { public: false } when it must not show. */
