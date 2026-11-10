@@ -69,6 +69,14 @@ await t('X client creates a hidden comment', assertFails(setDoc(doc(bob, 'ecosys
 await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'ecosystem_feed/p1/comments/c8'), { userId: 'bob', userName: 'bob', text: 'bad', hidden: true }); });
 await t('X author of a hidden comment unhides it', assertFails(updateDoc(doc(bob, 'ecosystem_feed/p1/comments/c8'), { hidden: false })));
 
+// Admin jobs: only an admin starts or watches them, and only known kinds
+await t('admin starts the poster job', assertSucceeds(setDoc(doc(admin, 'admin_jobs/posters'), { kind: 'posters', status: 'requested', tick: 0, next: null, totals: {} })));
+await t('admin watches the poster job', assertSucceeds(getDoc(doc(admin, 'admin_jobs/posters'))));
+await t('X member starts a job', assertFails(setDoc(doc(bob, 'admin_jobs/posters'), { kind: 'posters', status: 'requested', tick: 0 })));
+await t('X member reads a job', assertFails(getDoc(doc(bob, 'admin_jobs/posters'))));
+await t('X admin marks a job done by hand', assertFails(setDoc(doc(admin, 'admin_jobs/posters'), { kind: 'posters', status: 'done' })));
+await t('X unknown job kind', assertFails(setDoc(doc(admin, 'admin_jobs/wipe'), { kind: 'wipe', status: 'requested' })));
+
 for (const r of results) console.log(r.join(' | '));
 const failed = results.filter(r => r[0] === 'FAIL').length;
 console.log(`${results.length - failed}/${results.length} passed`);
