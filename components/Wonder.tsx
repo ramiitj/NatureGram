@@ -131,7 +131,7 @@ export const insightBeyond = (insight?: string | null, behaviour?: string | null
 export const SoundScape: React.FC<{ label?: string | null; playing?: boolean; className?: string }> = ({ label, playing, className = '' }) => {
   const bars = Array.from({ length: 32 }, (_, i) => 18 + Math.round(42 * Math.abs(Math.sin(i * 0.62) * Math.cos(i * 0.21))));
   return (
-    <div className={`relative w-full rounded-2xl bg-gradient-to-b from-theme-primary to-stone-950 text-white flex flex-col items-center justify-center gap-5 px-6 py-8 overflow-hidden ${className}`}>
+    <div className={`relative w-full rounded-2xl bg-gradient-to-b from-stone-700 to-stone-950 text-white flex flex-col items-center justify-center gap-5 px-6 py-8 overflow-hidden ${className}`}>
       <div className="flex items-center gap-[3px] h-24" aria-hidden="true">
         {bars.map((h, i) => (
           <span

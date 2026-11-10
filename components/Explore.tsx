@@ -45,7 +45,7 @@ const SectionHead: React.FC<{ glyph: React.ComponentProps<typeof Glyph>['name'];
   <div className="flex items-start gap-3 mb-4">
     <Glyph name={glyph} size={26} className="text-theme-accent shrink-0 mt-0.5" />
     <div>
-      <h2 id={id} className="font-display text-xl text-text-main leading-tight">{title}</h2>
+      <h2 id={id} className="ng-heading text-xl leading-tight">{title}</h2>
       {note && <p className="text-sm text-stone-600 mt-0.5">{note}</p>}
     </div>
   </div>
@@ -98,10 +98,10 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onOpenNatu
   const searching = q.trim().length > 0;
 
   return (
-    <div className="min-h-screen shrink-0 w-full bg-[#f7f3ea] text-text-main pb-24">
-      <header className="sticky top-0 z-10 bg-[#f7f3ea]/95 backdrop-blur border-b-2 border-theme-accent/25 safe-pt">
+    <div className="min-h-screen shrink-0 w-full bg-day-bg text-text-main pb-24">
+      <header className="sticky top-0 z-10 bg-day-bg/95 backdrop-blur border-b border-stone-200 safe-pt">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-2">
-          <h1 className="font-display text-2xl text-theme-deep">Explore</h1>
+          <h1 className="ng-heading text-2xl">Explore</h1>
         </div>
       </header>
 

@@ -50,7 +50,7 @@ const PressingLeaf: React.FC<{ className?: string; size?: number }> = ({ classNa
 
 const ViewLoader: React.FC<{ dark?: boolean }> = ({ dark }) => (
   <div className={`flex-1 flex items-center justify-center ${dark ? 'bg-black' : ''}`} role="status" aria-live="polite">
-    <PressingLeaf className={dark ? 'text-white/60' : 'text-theme-primary/50'} />
+    <PressingLeaf className={dark ? 'text-white/60' : 'text-stone-900/50'} />
     <span className="sr-only">Loading…</span>
   </div>
 );
@@ -688,8 +688,8 @@ const App: React.FC = () => {
             </header>
             <div className="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar">
               {/* Your week outside: one short line, the week's new plates and a way to share them */}
-              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-theme-accent/25">
-                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-theme-primary">Your week outside</h3>
+              <article aria-labelledby="field-letter-title" className="p-4 rounded-2xl bg-insight-bg border border-stone-300">
+                <h3 id="field-letter-title" className="font-display text-lg font-semibold text-stone-900">Your week outside</h3>
                 <p className="text-sm text-stone-700 mt-1 leading-relaxed">
                   {userMode?.isAnonymous ? seasonNote()
                     : !myWeek ? 'Counting your week…'
@@ -706,7 +706,7 @@ const App: React.FC = () => {
                   </ul>
                 )}
                 {!userMode?.isAnonymous && !!myWeek?.sightings && (
-                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-theme-accent/5">
+                  <button onClick={shareLetter} className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-theme-accent px-3 py-2 -ml-3 rounded-full hover:bg-stone-900/[0.03]">
                     <span className="material-symbols-outlined text-[18px]" aria-hidden="true">ios_share</span>
                     {/* glossary-ok: the life-list plate itself */}
                     {myWeek?.newPlates.length ? 'Share your new plate' : 'Share your week'}
@@ -724,7 +724,7 @@ const App: React.FC = () => {
                 const { who, what } = groupLine(group);
                 const glyph = NOTE_GLYPH[alert.type];
                 return (
-                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-theme-accent/5 hover:bg-theme-accent/10' : 'bg-white hover:bg-stone-50'}`}>
+                  <button key={group.key} onClick={() => handleNotificationGroupClick(group)} className={`w-full p-4 rounded-2xl text-left flex items-start gap-3 transition-colors ${group.unread ? 'bg-stone-900/[0.03] hover:bg-stone-900/[0.045]' : 'bg-white hover:bg-stone-50'}`}>
                     <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-stone-100 text-theme-accent" aria-hidden="true">
                       {glyph ? <Glyph name={glyph} size={22} /> : <WonderIcon active className="text-xl" />}
                     </div>
@@ -840,7 +840,7 @@ const App: React.FC = () => {
         />
 
         {limitNotice && (
-          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 shadow-2xl flex items-start gap-3 animate-slide-up">
+          <div role="alert" className="fixed left-4 right-4 bottom-24 z-[210] mx-auto max-w-sm bg-stone-900 text-white rounded-2xl p-4 flex items-start gap-3 animate-slide-up">
             <span className="material-symbols-outlined" aria-hidden="true">schedule</span>
             <p className="text-sm flex-1">{limitNotice}</p>
             <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="w-8 h-8 flex items-center justify-center"><span className="material-symbols-outlined text-lg" aria-hidden="true">close</span></button>
@@ -1074,10 +1074,10 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (
-        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-theme-primary/10'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200'}`}>
           <nav aria-label="Main" className="h-16 flex justify-around items-center px-2 max-w-md mx-auto lg:h-full lg:flex-col lg:justify-center lg:gap-6 lg:max-w-none lg:px-0 land:h-full land:flex-col land:justify-center land:gap-1 land:max-w-none land:px-0">
             {navItems.map(item => item.key === 'capture' ? (
-              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className="lens-breath relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center shadow-lg shadow-theme-accent/30 bg-gradient-to-br from-theme-accent to-theme-primary text-white active:scale-95 transition-all">
+              <button key={item.key} data-tour={item.key} onClick={item.onClick} aria-label="Open the lens to look at something new" className={`lens-ring relative w-14 h-14 -mt-3 lg:mt-0 land:mt-0 land:w-12 land:h-12 rounded-full flex items-center justify-center active:scale-95 transition-[transform,background-color] duration-200 ${darkNav ? 'bg-white text-stone-900 hover:bg-stone-100' : 'bg-stone-900 text-white hover:bg-stone-800'}`}>
                 <Glyph name="eyeEar" size={28} strokeWidth={1.6} />
               </button>
             ) : (
@@ -1087,7 +1087,7 @@ const App: React.FC = () => {
                 onClick={item.onClick}
                 aria-label={item.badge ? `${item.label}, ${item.badge} new` : item.label}
                 aria-current={item.active ? 'page' : undefined}
-                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-theme-primary' : 'text-stone-500 hover:text-stone-800')}`}
+                className={`relative flex flex-col items-center justify-center gap-1 min-w-[56px] h-14 land:h-12 rounded-xl transition-colors duration-300 ${darkNav ? (item.active ? 'text-white' : 'text-white/65 hover:text-white') : (item.active ? 'text-stone-900' : 'text-stone-500 hover:text-stone-800')}`}
               >
                 <Glyph name={item.icon} size={25} strokeWidth={item.active ? 2 : 1.5} className={`transition-transform duration-300 ${item.active ? '-translate-y-px' : ''}`} />
                 <span className={`text-[11px] leading-none ${item.active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>

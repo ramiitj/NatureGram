@@ -141,7 +141,7 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
       >
         <header className="flex items-start justify-between gap-3 px-5 pt-5">
           <div className="min-w-0">
-            <h2 className="font-display text-xl text-theme-primary leading-tight">Share this sighting</h2>
+            <h2 className="font-display text-xl text-stone-900 leading-tight">Share this sighting</h2>
             <p className="text-sm text-stone-500 mt-0.5 truncate">{text}</p>
           </div>
           <button onClick={onClose} aria-label="Close" className="shrink-0 w-11 h-11 -mr-2 -mt-1 rounded-full flex items-center justify-center text-stone-500 hover:bg-stone-100">
@@ -162,20 +162,20 @@ const ShareSheet: React.FC<ShareSheetProps> = ({ post, activeItemIndex = 0, onCl
         </div>
 
         <div className="px-5 pt-5 flex flex-col gap-2">
-          <button onClick={doShare} disabled={busy || previewFailed} className="w-full py-3.5 rounded-2xl bg-theme-primary text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
+          <button onClick={doShare} disabled={busy || previewFailed} className="w-full py-3.5 rounded-2xl bg-stone-900 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-50">
             <span className="material-symbols-outlined text-xl" aria-hidden="true">ios_share</span>{/* glossary-ok: the plate image */}
             {busy ? 'Preparing…' : 'Share as a plate'}
           </button>
-          <button onClick={copyLink} className="w-full py-3 rounded-2xl border border-theme-primary/15 text-theme-primary font-semibold flex items-center justify-center gap-2 hover:bg-theme-primary/5">
+          <button onClick={copyLink} className="w-full py-3 rounded-2xl border border-stone-200 text-stone-900 font-semibold flex items-center justify-center gap-2 hover:bg-stone-900/[0.03]">
             <span className="material-symbols-outlined text-xl" aria-hidden="true">link</span>Copy link
           </button>
           {onSendLetter && (
-            <button onClick={() => { track('share', { kind: 'letter' }); onSendLetter(post); onClose(); }} className="w-full py-3 rounded-2xl border border-theme-primary/15 text-theme-primary font-semibold flex items-center justify-center gap-2 hover:bg-theme-primary/5">
+            <button onClick={() => { track('share', { kind: 'letter' }); onSendLetter(post); onClose(); }} className="w-full py-3 rounded-2xl border border-stone-200 text-stone-900 font-semibold flex items-center justify-center gap-2 hover:bg-stone-900/[0.03]">
               <Glyph name="sealed" size={20} />Send in a letter<span className="text-xs font-normal text-stone-500">(link copied)</span>
             </button>
           )}
           {allowMediaDownload && (
-            <button onClick={downloadMedia} className="mt-1 text-sm text-stone-500 hover:text-theme-primary underline underline-offset-4 decoration-stone-300 py-2">
+            <button onClick={downloadMedia} className="mt-1 text-sm text-stone-500 hover:text-stone-900 underline underline-offset-4 decoration-stone-300 py-2">
               Save the original {post.mediaType === 'video' ? 'film' : post.mediaType === 'audio' ? 'recording' : 'photograph'}
             </button>
           )}

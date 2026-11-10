@@ -177,7 +177,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   // The threshold panel: what you're joining (sign-up), or who keeps the notebook this fortnight (log in)
   const wide = !inline && !blocked && mode !== 'reset';
 
-  const inputClass = 'w-full min-h-[48px] bg-white border border-stone-300 rounded-lg px-3.5 py-3 text-base text-text-main placeholder:text-stone-500 focus:border-theme-accent transition-colors';
+  const inputClass = 'ng-field w-full min-h-[48px] px-3.5 py-3';
   const labelClass = 'block text-sm font-semibold text-stone-700 mb-1.5';
   const linkBtn = 'inline-flex items-center min-h-[44px] px-1 font-semibold text-theme-accent underline-offset-4 hover:underline';
 
@@ -224,7 +224,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         <div className={wide ? 'md:flex-1 md:flex md:flex-col md:border md:border-[#d8ccb6] md:outline md:outline-1 md:outline-offset-[3px] md:outline-[#e8dfcd] md:rounded-[2px] md:p-6' : ''}>
           <header className={`${inline ? 'px-1 pt-1' : 'px-6 pt-6 pr-14'} ${wide ? 'md:p-0' : ''}`}>
             <Glyph name={headGlyph} size={28} className="text-theme-accent mb-3" />
-            <h2 id="auth-title" className="text-[26px] md:text-[28px] leading-tight font-display font-semibold text-text-main">{title}</h2>
+            <h2 id="auth-title" className="ng-heading text-[26px] md:text-[28px] leading-tight">{title}</h2>
             {(mode === 'signup' || mode === 'login') && !blocked && !teenStep && (
               <div role="tablist" aria-label="Sign up or log in" className="mt-3 inline-flex p-0.5 rounded-full bg-stone-900/5 border border-stone-900/10 text-sm">
                 {([['signup', 'Start my field page'], ['login', 'Log in']] as const).map(([m, label]) => (
@@ -256,7 +256,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
             ) : guardianSent?.link ? (
               <>
                 <p className="text-[15px] text-stone-700 leading-relaxed">Send this link to your parent or guardian. It explains NatureGram and what we keep, and takes them about two minutes. It works for 7 days.</p>
-                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' /* glossary-ok: a text or email, not a letter */ : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 flex items-center justify-center gap-2">
+                <button type="button" onClick={async () => { const r = await shareGuardianLink(guardianSent.link!, username); setShared(r === 'copied' ? 'Link copied. Paste it into a message to them.' /* glossary-ok: a text or email, not a letter */ : r === 'shared' ? 'Sent. Thank you.' : ''); }} className="ng-button-primary w-full min-h-[52px] text-base">
                   <Glyph name="sealed" size={20} />Send this to your parent
                 </button>
                 {shared && <p className="text-sm text-stone-600">{shared}</p>}
@@ -272,14 +272,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
                 <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-theme-accent" />Save sightings to your own journal</li>
               </ul>
             </div>
-            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] font-semibold text-base py-3.5 rounded-xl ${guardianSent?.link ? 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50' : 'bg-theme-primary text-white hover:opacity-90'}`}>Go to my field page</button>
+            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] ${guardianSent?.link ? 'ng-button-quiet' : 'ng-button-primary'}`}>Go to my field page</button>
           </div>
         ) : blocked ? (
           <div role="status" className="space-y-3">
             <p className="font-display text-lg text-text-main">Thank you for wanting to join.</p>
             <p className="text-sm text-stone-600 leading-relaxed">NatureGram accounts are for explorers aged 13 and over, so we can't make one for you yet. You can still look at sightings shared by the community, and we'd love to welcome you when you're 13.</p>
             <p className="text-sm text-stone-600 leading-relaxed">Until then, a notebook and a pencil make a wonderful field journal. Ask a parent or teacher to explore with you.</p>
-            {onClose && <button type="button" onClick={onClose} className="mt-2 w-full min-h-[48px] border border-stone-300 bg-white text-stone-800 font-semibold text-base py-3 rounded-xl hover:bg-stone-50">Back to exploring</button>}
+            {onClose && <button type="button" onClick={onClose} className="ng-button-quiet mt-2 w-full">Back to exploring</button>}
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate={false}>
@@ -369,13 +369,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               </div>
             )}
             {notice && (
-              <p role="status" className="flex gap-2.5 items-start text-sm text-stone-800 bg-insight-bg border border-theme-accent/25 rounded-lg px-3.5 py-3 leading-relaxed">
+              <p role="status" className="flex gap-2.5 items-start text-sm text-stone-800 bg-insight-bg border border-stone-300 rounded-lg px-3.5 py-3 leading-relaxed">
                 <Glyph name="sealed" size={20} className="text-theme-accent mt-px" />
                 <span>{notice}</span>
               </p>
             )}
 
-            <button type="submit" disabled={loading} aria-busy={loading} className="w-full min-h-[52px] bg-theme-primary text-white font-semibold text-base py-3.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-60 active:scale-[0.98]">
+            <button type="submit" disabled={loading} aria-busy={loading} className="ng-button-primary w-full min-h-[52px] text-base">
               {loading
                 ? (mode === 'signup' ? 'Starting your field page…' : mode === 'login' ? 'Logging you in…' : 'Sending…')
                 : mode === 'signup' ? 'Start my field page' : mode === 'login' ? 'Log in' : 'Send reset link'}

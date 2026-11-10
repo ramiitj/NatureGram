@@ -71,18 +71,18 @@ const TeenBanner: React.FC<{ state?: TeenState }> = ({ state: forced }) => {
           <label htmlFor="teen-parent-email" className="text-sm font-semibold text-stone-700">Parent or guardian's email</label>
           <input id="teen-parent-email" type="email" inputMode="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="grown-up@example.com" className="w-full min-h-[44px] bg-white border border-stone-300 rounded-lg px-3 text-base focus:border-theme-accent" />
           <div className="flex gap-2">
-            <button type="submit" disabled={busy} className="flex-1 min-h-[44px] rounded-xl bg-theme-primary text-white text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send the letter'}</button>
+            <button type="submit" disabled={busy} className="flex-1 min-h-[44px] rounded-xl bg-stone-900 text-white text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send the letter'}</button>
             {editing && !needsEmail && <button type="button" onClick={() => setEditing(false)} className="min-h-[44px] px-4 rounded-xl border border-stone-300 bg-white text-sm font-semibold text-stone-800">Cancel</button>}
           </div>
         </form>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => send()} disabled={busy} className="flex-1 min-h-[44px] rounded-xl border border-theme-primary/40 bg-white text-theme-primary text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send it again'}</button>
-          <button type="button" onClick={() => { setEditing(true); setNote(''); }} className="flex-1 min-h-[44px] rounded-xl border border-theme-primary/40 bg-white text-theme-primary text-sm font-semibold">Change email</button>
+          <button type="button" onClick={() => send()} disabled={busy} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold disabled:opacity-60">{busy ? 'Sending…' : 'Send it again'}</button>
+          <button type="button" onClick={() => { setEditing(true); setNote(''); }} className="flex-1 min-h-[44px] rounded-xl border border-stone-300 bg-white text-stone-900 text-sm font-semibold">Change email</button>
         </div>
       )}
       {link && (
-        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.' /* glossary-ok: a text or email */); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-theme-primary text-white text-sm font-semibold flex items-center justify-center gap-2">
+        <button type="button" onClick={async () => { const r = await shareGuardianLink(link, s.username); if (r === 'copied') setNote('Link copied. Paste it into a message to them.' /* glossary-ok: a text or email */); }} className="mt-2 w-full min-h-[44px] rounded-xl bg-stone-900 text-white text-sm font-semibold flex items-center justify-center gap-2">
           <Glyph name="sealed" size={18} />Send this to your parent
         </button>
       )}

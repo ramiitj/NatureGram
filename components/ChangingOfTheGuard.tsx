@@ -64,7 +64,7 @@ const ChangingOfTheGuard: React.FC<Props> = ({ previousId, current, onOpenNatura
               : <>Last fortnight’s words to keep: <span className="font-display italic">“{prev.quote}”</span></>}
           </p>
           <div className="mt-6 flex items-center gap-2">
-            <button onClick={() => { onDone(); onOpenNaturalist(); }} autoFocus className="flex-1 px-5 py-3 rounded-full bg-theme-primary text-white text-sm font-semibold">
+            <button onClick={() => { onDone(); onOpenNaturalist(); }} autoFocus className="flex-1 px-5 py-3 rounded-full bg-stone-900 text-white text-sm font-semibold">
               Meet {current.naturalist.split(' ').slice(-1)[0]}
             </button>
             <button onClick={onDone} className="px-4 py-3 text-sm font-semibold text-stone-600 hover:text-stone-900">Later</button>

@@ -19,7 +19,7 @@ const KindChips: React.FC<{
   const have = new Set(present);
   const kinds = GROUP_ORDER.filter(g => have.has(g));
   if (!kinds.length) return null;
-  const chip = (on: boolean) => `shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-sm transition-colors ${on ? 'bg-theme-primary border-theme-primary text-white' : 'border-theme-primary/15 text-stone-700 hover:bg-theme-primary/5'}`;
+  const chip = (on: boolean) => `shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border text-sm transition-colors ${on ? 'bg-stone-900 border-stone-900 text-white' : 'border-stone-200 text-stone-700 hover:bg-stone-900/[0.03]'}`;
   return (
     <div role="group" aria-label={label} className={`w-full overflow-x-auto no-scrollbar flex items-center gap-1.5 py-1 -mx-4 px-4 ${className}`}>
       {withAll && (
