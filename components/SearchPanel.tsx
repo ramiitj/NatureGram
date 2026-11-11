@@ -28,8 +28,12 @@ export const plateOfPost = (p: CommunityPost): PlateData => {
     place: p.showLocation !== false && p.locationArea ? p.locationArea : undefined,
     season: ms ? seasonOf(ms) : undefined,
     group: groupOf(p),
+    sound: p.mediaType === 'audio' || (p as any).soundOnly === true,
   };
 };
+
+/** How many sightings a results grid or shelf shows at first, and adds with each "Show more". */
+export const PAGE = 12;
 
 /** The first part of a sighting's place ("Lodhi Garden, Delhi" → "Lodhi Garden"), if it may be shown. */
 export const placeOf = (p: CommunityPost) => p.showLocation === false ? '' : String(p.locationArea || '').split(',')[0].trim();
@@ -53,7 +57,7 @@ interface SearchPanelProps {
   aside?: React.ReactNode;
   onOpenPost: (post: CommunityPost) => void;
   onOpenProfile: (uid: string) => void;
-  /** Open a species' field-guide page; without it, choosing a species searches for it */
+  /** Open a species' field-guide page ("About" beside the species' sightings) */
   onOpenSpecies?: (name: string) => void;
   /** Words to offer before anything is typed */
   suggestions?: string[];
@@ -72,8 +76,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
   const [posts, setPosts] = useState<CommunityPost[] | null>(null);
   const [users, setUsers] = useState<UserProfileData[]>([]);
   const [searching, setSearching] = useState(false);
+  /** Choosing a species narrows the sightings to it, the same in the feed and in Explore */
+  const [only, setOnly] = useState<{ key: string; name: string } | null>(null);
+  const [shown, setShown] = useState(PAGE);
+  const clicked = (type: string) => track('search_result_click', { type, length: term.length });
 
   useEffect(() => {
+    setOnly(null); setShown(PAGE);
     if (term.length < 2) { setPosts(null); setUsers([]); setSearching(false); return; }
     let alive = true;
     setSearching(true);
@@ -91,7 +100,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
   const words = useMemo(() => term.toLowerCase().replace(/^[#@]/, '').split(/\s+/).filter(Boolean), [term]);
 
   const species = useMemo(() => {
-    const m = new Map<string, { name: string; latin?: string; count: number; group: LifeGroup }>();
+    const m = new Map<string, { key: string; name: string; latin?: string; count: number; group: LifeGroup }>();
     (posts || []).forEach(p => {
       const label = String(p.labels?.[0] || '').trim();
       if (!label || IGNORE.test(label)) return;
@@ -99,7 +108,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
       const e = m.get(key);
       if (e) { e.count++; return; }
       const n = namesOf(p);
-      m.set(key, { name: n.common || label, latin: n.latin, count: 1, group: groupOf(p) });
+      m.set(key, { key, name: n.common || label, latin: n.latin, count: 1, group: groupOf(p) });
     });
     return [...m.values()].sort((a, b) => b.count - a.count).slice(0, 6);
   }, [posts]);
@@ -122,6 +131,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
 
   const nothing = posts !== null && !searching && posts.length === 0 && users.length === 0;
   const summary = posts === null ? '' : `${posts.length} ${posts.length === 1 ? 'sighting' : 'sightings'}${users.length ? ` and ${users.length} ${users.length === 1 ? 'explorer' : 'explorers'}` : ''}`;
+  const sightings = useMemo(() => (posts || []).filter(p => !only || String(p.labels?.[0] || '').trim().toLowerCase() === only.key), [posts, only]);
+  // Only a short status is announced, never the whole results region
+  const status = !open || term.length < 2 ? '' : searching ? 'Looking…' : nothing ? `Nothing matches ${term}` : summary;
 
   return (
     <div className="flex flex-col gap-4">
@@ -153,8 +165,9 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
           : aside}
       </div>
 
+      <p className="sr-only" role="status" aria-live="polite">{status}</p>
       {open && (
-        <div className="flex flex-col gap-8 pt-2" aria-live="polite" aria-busy={searching}>
+        <div className="flex flex-col gap-8 pt-2" aria-busy={searching}>
           {term.length < 2 ? (
             suggestions.length > 0 && (
               <section aria-label="Suggestions">
@@ -172,14 +185,13 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
             <p className="ng-small">Nothing matches “{term}” yet. Try another word.</p>
           ) : (
             <>
-              <p className="sr-only">{summary}</p>
               {species.length > 0 && (
                 <section aria-label="Species">
                   <Heading>Species</Heading>
                   <ul className="grid grid-cols-1 sm:grid-cols-2 sm:gap-x-8" role="list">
                     {species.map(s => (
                       <li key={s.name} className="min-w-0 border-b border-stone-200/70">
-                        <button type="button" onClick={() => onOpenSpecies ? onOpenSpecies(s.name) : onQueryChange(s.name)} className="w-full flex items-center gap-4 py-3 text-left transition-colors hover:text-stone-900">
+                        <button type="button" aria-pressed={only?.key === s.key} onClick={() => { clicked('species'); setShown(PAGE); setOnly(only?.key === s.key ? null : { key: s.key, name: s.name }); }} className={`w-full flex items-center gap-4 py-3 text-left transition-colors hover:text-stone-900 ${only?.key === s.key ? 'font-medium' : ''}`}>
                           <Glyph name={GROUP_GLYPH[s.group]} size={20} className="text-stone-400 shrink-0" />
                           <span className="min-w-0 flex-1">
                             <span className="block font-display italic text-base text-stone-900 truncate">{s.name}</span>
@@ -192,14 +204,25 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                   </ul>
                 </section>
               )}
-              {posts && posts.length > 0 && (
+              {sightings.length > 0 && (
                 <section aria-label="Sightings">
-                  <Heading>Sightings</Heading>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                    <Heading>{only ? <>Sightings of <span className="italic">{only.name}</span></> : 'Sightings'}</Heading>
+                    {only && (
+                      <span className="flex items-center gap-4">
+                        {onOpenSpecies && <button type="button" onClick={() => { clicked('species_about'); onOpenSpecies(only.name); }} className="ng-link-quiet min-h-[44px]">About {only.name}</button>}
+                        <button type="button" onClick={() => setOnly(null)} className="ng-link-quiet min-h-[44px]">Show all</button>
+                      </span>
+                    )}
+                  </div>
                   <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4" role="list">
-                    {posts.slice(0, 12).map(p => (
-                      <li key={p.id}><SpecimenPlate data={plateOfPost(p)} size="sm" onClick={() => onOpenPost(p)} /></li>
+                    {sightings.slice(0, shown).map(p => (
+                      <li key={p.id}><SpecimenPlate data={plateOfPost(p)} size="sm" onClick={() => { clicked('sighting'); onOpenPost(p); }} /></li>
                     ))}
                   </ul>
+                  {sightings.length > shown && (
+                    <button type="button" onClick={() => setShown(n => n + PAGE)} className="ng-button-quiet mt-6">Show more<span className="sr-only"> sightings</span> ({sightings.length - shown})</button>
+                  )}
                 </section>
               )}
               {(placesAndTags.places.length > 0 || placesAndTags.tags.length > 0) && (
@@ -207,12 +230,12 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                   <Heading>Places and tags</Heading>
                   <div className="flex flex-wrap gap-2">
                     {placesAndTags.places.map(pl => (
-                      <button key={`p-${pl}`} type="button" onClick={() => onQueryChange(pl)} className="ng-chip">
+                      <button key={`p-${pl}`} type="button" onClick={() => { clicked('place'); onQueryChange(pl); }} className="ng-chip">
                         <Glyph name="pin" size={16} className="text-stone-400" />{pl}
                       </button>
                     ))}
                     {placesAndTags.tags.map(tg => (
-                      <button key={`t-${tg}`} type="button" onClick={() => onQueryChange(`#${tg}`)} className="ng-chip">
+                      <button key={`t-${tg}`} type="button" onClick={() => { clicked('tag'); onQueryChange(`#${tg}`); }} className="ng-chip">
                         <Glyph name="tag" size={16} className="text-stone-400" />#{tg}
                       </button>
                     ))}
@@ -227,7 +250,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
                       const line = explorerStatsLine(u) || (u.bio || '').slice(0, 80);
                       return (
                         <li key={u.uid} className="min-w-0 border-b border-stone-200/70">
-                          <button type="button" onClick={() => onOpenProfile(u.uid)} className="w-full flex items-center gap-4 py-3 text-left">
+                          <button type="button" onClick={() => { clicked('explorer'); onOpenProfile(u.uid); }} className="w-full flex items-center gap-4 py-3 text-left">
                             {u.avatarUrl
                               ? <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
                               : <span className="w-10 h-10 rounded-full bg-[#f3efe7] flex items-center justify-center font-display text-lg text-stone-700 shrink-0" aria-hidden="true">{(u.username || '?').charAt(0).toUpperCase()}</span>}
