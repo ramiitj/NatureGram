@@ -163,7 +163,8 @@ const App: React.FC = () => {
     // /explore?q=owl (the search box search engines offer) keeps its question for Explore to read
     const onSearchUrl = currentView === AppView.EXPLORE && window.location.pathname === '/explore';
     if (here !== newPath && !onPostUrl && !onSearchUrl) {
-      window.history.pushState({ view: currentView }, '', newPath);
+      // depth counts the screens behind this one inside the app, so Back can return to them
+      window.history.pushState({ view: currentView, depth: (window.history.state?.depth ?? 0) + 1 }, '', newPath);
     }
   }, [currentView, targetProfileId]);
 
@@ -349,7 +350,7 @@ const App: React.FC = () => {
         });
         FirebaseService.getDrafts(user.uid).then(d => setActiveDraftsCount(d.length)).catch(() => {});
         if (currentViewRef.current === AppView.LANDING && !user.isAnonymous) {
-          setCurrentView(AppView.COMMUNITY);
+          setCurrentView(AppView.REELS);
         }
         // Continue the action that required an account (like, comment, publish…)
         if (!user.isAnonymous) maybeOfferPersona(user.uid);
@@ -561,6 +562,16 @@ const App: React.FC = () => {
 
     setCurrentView(targetView);
     setReturnView(null);
+  };
+
+  /**
+   * Back returns to the screen the explorer came from (the browser's own history, so the system
+   * back gesture and this button agree). Opened straight from a link with nothing behind it,
+   * Back goes home: Moments.
+   */
+  const goBack = () => {
+    if ((window.history.state?.depth ?? 0) > 0) window.history.back();
+    else handleNavigationRequest(AppView.REELS);
   };
 
   const handleSignOut = async () => {
@@ -824,7 +835,8 @@ const App: React.FC = () => {
                     if (currentSessionRef.current.length > 0) {
                       handleEndSession(sessionSummary || CLOSING_LINE);
                     } else {
-                      handleNavigationRequest(AppView.COMMUNITY);
+                      if (geminiServiceRef.current) { geminiServiceRef.current.disconnect(); geminiServiceRef.current = null; }
+                      goBack();
                     }
                   }}
                   config={config}
@@ -918,7 +930,7 @@ const App: React.FC = () => {
               )}
               {currentView === AppView.DRAFTS && userMode && (
                 <Suspense fallback={<ViewLoader />}>
-                  <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); setCurrentView(AppView.COMMUNITY); }} />
+                  <DraftsTray userId={userMode.userId!} onResume={handleResumeDraft} onBack={() => { refreshDraftsCount(); goBack(); }} />
                 </Suspense>
               )}
             </ErrorBoundary>
@@ -933,7 +945,7 @@ const App: React.FC = () => {
                   userId={targetProfileId || userMode.userId!}
                   currentUserId={userMode.userId}
                   isAnonymous={userMode.isAnonymous}
-                  onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onBack={goBack}
                   onSignOut={handleSignOut}
                   onViewJournal={() => handleNavigationRequest(AppView.JOURNAL)}
                   onAdminConsole={() => setCurrentView(AppView.ADMIN)}
@@ -959,7 +971,7 @@ const App: React.FC = () => {
               <Suspense fallback={<ViewLoader />}>
                 <Messages
                   initialConversationId={openConversationId}
-                  onBack={() => { setOpenConversationId(null); handleNavigationRequest(AppView.COMMUNITY); }}
+                  onBack={() => { setOpenConversationId(null); goBack(); }}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onOpenPost={(postId) => { setReturnView(AppView.MESSAGES); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                 />
@@ -974,6 +986,9 @@ const App: React.FC = () => {
               <Reels
                 currentUserMode={userMode}
                 onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                onOpenExplore={() => handleNavigationRequest(AppView.EXPLORE)}
+                onOpenActivity={openActivity}
+                unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                 onOpenPost={(postId) => { setReturnView(AppView.REELS); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                 onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                 onRequireAccount={requireAccount}
@@ -987,7 +1002,7 @@ const App: React.FC = () => {
             <Suspense fallback={<ViewLoader />}>
               <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar pb-28 lg:pb-8">
                 <Explore
-                  onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
+                  onBack={goBack}
                   onOpenNaturalist={openNaturalist}
                   onOpenPost={(postId: string) => { setReturnView(AppView.EXPLORE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onOpenProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
@@ -1030,7 +1045,7 @@ const App: React.FC = () => {
             initialIsSignUp={authModal.signUp}
             reason={authModal.reason}
             onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
-            onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.COMMUNITY); }}
+            onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.REELS); }}
           />
         )}
 

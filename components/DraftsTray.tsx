@@ -38,7 +38,7 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
 
   return (
     <div className="min-h-full bg-day-bg ng-page pt-4 pb-10 ng-rise safe-pt">
-      <button onClick={onBack} aria-label="Back to feed" className="ng-icon-button -ml-3">
+      <button onClick={onBack} aria-label="Back" className="ng-icon-button -ml-3">
         <Glyph name="back" size={24} />
       </button>
       <div className="mt-4 mb-8 max-w-2xl">

@@ -182,14 +182,16 @@ async function transcodeObject(bucketName, name, contentType, { transcode = true
   const id = randomUUID();
   const ext = (/\.[^.]+$/.exec(name)?.[0] || '.webm').toLowerCase();
   const src = join(tmpdir(), `${id}${ext}`);
-  const out = join(tmpdir(), `${id}.${isVideo ? 'mp4' : 'm4a'}`);
+  // The source is often named .mp4 too (Chrome records WebM but the clip keeps an .mp4 name), so the
+  // output gets its own name: ffmpeg refuses to write over the file it is reading.
+  const out = join(tmpdir(), `${id}.out.${isVideo ? 'mp4' : 'm4a'}`);
   try {
     await bucket.file(name).download({ destination: src });
     const info = isVideo ? await probe(src) : null;
     const variant = { source: name, updatedAt: FieldValue.serverTimestamp() };
     const dir = name.slice(0, name.lastIndexOf('/'));
     const stem = basename(name).replace(/\.[^.]+$/, '');
-    if (transcode) {
+    if (transcode) try {
       if (isVideo && info?.hasVideo === false) await run(['-i', src, '-vn', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]);
       // Streaming copy: full 1080p kept (longest side at most 1920), visually lossless on phones (CRF 21,
       // capped at 6 Mbps), 30 fps at most, moov atom first so playback starts at once. Phone originals are
@@ -199,6 +201,9 @@ async function transcodeObject(bucketName, name, contentType, { transcode = true
       // A different name from an MP4 original, so the original is never overwritten
       const outName = /\.webm$/i.test(name) ? `${dir}/${stem}.${isVideo ? 'mp4' : 'm4a'}` : `${dir}/${stem}.stream.${isVideo ? 'mp4' : 'm4a'}`;
       variant.mp4Url = await uploader(bucket)(out, outName, isVideo ? 'video/mp4' : 'audio/mp4');
+    } catch (e) {
+      // The still and size are still worth having; the streaming copy is tried again on the next pass
+      console.error('streaming copy failed', name, String(e?.message || e).slice(-600));
     }
     let media = null;
     if (isVideo && /^(videos|drafts)\//.test(name)) {
