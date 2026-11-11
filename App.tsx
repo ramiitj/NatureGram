@@ -1015,6 +1015,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
                   onAbout={() => handleNavigationRequest(AppView.LANDING)}
+                  onLogIn={() => setAuthModal({ signUp: false })}
                   onRetakeTour={() => { resetFirstRunTour(); setTourPending(true); handleNavigationRequest(AppView.COMMUNITY); }}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
