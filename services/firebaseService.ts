@@ -499,9 +499,14 @@ export const FirebaseService = {
     // Media blobs can't live in Firestore: upload them to the owner's private drafts folder first,
     // otherwise drafts would lose their photos/videos/sounds after a reload.
     const canUpload = !!auth.currentUser && !auth.currentUser.isAnonymous && userId === auth.currentUser.uid;
+    // A failed upload must never be saved as an empty picture: throw Error('upload-failed') so the caller
+    // keeps the session on the device and tells the explorer (nothing is written in that case).
     const persistBlob = async (b: Blob | undefined, kind: 'image' | 'video' | 'audio', fallback?: string) => {
       if (b && canUpload) {
-        try { return await FirebaseService.uploadMedia(b, userId, kind, `drafts/${userId}`); } catch (e) { console.warn('Draft media upload failed', e); }
+        try { return await FirebaseService.uploadMedia(b, userId, kind, `drafts/${userId}`); } catch (e) {
+          console.warn('Draft media upload failed', e);
+          throw Object.assign(new Error('upload-failed'), { code: 'upload-failed', kind, cause: e });
+        }
       }
       return fallback && !fallback.startsWith('blob:') ? fallback : '';
     };
@@ -1797,91 +1802,40 @@ export const FirebaseService = {
   },
 
   /**
-   * Permanently deletes the signed-in explorer's account and everything they created.
-   * Requires a recent login (Firebase); throws 'auth/requires-recent-login' otherwise.
+   * Permanently deletes the signed-in explorer's account and everything they created, on the server
+   * (DELETE /api/me, server/accountDeletion.js): sightings and media, field notes, identifications,
+   * marvels, follows, letters, the guide's answers, guardian records, private data, then the sign-in.
+   *
+   * The server needs a sign-in from the last 10 minutes. If it is older, nothing is deleted and this
+   * throws Error('recent-login-required') (code 'auth/requires-recent-login', as before), so the app can
+   * ask the explorer to sign in again and retry. Other failures throw Error('deletion-incomplete') (a
+   * retry carries on where it stopped) or Error('unavailable') (nothing deleted).
    */
   deleteMyAccount: async (onProgress?: (step: string) => void) => {
     const me = auth.currentUser;
     if (!me) throw new Error("Not signed in");
     const uid = me.uid;
-    const step = (s: string) => onProgress?.(s);
-
-    step('Removing your sightings…');
-    const posts = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", uid)));
-    for (const p of posts.docs) {
-      try {
-        const cs = await getDocs(collection(db, "ecosystem_feed", p.id, "comments"));
-        await Promise.all(cs.docs.map(c => deleteDoc(c.ref).catch(() => {})));
-      } catch { /* continue */ }
-      await deleteDoc(doc(db, "feed_thumbnails", p.id)).catch(() => {});
-      await deleteDoc(p.ref).catch(() => {});
-    }
-
-    step('Removing your field notes…');
+    onProgress?.('Checking it\'s you…');
+    // A fresh token (the server also checks how recently the explorer signed in)
+    const token = await me.getIdToken(true);
+    onProgress?.('Removing your sightings, letters and account…');
+    let res: Response;
     try {
-      const myComments = await getDocs(query(collectionGroup(db, "comments"), where("userId", "==", uid)));
-      for (const c of myComments.docs) {
-        await deleteDoc(c.ref).catch(() => {});
-        const postId = c.ref.parent.parent?.id;
-        if (postId) {
-          await updateDoc(doc(db, "ecosystem_feed", postId), { commentCount: increment(-1) }).catch(() => {});
-          await updateDoc(doc(db, "feed_thumbnails", postId), { commentCount: increment(-1) }).catch(() => {});
-        }
-      }
-    } catch (e) { console.warn("Comment cleanup incomplete", e); }
-
-    step('Removing your marvels…');
-    try {
-      const myLikes = await getDocs(query(collectionGroup(db, "likes"), where("userId", "==", uid), limit(1000)));
-      for (const l of myLikes.docs) {
-        const postId = l.ref.parent.parent?.id;
-        if (!postId) continue;
-        const b = writeBatch(db);
-        b.delete(l.ref);
-        b.update(doc(db, "ecosystem_feed", postId), { likeCount: increment(-1) });
-        await b.commit().catch(() => {});
-        await updateDoc(doc(db, "feed_thumbnails", postId), { likeCount: increment(-1) }).catch(() => {});
-      }
-    } catch (e) { console.warn("Like-document cleanup incomplete", e); }
-    try {
-      const liked = await getDocs(query(collection(db, "feed_thumbnails"), where("isPublic", "==", true), where("likes", "array-contains", uid), limit(500)));
-      for (const l of liked.docs) {
-        await updateDoc(doc(db, "ecosystem_feed", l.id), { likes: arrayRemove(uid) }).catch(() => {});
-        await updateDoc(l.ref, { likes: arrayRemove(uid) }).catch(() => {});
-      }
-    } catch (e) { console.warn("Like cleanup incomplete", e); }
-
-    step('Removing follows…');
-    for (const target of await FirebaseService.getFollowingIds(uid, 1000)) {
-      await FirebaseService.unfollowUser(target).catch(() => {});
+      res = await fetch(apiUrl('/api/me'), { method: 'DELETE', headers: { Authorization: `Bearer ${token}`, ...(await appCheckHeaders().catch(() => ({}))) } });
+    } catch {
+      throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
     }
-    try {
-      const followers = await getDocs(collection(db, "users", uid, "followers"));
-      // Follower docs live under our own profile; removing them is enough (their counters self-heal on next follow)
-      await Promise.all(followers.docs.map(f => deleteDoc(f.ref).catch(() => {})));
-    } catch { /* ignore */ }
-
-    step('Removing private data…');
-    for (const sub of ['drafts', 'private', 'notifications', 'saved', 'blocked', 'following']) {
-      try {
-        const snap = await getDocs(collection(db, "users", uid, sub));
-        await Promise.all(snap.docs.map(d => deleteDoc(d.ref).catch(() => {})));
-      } catch { /* ignore */ }
+    const body: any = await res.json().catch(() => ({}));
+    // 401 { error: 'recent-login-required' } (or a sign-in the server no longer accepts): sign in again, then retry
+    if (res.status === 401) throw Object.assign(new Error('recent-login-required'), { code: 'auth/requires-recent-login' });
+    if (!res.ok) {
+      const code = body?.error === 'deletion-incomplete' ? 'deletion-incomplete' : 'unavailable';
+      throw Object.assign(new Error(code), { code, step: body?.step || null });
     }
-    await deleteDoc(doc(db, "naturalist_memories", uid)).catch(() => {});
-
-    step('Removing uploaded media…');
-    for (const folder of ['snapshots', 'videos', 'audio', 'avatars', 'drafts']) {
-      try {
-        const listing = await listAll(ref(storage, `${folder}/${uid}`));
-        await Promise.all(listing.items.map(i => deleteObject(i).catch(() => {})));
-      } catch { /* folder may not exist */ }
-    }
-
-    step('Closing your account…');
-    await deleteDoc(doc(db, "users", uid)).catch(() => {});
-    await deleteUser(me);
+    onProgress?.('Signing you out…');
     try { localStorage.removeItem(`drafts_${uid}`); } catch { /* ignore */ }
+    // The sign-in no longer exists on the server; drop it on this device too
+    await signOut(auth).catch(() => {});
   },
 
   /** Admin = custom claim `admin`, or the owner email once verified (matches security rules). */

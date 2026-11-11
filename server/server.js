@@ -39,6 +39,8 @@ import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
 import { mountBrandIcons } from './brandIcon.js';
 import { mountNaturalistWiki } from './naturalistWiki.js';
+import { mountAccountDeletion } from './accountDeletion.js';
+import { getStorage } from 'firebase-admin/storage';
 import { feedFirstPost, firstTilesJson } from './media.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -318,7 +320,7 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client, X-Firebase-AppCheck');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && isAllowedOrigin(origin) ? 204 : 403);
     next();
@@ -849,6 +851,9 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   };
   mountLive(app, { verifyIdToken, bearer, gate, burstOk, clientIp, log, quotas: QUOTAS, networkOpen, apiKey: API_KEY });
   mountAuthMail(app, { verifyIdToken, bearer, clientIp, log, auth: () => getAuth() });
+  // DELETE /api/me: the whole account, by the server (needs a sign-in in the last 10 minutes)
+  const storageBucketName = process.env.FIREBASE_STORAGE_BUCKET || firebaseWebConfig?.storageBucket || null;
+  mountAccountDeletion(app, { bearer, log, db: () => firestoreDb, auth: () => getAuth(), bucket: () => (storageBucketName ? getStorage().bucket(storageBucketName) : null) });
 
   // -------------------------------------------------------------------------
   // Frontend

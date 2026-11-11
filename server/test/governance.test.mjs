@@ -8,6 +8,8 @@ import { ownMedia, textBreach, storagePathOf, allowanceProblem, allowanceLimits,
 import { textFlags } from '../moderationText.js';
 import { nextReset, RESET_WORDS } from '../ledger.js';
 import { DEFAULT_PROMPTS } from '../aiDefaults.js';
+import { recentLoginProblem, uidRef, mountAccountDeletion } from '../accountDeletion.js';
+import express from 'express';
 
 const S = DEFAULT_SETTINGS;
 
@@ -185,6 +187,32 @@ test('a sighting says whether the guide or the explorer named it', () => {
   assert.equal(nameSourceOf({ labels: ['Indian Roller'], nameSource: 'explorer' }, ['Indian Roller']), 'explorer');
   assert.equal(nameSourceOf({ labels: ['Indian Roller'] }, null), null);
   assert.equal(nameSourceOf({ labels: [] }, ['Indian Roller']), null);
+});
+
+test('account deletion needs a sign-in from the last 10 minutes, before anything is touched', async () => {
+  const now = Date.UTC(2026, 10, 11, 12, 0);
+  assert.equal(recentLoginProblem({ auth_time: now / 1000 - 60 }, now), null);
+  assert.equal(recentLoginProblem({ auth_time: now / 1000 - 11 * 60 }, now).body.error, 'recent-login-required');
+  assert.equal(recentLoginProblem({}, now).status, 401);
+  assert.notEqual(uidRef('abc'), 'abc');
+
+  const app = express();
+  let touched = 0;
+  const db = new Proxy({}, { get: () => { touched++; return () => { throw new Error('should not be reached'); }; } });
+  const tokens = { old: { uid: 'u1', auth_time: Math.floor(Date.now() / 1000) - 3600 } };
+  const auth = { verifyIdToken: async (t) => { if (!tokens[t]) throw Object.assign(new Error('bad'), { code: 'auth/argument-error' }); return tokens[t]; } };
+  mountAccountDeletion(app, { bearer: (req) => (req.headers.authorization || '').replace(/^Bearer /, ''), log: () => {}, db: () => db, auth: () => auth });
+  const server = await new Promise(r => { const s = app.listen(0, () => r(s)); });
+  try {
+    const base = `http://127.0.0.1:${server.address().port}/api/me`;
+    const stale = await fetch(base, { method: 'DELETE', headers: { Authorization: 'Bearer old' } });
+    assert.equal(stale.status, 401);
+    assert.equal((await stale.json()).error, 'recent-login-required');
+    const none = await fetch(base, { method: 'DELETE' });
+    assert.equal(none.status, 401);
+    assert.equal((await none.json()).error, 'auth');
+    assert.equal(touched, 0);
+  } finally { server.close(); }
 });
 
 test('allowances turn over at the next midnight UTC', () => {
