@@ -560,7 +560,7 @@ async function startServer() {
 *{box-sizing:border-box}
 body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#fcfaf8;color:#44403c;min-height:100vh;padding:24px;display:flex;flex-direction:column;align-items:center}
 .top{width:100%;max-width:440px;display:flex;align-items:center;gap:10px;margin:0 0 32px}
-.top svg{width:22px;height:22px;color:#1c1917}
+.top img{width:24px;height:24px;border-radius:50%}
 .brand{font-family:Newsreader,Georgia,serif;font-style:italic;font-size:20px;color:#1c1917;margin:0;letter-spacing:-.01em}
 .card{max-width:440px;width:100%}
 img{width:100%;aspect-ratio:4/5;object-fit:cover;background:#f3efe7;display:block;border-radius:6px}
@@ -576,7 +576,7 @@ a.btn{display:inline-flex;align-items:center;gap:10px;margin-top:24px;min-height
 a.btn span{color:${wash}}
 a:focus-visible{outline:3px solid ${wash};outline-offset:2px}
 </style>${ld ? `\n<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>` : ''}</head>
-<body><header class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.7" fill="currentColor"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7" stroke-width="2"/></svg><p class="brand">NatureGram</p></header>
+<body><header class="top"><img src="/brand/mark.svg" alt="" width="24" height="24" style="border-radius:50%"><p class="brand">NatureGram</p></header>
 <main class="card">
 <a href="${e(appUrl)}"><img src="${e(imageUrl)}" alt="${e(heading)}" referrerpolicy="no-referrer"></a>
 <p class="kicker">A sighting on NatureGram</p>
