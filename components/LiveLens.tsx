@@ -8,8 +8,9 @@ import { FirebaseService, getMyAllowance } from '../services/firebaseService.ts'
 import { track } from '../services/analytics';
 import { getDailyTheme as getDailyThemeConst } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
-import { coarsenCoordinate } from '../utils';
-import { GenAiService } from '../services/genAiService.ts';
+import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE } from '../utils';
+import { GenAiService, tooLargeToAnalyse } from '../services/genAiService.ts';
+import { useBackToClose } from '../services/overlayStack';
 import { RateLimitService } from '../services/rateLimitService.ts';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import Glyph from './Glyph';
@@ -19,10 +20,16 @@ import { answersChallenge } from '../services/challenge';
 
 /** The guide's one motif: a dot breathing inside a ring. Still when the explorer prefers reduced motion. */
 const BREATHE_CSS = `@keyframes ng-guide-breathe{0%,100%{transform:scale(.86);opacity:.65}50%{transform:scale(1.08);opacity:1}}.ng-breathe{animation:ng-guide-breathe 2.6s ease-in-out infinite;transform-origin:center}@media (prefers-reduced-motion: reduce){.ng-breathe{animation:none}}
-@keyframes ng-pin-in{from{opacity:0;transform:translateY(18px) rotate(0deg) scale(.9)}to{opacity:1}}.ng-pin{animation:ng-pin-in .6s cubic-bezier(.2,.8,.2,1) both}@media (prefers-reduced-motion: reduce){.ng-pin{animation:none}}`;
+@keyframes ng-pin-in{from{opacity:0;transform:translateY(18px) rotate(0deg) scale(.9)}to{opacity:1}}.ng-pin{animation:ng-pin-in .6s cubic-bezier(.2,.8,.2,1) both}@media (prefers-reduced-motion: reduce){.ng-pin{animation:none}}
+.ng-zoom{-webkit-appearance:none;appearance:none;background:transparent;cursor:pointer}.ng-zoom:focus-visible{outline:2px solid #fff;outline-offset:4px;border-radius:9999px}
+.ng-zoom::-webkit-slider-runnable-track{height:2px;background:rgba(255,255,255,.6);border-radius:2px}.ng-zoom::-moz-range-track{height:2px;background:rgba(255,255,255,.6);border-radius:2px}
+.ng-zoom::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;margin-top:-9px;border-radius:9999px;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.45)}.ng-zoom::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:9999px;background:#fff}`;
 const BreathingGuide: React.FC<{ size?: number; still?: boolean; className?: string }> = ({ size = 14, still, className = '' }) => (
   <span className={`inline-flex ${still ? '' : 'ng-breathe'} ${className}`} aria-hidden="true"><Glyph name="guide" size={size} /></span>
 );
+
+/** What the guide needs to identify one capture (kept so an offline failure can be tried again). */
+type IdJob = { multimodal: boolean; media: Blob | null; images: Blob[]; mediaType: 'image' | 'audio' | 'video'; location?: string; trackType: string };
 
 /** Placeholder labels a capture carries before (or without) an identification. */
 const UNNAMED = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting|manual observation|audio recording|video recording|uploaded discovery)/i;
@@ -43,7 +50,39 @@ interface SightingCard {
   line: string;
   firstForList: boolean;
   challenge: string | null;
+  /** How sure the guide is, said in words on the tag */
+  confidence?: 'high' | 'medium' | 'low' | null;
+  /** A safety or danger note (fungi, venomous, ...) that must stay on the tag */
+  safety?: string;
 }
+
+/** The guide's confidence as the first words of the tag. */
+const confidenceLead = (c?: string | null) => c === 'high' ? 'Probably' : c === 'medium' ? 'Could be' : 'Not sure: maybe';
+
+/** Said once: the guide is an AI and can be wrong. */
+const AI_LINE = 'Your guide is an AI. It can be wrong; check what matters.';
+/** The first-visit line already says it; this marks the first "Talk with me" too. */
+const TALK_AI_KEY = 'naturegram_talk_ai_note';
+/** The quiet Lens may wait in the background this long (checking a message) before it ends. */
+const BACKGROUND_GRACE_MS = 60_000;
+
+/** Why the live guide stopped, in plain words, when we know. */
+const liveFailureReason = (err?: any) => {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return "You're offline, so your guide can't talk.";
+  const code = Number(err?.code) || 0;
+  // The server's own refusals (allowance used, time limit, too many at once) carry words meant for people
+  if (code >= 4000 && code <= 4999 && err?.message && !/^(the live guide session ended\.?|session|timeout)/i.test(err.message)) return String(err.message);
+  if (code === 4429 || code === 4408) return "Today's live time is used.";
+  return 'Your guide is unavailable right now.';
+};
+
+/** Distance in km between two points (enough for "moved more than a kilometre"). */
+const distanceKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const r = Math.PI / 180;
+  const x = (b.lng - a.lng) * r * Math.cos(((a.lat + b.lat) / 2) * r);
+  const y = (b.lat - a.lat) * r;
+  return Math.sqrt(x * x + y * y) * 6371;
+};
 
 interface LiveLensProps {
   onCapture: (snap: Snapshot) => void;
@@ -88,9 +127,16 @@ export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; 
       <div className="relative bg-black/55 backdrop-blur-xl text-white rounded-2xl pl-6 pr-12 py-5">
           <div role="status" aria-live="polite" aria-atomic="true">
               <span className="block w-8 h-px bg-theme-vivid mb-3" aria-hidden="true" />
+              <p className="text-sm text-white/75 mb-0.5"><span className="sr-only">Your guide, an AI: </span>{confidenceLead(card.confidence)}</p>
               <p className="ng-dark-title">{card.name}</p>
               {card.scientific && <p className="font-display italic text-base text-white/70 mt-0.5">{card.scientific}</p>}
               {card.line && <p className="ng-dark-caption text-white/85 mt-2">{card.line}</p>}
+              {card.safety && (
+                  <p className="mt-3 flex gap-2 text-sm leading-snug text-red-100 border-l-2 border-red-300 pl-3">
+                      <Glyph name="alert" size={16} className="shrink-0 mt-0.5 text-red-300" />
+                      <span>{card.safety}</span>
+                  </p>
+              )}
               {card.firstForList && <span className="sr-only">First for your list.</span>}
           </div>
           <button
@@ -125,6 +171,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [zoom, setZoom] = useState(1);
   const [torch, setTorch] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const facingModeRef = useRef(facingMode);
+  facingModeRef.current = facingMode;
   const [pan, setPan] = useState(0);
   const [tilt, setTilt] = useState(0);
 
@@ -160,9 +208,18 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, []);
   useEffect(() => {
     if (!firstLine) return;
-    const t = window.setTimeout(dismissFirstLine, 9000);
+    const t = window.setTimeout(dismissFirstLine, 12000);
     return () => clearTimeout(t);
   }, [firstLine, dismissFirstLine]);
+  /** A brief note on screen: something the guide did or suggests (it never acts unseen). */
+  const [guideNote, setGuideNote] = useState<string | null>(null);
+  const guideNoteTimerRef = useRef<number | null>(null);
+  const showGuideNote = useCallback((text: string, ms = 4500) => {
+    setGuideNote(text);
+    if (guideNoteTimerRef.current) clearTimeout(guideNoteTimerRef.current);
+    guideNoteTimerRef.current = window.setTimeout(() => setGuideNote(n => (n === text ? null : n)), ms);
+  }, []);
+  useEffect(() => () => { if (guideNoteTimerRef.current) clearTimeout(guideNoteTimerRef.current); }, []);
   // Quiet companion by default; "Talk with me" switches to the talkative guide (and restarts the session)
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>(initialMode);
   // Quiet watching (waiting for a bird) needs time; the live guide costs live minutes, so it rests sooner
@@ -173,6 +230,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   /** When the explorer last spoke (voice heard on the microphone), for the guide's idle clock */
   const lastVoiceRef = useRef(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const { close: closeMenu } = useBackToClose(menuOpen, () => setMenuOpen(false));
   const [captureCount, setCaptureCount] = useState(0);
   const captureCountRef = useRef(0);
   captureCountRef.current = captureCount;
@@ -184,6 +242,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   // the same daily allowance for everyone); idle timeout; capture cap in observation mode.
   const CONVERSATION_FALLBACK_MS = 60_000;
   const OBSERVATION_MAX_CAPTURES = 3;
+  const CAP_MESSAGE = `This quiet session holds ${OBSERVATION_MAX_CAPTURES} captures. Tap Done to write them up, then open the Lens again.`;
   const conversationEndsAtRef = useRef<number | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [idleWarning, setIdleWarning] = useState<number | null>(null);
@@ -211,7 +270,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const placeRef = useRef<string>('');
   const [closing, setClosing] = useState<{ items: { thumb?: string; name?: string; type: string }[]; minutes: number; place: string } | null>(null);
 
-  const showStatus = useCallback((type: 'success' | 'error' | 'processing', text: string) => {
+  const showStatus = useCallback((type: 'success' | 'error' | 'processing', text: string, ms = 5000) => {
       setAnalysisStatus({ type, text });
       if (type !== 'processing') {
           setTimeout(() => {
@@ -219,10 +278,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                  if (current?.text === text && current?.type === type) return null;
                  return current;
               });
-          }, 5000);
+          }, ms);
       }
   }, []);
-  const [sessionError, setSessionError] = useState<{ title: string; message: string } | null>(null);
+  /** A full-screen problem; `roll` offers the camera roll instead (no camera on this device). */
+  const [sessionError, setSessionError] = useState<{ title: string; message: string; action?: 'roll' } | null>(null);
 
   // Handlers below are memoised with narrow deps, so they read live values through refs
   const onCaptureRef = useRef(onCapture);
@@ -261,7 +321,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, []);
 
   /** Present an identified sighting as a specimen tag; returns the toast line in the guide's voice. */
-  const presentSighting = useCallback((snapId: string, s: { labels?: string[]; behavior?: string; aiInsight?: string; aiIdentifications?: any[] | null; aiFlags?: any; location?: string }): string => {
+  const presentSighting = useCallback((snapId: string, s: { labels?: string[]; behavior?: string; aiInsight?: string; aiIdentifications?: any[] | null; aiFlags?: any; location?: string; confidence?: 'high' | 'medium' | 'low' | null; safetyNote?: string }): string => {
       if (s.location) placeRef.current = s.location;
       const name = (s.labels?.[0] || '').trim();
       if (!name || UNNAMED.test(name)) return 'Captured. You can name it in review.';
@@ -270,25 +330,99 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       const sciCandidate = [s.labels?.[1], s.aiIdentifications?.[0]?.scientificName].find(x => !!x && /^[A-Z][a-z]+ [a-z]+/.test(x));
       const known = lifeNamesRef.current;
       const seen = [...(known || []), ...sessionNamesRef.current].map(n => ({ name: n }));
-      const firstForList = !!known && !isOnList(seen, name);
+      // A first is stamped (and chimed) only when the guide is fairly sure or better
+      const sureEnough = s.confidence === 'high' || s.confidence === 'medium';
+      const firstForList = sureEnough && !!known && !isOnList(seen, name);
+      const safety = (s.safetyNote || '').trim()
+          || (s.aiFlags?.fungi ? 'Never eat or handle wild fungi based on this name.' : s.aiFlags?.dangerous ? 'This may be dangerous. Keep your distance.' : '');
       if (!isOnList(sessionNamesRef.current.map(n => ({ name: n })), name)) sessionNamesRef.current.push(name);
       const theme = getDailyThemeConst();
       const challenge = answersChallenge(theme.id, s) ? theme.naturalist : null;
       setLatestSighting({
           id: snapId, name, scientific: sciCandidate && sciCandidate.toLowerCase() !== name.toLowerCase() ? sciCandidate : undefined,
           line: oneSentence(s.behavior) || oneSentence(s.aiInsight), firstForList, challenge,
+          confidence: s.confidence ?? null, safety: safety || undefined,
       });
       if (firstForList) {
           try { navigator.vibrate?.([12, 40, 12]); } catch { /* unsupported */ }
           playChime();
       }
-      return `${name}, captured.`;
+      if (s.confidence === 'high') return `${name}, captured.`;
+      if (s.confidence === 'medium') return `Could be ${name}. Captured.`;
+      return `Captured. Not sure: maybe ${name}.`;
   }, [playChime]);
+
+  const updateSnapshotRef = useRef(updateSnapshot);
+  updateSnapshotRef.current = updateSnapshot;
+  /** Captures whose identification failed because the phone was offline; named again when it's back */
+  const offlineQueueRef = useRef<Map<string, IdJob>>(new Map());
+
+  /**
+   * Every capture is identified here, in the background: the result lands on the capture and as a
+   * tag on screen. Offline failures wait for the connection to come back while the Lens is open.
+   */
+  const identifyCapture = useCallback((snapId: string, job: IdJob) => {
+      setPendingAnalyses(n => n + 1);
+      const t0 = performance.now();
+      const run = job.multimodal
+          ? GenAiService.analyzeMultimodal(job.media, job.images, job.location)
+          : GenAiService.analyzeMedia(job.media!, job.mediaType, job.location);
+      run.then(result => {
+          track('ai_result', { ok: true, type: job.trackType, ms: Math.round(performance.now() - t0), confidence: result.confidence });
+          updateSnapshotRef.current(snapId, {
+              aiInsight: result.ecologic,
+              labels: result.taxonomy,
+              ...(result.location ? { locationArea: result.location } : {}),
+              isAnalyzing: false,
+              aiProposedLabels: result.taxonomy,
+              aiProposedBehavior: result.ecologic,
+              aiConfidence: result.confidence,
+              aiIdentifications: result.identifications,
+              aiFlags: result.flags,
+              needsExpertReview: result.needsExpertReview,
+              aiSafetyNote: result.safetyNote,
+              aiModel: result.model,
+              aiPromptVersion: result.promptVersion,
+              aiResultId: result.resultId,
+              aiError: null
+          });
+          setPendingAnalyses(n => Math.max(0, n - 1));
+          showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location, confidence: result.confidence, safetyNote: result.safetyNote }));
+      }).catch(err => {
+          console.error("Background analysis failed", err);
+          setPendingAnalyses(n => Math.max(0, n - 1));
+          const offline = err?.kind === 'offline' || (typeof navigator !== 'undefined' && navigator.onLine === false);
+          if (offline) {
+              offlineQueueRef.current.set(snapId, job);
+              updateSnapshotRef.current(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: "You were offline, so your guide couldn't look" });
+              showStatus('error', "You're offline. Your guide names it when you're back online, or you can name it yourself.", 7000);
+              return;
+          }
+          updateSnapshotRef.current(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
+          showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can name it yourself in review.");
+      });
+  }, [presentSighting, showStatus]);
+
+  // Back online: the captures that failed while offline are looked at again
+  useEffect(() => {
+      const back = () => {
+          const queued = Array.from(offlineQueueRef.current.entries());
+          offlineQueueRef.current.clear();
+          if (!queued.length) return;
+          showStatus('processing', queued.length === 1 ? "You're back online. Your guide is looking at your capture…" : `You're back online. Your guide is looking at ${queued.length} captures…`);
+          queued.forEach(([id, job]) => { updateSnapshotRef.current(id, { isAnalyzing: true, aiError: null }); identifyCapture(id, job); });
+      };
+      window.addEventListener('online', back);
+      return () => window.removeEventListener('online', back);
+  }, [identifyCapture, showStatus]);
 
   const nextStartTimeRef = useRef<number>(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
-  const lastLocationRef = useRef<{lat: number, lng: number} | null>(null);
+  /** Exact position (kept only in the private rawLocation) and the town it's near, when known. */
+  const lastLocationRef = useRef<{ lat: number; lng: number; name?: string } | null>(null);
+  /** The town name for the AI and the review; never coordinates. */
+  const placeName = () => lastLocationRef.current?.name || undefined;
   const locationWatchIdRef = useRef<number | null>(null);
 
   const [naturalistId, setNaturalistId] = useState("");
@@ -400,7 +534,6 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           settle();
           const snapId = Date.now().toString();
           pendingSnapshotIdRef.current = snapId;
-          setPendingAnalyses(n => n + 1);
           showStatus('processing', 'Analysing your capture…');
 
           if (type === 'audio') {
@@ -413,7 +546,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             ? "I just captured an audio snippet. The system is analyzing it in the background. Please acknowledge this and wait for the results."
             : `I just captured ${type === 'audio' ? 'an audio recording' : `a ${type}`}. The system is analyzing it in the background. Please acknowledge this and wait for the results.`;
 
-          const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
+          const location = placeName();
 
           retakesCountRef.current += 1;
 
@@ -444,38 +577,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const allImageBlobs = imgBlob ? [imgBlob, ...associatedBlobs] : associatedBlobs;
 
           track('capture', { type, keyframes: allImageBlobs.length });
-          const t0 = performance.now();
-          GenAiService.analyzeMultimodal(
-              (type === 'audio' || type === 'video') ? mediaBlob : null,
-              allImageBlobs,
-              location
-          ).then(result => {
-              track('ai_result', { ok: true, type, ms: Math.round(performance.now() - t0), confidence: result.confidence });
-              updateSnapshot(snapId, {
-                  aiInsight: result.ecologic,
-                  labels: result.taxonomy,
-                  ...(result.location ? { locationArea: result.location } : {}),
-                  isAnalyzing: false,
-                  aiProposedLabels: result.taxonomy,
-                  aiProposedBehavior: result.ecologic,
-                  aiConfidence: result.confidence,
-                  aiIdentifications: result.identifications,
-                  aiFlags: result.flags,
-                  needsExpertReview: result.needsExpertReview,
-                  aiSafetyNote: result.safetyNote,
-                  aiModel: result.model,
-                  aiPromptVersion: result.promptVersion,
-                  aiResultId: result.resultId,
-                  aiError: null
-              });
-              setPendingAnalyses(n => Math.max(0, n - 1));
-              showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
-          }).catch(err => {
-              console.error("Background analysis failed", err);
-              updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
-              setPendingAnalyses(n => Math.max(0, n - 1));
-              showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
-          });
+          identifyCapture(snapId, { multimodal: true, media: mediaBlob, images: allImageBlobs, mediaType: type, location, trackType: type });
       };
 
       if (blobPromise) {
@@ -511,7 +613,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         return prev - 1;
       });
     }, 1000);
-  }, [onCapture, userMode.userId, captureFrame, onBusyChange]);
+  }, [onCapture, userMode.userId, captureFrame, onBusyChange, identifyCapture]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -521,7 +623,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   const handleShutterPress = useCallback(() => {
       if (selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES && !isRecordingVideo) {
-          showStatus('error', `Observation sessions hold ${OBSERVATION_MAX_CAPTURES} captures. Tap Done to review them.`);
+          showStatus('error', CAP_MESSAGE, 7000);
           return;
       }
       if (!isCameraActive) {
@@ -581,9 +683,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
                   const snapId = Date.now().toString();
                   pendingSnapshotIdRef.current = snapId;
-                  setPendingAnalyses(n => n + 1);
                   showStatus('processing', 'Analysing your photo…');
-                  const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
+                  const location = placeName();
 
                   retakesCountRef.current += 1;
 
@@ -606,38 +707,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   });
 
                   track('capture', { type: 'photo' });
-                  const t0 = performance.now();
-                  GenAiService.analyzeMedia(compressedBlob, 'image', location).then(result => {
-                      track('ai_result', { ok: true, type: 'photo', ms: Math.round(performance.now() - t0), confidence: result.confidence });
-                      updateSnapshot(snapId, {
-                          aiInsight: result.ecologic,
-                          labels: result.taxonomy,
-                          ...(result.location ? { locationArea: result.location } : {}),
-                          isAnalyzing: false,
-                          aiProposedLabels: result.taxonomy,
-                          aiProposedBehavior: result.ecologic,
-                          aiConfidence: result.confidence,
-                          aiIdentifications: result.identifications,
-                          aiFlags: result.flags,
-                          needsExpertReview: result.needsExpertReview,
-                          aiSafetyNote: result.safetyNote,
-                          aiModel: result.model,
-                          aiPromptVersion: result.promptVersion,
-                          aiResultId: result.resultId,
-                          aiError: null
-                      });
-                      setPendingAnalyses(n => Math.max(0, n - 1));
-                      showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
-                  }).catch(err => {
-                      console.error("Manual capture analysis failed", err);
-                      updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
-                      setPendingAnalyses(n => Math.max(0, n - 1));
-                      showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
-                  });
+                  identifyCapture(snapId, { multimodal: false, media: compressedBlob, images: [], mediaType: 'image', location, trackType: 'photo' });
               });
           }
       }
-  }, [isCameraActive, isRecordingVideo, isRecordingAudio, stopRecording, captureFrame, onCapture, userMode.userId, lastAudioSnapshotId, lastAudioImages, updateSnapshot]);
+  }, [isCameraActive, isRecordingVideo, isRecordingAudio, stopRecording, captureFrame, onCapture, userMode.userId, lastAudioSnapshotId, lastAudioImages, updateSnapshot, identifyCapture]);
 
   useEffect(() => {
     if (agentGainNodeRef.current && audioContext) {
@@ -645,24 +719,39 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }
   }, [isMuted, audioContext]);
 
+  /** A clip without holding: Shift+Enter on the shutter, or "Start a clip" in the ⋯ menu (keyboards, switches). */
+  const toggleClip = useCallback(() => {
+    if (isRecordingVideo) { stopRecording(); return; }
+    if (isRecordingAudio) return;
+    if (selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES) { showStatus('error', CAP_MESSAGE, 7000); return; }
+    if (!isCameraActive) { setIsCameraActive(true); return; }
+    startRecording('video');
+  }, [isRecordingVideo, isRecordingAudio, isCameraActive, selectedMode, startRecording, stopRecording, showStatus]);
+
   /** Sound recording: one tap to start, one tap to stop (max 30 s). */
   const toggleSoundRecording = useCallback(() => {
     if (isRecordingVideo) return;
     if (!isRecordingAudio && selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES) {
-        showStatus('error', `Observation sessions hold ${OBSERVATION_MAX_CAPTURES} captures. Tap Done to review them.`);
+        showStatus('error', CAP_MESSAGE, 7000);
         return;
     }
     if (isRecordingAudio) stopRecording();
     else startRecording('audio');
   }, [isRecordingAudio, isRecordingVideo, startRecording, stopRecording, selectedMode, showStatus]);
 
+  /** A photo, clip or sound from the camera roll, added to this session (the ⋯ menu after the first capture). */
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
+      e.target.value = '';
       if (!file) return;
 
       const isVideo = file.type.startsWith('video/');
       const isAudio = file.type.startsWith('audio/');
       const isImage = file.type.startsWith('image/');
+      if (!isVideo && !isAudio && !isImage) { showStatus('error', "That isn't a photo, video or sound."); return; }
+      if (selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES) { showStatus('error', CAP_MESSAGE, 7000); return; }
+      // A photo that can't be redrawn would keep its hidden location: never added
+      if (isImage && !(await canCleanImage(file))) { showStatus('error', UNCLEANABLE_IMAGE_MESSAGE, 7000); return; }
 
       if (isVideo || isAudio) {
           const media = isVideo ? document.createElement('video') : document.createElement('audio');
@@ -670,6 +759,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
           await new Promise((resolve) => {
               media.onloadedmetadata = resolve;
+              media.onerror = resolve;
           });
 
           if (media.duration > 30) {
@@ -679,11 +769,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           }
       }
 
-      setPendingAnalyses(n => n + 1);
-      showStatus('processing', 'Analysing your upload…');
       const snapId = Date.now().toString();
-      const location = lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined;
+      const location = placeName();
       const mediaType = isVideo ? 'video' : (isAudio ? 'audio' : 'image');
+      const tooLarge = tooLargeToAnalyse([file]);
+      showStatus(tooLarge ? 'error' : 'processing', tooLarge ? 'Added. It is too large for your guide to look at, so name it yourself in review.' : 'Analysing your upload…', 7000);
 
       if (isImage) {
           retakesCountRef.current += 1;
@@ -699,7 +789,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               userId: userMode.userId,
               isHybrid: false,
               location: location,
-              isAnalyzing: true,
+              isAnalyzing: !tooLarge,
               rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
               timeToRecordMs: Date.now() - sessionStartMsRef.current,
               sessionRetakes: retakesCountRef.current
@@ -727,7 +817,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               userId: userMode.userId,
               isHybrid: false,
               location: location,
-              isAnalyzing: true,
+              isAnalyzing: !tooLarge,
               rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
               timeToRecordMs: Date.now() - sessionStartMsRef.current,
               sessionRetakes: retakesCountRef.current
@@ -735,36 +825,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       }
 
       track('capture', { type: `upload_${mediaType}` });
-      GenAiService.analyzeMedia(file, mediaType, location).then(result => {
-          updateSnapshot(snapId, {
-              aiInsight: result.ecologic,
-              labels: result.taxonomy,
-              ...(result.location ? { locationArea: result.location } : {}),
-              isAnalyzing: false,
-              aiProposedLabels: result.taxonomy,
-              aiProposedBehavior: result.ecologic,
-                          aiConfidence: result.confidence,
-                          aiIdentifications: result.identifications,
-                          aiFlags: result.flags,
-                          needsExpertReview: result.needsExpertReview,
-                          aiSafetyNote: result.safetyNote,
-                          aiModel: result.model,
-                          aiPromptVersion: result.promptVersion,
-                          aiResultId: result.resultId,
-                          aiError: null
-          });
-          setPendingAnalyses(n => Math.max(0, n - 1));
-          showStatus('success', presentSighting(snapId, { labels: result.taxonomy, aiInsight: result.ecologic, aiIdentifications: result.identifications, aiFlags: result.flags, location: result.location }));
-      }).catch(err => {
-          console.error("Upload analysis failed", err);
-          updateSnapshot(snapId, { aiInsight: "", labels: [], isAnalyzing: false, aiError: err?.message || "Identification unavailable right now" });
-          setPendingAnalyses(n => Math.max(0, n - 1));
-          showStatus('error', err?.kind === 'quota' ? err.message : "Couldn't identify this one. You can label it yourself in review.");
-      });
+      if (tooLarge) { updateSnapshot(snapId, { aiInsight: '', labels: [], isAnalyzing: false }); return; }
+      identifyCapture(snapId, { multimodal: false, media: file, images: [], mediaType, location, trackType: `upload_${mediaType}` });
   };
 
   const getStatusText = () => {
     if (agentState === 'FINALIZING') return "Wrapping up…";
+    // The quiet Lens has no live guide: nothing is listening or watching, captures are named afterwards
+    if (selectedMode === 'observation') return agentState === 'DISCONNECTED' ? "Lens paused · tap to retry" : "Quiet Lens · your guide names captures afterwards";
     if (agentState === 'RECONNECTING') return "Reconnecting…";
     switch (agentState) {
         case 'BOOTING': return "Waking your guide…";
@@ -779,6 +847,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   /** The status pill's mark: the guide's breathing dot while it waits or works, a plain icon otherwise. */
   const getPebbleStyle = (): { icon: string; guide?: 'breathe' | 'still' } => {
+    if (selectedMode === 'observation' && agentState !== 'FINALIZING' && agentState !== 'DISCONNECTED') return { icon: 'visibility' };
     if (agentState === 'FINALIZING' || agentState === 'RECONNECTING' || agentState === 'BOOTING' || agentState === 'THINKING') return { icon: 'guide', guide: 'breathe' };
     if (agentState === 'DISCONNECTED') return { icon: 'guide', guide: 'still' };
     if (agentState === 'HEARING_USER') return { icon: isMuted ? 'mic_off' : 'mic' };
@@ -835,6 +904,13 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       return () => { clearInterval(ping); RateLimitService.clearSessionActive(); };
   }, []);
 
+  /** When the quiet Lens went to the background (it may wait there a minute), or null */
+  const hiddenAtRef = useRef<number | null>(null);
+  /** Since when the live guide has been trying to connect (it falls back to the quiet Lens after 20 s) */
+  const liveWaitSinceRef = useRef<number | null>(null);
+  const liveErrorRef = useRef<any>(null);
+  const fallBackRef = useRef<(reason: string) => void>(() => {});
+
   useEffect(() => {
       const touch = () => { lastInteractionRef.current = Date.now(); setIdleWarning(null); };
       const events: (keyof WindowEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
@@ -842,6 +918,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       const tick = setInterval(() => {
           if (agentState === 'FINALIZING') return;
           const now = Date.now();
+          // In the background the idle clock stands still; only the background minute counts
+          if (hiddenAtRef.current !== null) {
+              if (now - hiddenAtRef.current >= BACKGROUND_GRACE_MS) finalizeSession('The Lens closed after a minute in the background.');
+              return;
+          }
+          // A live guide that can't connect gives way to the quiet Lens instead of "Reconnecting…" for ever
+          if (selectedMode === 'conversation' && liveWaitSinceRef.current && now - liveWaitSinceRef.current > 20_000) {
+              fallBackRef.current(liveFailureReason(liveErrorRef.current));
+              return;
+          }
           // A clip being recorded is someone at work; it is capped at 30 seconds anyway
           if (isRecordingAudio || isRecordingVideo) lastInteractionRef.current = now;
           let left: number;
@@ -857,20 +943,50 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           }
           if (left <= 0) finalizeSession(selectedMode === 'observation' ? 'The Lens rested after a few quiet minutes.' : 'The guide rested to save your live time.');
           else if (left <= 10_000) setIdleWarning(Math.ceil(left / 1000));
-          if (conversationEndsAtRef.current) {
+          if (conversationEndsAtRef.current && selectedMode === 'conversation') {
               const left = Math.max(0, Math.ceil((conversationEndsAtRef.current - Date.now()) / 1000));
               setSecondsLeft(left);
               if (left === 0) finalizeSession("That's today's live time. Captures still work, and live time resets at midnight UTC.");
           }
       }, 1000);
-      const onHide = () => { if (document.visibilityState === 'hidden') finalizeSession('The Lens closed when NatureGram went to the background.'); };
-      document.addEventListener('visibilitychange', onHide);
       return () => {
           events.forEach(ev => window.removeEventListener(ev, touch));
           clearInterval(tick);
-          document.removeEventListener('visibilitychange', onHide);
       };
   }, [agentState, isRecordingAudio, isRecordingVideo, finalizeSession, IDLE_LIMIT_MS, selectedMode]);
+
+  // Going to the background. "Talk with me" is billed by the second, so it ends at once. The quiet Lens
+  // is free: it waits up to a minute (someone checking a message) with the camera paused, then resumes.
+  useEffect(() => {
+      const onVisibility = () => {
+          if (finalizingRef.current) return;
+          if (document.visibilityState === 'hidden') {
+              if (selectedMode === 'conversation') { finalizeSession('The guide stopped when NatureGram went to the background, to save your live time.'); return; }
+              if (hiddenAtRef.current === null) hiddenAtRef.current = Date.now();
+              // A clip being recorded is finished and kept (its closing frame taken) before the camera pauses
+              if (mediaRecorderRef.current?.state === 'recording') { try { mediaRecorderRef.current.stop(); } catch { /* already stopped */ } }
+              Promise.race([captureSettledRef.current, new Promise(r => setTimeout(r, 3000))]).then(() => {
+                  if (hiddenAtRef.current !== null) activeStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = false; });
+              });
+              return;
+          }
+          const hiddenAt = hiddenAtRef.current;
+          if (hiddenAt === null) return;
+          hiddenAtRef.current = null;
+          // The phone may have frozen the page meanwhile: past the minute, it ends now
+          if (Date.now() - hiddenAt >= BACKGROUND_GRACE_MS) { finalizeSession('The Lens closed after a minute in the background.'); return; }
+          lastInteractionRef.current = Date.now();
+          const track = videoTrackRef.current;
+          if (track && track.readyState === 'ended') {
+              startMediaStreamRef.current(facingModeRef.current).catch(() => showStatus('error', "The camera didn't come back. Close the Lens and open it again."));
+          } else {
+              activeStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = isCameraActiveRef.current; });
+          }
+      };
+      document.addEventListener('visibilitychange', onVisibility);
+      return () => document.removeEventListener('visibilitychange', onVisibility);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMode, finalizeSession]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
     setChatHistory(prev => {
@@ -933,7 +1049,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             setZoom(clampedZoom);
         }
 
-        if (settings.torch !== undefined && (supported as any).torch) {
+        if (settings.torch !== undefined && capabilitiesRef.current?.torch) {
             advanced.torch = settings.torch;
             setTorch(settings.torch);
         }
@@ -1009,6 +1125,9 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     }
   }, []);
 
+  const startMediaStreamRef = useRef(startMediaStream);
+  startMediaStreamRef.current = startMediaStream;
+
   /** Show a stream in the viewfinder and read what its camera can do (zoom, torch, pan, tilt). */
   const attachStream = (stream: MediaStream) => {
         activeStreamRef.current = stream;
@@ -1030,7 +1149,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 setZoom(caps.zoom.min);
             }
 
-            setHasTorch(!!caps.torch || (supportedConstraintsRef.current as any).torch);
+            // Only a camera that says it has a torch shows the button (browser support alone isn't enough)
+            setHasTorch(!!caps.torch);
 
             setCanPan(!!caps.pan);
             if (caps.pan) {
@@ -1056,22 +1176,23 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
    * Flip the camera without touching the microphone: only the picture is swapped, so the guide keeps
    * hearing and sound recordings keep their sound. Not while recording (the clip would end).
    */
-  const switchCameraMode = useCallback(async (mode: 'user' | 'environment') => {
-      if (mediaRecorderRef.current?.state === 'recording') return;
+  const switchCameraMode = useCallback(async (mode: 'user' | 'environment'): Promise<boolean> => {
+      if (mediaRecorderRef.current?.state === 'recording') return false;
       const old = activeStreamRef.current;
-      if (!old) { setFacingMode(mode); await startMediaStream(mode); return; }
-      const prevMode = facingMode;
+      if (!old) { setFacingMode(mode); await startMediaStream(mode); return true; }
+      const prevMode = facingModeRef.current;
       // Some phones open one camera at a time: let go of the current one first
       old.getVideoTracks().forEach(t => t.stop());
       const tryVideo = async (c: MediaTrackConstraints | boolean) => { try { return await navigator.mediaDevices.getUserMedia({ video: c }); } catch { return null; } };
       let got = mode;
       let fresh = await tryVideo({ facingMode: mode });
       if (!fresh) { got = prevMode; fresh = (await tryVideo({ facingMode: prevMode })) || (await tryVideo(true)); }
-      if (!fresh) { showStatus('error', "The camera couldn't switch. Close the Lens and open it again."); return; }
-      if (!activeStreamRef.current) { fresh.getTracks().forEach(t => t.stop()); return; } // the Lens closed meanwhile
+      if (!fresh) { showStatus('error', "The camera couldn't switch. Close the Lens and open it again."); return false; }
+      if (!activeStreamRef.current) { fresh.getTracks().forEach(t => t.stop()); return false; } // the Lens closed meanwhile
       if (got !== mode) showStatus('error', "This device has only one camera.");
       setFacingMode(got);
       attachStream(new MediaStream([...fresh.getVideoTracks(), ...old.getAudioTracks()]));
+      return got === mode;
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMediaStream, facingMode]);
 
@@ -1090,7 +1211,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     if (name === 'get_session_status') {
         return {
             camera_active: isCameraActiveRef.current,
-            facing_mode: facingMode,
+            facing_mode: facingModeRef.current,
             recording_audio: isRecordingAudio,
             recording_video: isRecordingVideo,
             zoom_level: zoom,
@@ -1109,76 +1230,27 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         return { result: "ok" };
     }
     if (name === 'switch_camera') {
-        await switchCameraMode(args.facing_mode);
-        return { result: `Switched to ${args.facing_mode} camera.` };
+        // The guide may never turn on the front (selfie) camera: only the explorer does, with Flip
+        if (args.facing_mode === 'user') {
+            return { result: "Not switched. You may never turn on the front (selfie) camera. If the explorer wants it, ask them to tap Flip." };
+        }
+        if (facingModeRef.current === 'environment') return { result: "The back camera is already on." };
+        const ok = await switchCameraMode('environment');
+        if (ok) showGuideNote('Your guide switched to the back camera.');
+        return { result: ok ? "Switched to the back camera." : "The camera could not switch." };
     }
     if (name === 'end_session') { finalizeSession(args.summary, { quiet: true }); return { result: "ok" }; }
-    if (name === 'set_camera_state') { setIsCameraActive(args.is_active); return { result: "ok" }; }
-    if (name === 'trigger_capture') {
-      if (!isCameraActiveRef.current) return { error: "Camera is off." };
-      const res = captureFrame(true);
-      if (res && res.blobPromise) {
-        res.blobPromise.then(compressedBlob => {
-           const objUrl = URL.createObjectURL(compressedBlob);
-           const resolvedLabels = args.labels || (args.label ? [args.label] : ['Nature']);
-           const resolvedBehavior = args.behavior || "Manual observation captured by explorer.";
-           // glossary-ok: a stored placeholder that PostSessionView recognises and hides
-           const resolvedAiInsight = args.ai_insight || "Visual record for field study.";
-
-           retakesCountRef.current += 1;
-           const snapId = Date.now().toString();
-           const liveConfidence = ['high', 'medium', 'low'].includes(args.confidence) ? args.confidence : 'low';
-
-           recordCapture({
-               id: snapId,
-               url: objUrl,
-               blob: compressedBlob,
-               timestamp: new Date().toLocaleTimeString(),
-               labels: resolvedLabels,
-               behavior: resolvedBehavior,
-               aiInsight: resolvedAiInsight,
-               type: 'image',
-               userId: userMode.userId,
-               isHybrid: args.is_hybrid,
-               location: lastLocationRef.current ? (lastLocationRef.current as any).name || `${lastLocationRef.current.lat},${lastLocationRef.current.lng}` : undefined,
-               rawLocation: lastLocationRef.current ? { lat: lastLocationRef.current.lat, lng: lastLocationRef.current.lng } : null,
-               timeToRecordMs: Date.now() - sessionStartMsRef.current,
-               sessionRetakes: retakesCountRef.current,
-               aiConfidence: liveConfidence as any,
-               isAnalyzing: true,
-           });
-
-           // Second opinion: the governed identification model verifies the live guide's call.
-           // Disagreement is surfaced (needs review) instead of silently trusting either model.
-           setPendingAnalyses(n => n + 1);
-           GenAiService.analyzeMedia(compressedBlob, 'image').then(result => {
-               const agree = (result.taxonomy[0] || '').toLowerCase() === (resolvedLabels[0] || '').toLowerCase();
-               updateSnapshot(snapId, {
-                   labels: result.taxonomy.length ? result.taxonomy : resolvedLabels,
-                   aiInsight: result.ecologic || resolvedAiInsight,
-                   aiProposedLabels: result.taxonomy.length ? result.taxonomy : resolvedLabels,
-                   aiProposedBehavior: result.ecologic,
-                   aiConfidence: agree ? result.confidence : (result.confidence === 'high' ? 'medium' : 'low'),
-                   aiIdentifications: result.identifications,
-                   aiFlags: result.flags,
-                   needsExpertReview: result.needsExpertReview || !agree,
-                   aiSafetyNote: result.safetyNote,
-                   aiModel: result.model,
-                   aiPromptVersion: result.promptVersion,
-                   aiResultId: result.resultId,
-                   isAnalyzing: false,
-                   aiError: null,
-               });
-               track('ai_second_opinion', { agree, live_conf: liveConfidence, verified_conf: result.confidence });
-           }).catch(() => {
-               updateSnapshot(snapId, { isAnalyzing: false, needsExpertReview: true, aiProposedLabels: resolvedLabels });
-           }).finally(() => setPendingAnalyses(n => Math.max(0, n - 1)));
-
-           // The guide's call becomes a specimen tag straight away
-           presentSighting(snapId, { labels: resolvedLabels, behavior: resolvedBehavior, aiInsight: resolvedAiInsight });
-        });
+    if (name === 'set_camera_state') {
+        // The guide may turn the camera off, never back on: the explorer chose to listen only
+        if (args.is_active) return isCameraActiveRef.current ? { result: "The camera is already on." } : { result: "Not changed. Ask the explorer to tap the shutter if they want the camera back on." };
+        if (isCameraActiveRef.current) { setIsCameraActive(false); showGuideNote('Your guide turned the camera off. Tap the shutter to turn it on.'); }
         return { result: "ok" };
-      }
+    }
+    if (name === 'trigger_capture') {
+        // Nothing is ever captured without the explorer's own tap
+        showGuideNote('Your guide suggests a photo. Tap the shutter.', 6000);
+        const what = String(args.label || (Array.isArray(args.labels) ? args.labels[0] : '') || '').slice(0, 60);
+        return { result: `Not captured. You never take photos yourself. Ask the explorer to tap the shutter${what ? ` if they want to keep the ${what}` : ''}; it will be identified then.` };
     }
     return { result: "ok" };
   };
@@ -1201,25 +1273,36 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   useEffect(() => {
     if (!hasSelectedMode) return;
     if ("geolocation" in navigator) {
+        // Exact coordinates stay on the device (the private rawLocation). Only coordinates rounded to
+        // about 1 km go to the town lookup and the live guide, and the town is looked up again only
+        // after moving more than a kilometre, not on every update.
+        let lookedUpAt: { lat: number; lng: number } | null = null;
+        let lookingUp = false;
         locationWatchIdRef.current = navigator.geolocation.watchPosition(
             async (position) => {
-                let locationString = `${position.coords.latitude},${position.coords.longitude}`;
+                const lat = position.coords.latitude, lng = position.coords.longitude;
+                const coarse = { lat: coarsenCoordinate(lat), lng: coarsenCoordinate(lng) };
+                lastLocationRef.current = { lat, lng, name: lastLocationRef.current?.name };
+                if (geminiServiceRef.current) geminiServiceRef.current.setLocation(coarse.lat, coarse.lng);
+                if (lookingUp || (lookedUpAt && distanceKm(lookedUpAt, coarse) < 1)) return;
+                lookingUp = true;
+                lookedUpAt = coarse;
+                let name: string | undefined;
                 try {
-                    // Use OpenStreetMap Nominatim API
-                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.coords.latitude}&lon=${position.coords.longitude}&zoom=10&addressdetails=1`);
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coarse.lat}&lon=${coarse.lng}&zoom=10&addressdetails=1`);
                     if (res.ok) {
                         const data = await res.json();
-                        if (data.address) {
-                            locationString = data.address.city || data.address.town || data.address.village || data.address.county || data.address.state || locationString;
-                        }
+                        const a = data?.address;
+                        name = (a && (a.city || a.town || a.village || a.county || a.state)) || undefined;
                     }
                 } catch (e) {
-                    console.warn("Geocoding failed, falling back to coordinates", e);
+                    console.warn("Town lookup failed; no place name for now", e);
+                    lookedUpAt = null; // try again on the next update
+                } finally {
+                    lookingUp = false;
                 }
-
-                const coords = { lat: position.coords.latitude, lng: position.coords.longitude, name: locationString };
-                lastLocationRef.current = coords;
-                if (geminiServiceRef.current) geminiServiceRef.current.setLocation(coords.lat, coords.lng);
+                // Without a town, nothing stands in for it (never the coordinates)
+                if (lastLocationRef.current) lastLocationRef.current = { ...lastLocationRef.current, name };
             },
             undefined,
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -1268,7 +1351,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             return () => { stream.getTracks().forEach(t => t.stop()); stopActiveStream(); };
         }
 
-        const service = new GeminiLiveService(audioContext, {
+        liveErrorRef.current = null;
+        const service: GeminiLiveService = new GeminiLiveService(audioContext, {
             onAudioData: playAudioData,
             onInterrupted: () => { stopAllAudio(); if(agentState !== 'FINALIZING') setAgentState('HEARING_USER'); },
             onTranscript: (text, isUser, links) => addToChat(isUser ? 'user' : 'assistant', text, links),
@@ -1276,9 +1360,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             onToolCall: handleToolCall,
             onConnectionStateChange: (state) => {
                 console.debug("Connection state changed:", state);
-                if (agentState === 'FINALIZING') return;
+                // Ending, or a guide this Lens already let go of: nothing to say
+                if (finalizingRef.current || geminiServiceRef.current !== service) return;
                 switch (state) {
                     case 'CONNECTED':
+                        liveWaitSinceRef.current = null;
                         setAgentState('IDLE');
                         // A conversation counts towards today's three only once the guide is really there
                         if (!countedConversationRef.current) {
@@ -1295,20 +1381,21 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                             });
                         }
                         break;
-                    case 'RECONNECTING': setAgentState('RECONNECTING'); break;
-                    case 'DISCONNECTED': setAgentState('DISCONNECTED'); break;
+                    case 'RECONNECTING':
+                        if (typeof navigator !== 'undefined' && navigator.onLine === false) { fallBackRef.current(liveFailureReason()); break; }
+                        if (!liveWaitSinceRef.current) liveWaitSinceRef.current = Date.now();
+                        setAgentState('RECONNECTING');
+                        break;
+                    case 'DISCONNECTED':
+                        // The final failure: Talk turns off and the quiet Lens carries on, with the reason
+                        fallBackRef.current(liveFailureReason(liveErrorRef.current));
+                        break;
                 }
             },
             onError: (err: any) => {
                 console.error("GeminiLiveService error delegate:", err);
-                if (err?.governed) {
-                    track('live_session_limited', { code: err.code });
-                    const limit = err.code === 4429 || err.code === 4408;
-                    setSessionError({
-                        title: limit ? "Time for a field break" : "Live guide paused",
-                        message: err.message || "The live guide session ended. You can keep capturing; your sightings are still analysed.",
-                    });
-                }
+                liveErrorRef.current = err;
+                if (err?.governed) track('live_session_limited', { code: err.code });
             }
         });
 
@@ -1326,6 +1413,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         if (lastLocationRef.current) service.setLocation(coarsenCoordinate(lastLocationRef.current.lat), coarsenCoordinate(lastLocationRef.current.lng));
 
         console.debug("Connecting service...");
+        liveWaitSinceRef.current = Date.now();
         service.connect(); // Do not await to avoid blocking initialization if connection hangs
         geminiServiceRef.current = service;
 
@@ -1432,11 +1520,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           if (name === 'NotAllowedError' || name === 'SecurityError') {
               setSessionError({ title: "Camera & microphone needed", message: "NatureGram needs camera and microphone access to see and hear nature with you. Allow access in your browser's site settings (the icon next to the address bar), then tap Retry." });
           } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-              setSessionError({ title: "No camera found", message: "We couldn't find a camera on this device. You can still upload photos, videos or audio from your gallery." });
+              setSessionError({ title: "No camera found", message: "We couldn't find a camera on this device. You can still bring in photos, videos or sounds from your camera roll.", action: 'roll' });
           } else if (name === 'NotReadableError') {
               setSessionError({ title: "Camera is busy", message: "Another app is using your camera. Close it and tap Retry." });
           } else if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-              setSessionError({ title: "You're offline", message: "The live guide needs an internet connection. You can keep capturing; we'll analyse your sightings when you're back online." });
+              setSessionError({ title: "You're offline", message: "The live guide needs an internet connection. You can keep capturing: while the Lens is open, your guide names your captures once you're back online. You can also name them yourself in review." });
           }
           return () => {
               if (geminiServiceRef.current) {
@@ -1450,6 +1538,38 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           };
       }
   }, [audioContext, isTourActive, hasSelectedMode, userIdValue, selectedMode]);
+
+  /**
+   * The live guide failed for good (offline, allowance used, unavailable): Talk turns off and the quiet
+   * Lens carries on, saying why. The explorer's saved choice is left as it was for next time.
+   */
+  fallBackRef.current = (reason: string) => {
+      if (finalizingRef.current || selectedMode !== 'conversation') return;
+      liveWaitSinceRef.current = null;
+      track('lens_live_fallback', { offline: typeof navigator !== 'undefined' && navigator.onLine === false });
+      stopAllAudio();
+      setLiveCaption('');
+      setSecondsLeft(null);
+      setAgentState('BOOTING');
+      setAudioMode('silent');
+      setSelectedMode('observation');
+      showStatus('error', `${reason.replace(/\s*$/, '')} Talk is off; your guide still names your captures afterwards.`, 9000);
+  };
+  useEffect(() => {
+      if (selectedMode !== 'conversation') return;
+      const off = () => fallBackRef.current(liveFailureReason());
+      window.addEventListener('offline', off);
+      return () => window.removeEventListener('offline', off);
+  }, [selectedMode]);
+
+  // The first "Talk with me" says once that the guide is an AI (the first-visit line says it otherwise)
+  useEffect(() => {
+      if (selectedMode !== 'conversation') return;
+      let seen = false;
+      try { seen = !!localStorage.getItem(TALK_AI_KEY); localStorage.setItem(TALK_AI_KEY, '1'); } catch { seen = true; }
+      if (!seen && !firstLine) showGuideNote(AI_LINE, 8000);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMode]);
 
   /** "Talk with me": turn the talkative guide on or off. The choice is remembered for later visits. */
   const setTalkative = (on: boolean) => {
@@ -1474,6 +1594,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   };
 
   const cleanupRef = useRef<(() => void) | null>(null);
+  const rollInputRef = useRef<HTMLInputElement>(null);
+  const openCameraRoll = () => {
+      if (onImportFromRoll && captureCountRef.current === 0) onImportFromRoll();
+      else rollInputRef.current?.click();
+  };
 
   useEffect(() => {
     let active = true;
@@ -1525,7 +1650,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               </button>
               <div className="relative">
                   <button
-                      onClick={() => setMenuOpen(o => !o)}
+                      onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
                       aria-expanded={menuOpen}
                       aria-haspopup="menu"
                       aria-label="More Lens options"
@@ -1535,27 +1660,35 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   </button>
                   {menuOpen && (
                       <>
-                          <div className="fixed inset-0" onClick={() => setMenuOpen(false)} aria-hidden="true" />
+                          <div className="fixed inset-0" onClick={closeMenu} aria-hidden="true" />
                           <div role="menu" className="absolute right-0 top-12 w-64 bg-black/80 backdrop-blur-xl rounded-xl p-1.5 shadow-[0_18px_44px_-18px_rgba(0,0,0,0.8)]">
                               <button
                                   role="menuitemcheckbox"
                                   aria-checked={!isCameraActive}
-                                  onClick={() => { setIsCameraActive(!isCameraActive); setMenuOpen(false); }}
+                                  onClick={() => { setIsCameraActive(!isCameraActive); closeMenu(); }}
                                   className="w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-left text-[15px] text-white hover:bg-white/10"
                               >
                                   <Glyph name={isCameraActive ? 'ear' : 'video'} size={20} />
                                   <span className="flex-1">{isCameraActive ? 'Listen only' : 'Use the camera again'}</span>
                               </button>
-                              {onImportFromRoll && captureCount === 0 && (
+                              {isCameraActive && !isRecordingAudio && (
                                   <button
                                       role="menuitem"
-                                      onClick={() => { setMenuOpen(false); onImportFromRoll(); }}
+                                      onClick={() => { closeMenu(); toggleClip(); }}
                                       className="w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-left text-[15px] text-white hover:bg-white/10"
                                   >
-                                      <Glyph name="plate" size={20} />
-                                      <span className="flex-1">Bring in from your camera roll</span>
+                                      <Glyph name="video" size={20} />
+                                      <span className="flex-1">{isRecordingVideo ? 'Stop the clip' : 'Start a clip (up to 30 seconds)'}</span>
                                   </button>
                               )}
+                              <button
+                                  role="menuitem"
+                                  onClick={() => { closeMenu(); openCameraRoll(); }}
+                                  className="w-full flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-left text-[15px] text-white hover:bg-white/10"
+                              >
+                                  <Glyph name="plate" size={20} />
+                                  <span className="flex-1">Bring in from your camera roll</span>
+                              </button>
                           </div>
                       </>
                   )}
@@ -1569,7 +1702,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               </button>
           </div>
       </div>
-      {showTranscript && (
+      {showTranscript && selectedMode === 'conversation' && (
           <div className="absolute top-20 left-4 right-4 md:left-8 max-w-md z-[125] max-h-[50vh] overflow-y-auto no-scrollbar bg-black/75 backdrop-blur-xl rounded-2xl p-5 space-y-4" role="log" aria-label="Guide transcript" aria-live="polite">
               {chatHistory.filter(m => m.role !== 'system' && m.text).length === 0
                   ? <p className="font-display italic text-base text-white/70">Nothing said yet. Point the camera at something alive.</p>
@@ -1631,21 +1764,23 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                   </span>
               </div>
           )}
-          <button
-              onClick={() => setShowTranscript(v => !v)}
-              aria-expanded={showTranscript}
-              aria-label="Transcript: what your guide said"
-              className={`shrink-0 min-h-[36px] px-3 rounded-full backdrop-blur-md text-white flex items-center gap-1.5 text-xs font-medium ${showTranscript ? 'bg-white/25' : 'bg-black/45'}`}
-          >
-              <Glyph name="lines" size={16} />
-              <span className="hidden sm:inline">Transcript</span>
-          </button>
+          {selectedMode === 'conversation' && (
+              <button
+                  onClick={() => setShowTranscript(v => !v)}
+                  aria-expanded={showTranscript}
+                  aria-label="Transcript: what your guide said"
+                  className={`shrink-0 min-h-[44px] px-3 rounded-full backdrop-blur-md text-white flex items-center gap-1.5 text-xs font-medium ${showTranscript ? 'bg-white/25' : 'bg-black/45'}`}
+              >
+                  <Glyph name="lines" size={16} />
+                  <span className="hidden sm:inline">Transcript</span>
+              </button>
+          )}
       </div>
       {firstLine && agentState !== 'FINALIZING' && !sessionError && (
           <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+14.5rem)] inset-x-4 z-[117] flex justify-center pointer-events-none">
               <p className="pointer-events-auto max-w-sm bg-black/50 backdrop-blur-md text-white/90 rounded-full pl-4 pr-1 py-1 flex items-center gap-3 text-sm leading-snug">
                   <span className="block w-6 h-px bg-theme-vivid shrink-0" aria-hidden="true" />
-                  <span>Point at anything alive. Tap to capture; your guide looks with you.</span>
+                  <span>Point at anything alive and tap to capture. {AI_LINE}</span>
                   <button onClick={dismissFirstLine} aria-label="Dismiss" className="ng-icon-button-dark text-white/75">
                       <Glyph name="close" size={20} />
                   </button>
@@ -1681,6 +1816,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       Not now
                   </button>
               </div>
+              {sessionError.action === 'roll' && (
+                  <button onClick={() => { setSessionError(null); openCameraRoll(); }} className="ng-button-light mt-6">
+                      <Glyph name="plate" size={20} />Bring in from your camera roll
+                  </button>
+              )}
           </div>
       )}
 
@@ -1732,28 +1872,36 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       <div className="absolute inset-0 overflow-hidden">
         <video ref={videoRef} autoPlay playsInline muted className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ${isCameraActive ? 'opacity-100 scale-105' : 'opacity-40 blur-[60px]'}`} />
         <canvas ref={canvasRef} className="hidden" />
+        <input ref={rollInputRef} type="file" accept="image/*,video/*,audio/*" className="hidden" tabIndex={-1} aria-hidden="true" onChange={handleMediaUpload} />
       </div>
 
-      {aiOpticActive && (
-          <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60]" role="status">
-              <div className="bg-black/45 backdrop-blur-md px-4 min-h-[36px] rounded-full flex items-center gap-2">
-                  <BreathingGuide size={14} className="text-white/90" />
-                  <span className="text-xs font-medium text-white/90">Your guide is adjusting the camera</span>
+      <div className="absolute top-[calc(var(--sat)+12rem)] left-1/2 -translate-x-1/2 z-[119] w-max max-w-[62vw] pointer-events-none" role="status" aria-live="polite">
+          {(guideNote || aiOpticActive) && agentState !== 'FINALIZING' && (
+              <div className="bg-black/55 backdrop-blur-md px-4 py-2 rounded-2xl flex items-center gap-2 animate-fade-in">
+                  <BreathingGuide size={14} still={!!reduceMotion} className="text-white/90 shrink-0" />
+                  <span className="text-sm font-medium text-white leading-snug">{guideNote || 'Your guide is adjusting the camera'}</span>
               </div>
-          </div>
-      )}
+          )}
+      </div>
 
       {isCameraActive && canZoom && (
           <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 z-[50] flex flex-col items-center gap-3 bg-black/35 backdrop-blur-xl py-3 px-1 rounded-full">
               <button onClick={() => applyOpticalSettings({ zoom: zoom + 0.5 })} aria-label="Zoom in" className="ng-icon-button-dark"><Glyph name="plus" size={20} /></button>
-              <div className="relative h-40 w-[3px] bg-white/20 rounded-full overflow-hidden group cursor-pointer flex flex-col justify-end">
-                  <input type="range" aria-label="Zoom level" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoom} onChange={(e) => applyOpticalSettings({ zoom: parseFloat(e.target.value) })} className="absolute inset-0 w-48 h-2 opacity-0 cursor-pointer origin-center -rotate-90 translate-y-24" style={{ transform: 'rotate(-90deg) translateX(-96px)' }} />
-                  <div className="w-full bg-white transition-all duration-300" style={{ height: `${((zoom - zoomRange.min) / (zoomRange.max - zoomRange.min)) * 100}%` }} />
+              <div className="relative h-40 w-11">
+                  <input
+                      id="lens-zoom"
+                      type="range"
+                      min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoom}
+                      aria-valuetext={`${zoom.toFixed(1)} times`}
+                      onChange={(e) => applyOpticalSettings({ zoom: parseFloat(e.target.value) })}
+                      className="ng-zoom absolute left-1/2 top-1/2 w-40 h-11 -translate-x-1/2 -translate-y-1/2 -rotate-90"
+                  />
               </div>
               <button onClick={() => applyOpticalSettings({ zoom: zoom - 0.5 })} aria-label="Zoom out" className="ng-icon-button-dark"><Glyph name="minus" size={20} /></button>
-              <div className="text-center pb-1">
+              <label htmlFor="lens-zoom" className="text-center pb-1 cursor-pointer">
+                  <span className="text-[11px] font-medium text-white/75 block">Zoom</span>
                   <span className="text-xs font-medium text-white/90 block tabular">{zoom.toFixed(1)}×</span>
-              </div>
+              </label>
           </div>
       )}
 
@@ -1790,7 +1938,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
       <div className="relative z-40 p-8 pt-0 safe-pb">
           <div className="flex items-end justify-between max-w-md mx-auto pointer-events-auto">
-              <div className="flex flex-col items-center gap-1.5">
+              {selectedMode !== 'conversation' ? <span className="w-14" aria-hidden="true" /> : <div className="flex flex-col items-center gap-1.5">
                   <button
                       onClick={() => setIsMuted(m => !m)}
                       aria-pressed={isMuted}
@@ -1800,7 +1948,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                       <Glyph name={isMuted ? 'micOff' : 'mic'} size={24} />
                   </button>
                   <span className="text-xs font-medium text-white/85">{isMuted ? 'Muted' : 'Talk'}</span>
-              </div>
+              </div>}
 
                   <div className="flex flex-col items-center gap-2 relative">
                       {lastAudioSnapshotId && !isRecordingAudio && !isRecordingVideo && (
@@ -1819,8 +1967,15 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                           onPointerDown={handleShutterPress}
                           onPointerUp={handleShutterRelease}
                           onPointerLeave={() => { if (holdTimeoutRef.current || isRecordingVideo) handleShutterRelease(); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleShutterPress(); window.setTimeout(handleShutterRelease, 50); } }}
-                          aria-label={isRecordingVideo ? 'Stop video' : isCameraActive ? 'Capture a photo. Hold to capture a clip' : 'Turn camera on'}
+                          onKeyDown={(e) => {
+                              if (e.key !== 'Enter' && e.key !== ' ') return;
+                              e.preventDefault();
+                              if (e.repeat) return;
+                              if (e.shiftKey) { toggleClip(); return; }
+                              handleShutterPress(); window.setTimeout(handleShutterRelease, 50);
+                          }}
+                          aria-label={isRecordingVideo ? 'Stop the clip' : isCameraActive ? 'Capture a photo. Hold to capture a clip' : 'Turn camera on'}
+                          aria-description={isCameraActive ? (isRecordingVideo ? 'Shift+Enter stops the clip.' : 'Shift+Enter starts a clip of up to 30 seconds; Shift+Enter again stops it.') : undefined}
                           className="group relative w-24 h-24 flex items-center justify-center active:scale-95 transition-transform touch-none"
                       >
                           <div className={`absolute inset-0 rounded-full border-2 transition-colors duration-500 ${isCameraActive ? 'border-white/85' : 'border-white/25'} ${isRecordingVideo ? 'border-red-500' : ''}`} />

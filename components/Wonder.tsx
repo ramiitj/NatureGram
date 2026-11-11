@@ -63,18 +63,57 @@ export const WonderBurst: React.FC<{ x?: number; y?: number; count?: number }> =
 /** "12 marvelled", phrased for screen readers and small labels. */
 export const wonderLabel = (n: number) => n === 0 ? 'Be the first to marvel' : `${n.toLocaleString()} marvelled`;
 
+type Season = 'winter' | 'summer' | 'monsoon' | 'postMonsoon' | 'spring' | 'autumn';
+type Region = 'india' | 'north' | 'south';
+
+/** Where the explorer probably is, from the device's time zone and locale (no location needed). */
+export const regionOf = (): Region => {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (/^Asia\/(Kolkata|Calcutta)$/.test(tz)) return 'india';
+    if (/^(Australia|Antarctica)\/|^Pacific\/(Auckland|Chatham|Fiji)|^America\/(Argentina|Santiago|Sao_Paulo|Montevideo|Asuncion|Punta_Arenas)|^Africa\/(Johannesburg|Maputo|Harare|Windhoek|Gaborone|Maseru|Mbabane|Lusaka)|^Indian\/(Mauritius|Reunion)/.test(tz)) return 'south';
+    const lang = (navigator.language || '').toUpperCase();
+    if (/-IN$/.test(lang)) return 'india';
+  } catch { /* fall back */ }
+  return 'north';
+};
+
+/** India: winter Dec-Feb, summer Mar-May, monsoon Jun-Sep, post-monsoon Oct-Nov. Elsewhere temperate. */
+export const seasonFor = (month: number, region: Region): Season => {
+  if (region === 'india') return month === 11 || month <= 1 ? 'winter' : month <= 4 ? 'summer' : month <= 8 ? 'monsoon' : 'postMonsoon';
+  const m = region === 'south' ? (month + 6) % 12 : month;
+  return m === 11 || m <= 1 ? 'winter' : m <= 4 ? 'spring' : m <= 7 ? 'summer' : 'autumn';
+};
+
+const HOURS: { from: number; to: number; name: string; icon: GlyphName }[] = [
+  { from: 4, to: 7, name: 'Dawn chorus', icon: 'dawn' },
+  { from: 7, to: 11, name: 'Morning', icon: 'insect' },
+  { from: 11, to: 15, name: 'Midday', icon: 'bird' },
+  { from: 15, to: 18, name: 'Afternoon', icon: 'sun' },
+  { from: 18, to: 20, name: 'Dusk', icon: 'dawn' },
+];
+
+// One short line per hour and season: [dawn, morning, midday, afternoon, dusk, night]
+const HINTS: Record<Season, string[]> = {
+  winter: ['birdsong starts late in the cold', 'winter visitors crowd the water', 'raptors hunt over open ground', 'birds feed before the early dusk', 'owls start calling', 'owls are calling'],
+  summer: ['birdsong peaks before the heat', 'butterflies are out early', 'most life shelters from the heat', 'birds gather at water', 'bats begin to hunt', 'moths come to the lights'],
+  monsoon: ['birdsong peaks now', 'fungi push up after the rain', 'insects take wing between showers', 'birds feed between showers', 'frogs start calling', 'frogs call from every puddle'],
+  postMonsoon: ['migrant birds are arriving', 'butterflies are everywhere', 'raptors ride the thermals', 'birds feed before dusk', 'bats begin to hunt', 'owls are calling'],
+  spring: ['birdsong peaks now', 'bees work the first flowers', 'raptors ride the thermals', 'birds carry food to their nests', 'bats begin to hunt', 'frogs and toads are calling'],
+  autumn: ['migrants pass overhead', 'fungi push up through the leaves', 'raptors ride the thermals', 'birds feed on berries', 'deer move at the edges', 'owls are calling'],
+};
+
 /**
- * What the living world is doing right now, by the explorer's local hour. A quiet nudge to look
- * up from the screen. Kept to well-established, general patterns so it holds true almost anywhere.
+ * What the living world is doing right now, by the explorer's local hour and season (India's own
+ * seasons when the device is set to India). A quiet nudge to look up from the screen. Kept to
+ * well-established, general patterns so it holds true almost anywhere.
  */
-export const fieldMoment = (d: Date = new Date()): { name: string; hint: string; icon: GlyphName } => {
+export const fieldMoment = (d: Date = new Date(), region: Region = regionOf()): { name: string; hint: string; icon: GlyphName } => {
   const h = d.getHours();
-  if (h >= 4 && h < 7) return { name: 'Dawn chorus', hint: 'birdsong peaks now', icon: 'dawn' };
-  if (h >= 7 && h < 11) return { name: 'Morning', hint: 'butterflies are warming up', icon: 'insect' };
-  if (h >= 11 && h < 15) return { name: 'Midday', hint: 'raptors ride the thermals', icon: 'bird' };
-  if (h >= 15 && h < 18) return { name: 'Afternoon', hint: 'birds feed before dusk', icon: 'sun' };
-  if (h >= 18 && h < 20) return { name: 'Dusk', hint: 'bats begin to hunt', icon: 'dawn' };
-  return { name: 'Night', hint: 'owls are calling', icon: 'moon' };
+  const i = HOURS.findIndex(x => h >= x.from && h < x.to);
+  const hint = HINTS[seasonFor(d.getMonth(), region)][i === -1 ? 5 : i];
+  if (i === -1) return { name: 'Night', hint, icon: 'moon' };
+  return { name: HOURS[i].name, hint, icon: HOURS[i].icon };
 };
 
 /** Capture placeholders ("Captured photo.", "Uploaded media.") aren't observations; don't show them as if they were. */

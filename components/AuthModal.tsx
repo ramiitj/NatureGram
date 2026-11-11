@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useBackToClose } from '../services/overlayStack';
 import { FirebaseService } from '../services/firebaseService';
 import { track } from '../services/analytics';
 import Glyph, { GlyphName } from './Glyph';
@@ -8,7 +9,8 @@ import { adultFromOf, requestGuardian, shareGuardianLink, RequestSent } from '..
 
 interface AuthModalProps {
   onClose?: () => void;
-  onSuccess: () => void;
+  /** 'signup' when a new account was made (the app then reminds them to confirm their email) */
+  onSuccess: (how?: 'signup' | 'login') => void;
   inline?: boolean;
   initialIsSignUp?: boolean;
   /** Why we're asking, shown at the top ("Create an account to comment") */
@@ -91,12 +93,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
   // Not on the parent's consent page, where the form sits far down and focusing it would jump past the explanation
   useEffect(() => { if (!adultOnly) firstFieldRef.current?.focus(); }, [mode, adultOnly]);
-  useEffect(() => {
-    if (inline || !onClose) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [inline, onClose]);
+  // Escape, the phone's back gesture and × all close the window
+  const { close: closeModal } = useBackToClose(!inline && !!onClose, () => onClose?.());
 
   const passwordOk = password.length >= 8;
   const usernameOk = !username || /^[a-zA-Z0-9_.]{3,30}$/.test(username);
@@ -149,11 +147,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         }
         track('sign_up', { with_username: !!username });
         // The naturalist persona is offered later (after a few sightings), not straight after sign-up
-        onSuccess();
+        onSuccess('signup');
       } else {
         await FirebaseService.loginUser(email, password);
         track('login');
-        onSuccess();
+        onSuccess('login');
       }
     } catch (err: any) {
       const code = err?.code || '';
@@ -214,7 +212,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
   const content = (
     <div className={`w-full bg-day-bg text-left ${inline ? 'rounded-2xl' : `rounded-2xl shadow-[0_24px_60px_-24px_rgba(28,25,23,0.5)] relative max-h-[92dvh] overflow-y-auto overscroll-contain ${wide ? 'md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:max-h-[90dvh]' : ''}`}`}>
       {!inline && onClose && (
-        <button type="button" onClick={onClose} aria-label="Close" className="absolute top-3 right-3 z-10 ng-icon-button text-stone-500">
+        <button type="button" onClick={closeModal} aria-label="Close" className="absolute top-3 right-3 z-10 ng-icon-button text-stone-500">
           <Glyph name="close" size={24} />
         </button>
       )}
@@ -266,18 +264,20 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               <p className="ng-label">While you wait, you can</p>
               <ul className="mt-2 flex flex-col gap-2 text-sm text-stone-700" role="list">
                 <li className="flex items-center gap-2.5"><Glyph name="binoculars" size={18} className="text-stone-500" />Browse the feed, Moments and Explore</li>
-                <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-stone-500" />Use the Lens and ask the guide</li>
+                <li className="flex items-center gap-2.5"><Glyph name="eyeEar" size={18} className="text-stone-500" />Use the Lens to look closely</li>
                 <li className="flex items-center gap-2.5"><Glyph name="notebook" size={18} className="text-stone-500" />Save sightings to your own journal</li>
               </ul>
             </div>
-            <button type="button" onClick={onSuccess} className={`w-full min-h-[52px] ${guardianSent?.link ? 'ng-button-quiet' : 'ng-button-primary'}`}>Go to my field page</button>
+            <button type="button" onClick={() => onSuccess('signup')} className={`w-full min-h-[52px] ${guardianSent?.link ? 'ng-button-quiet' : 'ng-button-primary'}`}>Go to my field page</button>
           </div>
         ) : blocked ? (
           <div role="status" className="space-y-3">
             <p className="ng-subtitle italic">Thank you for wanting to join.</p>
             <p className="text-sm text-stone-600 leading-relaxed">NatureGram accounts are for explorers aged 13 and over, so we can't make one for you yet. You can still look at sightings shared by the community, and we'd love to welcome you when you're 13.</p>
             <p className="text-sm text-stone-600 leading-relaxed">Until then, a notebook and a pencil make a wonderful field journal. Ask a parent or teacher to explore with you.</p>
-            {onClose && <button type="button" onClick={onClose} className="ng-button-quiet mt-2 w-full">Back to exploring</button>}
+            {onClose && <button type="button" onClick={closeModal} className="ng-button-quiet mt-2 w-full">Back to exploring</button>}
+            {/* Someone else on this device (a parent, an older sibling) can still log in */}
+            <button type="button" onClick={() => switchMode('login')} className="ng-link-quiet min-h-[44px] w-full">Already have an account? Log in</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate={false}>
@@ -401,7 +401,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <div className="absolute inset-0 ng-scrim backdrop-blur-[2px]" onClick={onClose} aria-hidden="true"></div>
+      <div className="absolute inset-0 ng-scrim backdrop-blur-[2px]" onClick={closeModal} aria-hidden="true"></div>
       <div className={`relative z-10 w-full ${wide ? 'max-w-sm md:max-w-3xl' : 'max-w-sm'}`}>{content}</div>
     </div>
   );

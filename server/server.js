@@ -28,7 +28,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { governLiveSetup, governGenerateRequest, governGenerateBody, modelFor, findPolicyBreach, allowedLiveMessage, AI_POLICY_VERSION } from './aiGovernance.js';
 import { initSettings, getFlags, getSettings, ipBlocked } from './settings.js';
-import { initLedger, charge, record, usageFor, globalTokensToday, addGlobalTokens, logAi, isSuspended, storeHealth } from './ledger.js';
+import { initLedger, charge, record, usageFor, globalTokensToday, addGlobalTokens, logAi, isSuspended, storeHealth, RESET_WORDS, nextReset } from './ledger.js';
 import { mountPublish } from './publish.js';
 import { mountAdmin } from './admin.js';
 import { initLeases, acquire as acquireLease, hold as holdLease, leaseHealth } from './liveLeases.js';
@@ -37,8 +37,11 @@ import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
-import { mountBrandIcons } from './brandIcon.js';
+import { leadName } from './seo.js';
+import { mountBrandIcons, naturalistAt } from './brandIcon.js';
 import { mountNaturalistWiki } from './naturalistWiki.js';
+import { mountAccountDeletion } from './accountDeletion.js';
+import { getStorage } from 'firebase-admin/storage';
 import { feedFirstPost, firstTilesJson } from './media.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -251,7 +254,7 @@ async function chargeTask(user, spec) {
   const limit = spec.counter === 'identify' ? Number(flags.allowances.identificationsPerDay) : Number(settings.caps.otherAiCallsPerDay);
   const res = await charge(user.uid, spec.counter, 1, Math.max(0, limit || 0));
   if (res.unavailable) return { status: 503, message: 'The guide is unavailable for a moment. Please try again.' };
-  if (!res.ok) return { status: 429, message: spec.counter === 'identify' ? `You've used today's ${limit} identifications. They reset at midnight UTC. You can still name sightings yourself.` : 'Daily AI limit reached. It resets at midnight UTC.' };
+  if (!res.ok) return { status: 429, message: spec.counter === 'identify' ? `You've used today's ${limit} identifications. They reset ${RESET_WORDS}. You can still name sightings yourself.` : `Daily AI limit reached. It resets ${RESET_WORDS}.` };
   return null;
 }
 
@@ -283,6 +286,7 @@ async function startServer() {
   // Home-screen icons and manifest that follow the mark in the browser tab
   mountBrandIcons(app, { db: () => firestoreDb, log });
   mountNaturalistWiki(app, { db: () => firestoreDb, log });
+  (await import('./speciesWiki.js')).mountSpeciesWiki(app, { log });
   // Public pages and discovery files (mounted with the frontend below); /s/ uses it for share cards
   let seo = null;
 
@@ -318,7 +322,7 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client, X-Firebase-AppCheck');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && isAllowedOrigin(origin) ? 204 : 403);
     next();
@@ -442,11 +446,15 @@ async function startServer() {
     ['Carl Linnaeus', '#444b8f', '#6258e9'], ['Robin Wall Kimmerer', '#305b26', '#008017'], ['Maria Sibylla Merian', '#753157', '#c62e82'],
     ['Salim Ali', '#035587', '#006fc8'], ['Aldo Leopold', '#7f4001', '#a55b01'], ['Henry David Thoreau', '#085546', '#047c6b'],
   ];
-  const shareTheme = (now = new Date()) => {
-    const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
-    const [naturalist, deep, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+  // Row order of SHARE_THEMES (constants/palettes.json "order")
+  const SHARE_ORDER = JSON.parse(fs.readFileSync(path.join(__dirname, '../constants/palettes.json'), 'utf8')).order;
+  const shareTheme = (now = Date.now()) => {
+    // The same naturalist as the browser tab and home-screen icon: local (India) date and the cutover
+    const i = SHARE_ORDER.indexOf(naturalistAt(now));
+    const [naturalist, deep, accent] = SHARE_THEMES[i >= 0 ? i : 0];
     return { naturalist, deep, accent };
   };
+
   const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
 
   app.get('/s/:postId', async (req, res) => {
@@ -459,7 +467,8 @@ async function startServer() {
     const appUrl = `${scheme}://${host}/post/${encodeURIComponent(postId)}`;
     const ua = req.headers['user-agent'] || '';
     const isCrawler = /bot|crawler|spider|crawling|facebookexternalhit|twitterbot|whatsapp|telegram|discord|slack|linkedin|embedly|pinterest/i.test(ua);
-    if (!isCrawler) return res.redirect(302, appUrl);
+    // People opening a shared link land on the visitors' welcome for that post (members see it in the app)
+    if (!isCrawler) return res.redirect(302, `${appUrl}?from=share`);
 
     const apiKey = firebaseWebConfig?.apiKey;
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';
@@ -499,7 +508,9 @@ async function startServer() {
         const items = f.items?.arrayValue?.values || [];
         const main = items.length ? (items[0].mapValue?.fields || {}) : f;
         const labels = (main.labels?.arrayValue?.values || f.labels?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean);
-        const first = String(labels[0] || '').trim();
+        // The common name first, as the app shows it (the guide's name for a Latin-only label)
+        const plain = (v) => v?.stringValue ?? (v?.mapValue ? Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, plain(x)])) : v?.arrayValue ? (v.arrayValue.values || []).map(plain) : undefined);
+        const first = String(leadName({ labels, aiIdentifications: plain(main.aiIdentifications || f.aiIdentifications) || [], behavior: main.behavior?.stringValue || f.behavior?.stringValue }) || labels[0] || '').trim();
         const species = first && !PLACEHOLDER_LABEL.test(first) ? first : '';
         const flags = (main.aiFlags || f.aiFlags)?.mapValue?.fields || {};
         const showLocation = (main.showLocation || f.showLocation)?.booleanValue;
@@ -507,7 +518,7 @@ async function startServer() {
         const area = hidden ? '' : String(main.locationArea?.stringValue || f.locationArea?.stringValue || '').trim().slice(0, 80);
         const name = species || String(f.title?.stringValue || '').trim() || 'A wild sighting';
         heading = name;
-        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : '';
+        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : (labels[0] && labels[0] !== name && /^[A-Z][a-z]+ [a-z]+$/.test(labels[0]) ? labels[0] : '');
         title = `${name}, seen${area ? ` near ${area}` : ''} · NatureGram`;
         const explorer = String(f.userName?.stringValue || '').trim();
         byline = [explorer, area ? `near ${area}` : ''].filter(Boolean).join(' · ');
@@ -825,7 +836,10 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       posts: { limit: a.postsPerDay, used: used?.posts || 0 },
       liveMinutes: { limit: a.liveMinutesPerDay, used: Math.ceil((used?.liveMs || 0) / 60_000), usedMs: used?.liveMs || 0 },
       identifications: { limit: a.identificationsPerDay, used: used?.identify || 0 },
-      resetsAt: new Date(new Date().toISOString().slice(0, 10) + 'T24:00:00Z').toISOString(),
+      // "Only me" saves have their own generous cap (sharing them later uses posts)
+      privateSaves: { limit: Number(a.privateSavesPerDay) || 200, used: used?.privateSaves || 0 },
+      resetsAt: nextReset(),
+      resetsAtText: RESET_WORDS,
     });
   });
 
@@ -846,6 +860,9 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
   };
   mountLive(app, { verifyIdToken, bearer, gate, burstOk, clientIp, log, quotas: QUOTAS, networkOpen, apiKey: API_KEY });
   mountAuthMail(app, { verifyIdToken, bearer, clientIp, log, auth: () => getAuth() });
+  // DELETE /api/me: the whole account, by the server (needs a sign-in in the last 10 minutes)
+  const storageBucketName = process.env.FIREBASE_STORAGE_BUCKET || firebaseWebConfig?.storageBucket || null;
+  mountAccountDeletion(app, { bearer, log, db: () => firestoreDb, auth: () => getAuth(), bucket: () => (storageBucketName ? getStorage().bucket(storageBucketName) : null) });
 
   // -------------------------------------------------------------------------
   // Frontend
@@ -933,7 +950,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     if (used === null) return refuse(1013, 'The guide is unavailable for a moment. Please try again.');
     const dayMs = Math.max(0, Number(flags.allowances.liveMinutesPerDay) || 0) * 60_000;
     const leftMs = dayMs - (used.liveMs || 0);
-    if (leftMs < 5_000) return refuse(4429, `You've used today's ${flags.allowances.liveMinutesPerDay} live minutes. They reset at midnight UTC.`);
+    if (leftMs < 5_000) return refuse(4429, `You've used today's ${flags.allowances.liveMinutesPerDay} live minutes. They reset ${RESET_WORDS}.`);
     // Per-network limits stop one person cycling guest accounts
     const hour = Math.floor(Date.now() / 3_600_000);
     const net = networkLive.get(ip);
@@ -959,7 +976,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       n.opened++; n.concurrent++;
       networkLive.set(ip, n);
       const remaining = Math.min(QUOTAS.liveSessionMaxMs, leftMs);
-      const timeout = setTimeout(() => closeWith(4408, 'That\'s today\'s live time. It resets at midnight UTC.'), remaining);
+      const timeout = setTimeout(() => closeWith(4408, `That's today's live time. It resets ${RESET_WORDS}.`), remaining);
       // Close sessions that stop sending audio/video (closed tab, frozen device) to conserve the allowance
       const IDLE_MS = num(process.env.LIVE_IDLE_TIMEOUT_SEC, 60) * 1000;
       let idleTimer = setTimeout(() => closeWith(4408, 'Session closed after inactivity.'), IDLE_MS);

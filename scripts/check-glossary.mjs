@@ -29,6 +29,11 @@ const FILES = [
   'server/seoPages.js',
   'server/authMail.js',
   'server/guardian.js',
+  'server/mailer.js',
+  // Services and server functions also write words people read (toasts, push titles, errors)
+  ...fs.readdirSync(path.join(ROOT, 'services'))
+    .filter((f) => f.endsWith('.ts'))
+    .map((f) => `services/${f}`),
 ];
 
 // Retired word -> the glossary word that replaced it.

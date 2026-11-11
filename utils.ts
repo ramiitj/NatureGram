@@ -4,18 +4,21 @@ export const hapticFeedback = (pattern: number | number[] = 50) => {
     }
 };
 
-/**
- * Re-encodes an image through a canvas. This always strips EXIF/GPS metadata
- * (privacy) and bounds the longest side to `maxDim` pixels.
- * Non-image blobs are returned unchanged.
- */
-export const reencodeImage = async (
-    blob: Blob,
-    maxDim = 2048,
-    type: 'image/jpeg' | 'image/webp' = 'image/jpeg',
-    quality = 0.88
-): Promise<Blob> => {
-    if (!blob.type.startsWith('image/') || blob.type === 'image/gif') return blob;
+/** Shown when a picture can't be re-drawn, so its hidden location data can't be removed. */
+export const UNCLEANABLE_IMAGE_MESSAGE = "This photo's format can't be cleaned of its location. Save it as JPEG and try again.";
+
+/** Thrown instead of ever handing back a picture that still carries its metadata. */
+export class ImageCleanError extends Error {
+    constructor(message = UNCLEANABLE_IMAGE_MESSAGE) {
+        super(message);
+        this.name = 'ImageCleanError';
+    }
+}
+
+type Drawable = { source: CanvasImageSource; width: number; height: number; release: () => void };
+
+/** Decode a picture by every road the browser offers: an <img> first, then createImageBitmap. */
+const decodeImage = async (blob: Blob): Promise<Drawable | null> => {
     const url = URL.createObjectURL(blob);
     try {
         const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -24,22 +27,61 @@ export const reencodeImage = async (
             el.onerror = reject;
             el.src = url;
         });
-        const w = img.naturalWidth || img.width;
-        const h = img.naturalHeight || img.height;
-        if (!w || !h) return blob;
-        const scale = Math.min(1, maxDim / Math.max(w, h));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(w * scale);
-        canvas.height = Math.round(h * scale);
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return blob;
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
-        return out || blob;
-    } catch {
-        return blob;
+        const width = img.naturalWidth || img.width;
+        const height = img.naturalHeight || img.height;
+        if (width && height) return { source: img, width, height, release: () => URL.revokeObjectURL(url) };
+    } catch { /* try the next decoder */ }
+    URL.revokeObjectURL(url);
+    if (typeof createImageBitmap === 'function') {
+        try {
+            const bmp = await createImageBitmap(blob);
+            if (bmp.width && bmp.height) return { source: bmp, width: bmp.width, height: bmp.height, release: () => bmp.close?.() };
+            bmp.close?.();
+        } catch { /* not decodable here */ }
+    }
+    return null;
+};
+
+/** True when this browser can re-draw the picture (and so strip its EXIF/GPS) before upload. */
+export const canCleanImage = async (blob: Blob): Promise<boolean> => {
+    if (blob.type === 'image/gif') return true;
+    const d = await decodeImage(blob);
+    d?.release();
+    return !!d;
+};
+
+/**
+ * Re-encodes an image through a canvas. This always strips EXIF/GPS metadata
+ * (privacy) and bounds the longest side to `maxDim` pixels.
+ * Blobs that say they are not images (sound, video) and GIFs are returned unchanged.
+ * A picture that can't be decoded or drawn is never returned as it came: this throws
+ * ImageCleanError instead, so an original with GPS can't reach the public bucket.
+ */
+export const reencodeImage = async (
+    blob: Blob,
+    maxDim = 2048,
+    type: 'image/jpeg' | 'image/webp' = 'image/jpeg',
+    quality = 0.88
+): Promise<Blob> => {
+    if ((blob.type && !blob.type.startsWith('image/')) || blob.type === 'image/gif') return blob;
+    const decoded = await decodeImage(blob);
+    if (!decoded) throw new ImageCleanError();
+    try {
+        // A very large picture can exhaust canvas memory: try once more at half the size
+        for (const dim of [maxDim, Math.round(maxDim / 2)]) {
+            const scale = Math.min(1, dim / Math.max(decoded.width, decoded.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(decoded.width * scale));
+            canvas.height = Math.max(1, Math.round(decoded.height * scale));
+            const ctx = canvas.getContext('2d');
+            if (!ctx) continue;
+            ctx.drawImage(decoded.source, 0, 0, canvas.width, canvas.height);
+            const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+            if (out) return out;
+        }
+        throw new ImageCleanError();
     } finally {
-        URL.revokeObjectURL(url);
+        decoded.release();
     }
 };
 

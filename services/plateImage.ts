@@ -24,6 +24,31 @@ const wrap = (ctx: CanvasRenderingContext2D, text: string, maxW: number): string
   return lines;
 };
 
+/** A recording drawn as a waveform on a dark mount, seeded by the name so each sound looks its own. */
+function drawSound(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, seed: string) {
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, '#44403c'); g.addColorStop(1, '#1c1917');
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  const offset = Array.from(seed || 'sound').reduce((n, c) => n + c.charCodeAt(0), 0) % 7;
+  const bars = 28, gap = 14, bw = 10;
+  const total = bars * bw + (bars - 1) * gap;
+  let bx = x + (w - total) / 2;
+  const mid = y + h / 2;
+  ctx.fillStyle = 'rgba(255,255,255,0.78)';
+  for (let i = 0; i < bars; i++) {
+    const amp = 0.18 + 0.72 * Math.abs(Math.sin((i + offset) * 0.62) * Math.cos((i + offset) * 0.21));
+    const bh = Math.max(bw, amp * h * 0.5);
+    const r = bw / 2;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, mid - bh / 2);
+    ctx.arc(bx + r, mid - bh / 2 + r, r, Math.PI, 0);
+    ctx.lineTo(bx + bw, mid + bh / 2 - r);
+    ctx.arc(bx + r, mid + bh / 2 - r, r, 0, Math.PI);
+    ctx.closePath(); ctx.fill();
+    bx += bw + gap;
+  }
+}
+
 export async function renderPlate(d: PlateData & { line?: string; accent?: string }): Promise<Blob | null> {
   const W = 1080, H = 1350;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -59,14 +84,18 @@ export async function renderPlate(d: PlateData & { line?: string; accent?: strin
 
   const ix = 110, iy = 184, iw = W - 220, ih = 680;
   ctx.fillStyle = '#f3efe7'; ctx.fillRect(ix, iy, iw, ih);
+  let drawn = false;
   if (d.thumb) {
     try {
       const img = await loadImage(d.thumb);
       const s = Math.max(iw / img.width, ih / img.height);
       const sw = iw / s, sh = ih / s;
       ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, ix, iy, iw, ih);
+      drawn = true;
     } catch { /* plate without the photo */ }
   }
+  // A sound has no photograph: draw it as one, the waveform the feed's sound tiles use
+  if (!drawn && d.sound) drawSound(ctx, ix, iy, iw, ih, d.name);
 
   let y = iy + ih + 56;
   ctx.fillStyle = ink; ctx.font = 'italic 400 76px Newsreader, Georgia, serif';
@@ -84,17 +113,28 @@ export async function renderPlate(d: PlateData & { line?: string; accent?: strin
   return await new Promise(res => c.toBlob(b => res(b), 'image/png'));
 }
 
-/** Share a plate image through the OS share sheet; falls back to downloading the PNG. */
-export async function sharePlate(d: PlateData & { line?: string; accent?: string }, opts: { text?: string; url?: string } = {}): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
-  const blob = await renderPlate(d).catch(() => null);
-  if (!blob) return 'failed';
-  const file = new File([blob], `${d.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'plate'}.png`, { type: 'image/png' });
+/** A file name for a plate: the species, lower case, hyphenated. */
+export const plateFileName = (name: string) => `${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase().replace(/^-+|-+$/g, '') || 'plate'}.png`;
+
+/**
+ * Share a plate image already rendered (the preview the explorer is looking at). Nothing is awaited
+ * before navigator.share, so iOS still counts the tap as the gesture that allows sharing.
+ */
+export async function sharePlateBlob(blob: Blob, name: string, opts: { text?: string; url?: string } = {}): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
+  const file = new File([blob], plateFileName(name), { type: 'image/png' });
   const nav: any = navigator;
   if (nav.canShare?.({ files: [file] })) {
-    try { await nav.share({ files: [file], title: d.name, text: [opts.text, opts.url].filter(Boolean).join('\n') }); return 'shared'; }
+    try { await nav.share({ files: [file], title: name, text: [opts.text, opts.url].filter(Boolean).join('\n') }); return 'shared'; }
     catch (e: any) { return e?.name === 'AbortError' ? 'cancelled' : 'failed'; }
   }
   const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   return 'downloaded';
+}
+
+/** Share a plate image through the OS share sheet; falls back to downloading the PNG. */
+export async function sharePlate(d: PlateData & { line?: string; accent?: string }, opts: { text?: string; url?: string } = {}): Promise<'shared' | 'downloaded' | 'cancelled' | 'failed'> {
+  const blob = await renderPlate(d).catch(() => null);
+  if (!blob) return 'failed';
+  return sharePlateBlob(blob, d.name, opts);
 }

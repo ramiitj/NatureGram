@@ -1,6 +1,6 @@
 /**
  * NatureGram Cloud Functions
- * - sendActivityPush: delivers a web/mobile push for every new in-app notification.
+ * - sendActivityPush: a web/mobile push for a new in-app notification, as the explorer's switches and quiet hours allow.
  * - transcodeMedia / backfillTranscodes: playable MP4s for WebM recordings.
  * - transcodeMedia / backfillPosters: posters, blur-up previews, sizes and the sound-only mark for clips.
  * Deploy: firebase deploy --only functions   (requires the Blaze plan)
@@ -21,26 +21,32 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { statsFromPosts, affectsStats, recomputeUserStats } from './userStats.js';
+import { pushDecision } from './notifyPolicy.js';
 
 initializeApp();
 const db = getFirestore();
 
-const TITLES = { like: 'A new marvel', comment: 'A new field note', follow: 'A new follower', mention: 'You were mentioned', reply: 'A reply to your field note', message: 'A new letter' };
-
+// Pushes follow the explorer's switches (users/{uid}.notifyPrefs) and quiet hours (21:00 to 07:00 India
+// time, always on for teens); see functions/notifyPolicy.js. The in-app Activity list keeps every one.
 export const sendActivityPush = onDocumentCreated({ document: 'users/{uid}/notifications/{notifId}', region: 'asia-east1' }, async (event) => {
   const n = event.data?.data();
   if (!n) return;
   const { uid } = event.params;
-  const pushDoc = await db.doc(`users/${uid}/private/push`).get();
+  const [pushDoc, profileDoc] = await Promise.all([db.doc(`users/${uid}/private/push`).get(), db.doc(`users/${uid}`).get()]);
   const tokens = (pushDoc.exists && pushDoc.data().tokens) || [];
   if (!tokens.length) return;
+  const decision = pushDecision(n, profileDoc.exists ? profileDoc.data() : null);
+  if (!decision.send) return;
 
-  const url = n.type === 'follow' && n.senderId ? `/profile?user=${n.senderId}` : (n.postId ? `/feed?p=${n.postId}` : '/feed');
+  const { title, body, tag, url } = decision;
   const res = await getMessaging().sendEachForMulticast({
     tokens,
-    notification: { title: TITLES[n.type] || 'NatureGram', body: String(n.message || '').slice(0, 180) },
-    data: { url, tag: `ng-${n.type || 'activity'}` },
-    webpush: { fcmOptions: { link: url } },
+    notification: { title, body },
+    data: { url, tag },
+    // The same tag replaces the earlier push for this kind of event on this sighting instead of stacking
+    webpush: { notification: { tag, renotify: false }, fcmOptions: { link: url } },
+    android: { collapseKey: tag, notification: { tag } },
+    apns: { headers: { 'apns-collapse-id': tag } },
   });
   // Prune tokens that are no longer valid
   const stale = res.responses.map((r, i) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code || '') ? tokens[i] : null)).filter(Boolean);
@@ -434,10 +440,15 @@ export const runAdminJob = onDocumentWritten({ document: 'admin_jobs/{jobId}', r
     const r = await posterBatch(typeof after.next === 'string' ? after.next : '', 8);
     const totals = after.totals || {};
     const add = (k) => (Number(totals[k]) || 0) + (Number(r[k]) || 0);
-    await ref.update({
-      tick: tick + 1, next: r.next || null, status: r.next ? 'running' : 'done',
-      totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
-      updatedAt: FieldValue.serverTimestamp(), ...(r.next ? {} : { finishedAt: FieldValue.serverTimestamp() }),
+    // An admin may have pressed Stop while this batch ran: keep the count, but don't start the next
+    await db.runTransaction(async (tx) => {
+      const now = (await tx.get(ref)).data() || {};
+      const stopped = now.status === 'stopped';
+      tx.update(ref, {
+        tick: tick + 1, next: r.next || null, status: stopped ? 'stopped' : (r.next ? 'running' : 'done'),
+        totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
+        updatedAt: FieldValue.serverTimestamp(), ...(r.next && !stopped ? {} : { finishedAt: FieldValue.serverTimestamp() }),
+      });
     });
   } catch (e) {
     console.error('admin job failed', event.params.jobId, e.message);
@@ -459,6 +470,8 @@ const BASE_WORDS = [
 ];
 const PROMO = /\b(whatsapp|telegram|dm me|follow me|follow back|promo|discount|coupon|giveaway|buy now|free followers|subscribe|casino|betting|jackpot|lottery|crypto|forex|loan offer|earn money|work from home)\b/i;
 const LINKS = /https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|xyz|io|in|co|me|link|site|shop)\b/i;
+// "oilseed rape" is a crop (keep in step with server/moderationText.js)
+const PLANT_NAMES = /\boil[\s-]*seed[\s-]+rape\b/giu;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 let wordsCache = { at: 0, extra: [] };
 async function extraWords() {
@@ -470,7 +483,7 @@ async function extraWords() {
   return wordsCache.extra;
 }
 export function commentFlags(text, extra = []) {
-  const t = String(text || '');
+  const t = String(text || '').replace(PLANT_NAMES, 'oilseed crop');
   if (!t.trim()) return [];
   const words = [...BASE_WORDS, ...extra.map(w => String(w).trim().toLowerCase()).filter(w => w.length >= 2 && w.length <= 40)];
   const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${words.map(escapeRe).join('|')})(?=$|[^\\p{L}\\p{N}])`, 'iu');

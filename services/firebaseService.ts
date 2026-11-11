@@ -499,9 +499,14 @@ export const FirebaseService = {
     // Media blobs can't live in Firestore: upload them to the owner's private drafts folder first,
     // otherwise drafts would lose their photos/videos/sounds after a reload.
     const canUpload = !!auth.currentUser && !auth.currentUser.isAnonymous && userId === auth.currentUser.uid;
+    // A failed upload must never be saved as an empty picture: throw Error('upload-failed') so the caller
+    // keeps the session on the device and tells the explorer (nothing is written in that case).
     const persistBlob = async (b: Blob | undefined, kind: 'image' | 'video' | 'audio', fallback?: string) => {
       if (b && canUpload) {
-        try { return await FirebaseService.uploadMedia(b, userId, kind, `drafts/${userId}`); } catch (e) { console.warn('Draft media upload failed', e); }
+        try { return await FirebaseService.uploadMedia(b, userId, kind, `drafts/${userId}`); } catch (e) {
+          console.warn('Draft media upload failed', e);
+          throw Object.assign(new Error('upload-failed'), { code: 'upload-failed', kind, cause: e });
+        }
       }
       return fallback && !fallback.startsWith('blob:') ? fallback : '';
     };
@@ -877,6 +882,8 @@ export const FirebaseService = {
       note: (data.note || '').trim().slice(0, 280),
       userName: (profile?.username || me.displayName || 'Explorer').slice(0, 60),
       agree: !!data.agree,
+      // Lets account deletion find this identification (firestore.rules: must be the identifier's own uid)
+      userId: me.uid,
       createdAt: serverTimestamp(),
     }, { merge: true }); // merge keeps a thank-you from the post's author
     // Close the loop for the explorer who posted it: their ID was confirmed or questioned.
@@ -1089,7 +1096,7 @@ export const FirebaseService = {
       } catch (e) {
           console.warn("Could not delete from feed_thumbnails:", e);
           if (!mainFeedSuccess) {
-              throw new Error("Failed to delete post from both feed and thumbnails.");
+              throw new Error("This sighting couldn't be deleted. Please try again.");
           }
       }
   },
@@ -1165,7 +1172,7 @@ export const FirebaseService = {
     const userProfile = await FirebaseService.getUserProfile(userId);
     const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${userId.slice(0, 4)}`;
     const clean = text.trim().slice(0, 1000);
-    if (!clean) throw new Error("Comment is empty.");
+    if (!clean) throw new Error("Write something in your field note first.");
     if (looksLikeSpam(clean)) throw new Error("Field notes can't contain links or promotions.");
     // The same note twice on one post is almost always spam or a double tap
     try {
@@ -1209,22 +1216,73 @@ export const FirebaseService = {
     } catch (e) { /* counter best-effort */ }
   },
 
-  /** One report per user per post; the post is flagged for moderator review. */
+  /**
+   * Report a sighting, a field note or an explorer. Anonymous to everyone but the moderators: the
+   * reporter's uid is never written where other explorers can read it (firestore.rules).
+   *  - post:    ecosystem_feed/{postId}/reports/{me} (private) + the post's reportCount / reportStatus
+   *             'pending', which is what the admin's moderation queue lists.
+   *  - comment: content_reports/c_{postId}_{commentId}_{me}
+   *  - profile: content_reports/u_{userId}_{me}
+   * One report per explorer per target: reporting the same thing again resolves quietly.
+   * Throws Error('signin') for guests or signed-out explorers.
+   */
+  reportContent: async (
+    target: { kind: 'post' | 'comment' | 'profile'; postId?: string; commentId?: string; userId?: string },
+    reason: string,
+    details?: string,
+  ): Promise<void> => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw Object.assign(new Error('signin'), { code: 'signin' });
+    const uid = me.uid;
+    const why = String(reason || '').trim().slice(0, 40) || 'other';
+    const more = String(details || '').trim().slice(0, 500);
+    const okId = (v?: string) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
+    // Already reported by me? (each explorer can read only their own report)
+    const already = async (ref: ReturnType<typeof doc>) => {
+      try { return (await getDoc(ref)).exists(); } catch { return false; }
+    };
+
+    if (target.kind === 'post') {
+      if (!okId(target.postId)) throw new Error('bad-target');
+      const mine = doc(db, 'ecosystem_feed', target.postId!, 'reports', uid);
+      if (await already(mine)) return;
+      const batch = writeBatch(db);
+      batch.set(mine, { reason: why, details: more, createdAt: serverTimestamp() });
+      batch.update(doc(db, 'ecosystem_feed', target.postId!), { reportStatus: 'pending', reportCount: increment(1) });
+      await batch.commit();
+      return;
+    }
+    if (target.kind === 'comment') {
+      if (!okId(target.postId) || !okId(target.commentId)) throw new Error('bad-target');
+      const ref = doc(db, 'content_reports', `c_${target.postId}_${target.commentId}_${uid}`);
+      if (await already(ref)) return;
+      let reportedUid: string | undefined;
+      try {
+        const c = await getDoc(doc(db, 'ecosystem_feed', target.postId!, 'comments', target.commentId!));
+        const author = c.exists() ? (c.data() as any).userId : undefined;
+        if (okId(author)) reportedUid = author;
+      } catch { /* the moderators can still find the note by its ids */ }
+      await setDoc(ref, {
+        kind: 'comment', postId: target.postId, commentId: target.commentId,
+        ...(reportedUid ? { reportedUid } : {}),
+        reporterId: uid, reason: why, details: more, status: 'open', createdAt: serverTimestamp(),
+      });
+      return;
+    }
+    if (target.kind === 'profile') {
+      if (!okId(target.userId) || target.userId === uid) throw new Error('bad-target');
+      const ref = doc(db, 'content_reports', `u_${target.userId}_${uid}`);
+      if (await already(ref)) return;
+      await setDoc(ref, { kind: 'profile', reportedUid: target.userId, reporterId: uid, reason: why, details: more, status: 'open', createdAt: serverTimestamp() });
+      return;
+    }
+    throw new Error('bad-target');
+  },
+
+  /** One report per user per post; the post is flagged for moderator review (kept for older callers). */
   reportPost: async (postId: string, reason: string, details = "") => {
-    const uid = auth.currentUser?.uid;
-    if (!uid || auth.currentUser?.isAnonymous) throw new Error("Please sign in to report.");
-    const batch = writeBatch(db);
-    batch.set(doc(db, "ecosystem_feed", postId, "reports", uid), {
-      reason: reason.slice(0, 40),
-      details: details.slice(0, 500),
-      createdAt: serverTimestamp(),
-    });
-    batch.update(doc(db, "ecosystem_feed", postId), {
-      reports: arrayUnion(uid),
-      reportStatus: 'pending',
-      reportCount: increment(1),
-    });
-    await batch.commit();
+    if (!auth.currentUser || auth.currentUser.isAnonymous) throw new Error("Please sign in to report.");
+    await FirebaseService.reportContent({ kind: 'post', postId }, reason, details);
   },
 
   subscribeToComments: (postId: string, callback: (comments: Comment[]) => void) => {
@@ -1459,8 +1517,8 @@ export const FirebaseService = {
   /** Opens (creating if needed) the 1:1 conversation with another explorer. */
   openConversation: async (otherUid: string): Promise<string> => {
     const me = auth.currentUser;
-    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
-    if (otherUid === me.uid) throw new Error("You can't message yourself.");
+    if (!me || me.isAnonymous) throw new Error('Please log in to write letters.');
+    if (otherUid === me.uid) throw new Error("You can't write a letter to yourself.");
     const participants = [me.uid, otherUid].sort();
     const cid = participants.join('_');
     const ref = doc(db, 'conversations', cid);
@@ -1506,7 +1564,7 @@ export const FirebaseService = {
 
   sendMessage: async (cid: string, text: string, postId?: string) => {
     const me = auth.currentUser;
-    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
+    if (!me || me.isAnonymous) throw new Error('Please log in to write letters.');
     const clean = text.trim().slice(0, 2000);
     if (!clean && !postId) return;
     const msg: any = { senderId: me.uid, text: clean, createdAt: serverTimestamp() };
@@ -1744,91 +1802,40 @@ export const FirebaseService = {
   },
 
   /**
-   * Permanently deletes the signed-in explorer's account and everything they created.
-   * Requires a recent login (Firebase); throws 'auth/requires-recent-login' otherwise.
+   * Permanently deletes the signed-in explorer's account and everything they created, on the server
+   * (DELETE /api/me, server/accountDeletion.js): sightings and media, field notes, identifications,
+   * marvels, follows, letters, the guide's answers, guardian records, private data, then the sign-in.
+   *
+   * The server needs a sign-in from the last 10 minutes. If it is older, nothing is deleted and this
+   * throws Error('recent-login-required') (code 'auth/requires-recent-login', as before), so the app can
+   * ask the explorer to sign in again and retry. Other failures throw Error('deletion-incomplete') (a
+   * retry carries on where it stopped) or Error('unavailable') (nothing deleted).
    */
   deleteMyAccount: async (onProgress?: (step: string) => void) => {
     const me = auth.currentUser;
     if (!me) throw new Error("Not signed in");
     const uid = me.uid;
-    const step = (s: string) => onProgress?.(s);
-
-    step('Removing your sightings…');
-    const posts = await getDocs(query(collection(db, "ecosystem_feed"), where("userId", "==", uid)));
-    for (const p of posts.docs) {
-      try {
-        const cs = await getDocs(collection(db, "ecosystem_feed", p.id, "comments"));
-        await Promise.all(cs.docs.map(c => deleteDoc(c.ref).catch(() => {})));
-      } catch { /* continue */ }
-      await deleteDoc(doc(db, "feed_thumbnails", p.id)).catch(() => {});
-      await deleteDoc(p.ref).catch(() => {});
-    }
-
-    step('Removing your field notes…');
+    onProgress?.('Checking it\'s you…');
+    // A fresh token (the server also checks how recently the explorer signed in)
+    const token = await me.getIdToken(true);
+    onProgress?.('Removing your sightings, letters and account…');
+    let res: Response;
     try {
-      const myComments = await getDocs(query(collectionGroup(db, "comments"), where("userId", "==", uid)));
-      for (const c of myComments.docs) {
-        await deleteDoc(c.ref).catch(() => {});
-        const postId = c.ref.parent.parent?.id;
-        if (postId) {
-          await updateDoc(doc(db, "ecosystem_feed", postId), { commentCount: increment(-1) }).catch(() => {});
-          await updateDoc(doc(db, "feed_thumbnails", postId), { commentCount: increment(-1) }).catch(() => {});
-        }
-      }
-    } catch (e) { console.warn("Comment cleanup incomplete", e); }
-
-    step('Removing your marvels…');
-    try {
-      const myLikes = await getDocs(query(collectionGroup(db, "likes"), where("userId", "==", uid), limit(1000)));
-      for (const l of myLikes.docs) {
-        const postId = l.ref.parent.parent?.id;
-        if (!postId) continue;
-        const b = writeBatch(db);
-        b.delete(l.ref);
-        b.update(doc(db, "ecosystem_feed", postId), { likeCount: increment(-1) });
-        await b.commit().catch(() => {});
-        await updateDoc(doc(db, "feed_thumbnails", postId), { likeCount: increment(-1) }).catch(() => {});
-      }
-    } catch (e) { console.warn("Like-document cleanup incomplete", e); }
-    try {
-      const liked = await getDocs(query(collection(db, "feed_thumbnails"), where("isPublic", "==", true), where("likes", "array-contains", uid), limit(500)));
-      for (const l of liked.docs) {
-        await updateDoc(doc(db, "ecosystem_feed", l.id), { likes: arrayRemove(uid) }).catch(() => {});
-        await updateDoc(l.ref, { likes: arrayRemove(uid) }).catch(() => {});
-      }
-    } catch (e) { console.warn("Like cleanup incomplete", e); }
-
-    step('Removing follows…');
-    for (const target of await FirebaseService.getFollowingIds(uid, 1000)) {
-      await FirebaseService.unfollowUser(target).catch(() => {});
+      res = await fetch(apiUrl('/api/me'), { method: 'DELETE', headers: { Authorization: `Bearer ${token}`, ...(await appCheckHeaders().catch(() => ({}))) } });
+    } catch {
+      throw Object.assign(new Error('unavailable'), { code: 'unavailable' });
     }
-    try {
-      const followers = await getDocs(collection(db, "users", uid, "followers"));
-      // Follower docs live under our own profile; removing them is enough (their counters self-heal on next follow)
-      await Promise.all(followers.docs.map(f => deleteDoc(f.ref).catch(() => {})));
-    } catch { /* ignore */ }
-
-    step('Removing private data…');
-    for (const sub of ['drafts', 'private', 'notifications', 'saved', 'blocked', 'following']) {
-      try {
-        const snap = await getDocs(collection(db, "users", uid, sub));
-        await Promise.all(snap.docs.map(d => deleteDoc(d.ref).catch(() => {})));
-      } catch { /* ignore */ }
+    const body: any = await res.json().catch(() => ({}));
+    // 401 { error: 'recent-login-required' } (or a sign-in the server no longer accepts): sign in again, then retry
+    if (res.status === 401) throw Object.assign(new Error('recent-login-required'), { code: 'auth/requires-recent-login' });
+    if (!res.ok) {
+      const code = body?.error === 'deletion-incomplete' ? 'deletion-incomplete' : 'unavailable';
+      throw Object.assign(new Error(code), { code, step: body?.step || null });
     }
-    await deleteDoc(doc(db, "naturalist_memories", uid)).catch(() => {});
-
-    step('Removing uploaded media…');
-    for (const folder of ['snapshots', 'videos', 'audio', 'avatars', 'drafts']) {
-      try {
-        const listing = await listAll(ref(storage, `${folder}/${uid}`));
-        await Promise.all(listing.items.map(i => deleteObject(i).catch(() => {})));
-      } catch { /* folder may not exist */ }
-    }
-
-    step('Closing your account…');
-    await deleteDoc(doc(db, "users", uid)).catch(() => {});
-    await deleteUser(me);
+    onProgress?.('Signing you out…');
     try { localStorage.removeItem(`drafts_${uid}`); } catch { /* ignore */ }
+    // The sign-in no longer exists on the server; drop it on this device too
+    await signOut(auth).catch(() => {});
   },
 
   /** Admin = custom claim `admin`, or the owner email once verified (matches security rules). */
@@ -1917,7 +1924,8 @@ export const FirebaseService = {
   },
 
   dismissReports: async (postId: string) => {
-      await updateDoc(doc(db, "ecosystem_feed", postId), { reports: [], reportStatus: 'safe' });
+      // Older posts may still carry a list of reporter ids: drop it with the dismissal
+      await updateDoc(doc(db, "ecosystem_feed", postId), { reports: deleteField(), reportStatus: 'safe' });
   },
 
   seedThemesMigration: async (): Promise<void> => {

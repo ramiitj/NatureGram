@@ -248,60 +248,67 @@ const EntryView: React.FC<{ e: Entry; onOpen: (p: CommunityPost) => void; index:
 // ---------------------------------------------------------------------------- the notebook
 
 /** The journal's one header, shared by the notebook and the grid: title, count, view switch and search. */
+export type JournalView = 'pages' | 'species' | 'places';
+const VIEW_LABEL: Record<JournalView, { label: string; glyph: 'notebook' | 'plate' | 'pin' }> = {
+  pages: { label: 'Pages', glyph: 'notebook' },
+  species: { label: 'Species', glyph: 'plate' },
+  places: { label: 'Places', glyph: 'pin' },
+};
+
+/**
+ * The Journal's one header: the title, what the numbers count, three views of the same sightings
+ * (by day, by species, by place) and one search that works in all three.
+ */
 export const JournalHeader: React.FC<{
   count: number;
-  firstMs?: number;
-  view: 'notebook' | 'grid';
-  onView: (v: 'notebook' | 'grid') => void;
+  shared?: number;
+  firstMs: number;
+  view: JournalView;
+  onView: (v: JournalView) => void;
   query: string;
   onQuery: (q: string) => void;
-  /** The search is left out when the grid shows its own search and filters (more than 20 sightings) */
-  showSearch?: boolean;
   onTitleClick?: () => void;
-}> = ({ count, firstMs, view, onView, query, onQuery, showSearch = true, onTitleClick }) => (
-  <header className="ng-page pt-6 md:pt-8 pb-6">
-    <div className="flex items-start justify-between gap-4">
-      <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
-        <h2 className="ng-title flex items-center gap-3">
-          <Glyph name="rings" size={24} className="text-stone-500" />
-          My journal
-        </h2>
-        {count > 0 && (
-          <p className="ng-small text-stone-500 mt-1.5">
-            {count} {count === 1 ? 'sighting' : 'sightings'}{firstMs ? ` since ${monthTitle(firstMs)}` : ''}
-          </p>
-        )}
-      </button>
+}> = ({ count, shared, firstMs, view, onView, query, onQuery, onTitleClick }) => (
+  <header className="ng-page pt-6 md:pt-8 pb-4">
+    <button type="button" onClick={onTitleClick} className="text-left min-w-0 rounded-lg" aria-label="Scroll to top of journal">
+      <h1 className="ng-title flex items-center gap-3">
+        <Glyph name="rings" size={24} className="text-stone-500" />
+        My journal
+      </h1>
       {count > 0 && (
-        <div className="flex items-center gap-5 shrink-0" role="group" aria-label="Journal view">
-          {(['notebook', 'grid'] as const).map(v => (
+        <p className="ng-small text-stone-500 mt-1.5">
+          {count} {count === 1 ? 'sighting' : 'sightings'}{typeof shared === 'number' ? `, ${shared} shared` : ''}{firstMs ? ` since ${monthTitle(firstMs)}` : ''}
+        </p>
+      )}
+    </button>
+    {count > 0 && (
+      <>
+        <div className="mt-5 flex items-center gap-6 border-b border-stone-200/80" role="tablist" aria-label="Ways into your journal">
+          {(Object.keys(VIEW_LABEL) as JournalView[]).map(v => (
             <button
               key={v}
               type="button"
+              role="tab"
+              aria-selected={view === v}
               onClick={() => onView(v)}
-              aria-pressed={view === v}
-              className={`ng-tab gap-2 ${view === v ? 'ng-tab-on' : ''}`}
+              className={`ng-tab gap-2 min-h-[48px] ${view === v ? 'ng-tab-on after:!bottom-0' : ''}`}
             >
-              {v === 'notebook'
-                ? <><Glyph name="notebook" size={20} /><span className="hidden sm:inline">Notebook</span><span className="sr-only sm:hidden">Notebook</span></>
-                : <><Glyph name="grid" size={20} /><span className="hidden sm:inline">Grid</span><span className="sr-only sm:hidden">Grid</span></>}
+              <Glyph name={VIEW_LABEL[v].glyph} size={20} />{VIEW_LABEL[v].label}
             </button>
           ))}
         </div>
-      )}
-    </div>
-    {showSearch && count > 0 && (
-      <label className="relative block mt-6 max-w-md">
-        <span className="sr-only">Search your journal</span>
-        <Glyph name="search" size={20} className="absolute left-0 top-1/2 -translate-y-1/2 text-stone-500" />
-        <input
-          type="search"
-          value={query}
-          onChange={e => onQuery(e.target.value)}
-          placeholder="Find a species, place or word"
-          className="ng-field-line pl-8"
-        />
-      </label>
+        <label className="relative block mt-5 max-w-md">
+          <span className="sr-only">Search your journal</span>
+          <Glyph name="search" size={20} className="absolute left-0 top-1/2 -translate-y-1/2 text-stone-500" />
+          <input
+            type="search"
+            value={query}
+            onChange={e => onQuery(e.target.value)}
+            placeholder="Find a species, place or word"
+            className="ng-field-line pl-8"
+          />
+        </label>
+      </>
     )}
   </header>
 );
@@ -315,6 +322,8 @@ interface Props {
   drafts: ExpeditionDraft[];
   onOpenPost: (post: CommunityPost) => void;
   onOpenDrafts?: () => void;
+  /** Opens one draft straight into review */
+  onOpenDraft?: (draft: ExpeditionDraft) => void;
   /** The search typed in the shared JournalHeader */
   query: string;
   onClearQuery: () => void;
@@ -322,7 +331,7 @@ interface Props {
   emptyState: React.ReactNode;
 }
 
-const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, onOpenDrafts, query, onClearQuery, emptyState }) => {
+const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, onOpenDrafts, onOpenDraft, query, onClearQuery, emptyState }) => {
   const [shownMonths, setShownMonths] = useState(3);
   const q = query.trim().toLowerCase();
 
@@ -379,12 +388,12 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
               {!q && pages.length > 0 && (
                 <section aria-labelledby="nb-unfinished" className="mb-12">
                   <h3 id="nb-unfinished" className="ng-subtitle flex items-center gap-3">
-                    <span className="ng-rule" aria-hidden="true" />Unfinished pages
+                    <span className="ng-rule" aria-hidden="true" />Unfinished
                   </h3>
                   <ul className="mt-3 border-t border-stone-200/80 divide-y divide-stone-200/80" role="list">
-                    {pages.slice(0, 3).map(pg => (
+                    {pages.slice(0, 3).map((pg, i) => (
                       <li key={pg.id}>
-                        <button type="button" onClick={onOpenDrafts} className="w-full flex items-center gap-4 py-3 text-left">
+                        <button type="button" onClick={() => { const d = drafts.find(x => x.id === pg.id) || drafts[i]; if (onOpenDraft && d) onOpenDraft(d); else onOpenDrafts?.(); }} aria-label={`Finish ${pg.title}`} className="w-full flex items-center gap-4 py-3 text-left">
                           <span className="w-12 h-12 shrink-0 rounded-md bg-[#f3efe7] overflow-hidden flex items-center justify-center text-stone-400">
                             {pg.thumbs[0] ? <img src={pg.thumbs[0]} alt="" className="w-full h-full object-cover" /> : <Glyph name="satchel" size={20} />}
                           </span>
@@ -398,7 +407,7 @@ const FieldNotebook: React.FC<Props> = ({ posts, loading, drafts, onOpenPost, on
                       </li>
                     ))}
                   </ul>
-                  {pages.length > 3 && <button type="button" onClick={onOpenDrafts} className="mt-2 ng-link-quiet min-h-[44px]">All {pages.length} unfinished pages</button>}
+                  {pages.length > 3 && <button type="button" onClick={onOpenDrafts} className="mt-2 ng-link-quiet min-h-[44px]">All {pages.length} unfinished</button>}
                 </section>
               )}
 

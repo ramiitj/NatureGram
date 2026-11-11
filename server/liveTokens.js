@@ -25,7 +25,7 @@ import { GoogleGenAI } from '@google/genai';
 import { Timestamp } from 'firebase-admin/firestore';
 import { governLiveSetup, SAFETY_SETTINGS } from './aiGovernance.js';
 import { getFlags, getSettings } from './settings.js';
-import { usageFor, record, logAi } from './ledger.js';
+import { usageFor, record, logAi, RESET_WORDS } from './ledger.js';
 import { acquire, heartbeat, getDirect, settleDirect, sweepDirect, HEARTBEAT_MS } from './liveLeases.js';
 import { appCheckMiddleware } from './appCheck.js';
 
@@ -88,7 +88,7 @@ export function mountLive(app, deps) {
     if (used === null) return say(503, 'unavailable', 'The guide is unavailable for a moment. Please try again.');
     const dayMs = Math.max(0, Number(flags.allowances.liveMinutesPerDay) || 0) * 60_000;
     const leftMs = dayMs - (used.liveMs || 0);
-    if (leftMs < 5_000) return say(429, 'allowance', `You've used today's ${flags.allowances.liveMinutesPerDay} live minutes. They reset at midnight UTC.`);
+    if (leftMs < 5_000) return say(429, 'allowance', `You've used today's ${flags.allowances.liveMinutesPerDay} live minutes. They reset ${RESET_WORDS}.`);
     const netRefusal = networkOpen(ip, settings);
     if (netRefusal) return say(429, 'network', netRefusal);
 

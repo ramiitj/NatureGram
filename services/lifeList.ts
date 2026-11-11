@@ -50,9 +50,26 @@ export const groupOf = (p: any): LifeGroup => {
   return 'Other life';
 };
 
-/** Meteorological season for a date; flips for the southern hemisphere when latitude is known. */
-export const seasonOf = (ms: number, lat?: number | null): string => {
+const SOUTH_ASIA_TZ = /^Asia\/(Kolkata|Calcutta|Colombo|Dhaka|Kathmandu|Katmandu|Karachi|Thimphu)$/;
+const deviceInSouthAsia = (() => {
+  try { return SOUTH_ASIA_TZ.test(Intl.DateTimeFormat().resolvedOptions().timeZone || ''); } catch { return false; }
+})();
+
+/**
+ * The season of a date where it was seen. South Asia (where most explorers are) has its own four:
+ * winter (Dec–Feb), summer (Mar–May), monsoon (Jun–Sep) and post-monsoon (Oct–Nov). Elsewhere the
+ * meteorological seasons, flipped for the southern hemisphere. With no coordinates, the device's
+ * time zone decides.
+ */
+export const seasonOf = (ms: number, lat?: number | null, lng?: number | null): string => {
   const m = new Date(ms).getMonth();
+  const southAsia = typeof lat === 'number' && typeof lng === 'number'
+    ? lat >= 5 && lat <= 37 && lng >= 60 && lng <= 98
+    : (typeof lat !== 'number' && deviceInSouthAsia);
+  if (southAsia) {
+    const s = ['winter', 'winter', 'summer', 'summer', 'summer', 'monsoon', 'monsoon', 'monsoon', 'monsoon', 'post-monsoon', 'post-monsoon', 'winter'][m];
+    return [2, 5, 9, 11].includes(m) ? `early ${s}` : s;
+  }
   const north = ['winter', 'winter', 'spring', 'spring', 'spring', 'summer', 'summer', 'summer', 'autumn', 'autumn', 'autumn', 'winter'];
   const flip: Record<string, string> = { winter: 'summer', summer: 'winter', spring: 'autumn', autumn: 'spring' };
   const s = north[m];
@@ -64,6 +81,11 @@ export const seasonOf = (ms: number, lat?: number | null): string => {
 export const toMs = (t: any): number => t?.toMillis ? t.toMillis() : (typeof t?.seconds === 'number' ? t.seconds * 1000 : (typeof t === 'number' ? t : 0));
 
 const IGNORE = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)/i;
+/**
+ * People and pets are not wild sightings: they never join a life list or its count (kept in step
+ * with server/userStats.js NOT_WILD).
+ */
+export const NOT_WILD = /^(the )?(homo sapiens|humans?|person|people|man|woman|child|children|canis (lupus )?familiaris|domestic dog|dogs?|pupp(y|ies)|felis (silvestris )?catus|domestic cat|cats?|kittens?)$/i;
 
 /** "14 Mar 2026" in the explorer's locale, like a field-notebook entry. */
 export const fieldDate = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
@@ -74,18 +96,19 @@ export const buildLifeList = (posts: any[]): LifeEntry[] => {
   let no = 0;
   for (const p of sorted) {
     const name = (p.labels?.[0] || '').trim();
-    if (!name || IGNORE.test(name)) continue;
+    if (!name || IGNORE.test(name) || NOT_WILD.test(name)) continue;
     const key = name.toLowerCase();
     const e = map.get(key);
     if (e) { e.count++; continue; }
     const ms = toMs(p.timestamp);
     const lat = p.rawLocation?.lat ?? p.items?.[0]?.rawLocation?.lat;
+    const lng = p.rawLocation?.lng ?? p.items?.[0]?.rawLocation?.lng;
     const sci = (p.labels?.[1] && /^[A-Z][a-z]+ [a-z]+/.test(p.labels[1])) ? p.labels[1]
       : (p.aiIdentifications?.[0]?.scientificName || p.items?.[0]?.aiIdentifications?.[0]?.scientificName);
     map.set(key, {
       no: ++no, name, scientific: sci || undefined, firstMs: ms,
       place: p.showLocation !== false && p.locationArea ? p.locationArea : undefined,
-      season: ms ? seasonOf(ms, lat) : undefined,
+      season: ms ? seasonOf(ms, lat, lng) : undefined,
       group: groupOf(p), count: 1, thumb: p.thumbSmallUrl || p.thumbnailUrl || p.imageUrl, postId: p.id,
     });
   }

@@ -11,7 +11,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
-import { getFlags, getSettings, saveSection, listHistory, DEFAULT_FLAGS, DEFAULT_SETTINGS } from './settings.js';
+import { getFlags, getSettings, saveSection, listHistory, validNetworkEntry, DEFAULT_FLAGS, DEFAULT_SETTINGS } from './settings.js';
 import { audit, refreshSuspended, storeHealth, today } from './ledger.js';
 import { AI_POLICY_VERSION } from './aiGovernance.js';
 import { thumbnailOf } from './publish.js';
@@ -27,7 +27,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const EXPLORABLE = {
   users: 'joinedAt', ecosystem_feed: 'timestamp', feed_thumbnails: 'timestamp', ai_feedback: 'createdAt',
   ai_log: 'at', ai_usage: 'updatedAt', usage_global: 'updatedAt', ai_results: 'createdAt', suspended: 'at',
-  review_queue: 'createdAt', letter_reports: 'createdAt', admin_audit: 'at', app_config: null, themes: null,
+  review_queue: 'createdAt', letter_reports: 'createdAt', content_reports: 'createdAt', admin_audit: 'at', app_config: null, themes: null,
   daily_themes: null, media_variants: null, naturalist_profiles: null, config: null, live_leases: 'startedAt',
 };
 
@@ -46,6 +46,14 @@ const bool = (v) => typeof v === 'boolean';
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const text = (v, max) => typeof v === 'string' && v.length <= max;
 
+/** [key, minimum, maximum, label] for each daily allowance the admin can set. */
+export const ALLOWANCE_RANGES = Object.freeze([
+  ['postsPerDay', 1, 100, 'Posts per day'],
+  ['liveMinutesPerDay', 0, 240, 'Live minutes per day'],
+  ['identificationsPerDay', 1, 500, 'Identifications per day'],
+  ['privateSavesPerDay', 20, 1000, 'Private saves per day'],
+]);
+
 export function validateFlags(patch) {
   const out = {};
   for (const k of ['aiEnabled', 'liveEnabled', 'uploadsEnabled', 'guestsEnabled', 'lettersEnabled', 'signupsEnabled']) {
@@ -53,9 +61,14 @@ export function validateFlags(patch) {
   }
   if (patch.allowances) {
     const a = patch.allowances; out.allowances = {};
-    if ('postsPerDay' in a) { if (!int(a.postsPerDay, 0, 100)) throw new Error('Posts per day must be 0 to 100'); out.allowances.postsPerDay = a.postsPerDay; }
-    if ('liveMinutesPerDay' in a) { if (!int(a.liveMinutesPerDay, 0, 240)) throw new Error('Live minutes per day must be 0 to 240'); out.allowances.liveMinutesPerDay = a.liveMinutesPerDay; }
-    if ('identificationsPerDay' in a) { if (!int(a.identificationsPerDay, 0, 500)) throw new Error('Identifications per day must be 0 to 500'); out.allowances.identificationsPerDay = a.identificationsPerDay; }
+    // Minimums keep the app usable: to stop sharing or the guide, use the switches instead of a zero allowance
+    for (const [k, lo, hi, label] of ALLOWANCE_RANGES) {
+      if (!(k in a)) continue;
+      if (!Number.isInteger(a[k])) throw new Error(`${label} must be a whole number`);
+      if (a[k] < lo) throw new Error(`${label} can't be below ${lo}.${lo > 0 ? ' To stop it for everyone, use its switch instead.' : ''}`);
+      if (a[k] > hi) throw new Error(`${label} can't be above ${hi}.`);
+      out.allowances[k] = a[k];
+    }
   }
   const extra = Object.keys(patch).filter(k => !(k in DEFAULT_FLAGS));
   if (extra.length) throw new Error(`Unknown setting: ${extra[0]}`);
@@ -104,8 +117,12 @@ export function validateSettings(patch) {
   }
   if ('blockedNetworks' in patch) {
     const list = patch.blockedNetworks;
-    if (!Array.isArray(list) || list.length > 500 || !list.every(p => typeof p === 'string' && /^[0-9a-f:.]{3,45}$/i.test(p))) throw new Error('Blocked networks must be IP addresses or prefixes');
-    out.blockedNetworks = list;
+    if (!Array.isArray(list) || list.length > 500) throw new Error('Blocked networks must be a list of up to 500 entries');
+    // Older entries without the final dot ("203.0.113") meant the whole range: keep that meaning, written plainly
+    const norm = list.map(p => (typeof p === 'string' ? p.trim().toLowerCase() : p)).map(p => (typeof p === 'string' && /^\d{1,3}(\.\d{1,3}){0,2}$/.test(p) ? `${p}.` : p));
+    const bad = norm.find(p => !validNetworkEntry(p));
+    if (bad !== undefined) throw new Error(`"${String(bad).slice(0, 50)}" isn't a network NatureGram understands. Use one exact address (203.0.113.7), a range ending in a dot (203.0.113.) or a CIDR range (203.0.113.0/24).`);
+    out.blockedNetworks = Array.from(new Set(norm));
   }
   if ('moderationWords' in patch) {
     const list = patch.moderationWords;
@@ -222,7 +239,7 @@ export function mountAdmin(app, deps) {
   router.get('/overview', wrap(async (req, res) => {
     const d = db();
     const since = Timestamp.fromMillis(Date.now() - 86_400_000);
-    const [flags, settings, global, logSnap, queue, reported, postsToday, letterReports] = await Promise.all([
+    const [flags, settings, global, logSnap, queue, reported, postsToday, letterReports, contentReports] = await Promise.all([
       getFlags(), getSettings(),
       d.doc(`usage_global/${today()}`).get(),
       d.collection('ai_log').where('at', '>=', since).orderBy('at', 'desc').limit(2000).get(),
@@ -230,6 +247,7 @@ export function mountAdmin(app, deps) {
       d.collection('ecosystem_feed').where('reportStatus', '==', 'pending').count().get(),
       d.collection('ecosystem_feed').where('timestamp', '>=', Timestamp.fromMillis(new Date(today() + 'T00:00:00Z').getTime())).count().get(),
       d.collection('letter_reports').where('status', '==', 'open').count().get().catch(() => ({ data: () => ({ count: 0 }) })),
+      d.collection('content_reports').where('status', '==', 'open').count().get().catch(() => ({ data: () => ({ count: 0 }) })),
     ]);
     const byTask = {}; const flagged = {}; const users = new Set(); let errors = 0; let tokens = 0;
     const hourly = Array(24).fill(0);
@@ -247,7 +265,7 @@ export function mountAdmin(app, deps) {
       store: storeHealth(), policy: AI_POLICY_VERSION, flags,
       ceiling: settings.caps.dailyTokenCeiling, tokensToday: global.exists ? global.get('tokens') || 0 : 0, callsToday: global.exists ? global.get('calls') || 0 : 0,
       last24h: { calls: logSnap.size, errors, tokens, activeExplorers: users.size, byTask, flagged, hourly, truncated: logSnap.size >= 2000 },
-      queues: { review: queue.data().count, reported: reported.data().count, letters: letterReports.data().count },
+      queues: { review: queue.data().count, reported: reported.data().count, letters: letterReports.data().count, contentReports: contentReports.data().count },
       postsToday: postsToday.data().count,
     });
   }));
@@ -384,10 +402,69 @@ export function mountAdmin(app, deps) {
     const post = snap.data(); const batch = d.batch();
     if (action === 'hide') { batch.update(ref, { reportStatus: 'hidden', isPublic: false }); batch.delete(d.doc(`feed_thumbnails/${id}`)); }
     if (action === 'restore') { batch.update(ref, { reportStatus: 'safe', isPublic: true, moderation: { status: 'clear', reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } }); batch.set(d.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, isPublic: true })); }
-    if (action === 'dismiss') batch.update(ref, { reportStatus: 'safe', reports: [] });
+    if (action === 'dismiss') batch.update(ref, { reportStatus: 'safe', reports: FieldValue.delete() });
     if (action === 'delete') { batch.delete(ref); batch.delete(d.doc(`feed_thumbnails/${id}`)); }
     await batch.commit();
     await audit(req.admin, `post.${action}`, { postId: id, userId: post.userId });
+    res.json({ ok: true });
+  }));
+
+  // Reports used to add the reporter's uid to a public `reports` list on the post. Removes that list from
+  // every post (reports themselves stay in each post's private reports/ sub-collection, and the queue uses
+  // reportStatus / reportCount). Idempotent and batched; a long run returns `next` to continue from.
+  router.post('/clear-reporter-ids', wrap(async (req, res) => {
+    const d = db();
+    const started = Date.now();
+    const budgetMs = Math.min(50_000, Math.max(2_000, Number(req.body?.budgetMs) || 45_000));
+    let after = String(req.body?.after || '');
+    if (after && !ID_RE.test(after)) throw new Error('Bad cursor');
+    let scanned = 0; let cleared = 0; let next = null;
+    for (;;) {
+      let q = d.collection('ecosystem_feed').orderBy(FieldPath.documentId()).select('reports').limit(400);
+      if (after) q = q.startAfter(after);
+      const snap = await q.get();
+      scanned += snap.size;
+      const batch = d.batch(); let n = 0;
+      for (const doc of snap.docs) {
+        if (doc.get('reports') !== undefined) { batch.update(doc.ref, { reports: FieldValue.delete() }); n++; }
+      }
+      if (n) await batch.commit();
+      cleared += n;
+      if (snap.size < 400) { next = null; break; }
+      after = snap.docs[snap.size - 1].id;
+      if (Date.now() - started > budgetMs) { next = after; break; }
+    }
+    await audit(req.admin, 'reports.clearReporterIds', { scanned, cleared, done: !next });
+    res.json({ ok: true, scanned, cleared, next, done: !next });
+  }));
+
+  // Reports on field notes and profiles (content_reports), newest first; reporter ids are shown to the admin only
+  router.get('/content-reports', wrap(async (req, res) => {
+    const status = req.query.status === 'closed' ? 'closed' : 'open';
+    const snap = await db().collection('content_reports').where('status', '==', status).limit(100).get();
+    const items = snap.docs.map(docOut).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // The field note's words, so the admin can decide without opening the post
+    const notes = await Promise.all(items.map(async (r) => {
+      if (r.kind !== 'comment' || !ID_RE.test(String(r.postId)) || !ID_RE.test(String(r.commentId))) return null;
+      const c = await db().doc(`ecosystem_feed/${r.postId}/comments/${r.commentId}`).get().catch(() => null);
+      return c?.exists ? { text: String(c.get('text') || '').slice(0, 1000), userId: c.get('userId') || null, hidden: c.get('hidden') === true } : { missing: true };
+    }));
+    res.json({ items: items.map((r, i) => (notes[i] ? { ...r, comment: notes[i] } : r)) });
+  }));
+  router.post('/content-reports/:id', wrap(async (req, res) => {
+    const id = req.params.id; if (!/^[cu]_[A-Za-z0-9_-]{3,400}$/.test(id)) throw new Error('Bad report');
+    const action = req.body?.action; if (!['close', 'hide-comment'].includes(action)) throw new Error('Choose close or hide-comment');
+    const d = db(); const ref = d.doc(`content_reports/${id}`); const snap = await ref.get();
+    if (!snap.exists) throw Object.assign(new Error('Report not found'), { status: 404 });
+    const r = snap.data(); const batch = d.batch();
+    if (action === 'hide-comment') {
+      if (r.kind !== 'comment' || !ID_RE.test(String(r.postId)) || !ID_RE.test(String(r.commentId))) throw new Error('Only a field note can be hidden');
+      const cref = d.doc(`ecosystem_feed/${r.postId}/comments/${r.commentId}`);
+      if ((await cref.get()).exists) batch.update(cref, { hidden: true, moderation: { status: 'rejected', reasons: ['reported'], reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } });
+    }
+    batch.update(ref, { status: 'closed', closedBy: req.admin.uid, closedAt: FieldValue.serverTimestamp(), outcome: action });
+    await batch.commit();
+    await audit(req.admin, `contentReport.${action}`, { id, kind: r.kind });
     res.json({ ok: true });
   }));
 
@@ -455,7 +532,7 @@ export function mountAdmin(app, deps) {
     const patch = validateSettings({ blockedNetworks: list });
     await saveSection('settings', patch, req.admin);
     await audit(req.admin, 'network.block', { prefix });
-    res.json({ ok: true, blockedNetworks: list });
+    res.json({ ok: true, blockedNetworks: patch.blockedNetworks });
   }));
   router.post('/networks/unblock', wrap(async (req, res) => {
     const prefix = String(req.body?.prefix || '').trim();

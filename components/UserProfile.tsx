@@ -8,10 +8,15 @@ import { PUBLIC_ORIGIN } from '../utils';
 import { track } from '../services/analytics';
 import { enablePush, disablePush, pushEnabled, pushSupported } from '../services/push';
 import { getCorsProxyUrl } from '../services/firebaseService';
-import { lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
+import { namesOf, reconciledStats, lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES, ordinal, toMs, seasonOf, groupOf } from '../services/lifeList';
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
+import ReportSheet from './ReportSheet';
+import { useBackToClose } from '../services/overlayStack';
+import { getConsent, setConsent, getAdsConsent, setAdsConsent, isTeenMode } from '../services/analytics';
+import { db } from '../firebaseConfig';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import BrandMark from './BrandMark';
 import { isInstalled, openInstallCard } from '../services/install';
 import { getThemePeriod } from '../constants/naturalistExtras';
@@ -44,6 +49,8 @@ interface UserProfileProps {
   onRetakeTour?: () => void;
   /** The landing page: what NatureGram is, in full */
   onAbout?: () => void;
+  /** Opens the log-in window (for guests who already have an account) */
+  onLogIn?: () => void;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -55,18 +62,15 @@ const Avatar: React.FC<{ url?: string | null; name?: string; size?: number }> = 
 );
 
 const Sheet: React.FC<{ title: string; onClose: () => void; children: React.ReactNode }> = ({ title, onClose, children }) => {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // The phone's back gesture, Escape, × and tapping outside all close it
+  const { close } = useBackToClose(true, onClose);
   return (
     <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="absolute inset-0 ng-scrim" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 ng-scrim" onClick={close} aria-hidden="true" />
       <div className="relative w-full sm:max-w-md ng-sheet max-h-[85dvh] flex flex-col animate-slide-up pb-[env(safe-area-inset-bottom)]">
         <header className="flex items-center justify-between px-6 pt-5 pb-3">
           <h2 className="ng-subtitle">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="ng-icon-button -mr-2">
+          <button onClick={close} aria-label="Close" className="ng-icon-button -mr-2">
             <Glyph name="close" size={24} />
           </button>
         </header>
@@ -93,7 +97,10 @@ const lifeListSummary = (entries: LifeEntry[], own: boolean, firstName?: string)
   if (!first) return '';
   const since = first.firstMs ? ` since ${new Date(first.firstMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
   const n = entries.length;
-  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${firstName || first.name}.`;
+  const nm = firstName || first.name;
+  // "the house sparrow", but a Latin name stands on its own ("Pardirallus nigricans")
+  const latin = /^[A-Z][a-z]+ [a-z]+/.test(nm) && !/\s[A-Z]/.test(nm);
+  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was ${latin ? nm : `the ${nm}`}.`;
 };
 
 const monthKey = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';
@@ -272,30 +279,17 @@ const DrawerThumb: React.FC<{ post: CommunityPost }> = ({ post: p }) => {
 };
 
 /** Sightings as specimen drawers: one drawer per month, each tile labelled along a date strip. */
+/** The sightings an explorer has shared, newest first, as one grid. (The Journal keeps the months.) */
 const SightingDrawers: React.FC<{ posts: CommunityPost[]; own: boolean; onOpenPost?: (id: string) => void }> = ({ posts, own, onOpenPost }) => {
-  const drawers = useMemo(() => {
-    const out: { key: string; season: string; list: CommunityPost[] }[] = [];
-    for (const p of posts) {
-      const ms = toMs(p.timestamp);
-      const key = monthKey(ms);
-      const last = out[out.length - 1];
-      if (last && last.key === key) last.list.push(p);
-      else out.push({ key, season: seasonWord(ms), list: [p] });
-    }
-    return out;
-  }, [posts]);
+  const drawers = useMemo(() => [{ key: 'all', season: '', list: posts }], [posts]);
   return (
-    <div className="ng-page pb-10 pt-6 space-y-12">
+    <div className="ng-page pb-10 pt-6">
       {drawers.map(d => (
-        <section key={d.key} aria-label={`${d.key}, ${d.list.length} sightings`}>
-          <header className="flex items-baseline justify-between gap-4 mb-4 pb-2 border-b border-stone-200/80">
-            <h3 className="ng-subtitle">{d.key}</h3>
-            <span className="ng-caption">{d.season ? `${d.season} · ` : ''}{d.list.length} {d.list.length === 1 ? 'sighting' : 'sightings'}</span>
-          </header>
+        <section key={d.key} aria-label={`${d.list.length} sightings`}>
           <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-6 md:gap-x-6" role="list">
             {d.list.map(p => {
               const ms = toMs(p.timestamp);
-              const name = p.labels?.[0] || p.title || 'Sighting';
+              const name = namesOf(p).common || p.title || 'Unnamed sighting';
               const multi = (p.items?.length || 0) > 1;
               return (
                 <li key={p.id} className="relative">
@@ -439,16 +433,17 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
   );
 };
 
-const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour, onAbout }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour, onAbout, onLogIn }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('posts');
+  const [confirmUnfollow, setConfirmUnfollow] = useState(false);
   const [following, setFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [saved, setSaved] = useState<{ id: string; thumbnailUrl?: string; label?: string }[] | null>(null);
-  const [sheet, setSheet] = useState<null | 'settings' | 'edit' | 'followers' | 'following' | 'delete' | 'menu'>(null);
+  const [sheet, setSheet] = useState<null | 'settings' | 'edit' | 'followers' | 'following' | 'delete' | 'menu' | 'words' | 'report'>(null);
   const [people, setPeople] = useState<UserProfileData[] | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
@@ -489,9 +484,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   }, [sheet, userId]);
 
   const username = profile?.username || (isOwnProfile ? auth.currentUser?.displayName : '') || 'Explorer';
-  const visiblePosts = useMemo(() => isOwnProfile ? posts : posts.filter(p => p.isPublic), [posts, isOwnProfile]);
+  // You is the public face: shared sightings only. Everything, private included, is in the Journal.
+  const visiblePosts = useMemo(() => posts.filter(p => p.isPublic), [posts]);
+  const privateCount = useMemo(() => isOwnProfile ? posts.filter(p => !p.isPublic).length : 0, [posts, isOwnProfile]);
   // The same public count shown beside this explorer's name everywhere else (server stats use the same rule)
-  const headerStats = useMemo(() => lifeStats(posts), [posts]);
+  // One rule everywhere: the counts are the explorer's shared sightings, worked out by the server
+  // (the same figure shown beside their name on a post); until it has, count what's loaded
+  const headerStats = useMemo(() => reconciledStats(profile) || lifeStats(posts), [posts, profile]);
 
   // Life list: every distinct species, numbered in the order it was first found
   const lifeList = useMemo(() => buildLifeList(visiblePosts), [visiblePosts]);
@@ -593,7 +592,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   };
 
   const shareProfile = async () => {
-    const url = `${PUBLIC_ORIGIN}/profile?user=${encodeURIComponent(userId)}`;
+    const url = profile?.username ? `${PUBLIC_ORIGIN}/explorer/${encodeURIComponent(profile.username)}` : `${PUBLIC_ORIGIN}/profile?user=${encodeURIComponent(userId)}`;
     try {
       if (navigator.share) await navigator.share({ title: `${username} on NatureGram`, url });
       else { await navigator.clipboard.writeText(url); showToast('Link to the field page copied'); }
@@ -639,7 +638,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <div className="py-3 text-center"><dd className="text-2xl font-display text-stone-400 tabular">0</dd><dt className="text-xs text-stone-500">sightings</dt></div>
           </dl>
           <p className="ng-body mt-8">Your life list and journal will live here.</p>
-          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="ng-button-primary group mt-6 w-full">Start my field page<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" /></button>
+          <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="ng-button-primary group mt-6 w-full">Create my field page<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" /></button>
+          <button onClick={() => onLogIn?.()} className="ng-button-quiet mt-3 w-full">I already have an account: Log in</button>
+          <div className="mt-8 pt-5 border-t border-stone-200/80 flex flex-col -mx-3">
+            {onAbout && <button onClick={onAbout} className="ng-menu-item min-h-[52px]"><BrandMark size={20} /><span className="flex-1 text-left">About NatureGram<span className="block ng-caption">What it is, who makes it, how to reach us</span></span></button>}
+            <button onClick={() => setSheet('words')} className="ng-menu-item min-h-[52px]"><Glyph name="help" size={20} className="text-stone-500" />What the words mean</button>
+            <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
+            <button onClick={() => onSignOut()} className="ng-menu-item min-h-[52px]"><Glyph name="signOut" size={20} className="text-stone-500" />Leave guest mode</button>
+          </div>
+          {sheet === 'words' && <WordsSheet onClose={() => setSheet(null)} />}
         </section>
       </div>
     );
@@ -654,20 +661,27 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           </button>
         ) : <span className="w-11" />}
         <h1 className="font-display italic text-lg text-stone-900 truncate">{username}</h1>
-        <button onClick={() => setSheet(isOwnProfile ? 'settings' : 'menu')} aria-label={isOwnProfile ? 'Settings' : 'More options'} className="ng-icon-button -mr-2">
-          <Glyph name={isOwnProfile ? 'menu' : 'more'} size={24} />
-        </button>
+        {isOwnProfile ? (
+          <button onClick={() => setSheet('settings')} data-tour="settings" className="-mr-2 inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-full text-sm font-medium text-stone-800 hover:bg-stone-900/[0.04]">
+            <Glyph name="settings" size={20} />Settings
+          </button>
+        ) : (
+          <button onClick={() => setSheet('menu')} aria-label="More options" className="ng-icon-button -mr-2">
+            <Glyph name="more" size={24} />
+          </button>
+        )}
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
-        {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
+        {isOwnProfile && <FirstHint id="field-page-2" text="This is your public field page: what you've shared, your species and what you've kept. Settings (top right) has privacy, notifications and Log out." />}
         <section className="ng-page pt-6 pb-6 max-w-4xl">
           <div className="flex items-center gap-5">
             <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full">
               <Avatar url={profile?.avatarUrl} name={username} />
             </button>
             <div className="min-w-0">
-              <p className="ng-title truncate">{profile?.displayName || username}</p>
+              {/* The username is the page title above; the display name only when it differs */}
+              {profile?.displayName && profile.displayName !== username && <p className="ng-title truncate">{profile.displayName}</p>}
               <p className="ng-small text-stone-500 mt-1">{exploringSince(profile?.joinedAt)}</p>
             </div>
           </div>
@@ -682,7 +696,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               </button>
               <button onClick={() => setTab('posts')} className="text-left group">
                 <span className="block text-[28px] leading-none font-display text-stone-900 tabular group-hover:underline decoration-theme-accent/50 decoration-1 underline-offset-[6px]">{headerStats.sightings}</span>
-                <span className="block ng-caption mt-1.5">{headerStats.sightings === 1 ? 'sighting' : 'sightings'}</span>
+                <span className="block ng-caption mt-1.5">{headerStats.sightings === 1 ? 'shared sighting' : 'shared sightings'}</span>
               </button>
               <p className="ml-auto self-center text-sm text-stone-500 text-right">
                 <button onClick={() => setSheet('followers')} className="hover:text-stone-900 hover:underline underline-offset-4">{(profile?.followersCount || 0).toLocaleString()} {profile?.followersCount === 1 ? 'follower' : 'followers'}</button>
@@ -715,13 +729,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               <button onClick={toggleBlock} className="ng-button-quiet flex-1 sm:flex-none">Unblock</button>
             ) : (
               <>
-                <button onClick={toggleFollow} disabled={followBusy} aria-pressed={following} className={`flex-1 sm:flex-none ${following ? 'ng-button-quiet' : 'ng-button-primary'}`}>
-                  {following ? 'Following' : 'Follow'}
+                <button onClick={() => {
+                  // Unfollowing asks once: the first tap turns "Following" into "Unfollow?"
+                  if (following && !confirmUnfollow) { setConfirmUnfollow(true); window.setTimeout(() => setConfirmUnfollow(false), 3500); return; }
+                  setConfirmUnfollow(false); toggleFollow();
+                }} disabled={followBusy} aria-pressed={following} className={`flex-1 sm:flex-none ${following ? 'ng-button-quiet' : 'ng-button-primary'}`}>
+                  {following ? (confirmUnfollow ? 'Unfollow?' : 'Following') : 'Follow'}
                 </button>
                 <button onClick={async () => {
                   // A letter that can't be opened says why, instead of doing nothing.
                   try { await onMessage?.(userId); } catch (e: any) { console.error('letter failed', e); showToast(socialError(e, 'Could not open a letter. Please try again.')); }
-                }} className="ng-button-quiet flex-1 sm:flex-none"><Glyph name="letter" size={20} className="text-stone-500" />Letter</button>
+                }} className="ng-button-quiet flex-1 sm:flex-none"><Glyph name="letter" size={20} className="text-stone-500" />Write a letter</button>
                 <button onClick={shareProfile} aria-label="Share field page" className="ng-icon-button w-12 h-12 border border-stone-200"><Glyph name="share" size={20} /></button>
               </>
             )}
@@ -739,7 +757,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 { key: 'lifelist', icon: 'plate', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`ng-tab gap-2 min-h-[52px] ${tab === t.key ? 'ng-tab-on after:!bottom-0' : ''}`}>
+                <button key={t.key} id={`tab-${t.key}`} role="tab" aria-selected={tab === t.key} aria-controls="field-page-panel" tabIndex={tab === t.key ? 0 : -1}
+                  onKeyDown={e => {
+                    // Arrow keys move between the tabs, as tabs do everywhere
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                    const keys: Tab[] = isOwnProfile ? ['posts', 'lifelist', 'saved'] : ['posts', 'lifelist'];
+                    const next = keys[(keys.indexOf(t.key) + (e.key === 'ArrowRight' ? 1 : keys.length - 1)) % keys.length];
+                    setTab(next); document.getElementById(`tab-${next}`)?.focus();
+                  }}
+                  onClick={() => setTab(t.key)} className={`ng-tab gap-2 min-h-[52px] ${tab === t.key ? 'ng-tab-on after:!bottom-0' : ''}`}>
                   {t.icon === 'plate'
                     ? <Glyph name="plate" size={20} />
                     : <Glyph name={t.icon === 'filter_vintage' ? 'keep' : 'landscape'} size={20} />}{t.label}
@@ -747,6 +773,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               ))}
             </div>
 
+            <div id="field-page-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
             {tab === 'posts' && (
               visiblePosts.length === 0 ? (
                 <div className="ng-empty">
@@ -755,7 +782,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                   {isOwnProfile && <p className="ng-empty-body">Open the Lens and point it at something alive.</p>}
                 </div>
               ) : (
-                <SightingDrawers posts={visiblePosts} own={isOwnProfile} onOpenPost={onOpenPost} />
+                <>
+                  {isOwnProfile && onViewJournal && (
+                    <p className="ng-page pt-5 ng-small text-stone-600">
+                      These are the sightings you've shared.{privateCount ? ` ${privateCount} more are only for you.` : ''}{' '}
+                      <button onClick={onViewJournal} className="ng-link">All of them are in your Journal</button>
+                    </p>
+                  )}
+                  <SightingDrawers posts={visiblePosts} own={isOwnProfile} onOpenPost={onOpenPost} />
+                </>
               )
             )}
 
@@ -773,7 +808,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {tab === 'saved' && isOwnProfile && (
               saved === null ? (
-                <PressingLoader label="Opening the press…" className="py-14" />
+                <PressingLoader label="Opening what you kept…" className="py-14" />
               ) :
               saved.length === 0 ? (
                 <div className="ng-empty max-w-sm mx-auto">
@@ -784,6 +819,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <KeptPages items={saved} onOpenPost={onOpenPost} />
               )
             )}
+            </div>
           </>
         )}
       </main>
@@ -829,6 +865,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             {currentUserId && !isAnonymous && (<>
               <button onClick={toggleMute} className="ng-menu-item min-h-[52px]"><Glyph name={muted ? 'soundOn' : 'soundOff'} size={20} className="text-stone-500" />{muted ? 'Unmute' : 'Mute'} {username}</button>
               <button onClick={toggleBlock} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="block" size={20} className="text-stone-500" />{blocked ? 'Unblock' : 'Block'} {username}</button>
+              <button onClick={() => setSheet('report')} className="ng-menu-item min-h-[52px]"><Glyph name="flag" size={20} className="text-stone-500" />Report {username}</button>
             </>)}
           </div>
         </Sheet>
@@ -836,29 +873,52 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
       {sheet === 'settings' && isOwnProfile && (
         <Sheet title="Settings" onClose={() => setSheet(null)}>
-          <nav className="flex flex-col -mx-3" aria-label="Account settings">
+          <nav className="flex flex-col -mx-3" aria-label="Settings">
+            <p className="ng-label px-3 pt-1 pb-1">Account</p>
+            <p className="px-3 pb-2 ng-small text-stone-500 truncate">{auth.currentUser?.email ? `Logged in as ${auth.currentUser.email}` : `Logged in as ${username}`}</p>
             <button onClick={() => setSheet('edit')} className="ng-menu-item min-h-[52px]"><Glyph name="edit" size={20} className="text-stone-500" />Edit field page</button>
+            <button onClick={() => { setSheet(null); onSignOut(); }} className="ng-menu-item min-h-[52px]"><Glyph name="signOut" size={20} className="text-stone-500" />Log out</button>
+
+            <p className="ng-label px-3 pt-5 pb-1">Your guide and your feed</p>
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="ng-menu-item min-h-[52px]"><Glyph name="guide" size={20} className="text-stone-500" /><span className="flex-1">What makes you stop and look<span className="block ng-caption">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
+            <p className="px-3 py-2 ng-small text-stone-600">Your guide is an AI. It can be wrong, so check what matters before you rely on a name.</p>
+
+            <p className="ng-label px-3 pt-5 pb-1">Notifications</p>
             {pushSupported() && <PushToggle onToast={showToast} />}
-            {!isInstalled() && <button onClick={() => { setSheet(null); openInstallCard(); }} className="ng-menu-item min-h-[52px]"><Glyph name="plus" size={20} className="text-stone-500" />Add NatureGram to your home screen</button>}
+            {currentUserId && <NotifyPrefs uid={currentUserId} />}
+
+            <p className="ng-label px-3 pt-5 pb-1">Privacy</p>
+            <PrivacyChoices />
+
+            <p className="ng-label px-3 pt-5 pb-1">Your data</p>
             <button onClick={downloadData} className="ng-menu-item min-h-[52px]"><Glyph name="download" size={20} className="text-stone-500" />Download my data</button>
             {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
-            {isAdmin && onAdminConsole && (
-              <button onClick={() => { setSheet(null); onAdminConsole(); }} className="ng-menu-item min-h-[52px]"><Glyph name="seal" size={20} className="text-stone-500" />Admin console</button>
-            )}
+            <button onClick={() => setSheet('delete')} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="trash" size={20} className="text-stone-500" />Delete account</button>
+
+            <p className="ng-label px-3 pt-5 pb-1">Help</p>
             {onRetakeTour && (
               <button onClick={() => { setSheet(null); onRetakeTour(); }} className="ng-menu-item min-h-[52px]"><Glyph name="leafCompass" size={20} className="text-stone-500" />Take the tour again</button>
             )}
+            <button onClick={() => setSheet('words')} className="ng-menu-item min-h-[52px]"><Glyph name="help" size={20} className="text-stone-500" />What the words mean</button>
+            {!isInstalled() && <button onClick={() => { setSheet(null); openInstallCard(); }} className="ng-menu-item min-h-[52px]"><Glyph name="plus" size={20} className="text-stone-500" />Add NatureGram to your home screen</button>}
             {onAbout && (
-              <button onClick={() => { setSheet(null); onAbout(); }} className="ng-menu-item min-h-[52px]"><BrandMark size={20} />About NatureGram</button>
+              <button onClick={() => { setSheet(null); onAbout(); }} className="ng-menu-item min-h-[52px]"><BrandMark size={20} /><span className="flex-1 text-left">About NatureGram<span className="block ng-caption">What it is, who makes it, how to reach us</span></span></button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="lines" size={20} className="text-stone-500" />Terms & community guidelines</a>
-            <hr className="my-2 mx-3 border-stone-200/80" />
-            <button onClick={() => { setSheet(null); onSignOut(); }} className="ng-menu-item min-h-[52px]"><Glyph name="signOut" size={20} className="text-stone-500" />Log out</button>
-            <button onClick={() => setSheet('delete')} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="trash" size={20} className="text-stone-500" />Delete account</button>
+            {isAdmin && onAdminConsole && (<>
+              <p className="ng-label px-3 pt-5 pb-1">Admin</p>
+              <button onClick={() => { setSheet(null); onAdminConsole(); }} className="ng-menu-item min-h-[52px]"><Glyph name="seal" size={20} className="text-stone-500" />Admin console</button>
+            </>)}
           </nav>
         </Sheet>
+      )}
+
+      {sheet === 'words' && <WordsSheet onClose={() => setSheet(null)} />}
+
+      {sheet === 'report' && !isOwnProfile && (
+        <ReportSheet target={{ kind: 'profile', userId }} what="this explorer" surface="profile"
+          onClose={() => setSheet(null)} />
       )}
 
       {isOwnProfile && (
@@ -878,6 +938,88 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
   );
 };
 
+/** A labelled on/off switch in the settings list. */
+const SwitchRow: React.FC<{ label: string; hint?: string; on: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({ label, hint, on, onChange, disabled }) => (
+  <button role="switch" aria-checked={on} disabled={disabled} onClick={() => onChange(!on)} className="ng-menu-item min-h-[52px] disabled:opacity-60">
+    <span className="flex-1 text-left">{label}{hint && <span className="block ng-caption">{hint}</span>}</span>
+    <span className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${on ? 'bg-stone-900' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
+  </button>
+);
+
+type NotifyPrefsT = { marvels?: boolean; notes?: boolean; follows?: boolean; identifications?: boolean; letters?: boolean; quietHours?: boolean };
+const NOTIFY_DEFAULTS: Required<NotifyPrefsT> = { marvels: false, notes: true, follows: true, identifications: true, letters: true, quietHours: true };
+
+/** What may reach your phone. Stored as users/{uid}.notifyPrefs; the server reads it before any push. */
+const NotifyPrefs: React.FC<{ uid: string }> = ({ uid }) => {
+  const [prefs, setPrefs] = useState<NotifyPrefsT>({});
+  useEffect(() => onSnapshot(doc(db, 'users', uid), snap => setPrefs((snap.data() as any)?.notifyPrefs || {}), () => {}), [uid]);
+  const teen = isTeenMode();
+  const val = (k: keyof NotifyPrefsT) => k === 'quietHours' && teen ? true : (prefs[k] ?? NOTIFY_DEFAULTS[k]);
+  const set = (k: keyof NotifyPrefsT, v: boolean) => {
+    const next = { ...prefs, [k]: v };
+    setPrefs(next);
+    setDoc(doc(db, 'users', uid), { notifyPrefs: next }, { merge: true }).catch(() => setPrefs(prefs));
+  };
+  return (
+    <div className="flex flex-col">
+      <SwitchRow label="Marvels" hint="Off by default. Activity always shows them." on={val('marvels')} onChange={v => set('marvels', v)} />
+      <SwitchRow label="Field notes and replies" on={val('notes')} onChange={v => set('notes', v)} />
+      <SwitchRow label="Names suggested for your sightings" on={val('identifications')} onChange={v => set('identifications', v)} />
+      <SwitchRow label="New followers" on={val('follows')} onChange={v => set('follows', v)} />
+      <SwitchRow label="Letters" on={val('letters')} onChange={v => set('letters', v)} />
+      <SwitchRow label="Quiet at night" hint={teen ? 'Always on in teen mode: nothing between 9 pm and 7 am.' : 'Nothing between 9 pm and 7 am.'} on={val('quietHours')} disabled={teen} onChange={v => set('quietHours', v)} />
+    </div>
+  );
+};
+
+/** The two consent choices from the first visit, changeable at any time. */
+const PrivacyChoices: React.FC = () => {
+  const teen = isTeenMode();
+  const [stats, setStats] = useState(getConsent() === 'granted');
+  const [ads, setAds] = useState(getAdsConsent() === 'granted');
+  if (teen) return <p className="px-3 py-2 ng-small text-stone-600">In teen mode NatureGram keeps no usage statistics and loads no ads measurement.</p>;
+  return (
+    <div className="flex flex-col">
+      <SwitchRow label="Usage statistics" hint="Screens used, crashes and speed. Never your photos, location or letters." on={stats} onChange={v => { setStats(v); setConsent(v ? 'granted' : 'denied'); }} />
+      <SwitchRow label="Google ad measurement" hint="Lets Google count whether our ads brought you here." on={ads} onChange={v => { setAds(v); setAdsConsent(v ? 'granted' : 'denied'); }} />
+    </div>
+  );
+};
+
+/** NatureGram's own words, with the everyday word beside each. */
+const WORDS: [string, string][] = [
+  ['Moments', 'Short clips from outside, one after another.'],
+  ['Wild', 'Sightings explorers have shared, newest and nearest first.'],
+  ['Lens', 'Your camera, with a guide (an AI) that helps you name what you see.'],
+  ['Journal', 'All your own sightings, shared or only for you.'],
+  ['Sighting', 'One thing you saw or heard: photos, a clip or a sound, with its name.'],
+  ['Marvel', 'A like. Double-tap a sighting, or tap the star.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
+  ['Field notes', 'Comments on a sighting.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
+  ['Letters', 'Private messages between explorers.'],
+  ['Kept', 'Sightings you saved from other explorers.'],
+  ['Life list', 'Every species you have found, numbered in the order you first met them.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
+  ['Plate', 'A card for one species, like a page in a field guide. You can share it as a picture.'],
+  ['Only me (in pencil)', 'A sighting kept private in your Journal.'],
+  ['Unfinished', 'Drafts: captures you haven’t written up yet.'],
+  ['Naturalist of the fortnight', 'A famous naturalist who sets the colours and a small challenge for two weeks.'],
+  ['Stamp', 'A mark on your field page for answering a fortnight’s challenge.'],
+];
+const WordsSheet: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+  <Sheet title="What the words mean" onClose={onClose}>
+    <dl className="flex flex-col">
+      {WORDS.map(([w, d]) => (
+        <div key={w} className="py-3 border-b border-stone-200/70 last:border-b-0">
+          <dt className="font-display italic text-lg text-stone-900">{w}</dt>
+          <dd className="ng-small text-stone-700 mt-0.5">{d}</dd>
+        </div>
+      ))}
+    </dl>
+  </Sheet>
+);
+
 const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => {
   const [on, setOn] = useState(pushEnabled());
   const toggle = async () => {
@@ -890,7 +1032,7 @@ const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => 
   return (
     <button role="switch" aria-checked={on} onClick={toggle} className="ng-menu-item min-h-[52px]">
       <Glyph name="bell" size={24} />
-      <span className="flex-1">Notifications<span className="block ng-caption">When explorers marvel, leave field notes, follow or mention you</span></span>
+      <span className="flex-1">Notifications on this device<span className="block ng-caption">Choose below which ones may reach you</span></span>
       <span className={`w-11 h-6 rounded-full relative transition-colors ${on ? 'bg-stone-900' : 'bg-stone-300'}`} aria-hidden="true"><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} /></span>
     </button>
   );
@@ -916,7 +1058,8 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
       await FirebaseService.updateMyProfile({ username, bio, displayName });
       onSaved('Field page updated');
     } catch (err: any) {
-      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your field page. Please try again.');
+      // A photo that can't be cleaned of its location is refused with its own explanation
+      setError(err?.message?.includes('Usernames') || err?.name === 'ImageCleanError' || /location|JPEG/i.test(err?.message || '') ? err.message : 'Could not save your field page. Please try again.');
     } finally { setBusy(false); }
   };
 
@@ -975,7 +1118,8 @@ const DeleteAccountSheet: React.FC<{ username: string; lifeList: LifeEntry[]; on
       await FirebaseService.deleteMyAccount(setProgress);
       onDeleted();
     } catch (e: any) {
-      if (e?.code === 'auth/requires-recent-login') {
+      // The server checks a recent log-in before anything is deleted
+      if (e?.code === 'auth/requires-recent-login' || e?.message === 'recent-login-required') {
         setNeedsReauth(true);
         setError('For your security, please log in again, then delete your account.');
       } else {

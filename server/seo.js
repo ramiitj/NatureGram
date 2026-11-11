@@ -94,6 +94,39 @@ export function groupOf(p) {
   return 'Other life';
 }
 
+// ------------------------------------------------------------------ names
+const LOOKS_LATIN = /^[A-Z][a-z]+ [a-z]+(?: [a-z]+)?$/;
+const lowerTrim = (s) => String(s || '').trim().toLowerCase();
+
+/**
+ * The name to lead with on public pages and share cards: the common name first, the Latin second.
+ * Mirrors namesOf() in services/lifeList.ts, so a sighting labelled only "Orthotomus sutorius"
+ * leads with the guide's "Common Tailorbird" here as it does in the app.
+ */
+export function leadName(p) {
+  const { scientific, vernacular } = namesOf(p);
+  const labels = (Array.isArray(p?.labels) ? p.labels : []).map(l => String(l || '').trim()).filter(Boolean);
+  const ids = [...(p?.items?.[0]?.aiIdentifications || []), ...(Array.isArray(p?.aiIdentifications) ? p.aiIdentifications : [])].filter(Boolean);
+  const first = labels[0] || '';
+  // "Orthotomus sutorius (Common Tailorbird)" or "Common Tailorbird (Orthotomus sutorius)"
+  const paren = /^(.+?)\s*\((.+)\)$/.exec(first);
+  if (paren) {
+    const [a, b] = [paren[1].trim(), paren[2].trim()];
+    if (LOOKS_LATIN.test(a) && !LOOKS_LATIN.test(b)) return b;
+    if (LOOKS_LATIN.test(b) && !LOOKS_LATIN.test(a)) return a;
+  }
+  const latin = vernacular && LOOKS_LATIN.test(vernacular) ? vernacular : (!vernacular ? scientific : '');
+  if (latin) {
+    const match = ids.find(i => i?.commonName && lowerTrim(i.scientificName) === lowerTrim(latin) && lowerTrim(i.commonName) !== lowerTrim(latin));
+    if (match) return String(match.commonName).trim();
+    // The guide's own words often open with the common name: "A Blackish Rail is observed…"
+    const prose = String(p?.behavior || p?.aiInsight || p?.items?.[0]?.aiInsight || '').trim();
+    const named = /^(?:An?|The)\s+([A-Z][a-z'-]+(?:\s[A-Z][a-z'-]+){1,3})\s+(?:is|are|was|were|has|perches|sits|stands|feeds|forages|rests|flies|calls|sings)\b/.exec(prose);
+    if (named) return named[1];
+  }
+  return vernacular || '';
+}
+
 // ------------------------------------------------------------------ privacy
 /** May this profile's username appear on a public page (and get an explorer page)? */
 export function publicExplorer(profile) {
@@ -124,8 +157,9 @@ export function publicPost(id, p, profile) {
   if (profile === undefined) return null;
   if (profile && profile.ageBand === 'teen') return null;
   if (p.aiFlags?.isNatureSubject === false) return null;
-  const { scientific, vernacular, rank } = namesOf(p);
-  const name = vernacular && !PLACEHOLDER.test(vernacular) ? clip(vernacular, 80) : '';
+  const { scientific, rank } = namesOf(p);
+  const lead = leadName(p);
+  const name = lead && !PLACEHOLDER.test(lead) ? clip(lead, 80) : '';
   const placeOk = p.showLocation !== false && !sensitive(p);
   const main = Array.isArray(p.items) && p.items[0] ? p.items[0] : {};
   const image = safeHttps(p.imageUrl || main.imageUrl || p.thumbnailUrl || main.thumbnailUrl);
@@ -398,7 +432,7 @@ ${entries.map(e => `  <url><loc>${escapeXml(e.loc)}</loc>${e.lastmod ? `<lastmod
 // ------------------------------------------------------------------ the about page's questions
 export const FAQS = [
   { q: 'What is NatureGram?', a: 'NatureGram is a field guide and community for people who love nature. Point your camera at a wild plant, animal or fungus and a live AI naturalist, called the guide, suggests what it might be and why it behaves the way it does. Explorers keep a private field journal and can share sightings with explorers around the world.' },
-  { q: 'Is NatureGram free?', a: 'Yes. NatureGram is free to use and asks for no payment details. Everyone gets the same daily allowance of identifications, live guide minutes and shared sightings, which resets at midnight UTC. You can look around as a guest; sharing sightings needs a free account.' },
+  { q: 'Is NatureGram free?', a: 'Yes. NatureGram is free to use and asks for no payment details. Everyone gets the same daily allowance of identifications, live guide minutes and shared sightings, which resets at 5:30 am India time (midnight UTC). You can look around as a guest; sharing sightings needs a free account.' },
   { q: 'How does identification work?', a: 'The guide, built on Google Gemini models, proposes a name with a confidence level and the evidence it used, such as field marks. When it is unsure it says so and names a broader group instead of guessing. You review the suggestion and decide what to publish. Other explorers can agree with an identification or suggest another; when two or more agree, the sighting is marked community verified, and majority disagreement marks it disputed.' },
   { q: 'How accurate is it, and how is the AI governed?', a: 'Identifications are suggestions and can be wrong, so every AI output is labelled as the guide\'s suggestion with its confidence. Low-confidence sightings are opened to community review, and captures the live guide makes are checked by a second model. The guide never advises on eating or handling wild organisms: never eat, touch or handle anything based on an identification. No AI-generated imagery is allowed in sightings. Models and prompts are versioned, audited and reversible, following the NIST AI Risk Management Framework.' },
   { q: 'Does NatureGram share my location?', a: 'Exact coordinates are never shown to anyone else; they stay private in your account. A sighting shows only an approximate area, such as a town or park, and you can hide it on any sighting. The area is always hidden for sensitive or protected species, and the AI never infers or states locations. Photos are checked for people, faces, number plates and screens before they are shared.' },

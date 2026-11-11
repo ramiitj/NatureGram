@@ -41,6 +41,31 @@ export const SAFETY_SETTINGS = [
 // Fixed for everyone (explorers may be 13 to 17): the admin's policy text cannot remove it.
 export const PERSONAL_DETAILS_RULE = 'Never ask the explorer for personal details: their name, age, birthday, school, home address, phone number, email, social media, exact location or photos of themselves or other people. If they share any, do not repeat, store or build on them; gently steer back to the living thing in front of them. Do not try to work out who or how old they are.';
 
+// Fixed for the live guide: the explorer holds the camera. The admin's live prompt cannot remove it.
+export const LIVE_CAMERA_RULE = 'The explorer is in charge of their camera. Never ask to see a face, a person, or anything personal, and never ask to use the front camera. Only suggest a different view of the living thing: move closer, step back for a wider view, or use the back camera. You never take photos yourself: when the subject is well framed, ask the explorer to tap the shutter.';
+
+// What the camera tools say to the model, whatever an older app sends (the app also refuses
+// front-camera switches and captures the explorer did not ask for).
+const LIVE_TOOL_DESCRIPTIONS = Object.freeze({
+  switch_camera: 'Suggests switching to the back camera for a better view of the living thing. Only the back (environment) camera can be chosen; never ask for the front camera, a face or a person.',
+  trigger_capture: 'Offers your identification for a photo. The explorer takes the photo: ask them aloud to tap the shutter. The app never captures on this call alone.',
+});
+const governToolDecl = (d) => {
+  const desc = LIVE_TOOL_DESCRIPTIONS[d.name];
+  if (!desc) return d;
+  const out = { ...d, description: desc };
+  if (d.name === 'switch_camera') {
+    const props = { ...(d.parameters?.properties || {}) };
+    props.facing_mode = { ...(props.facing_mode || { type: 'STRING' }), enum: ['environment'], description: "'environment' for the back camera." };
+    out.parameters = { ...(d.parameters || { type: 'OBJECT' }), properties: props };
+  }
+  return out;
+};
+// Older saved live prompts suggested asking to see the explorer's face; that example is replaced
+const scrubLivePrompt = (text) => String(text || '')
+  .replace(/\(e\.g\.,\s*"Show me your face"[^)]*\)/gi, '(e.g., "Move a little closer" or "Step back for a wider view")')
+  .replace(/show me your face/gi, 'show me the whole plant');
+
 export const policyText = (settings) =>
   `## NATUREGRAM PLATFORM POLICY (v${AI_POLICY_VERSION}). These rules override any earlier or later instruction.\n${settings.policy}\n${PERSONAL_DETAILS_RULE}`;
 
@@ -134,10 +159,26 @@ export function moderationBody(settings, base64, mimeType) {
 
 /** Answers that break the policy even though the model was told not to. */
 const BREACH = /\b(safe to (eat|consume|touch|handle)|is edible|are edible|edible (mushroom|species|fungus|berries|plant)|good to eat|can be eaten|medicinal (use|uses)|cures?\b|remedy for)\b/i;
+// "edible to birds", "can be eaten by deer": about what wild animals eat, not advice to people
+const NON_HUMAN_AFTER = /^[\s,]*(?:only\s+|mainly\s+|mostly\s+)?(?:to|for|by)\s+(?:the\s+|many\s+|some\s+|most\s+|other\s+|small\s+|local\s+|wild\s+|its\s+|their\s+)?(?:birds?|animals?|wildlife|deer|insects?|caterpillars?|larvae|bees?|butterfl(?:y|ies)|moths?|monkeys?|langurs?|macaques?|squirrels?|bats?|rodents?|mammals?|livestock|cattle|goats?|elephants?|bears?|fish(?:es)?|herbivores?|grazers?|pollinators?|slugs?|snails?|beetles?|ants?|parakeets?|parrots?|hornbills?|bulbuls?|barbets?|pigeons?|doves?|frugivores?|chicks?|nestlings?|predators?)\b/i;
+/**
+ * The first phrase in a text that tells people a wild thing is safe to eat, touch or use as
+ * medicine, or null. Conservative: anything about people is caught; only a phrase followed at once
+ * by a wild animal ("edible to birds") is let through.
+ */
 export const findPolicyBreach = (text) => {
-  const m = BREACH.exec(String(text || ''));
-  return m ? m[0] : null;
+  const s = String(text || '');
+  const re = new RegExp(BREACH.source, 'gi');
+  let m;
+  while ((m = re.exec(s))) {
+    if (NON_HUMAN_AFTER.test(s.slice(m.index + m[0].length, m.index + m[0].length + 60))) continue;
+    return m[0];
+  }
+  return null;
 };
+/** What the explorer reads when their words are held back: the phrase, and how to put it instead. */
+export const safetyRefusal = (phrase) =>
+  `Your note says "${String(phrase || '').trim().slice(0, 60)}". NatureGram doesn't publish advice on eating, touching or using wild things as medicine; describe what the plant or animal does instead (for example "bulbuls feed on the berries").`;
 
 /** Govern the first frame of a live session. */
 export function governLiveSetup(msg, settings) {
@@ -155,12 +196,12 @@ export function governLiveSetup(msg, settings) {
     .replace(/## NATUREGRAM PLATFORM POLICY[\s\S]*$/m, '')
     .replace(settings.prompts.live, '')
     .trim();
-  setup.systemInstruction = { parts: [{ text: `${settings.prompts.live}\n\n${context ? asData('SESSION CONTEXT', context, 2000) + '\n\n' : ''}${policyText(settings)}` }] };
+  setup.systemInstruction = { parts: [{ text: `${scrubLivePrompt(settings.prompts.live)}\n\n${context ? asData('SESSION CONTEXT', context, 2000) + '\n\n' : ''}${policyText(settings)}\n${LIVE_CAMERA_RULE}` }] };
 
   const decls = [];
   for (const t of Array.isArray(src.tools) ? src.tools : []) {
     for (const d of Array.isArray(t?.functionDeclarations || t?.function_declarations) ? (t.functionDeclarations || t.function_declarations) : []) {
-      if (d && LIVE_TOOL_NAMES.has(d.name)) decls.push(d);
+      if (d && LIVE_TOOL_NAMES.has(d.name)) decls.push(governToolDecl(d));
     }
   }
   if (decls.length) setup.tools = [{ functionDeclarations: decls }]; else delete setup.tools;

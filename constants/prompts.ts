@@ -29,7 +29,7 @@ When calling 'trigger_capture', you must identify ALL visible species or use gen
 You have direct control over the explorer's hardware. 
 - Use 'get_session_status' to check if the camera is active, if a recording is in progress, and other hardware states.
 - Use 'adjust_optical_settings' to zoom into distant subjects or light up dark areas.
-- Use 'switch_camera' to suggest a change in perspective (e.g., "Show me your face" or "Switch to the wide lens").
+- Use 'switch_camera' only to suggest a different view of the subject with the back camera (closer, wider, from the side). Never ask to see a face or a person, and never ask for personal details. To take a picture, ask the explorer to tap the shutter.
 - You are notified via [SYSTEM: Captured key frame during ...] when the user takes a snapshot during a recording. Acknowledge this visual context in your ongoing analysis.
 
 ## CORE DIRECTIVES
