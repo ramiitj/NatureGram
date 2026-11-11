@@ -109,10 +109,10 @@ ${o.body}
 }
 
 const crumbLd = (host, crumbs) => breadcrumbLd(host, crumbs);
-const plate = (p, fallbackName) => {
+const plate = (p, fallbackName, nameless = false) => {
   const name = p.name || fallbackName || 'A wild sighting';
   const meta = [fieldDate(p.observedMs || p.ms), p.area ? `near ${p.area}` : '', p.author ? `by ${p.author}` : ''].filter(Boolean).join(' · ');
-  return `<li><a href="/post/${encodeURIComponent(p.id)}">${p.thumb ? `<img src="${e(p.thumb)}" alt="${e(`${name}${p.area ? `, near ${p.area}` : ''}`)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="300" height="300">` : ''}<div class="cap"><b>${e(name)}</b>${e(meta)}${p.verified ? '<br>Community verified' : ''}</div></a></li>`;
+  return `<li><a href="/post/${encodeURIComponent(p.id)}">${p.thumb ? `<img src="${e(p.thumb)}" alt="${e(`${name}${p.area ? `, near ${p.area}` : ''}`)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="300" height="300">` : ''}<div class="cap">${nameless && !p.name ? '' : `<b>${e(name)}</b>`}${e(meta)}${p.verified ? '<br>Community verified' : ''}</div></a></li>`;
 };
 
 // ------------------------------------------------------------------ species
@@ -146,9 +146,8 @@ ${s.alternateNames.length ? `<p class="kind">Also recorded as ${e(s.alternateNam
 <div><dt>Months recorded</dt><dd>${s.monthList.length || '–'}</dd></div>
 ${s.firstMs ? `<div><dt>First recorded</dt><dd>${e(fieldDate(s.firstMs))}</dd></div>` : ''}
 </dl>
-<p class="kind">Places are approximate areas, never exact spots, and are hidden for sensitive species.</p>
 ${insightPost ? `<div class="note">${e(insightPost.insight)}<small>The guide's note on <a href="/post/${encodeURIComponent(insightPost.id)}">one recent sighting</a>: an AI suggestion that explorers can confirm or correct.</small></div>` : ''}
-${withPhoto.length ? `<h2>Recent sightings</h2><ul class="plates">${withPhoto.slice(0, 12).map(p => plate(p, s.name)).join('')}</ul>` : ''}
+${withPhoto.length ? `<h2>Recent sightings</h2><p class="kind">Places are approximate areas, never exact spots, and hidden for sensitive species.</p><ul class="plates">${withPhoto.slice(0, 12).map(p => plate({ ...p, name: p.name && p.name !== s.name ? p.name : '' }, '', true)).join('')}</ul>` : ''}
 ${related.length ? `<h2>Other ${e(s.group.toLowerCase())} on NatureGram</h2><ul class="names">${related.map(r => `<li><a href="/species/${r.slug}">${e(r.name)}</a> <span class="n">${r.count}</span></li>`).join('')}</ul>` : ''}
 <a class="btn" href="/explore?q=${encodeURIComponent(s.name)}">Look for ${e(s.name)} in NatureGram</a>`;
   return layout({
@@ -192,13 +191,13 @@ export function naturalistPage({ host, list, index, answers, current }) {
   const body = `<p class="kind">Naturalist of the fortnight${current ? ', featured now' : ''}</p>
 <h1>${e(n.naturalist)}</h1>
 ${n.lifespan ? `<p class="sci">${e(n.lifespan)}</p>` : ''}
-<blockquote>“${e(n.quote)}”<footer>${e(n.naturalist)}</footer></blockquote>
+<blockquote>“${e(n.quote)}”</blockquote>
 ${n.bio ? `<p class="lede">${e(n.bio)}</p>` : ''}
 ${n.philosophy ? `<h2>Their way of seeing</h2><p>${e(n.philosophy)}</p>` : ''}
 ${n.locationName ? `<h2>Where they worked</h2><p><strong>${e(n.locationName)}</strong>. ${e(n.locationCaption || '')}</p>` : ''}
 <h2>The field challenge</h2>
-<p>${e(n.challenge)} Explorers answer it with <strong>${e(n.challengeTag)}</strong>.</p>
-<p class="kind">Featured on NatureGram each year from ${e(fmt(win.start))} to ${e(fmt(win.end))}, when the app's colours, landing story and the guide's focus (${e(n.lensPrompt || 'close attention')}) follow ${e(n.naturalist)}.</p>
+<p>${e(n.challenge)} Sightings that answer it are marked <strong>${e(n.challengeTag)}</strong> automatically.</p>
+<p class="kind">Featured each year from ${e(fmt(win.start))} to ${e(fmt(win.end))}, when NatureGram's colours and the guide's focus follow ${e(n.naturalist)}.</p>
 ${answers.length ? `<h2>Community answers</h2><ul class="plates">${answers.slice(0, 12).map(p => plate(p)).join('')}</ul>` : ''}
 <p><a href="/naturalists/${e(prev.id)}">← ${e(prev.naturalist)}</a> · <a href="/naturalists/${e(next.id)}">${e(next.naturalist)} →</a></p>
 <a class="btn" href="/explore">Take the challenge in NatureGram</a>`;
@@ -273,7 +272,7 @@ export function aboutPage({ host, appLdNodes }) {
     '@type': 'AboutPage', '@id': `${origin(host)}/about`, url: `${origin(host)}/about`, name: 'About NatureGram', description, isPartOf: { '@id': `${origin(host)}/#website` }, about: { '@id': `${origin(host)}/#organization` },
   }, ...TEAM.map(t => ({ '@type': 'Person', name: t.name, jobTitle: t.role.replace(/^Co-founder · /, 'Co-founder, '), sameAs: [t.linkedin], worksFor: { '@id': `${origin(host)}/#organization` } })));
   const body = `<h1>About NatureGram</h1>
-<p class="lede">A living field notebook: notice something wild, learn what it is with the guide, and share it with explorers everywhere.</p>
+<p class="lede">${e(FAQS[0].a)}</p>
 <section class="team" aria-labelledby="who">
 <h2 id="who">Who we are</h2>
 <p>NatureGram is made by two people who love being outside and noticing what lives there.</p>
@@ -287,9 +286,7 @@ export function aboutPage({ host, appLdNodes }) {
 <p style="margin-top:24px">Questions, ideas or a problem to report? Write to <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>.</p>
 </section>
 <h2>Questions people ask</h2>
-<dl class="faq">${FAQS.map(f => `<dt>${e(f.q)}</dt><dd>${e(f.a)}</dd>`).join('')}</dl>
-<h2>More to read</h2>
-<ul><li><a href="/species">The species field guide</a></li><li><a href="/naturalists">Naturalists of the fortnight</a></li><li><a href="/privacy.html">Privacy policy</a></li><li><a href="/terms.html">Terms of use</a></li></ul>
+<dl class="faq">${FAQS.slice(1).map(f => `<dt>${e(f.q)}</dt><dd>${e(f.a)}</dd>`).join('')}</dl>
 <a class="btn" href="/">Open NatureGram</a>`;
   return layout({ host, path: '/about', title: 'About NatureGram: free AI field guide and nature community', description, crumbs, ld, body });
 }
