@@ -9,7 +9,7 @@
  *
  *   POST /api/guardian/request   (teen)    ask a parent; send, resend or change the parent's email
  *   GET  /api/guardian/request?t=           what the parent is being asked (no parent email exposed)
- *   POST /api/guardian/approve   (parent)  signed in, verified email, adult, a different account
+ *   POST /api/guardian/approve   (parent)  signed in with the verified email the request went to, adult, a different account
  *   POST /api/guardian/decline   (parent)
  *   POST /api/guardian/withdraw  (parent)  back to the private notebook
  *   POST /api/guardian/delete    (parent)  close the child's account (disabled now, removed by the admin)
@@ -76,14 +76,19 @@ export function requestState(req, now = Date.now()) {
 }
 /**
  * Who may answer for a teen: a signed-in, email-verified adult account that isn't the teen's own,
- * who says they are 18 or older and the parent or guardian. Returns null, or { status, code, message }.
+ * whose verified email is the address the request was sent to (case-insensitive), and who says they
+ * are 18 or older and the parent or guardian. Returns null, or { status, code, message }.
  */
-export function parentProblem({ parent, parentProfile, teenUid, confirmAdult, confirmGuardian, now = Date.now() }, { forDecline = false } = {}) {
+export function parentProblem({ parent, parentProfile, teenUid, confirmAdult, confirmGuardian, requestEmailHash, now = Date.now() }, { forDecline = false } = {}) {
   if (!parent || parent.isAnonymous) return { status: 401, code: 'signin', message: 'Please sign in to your own account first.' };
   if (parent.uid === teenUid) return { status: 403, code: 'same', message: 'This needs a grown-up\'s own account, not the explorer\'s. Please sign in as yourself.' };
   if (bandOf(parentProfile, now) === 'teen') return { status: 403, code: 'teen', message: 'This account belongs to a teenage explorer, so it can\'t give consent. Please sign in with a parent or guardian\'s account.' };
   if (forDecline) return null;
   if (!parent.emailVerified) return { status: 403, code: 'verify', message: 'Please verify your email address first. We\'ve sent a link to your inbox.' };
+  // Consent comes from the address the explorer named: the approving account's verified email must be it
+  if (requestEmailHash && !(parent.email && emailHash(teenUid, parent.email) === requestEmailHash)) {
+    return { status: 403, code: 'email-mismatch', message: 'Please sign in with the email address the request was sent to.' };
+  }
   if (confirmAdult !== true || confirmGuardian !== true) return { status: 400, code: 'confirm', message: 'Please confirm that you are 18 or older and their parent or guardian.' };
   return null;
 }
@@ -286,7 +291,7 @@ export function mountGuardian(app, deps) {
     const state = requestState(r);
     if (state !== 'open') { say(res, state === 'invalid' ? 404 : 410, state, state === 'expired' ? 'This link has expired.' : state === 'invalid' ? 'This link isn\'t one we recognise.' : 'This link has already been used.'); return null; }
     const parentProfile = await profileWithBand(db, parent.uid);
-    const problem = parentProblem({ parent, parentProfile, teenUid: r.teenUid, confirmAdult: body.confirmAdult, confirmGuardian: body.confirmGuardian }, { forDecline });
+    const problem = parentProblem({ parent, parentProfile, teenUid: r.teenUid, confirmAdult: body.confirmAdult, confirmGuardian: body.confirmGuardian, requestEmailHash: r.emailHash || null }, { forDecline });
     if (problem) { say(res, problem.status, problem.code, problem.message); return null; }
     const teenProfile = await profileWithBand(db, r.teenUid);
     if (!teenProfile || !teenPolicy(teenProfile).teen) { say(res, 410, 'not-teen', 'This explorer no longer needs a grown-up\'s OK.'); return null; }

@@ -15,6 +15,11 @@ let db = null;
 export const initLedger = (firestore) => { db = firestore; };
 const FAIL_OPEN = process.env.QUOTA_FAIL_OPEN === 'true';
 export const today = () => new Date().toISOString().slice(0, 10);
+// Daily allowances turn over at midnight UTC. Explorers are mostly in India, so say it in their time first.
+export const RESET_WORDS = 'at 5:30 am India time (midnight UTC)';
+/** The next turnover (next midnight UTC) as an ISO string. */
+export const nextResetMs = (now = Date.now()) => new Date(new Date(now).toISOString().slice(0, 10) + 'T00:00:00Z').getTime() + 86_400_000;
+export const nextReset = (now = Date.now()) => new Date(nextResetMs(now)).toISOString();
 const expiry = (days) => Timestamp.fromMillis(Date.now() + days * 86_400_000);
 
 let healthy = { ok: true, at: 0, error: null };

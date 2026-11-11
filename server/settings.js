@@ -27,6 +27,7 @@ export const DEFAULT_FLAGS = Object.freeze({
     postsPerDay: 3,
     liveMinutesPerDay: 3,
     identificationsPerDay: 15,
+    privateSavesPerDay: 200,  // "Only me" saves: a generous anti-abuse cap, separate from sharing
   }),
 });
 
@@ -120,4 +121,74 @@ export async function listHistory(kind, max = 30) {
   return snap.docs.map(d => ({ id: d.id, ...d.data(), at: d.get('at')?.toMillis?.() || null }));
 }
 
-export const ipBlocked = (settings, ip) => !!ip && (settings.blockedNetworks || []).some(p => p && (ip === p || ip.startsWith(p)));
+// ------------------------------------------------------------------ blocked networks
+// An entry is one exact address ("203.0.113.7"), a prefix that ends at a boundary ("203.0.113." or
+// "2001:db8:"), or a CIDR range ("203.0.113.0/24", "2001:db8::/32"). A bare "203.0.113.1" blocks that
+// address only, never 203.0.113.10 to .199.
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const v4Number = (ip) => ip.split('.').reduce((n, o) => n * 256 + Number(o), 0);
+/** IPv6 address -> BigInt, or null. Accepts "::" shortening and an IPv4 tail. */
+function v6Number(ip) {
+  let s = String(ip).toLowerCase();
+  if (s.includes('.')) {
+    const at = s.lastIndexOf(':');
+    const tail = s.slice(at + 1);
+    if (!IPV4.test(tail)) return null;
+    const n = v4Number(tail);
+    s = `${s.slice(0, at + 1)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  if (groups.length !== 8 || !groups.every(g => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.reduce((n, g) => (n << 16n) + BigInt(parseInt(g, 16)), 0n);
+}
+/** Plain form of a client address: "::ffff:203.0.113.7" -> "203.0.113.7". */
+export const normalIp = (ip) => {
+  const s = String(ip || '').trim().toLowerCase();
+  const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  return m ? m[1] : s;
+};
+/** Whether an admin entry is one the matcher understands (used to validate the Admin list). */
+export function validNetworkEntry(p) {
+  if (typeof p !== 'string' || p.length < 2 || p.length > 49) return false;
+  const cidr = /^(.+)\/(\d{1,3})$/.exec(p);
+  if (cidr) {
+    const bits = Number(cidr[2]);
+    if (IPV4.test(cidr[1])) return bits >= 8 && bits <= 32;
+    return v6Number(cidr[1]) !== null && bits >= 16 && bits <= 128;
+  }
+  if (IPV4.test(p) || v6Number(p) !== null) return true;
+  // Prefixes must end at a boundary
+  if (/^(\d{1,3}\.){1,3}$/.test(p)) return p.split('.').filter(Boolean).every(o => Number(o) <= 255);
+  return /^[0-9a-f]{1,4}(:[0-9a-f]{1,4}){0,6}:$/i.test(p);
+}
+export function networkMatches(entry, rawIp) {
+  const p = String(entry || '').trim().toLowerCase();
+  const ip = normalIp(rawIp);
+  if (!p || !ip) return false;
+  const cidr = /^(.+)\/(\d{1,3})$/.exec(p);
+  if (cidr) {
+    const bits = Number(cidr[2]);
+    if (IPV4.test(cidr[1])) {
+      if (!IPV4.test(ip) || bits < 0 || bits > 32) return false;
+      const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+      return ((v4Number(ip) & mask) >>> 0) === ((v4Number(cidr[1]) & mask) >>> 0);
+    }
+    const base = v6Number(cidr[1]); const n = v6Number(ip);
+    if (base === null || n === null || bits > 128) return false;
+    const shift = BigInt(128 - bits);
+    return (n >> shift) === (base >> shift);
+  }
+  if (p.endsWith('.') || p.endsWith(':')) return ip.startsWith(p);
+  if (IPV4.test(p)) return ip === p;
+  // An older saved entry with fewer than four parts ("203.0.113") means that whole range
+  if (/^\d{1,3}(\.\d{1,3}){0,2}$/.test(p)) return ip.startsWith(`${p}.`);
+  const a = v6Number(p); const b = v6Number(ip);
+  return a !== null && b !== null ? a === b : ip === p;
+}
+export const ipBlocked = (settings, ip) => !!ip && (settings.blockedNetworks || []).some(p => networkMatches(p, ip));
