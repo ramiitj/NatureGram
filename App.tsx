@@ -21,7 +21,8 @@ import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import BrandMark from './components/BrandMark';
 import FirstHint from './components/FirstHint';
-import { wasOverlayPop, useBackToClose } from './services/overlayStack';
+import { wasOverlayPop, useBackToClose, overlayOpen } from './services/overlayStack';
+import { startUpdateWatch, reloadNow, justUpdated } from './services/appUpdate';
 import { useFocusTrap } from './services/focusTrap';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
@@ -705,6 +706,22 @@ const App: React.FC = () => {
   // Consent and install prompts never stack: the install card waits until consent is decided
   const [consentDecided, setConsentDecided] = useState(() => getConsent() !== null);
   useEffect(() => onConsentChange(() => setConsentDecided(getConsent() !== null)), []);
+  // A newer NatureGram is out: update by itself when nothing would be lost, else offer a Refresh
+  const [updateReady, setUpdateReady] = useState(false);
+  const safeToReloadRef = useRef<() => boolean>(() => false);
+  safeToReloadRef.current = () => {
+    const v = currentViewRef.current;
+    if (v === AppView.LENS || v === AppView.POST_SESSION || v === AppView.ADMIN) return false;
+    if (currentSessionRef.current.length > 0 || lensBusyRef.current) return false;
+    if (overlayOpen() || authModal || showUploadModal) return false;
+    const el = document.activeElement as HTMLElement | null;
+    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return false;
+    return true;
+  };
+  useEffect(() => {
+    if (justUpdated()) { setLimitNotice('NatureGram is up to date.'); window.setTimeout(() => setLimitNotice(n => n === 'NatureGram is up to date.' ? '' : n), 3000); }
+    return startUpdateWatch({ isSafe: () => safeToReloadRef.current(), onReady: () => setUpdateReady(true) });
+  }, []);
   // The first window anyone opens teaches, once, how every window closes
   useEffect(() => {
     const onFirst = () => {
@@ -1212,6 +1229,13 @@ const App: React.FC = () => {
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && currentView !== AppView.SHARED_POST && !isDetailActive && !(tourPending && (currentView === AppView.COMMUNITY || currentView === AppView.REELS)) && <ConsentBanner />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && !tourPending && consentDecided && <InstallCard />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && <TeenBanner />}
+      {updateReady && currentView !== AppView.LENS && (
+        <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] lg:bottom-6 z-[96] ng-toast flex items-center gap-3 pl-4 pr-2 py-2 text-sm">
+          <span>A newer NatureGram is ready.</span>
+          <button onClick={() => { if (currentSessionRef.current.length > 0) { setLimitNotice('Save or share your captures first, then refresh.'); return; } reloadNow(); }} className="min-h-[40px] px-3 rounded-full bg-white text-stone-900 font-semibold">Refresh</button>
+          <button onClick={() => setUpdateReady(false)} aria-label="Later" className="ng-icon-button-dark"><Glyph name="close" size={18} /></button>
+        </div>
+      )}
       {offline && currentView !== AppView.LANDING && (
         <p role="status" className="fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 -translate-x-1/2 z-[95] ng-toast text-sm px-4 py-2">You're offline. Sightings you've already seen still open; new ones will load when you're back.</p>
       )}

@@ -34,12 +34,27 @@ const themeInit = (): Plugin => ({
   },
 });
 
+/**
+ * One id per build. The app carries it (__BUILD_ID__) and the build publishes it as /version.json,
+ * so an app left open (a tab, or a home-screen app resumed from the background) can tell that a
+ * newer NatureGram is out and update itself (services/appUpdate.ts).
+ */
+const BUILD_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 7)}`;
+const buildVersion = (): Plugin => ({
+  name: 'naturegram-build-version',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_ID }) });
+  },
+});
+
 export default defineConfig({
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   server: {
     port: 3000,
     host: '0.0.0.0',
   },
-  plugins: [react(), seoData(), themeInit()],
+  plugins: [react(), seoData(), themeInit(), buildVersion()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

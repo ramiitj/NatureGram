@@ -1,5 +1,5 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v8';
+const VERSION = 'ng-v9';
 const SHELL = ['/'];
 
 self.addEventListener('install', (event) => {
@@ -33,7 +33,8 @@ self.addEventListener('fetch', (event) => {
   }
   // The manifest and home-screen icons follow the current mark: always from the network
   if (url.pathname.startsWith('/manifest') || url.pathname.startsWith('/brand/') || /^\/icon(-\d+\.png|\.svg)$/.test(url.pathname)) return;
-  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/s/') || url.pathname === '/healthz') return;
+  // The build's version is always asked of the server: it is how open apps learn of an update
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/s/') || url.pathname === '/healthz' || url.pathname === '/version.json') return;
 
   // App navigations: network-first, offline fallback to the cached shell
   if (req.mode === 'navigate') {

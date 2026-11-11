@@ -901,7 +901,7 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     app.use('/assets', express.static(path.join(staticPath, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(staticPath, {
       index: false,
-      setHeaders: (res, p) => { if (p.endsWith('.html') || p.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); },
+      setHeaders: (res, p) => { if (p.endsWith('.html') || p.endsWith('sw.js') || p.endsWith('version.json') || p.endsWith('theme-init.js')) res.setHeader('Cache-Control', 'no-cache'); },
     }));
     // Friendly addresses for the legal pages
     app.get(['/privacy', '/terms'], (req, res) => res.redirect(301, `${req.path}.html`));
