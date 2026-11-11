@@ -122,7 +122,29 @@ export function mountBrandIcons(app, { db, log }) {
       res.type('image/png').send(png);
     } catch (e) {
       log('warn', 'brand icon failed', { name, error: String(e.message).slice(0, 120) });
-      res.redirect(302, name === 'icon-192' ? '/icon-192.png' : '/icon-512.png');
+      res.redirect(302, name === 'icon-192' ? '/icon-192.png?static=1' : '/icon-512.png?static=1');
     }
+  });
+
+  // The old fixed addresses (browser tabs before the app starts, the privacy, terms and 404 pages,
+  // notifications, search engines' logo) get the current mark too, never the old green square.
+  // ?static=1 reaches the file in public/ (the fallback when drawing fails).
+  app.get(['/icon-192.png', '/icon-512.png'], async (req, res, next) => {
+    if (req.query.static) return next();
+    try {
+      const mark = await currentMark();
+      const name = req.path === '/icon-192.png' ? 'icon-192' : 'icon-512';
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.type('image/png').send(render(mark, name));
+    } catch { next(); }
+  });
+  app.get('/icon.svg', async (req, res, next) => {
+    if (req.query.static) return next();
+    try {
+      const mark = await currentMark();
+      if (mark.style === 'custom') return res.redirect(302, '/brand/icon-192.png');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.type('image/svg+xml').send(markSvg(mark.colors, mark.style, 'rounded'));
+    } catch { next(); }
   });
 }

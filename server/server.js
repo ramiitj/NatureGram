@@ -478,7 +478,7 @@ async function startServer() {
     let scientific = '';
     let byline = '';
     let description = 'Wild plants, animals, fungi and sounds, noticed and shared by explorers on NatureGram.';
-    let imageUrl = `https://${PUBLIC_HOST}/og-default.jpg`;
+    let imageUrl = `https://${PUBLIC_HOST}/og-default.jpg?v=2`;
     let tags = [];
     let ld = null;
     let shown = true;

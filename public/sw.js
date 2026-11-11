@@ -1,6 +1,6 @@
 /* NatureGram service worker: offline shell + fast repeat loads. Never caches API/AI traffic. */
-const VERSION = 'ng-v7';
-const SHELL = ['/', '/icon.svg', '/icon-192.png'];
+const VERSION = 'ng-v8';
+const SHELL = ['/'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -32,7 +32,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   // The manifest and home-screen icons follow the current mark: always from the network
-  if (url.pathname.startsWith('/manifest') || url.pathname.startsWith('/brand/')) return;
+  if (url.pathname.startsWith('/manifest') || url.pathname.startsWith('/brand/') || /^\/icon(-\d+\.png|\.svg)$/.test(url.pathname)) return;
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/s/') || url.pathname === '/healthz') return;
 
   // App navigations: network-first, offline fallback to the cached shell
