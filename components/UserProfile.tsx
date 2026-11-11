@@ -96,7 +96,10 @@ const lifeListSummary = (entries: LifeEntry[], own: boolean, firstName?: string)
   if (!first) return '';
   const since = first.firstMs ? ` since ${new Date(first.firstMs).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
   const n = entries.length;
-  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was the ${firstName || first.name}.`;
+  const nm = firstName || first.name;
+  // "the house sparrow", but a Latin name stands on its own ("Pardirallus nigricans")
+  const latin = /^[A-Z][a-z]+ [a-z]+/.test(nm) && !/\s[A-Z]/.test(nm);
+  return `${n} species${since}. ${own ? 'Your' : 'Their'} first was ${latin ? nm : `the ${nm}`}.`;
 };
 
 const monthKey = (ms: number) => ms ? new Date(ms).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'Undated';

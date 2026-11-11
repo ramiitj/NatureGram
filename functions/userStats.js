@@ -16,11 +16,13 @@
 
 /** Same pattern as IGNORE in services/lifeList.ts. */
 export const IGNORE_NAME = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)/i;
+/** People and pets never count as species (same as NOT_WILD in services/lifeList.ts). */
+export const NOT_WILD = /^(the )?(homo sapiens|humans?|person|people|man|woman|child|children|canis (lupus )?familiaris|domestic dog|dogs?|pupp(y|ies)|felis (silvestris )?catus|domestic cat|cats?|kittens?)$/i;
 
 /** The life-list key for a sighting's name, or '' if it names nothing. */
 export function speciesKey(post) {
   const name = String((post && Array.isArray(post.labels) && post.labels[0]) || '').trim();
-  if (!name || IGNORE_NAME.test(name)) return '';
+  if (!name || IGNORE_NAME.test(name) || NOT_WILD.test(name)) return '';
   return name.toLowerCase();
 }
 
