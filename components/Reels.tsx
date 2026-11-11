@@ -9,6 +9,7 @@ import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour, f
 import { groupOf, namesOf } from '../services/lifeList';
 import ReportSheet, { ReportTarget } from './ReportSheet';
 import Glyph from './Glyph';
+import { useBackToClose } from '../services/overlayStack';
 const ShareSheet = React.lazy(() => import('./ShareSheet'));
 
 interface Props {
@@ -60,6 +61,28 @@ const HEADER_LABEL = 'text-[11px] leading-none font-medium text-white/85';
  * a resting place, not a door to an endless feed. Clips that suit the hour come first. "Keep
  * watching" adds ten more, then rests again. A tap pauses or plays; the sound is the header button.
  */
+/** The clip's More sheet: the same place on every clip; what it offers depends on whose it is. */
+const MoreSheet: React.FC<{ post: CommunityPost; own: boolean; onClose: () => void; onOpen: () => void; onReport: () => void }> = ({ own, onClose, onOpen, onReport }) => {
+  const { close } = useBackToClose(true, onClose);
+  return (
+    <div className="fixed inset-0 z-[250] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-label="More">
+      <div className="absolute inset-0 ng-scrim" onClick={close} aria-hidden="true" />
+      <div className="relative w-full sm:max-w-sm ng-sheet pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 text-stone-900">
+        <div className="flex flex-col">
+          <button onClick={onOpen} className="ng-menu-item min-h-[52px]">
+            <Glyph name="feather" size={20} className="text-stone-500" />
+            {own ? 'Open your sighting (edit, who can see it, delete)' : 'Open the sighting'}
+          </button>
+          {!own && (
+            <button onClick={onReport} className="ng-menu-item ng-menu-item-danger min-h-[52px]"><Glyph name="flag" size={20} />Report this moment</button>
+          )}
+          <button onClick={close} className="ng-menu-item min-h-[52px] text-stone-600"><Glyph name="close" size={20} className="text-stone-500" />Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount, onOpenExplore, onOpenActivity, unreadActivity = 0, onOpenMessages, unreadMessages = 0, onSendAsLetter, hideCounts: hideCountsProp }) => {
   const [items, setItems] = useState<CommunityPost[]>([]);
   const [cursor, setCursor] = useState<any>(null);
@@ -80,6 +103,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
   const [flash, setFlash] = useState<{ kind: 'play' | 'pause'; key: number } | null>(null);
   const [sharing, setSharing] = useState<CommunityPost | null>(null);
   const [reporting, setReporting] = useState<ReportTarget | null>(null);
+  const [moreFor, setMoreFor] = useState<CommunityPost | null>(null);
   const [teenViewer, setTeenViewer] = useState(false);
   useEffect(() => watchTeen(s => setTeenViewer(s.teen)), []);
   const hideCounts = hideCountsProp ?? teenViewer;
@@ -285,10 +309,6 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
               <span className={HEADER_LABEL} aria-hidden="true">Letters</span>
             </button>
           )}
-          <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} aria-pressed={!muted} className={HEADER_ACTION}>
-            <Glyph name={muted ? 'soundOff' : 'soundOn'} size={22} />
-            <span className={HEADER_LABEL} aria-hidden="true">{muted ? 'Sound off' : 'Sound on'}</span>
-          </button>
         </div>
       </header>
 
@@ -377,6 +397,13 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
 
                 {/* The actions sit beside the clip on wide screens, at the edge on phones */}
                 <div className="absolute right-2 md:right-auto md:left-[calc(50%_+_min(50%_-_4.5rem,_100dvh*9/32)_+_0.75rem)] bottom-[calc(env(safe-area-inset-bottom)+6rem)] lg:bottom-12 land:bottom-4 land:gap-2 z-10 flex flex-col items-center gap-4">
+                  {/* Sound sits with the other actions, beside the clip, the same on every clip */}
+                  <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} aria-pressed={!muted} className="flex flex-col items-center gap-0.5">
+                    <span className="w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+                      <Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} />
+                    </span>
+                    <span className="text-xs text-white/90">{muted ? 'Sound off' : 'Sound on'}</span>
+                  </button>
                   <button onClick={() => marvel(p)} aria-pressed={isLiked} aria-label={hideCounts ? (isLiked ? 'You marvelled at this' : 'Marvel at this') : (isLiked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this. ${wonderLabel(n)}`)} className="flex flex-col items-center gap-0.5">
                     <span className={`w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] transition-colors duration-300 ${isLiked ? 'text-theme-vivid' : 'text-white'}`}>
                       <WonderIcon active={isLiked} className="text-[26px]" />
@@ -395,14 +422,13 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                     </span>
                     <span className="text-xs text-white/90">Share</span>
                   </button>
-                  {p.userId !== currentUserMode.userId && (
-                    <button onClick={() => report(p)} aria-label={`Report ${species}`} className="flex flex-col items-center gap-0.5">
-                      <span className="w-11 h-11 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] text-white/85">
-                        <Glyph name="flag" size={20} />
-                      </span>
-                      <span className="text-[11px] text-white/80">Report</span>
-                    </button>
-                  )}
+                  {/* More is on every clip in the same place: Report on others', editing on your own */}
+                  <button onClick={() => setMoreFor(p)} aria-label={`More for ${species}`} aria-haspopup="dialog" className="flex flex-col items-center gap-0.5">
+                    <span className="w-12 h-12 flex items-center justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]">
+                      <Glyph name="more" size={24} />
+                    </span>
+                    <span className="text-xs text-white/90">More</span>
+                  </button>
                 </div>
               </article>
             );
@@ -443,6 +469,9 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
           />
         </React.Suspense>
       )}
+      {moreFor && <MoreSheet post={moreFor} own={moreFor.userId === currentUserMode.userId} onClose={() => setMoreFor(null)}
+        onOpen={() => { const id = moreFor.id; setMoreFor(null); onOpenPost(id); }}
+        onReport={() => { const p = moreFor; setMoreFor(null); report(p); }} />}
       {reporting && <ReportSheet target={reporting} what="this moment" onClose={() => setReporting(null)} surface="moments" />}
     </div>
   );
