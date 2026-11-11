@@ -12,6 +12,7 @@ import { namesOf, reconciledStats, lifeStats, buildLifeList, LifeEntry, LifeGrou
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
+import ReportSheet from './ReportSheet';
 import { useBackToClose } from '../services/overlayStack';
 import { getConsent, setConsent, getAdsConsent, setAdsConsent, isTeenMode } from '../services/analytics';
 import { db } from '../firebaseConfig';
@@ -916,9 +917,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       {sheet === 'words' && <WordsSheet onClose={() => setSheet(null)} />}
 
       {sheet === 'report' && !isOwnProfile && (
-        <Sheet title={`Report ${username}`} onClose={() => setSheet(null)}>
-          <ReportProfile userId={userId} onDone={(m) => { setSheet(null); showToast(m); }} />
-        </Sheet>
+        <ReportSheet target={{ kind: 'profile', userId }} what="this explorer" surface="profile"
+          onClose={() => setSheet(null)} />
       )}
 
       {isOwnProfile && (
@@ -1019,42 +1019,6 @@ const WordsSheet: React.FC<{ onClose: () => void }> = ({ onClose }) => (
     </dl>
   </Sheet>
 );
-
-const PROFILE_REASONS = ['Pretending to be someone', 'Harassment or bullying', 'Spam', 'Inappropriate photo or name', 'Someone under 13', 'Something else'];
-const ReportProfile: React.FC<{ userId: string; onDone: (msg: string) => void }> = ({ userId, onDone }) => {
-  const [reason, setReason] = useState('');
-  const [details, setDetails] = useState('');
-  const [busy, setBusy] = useState(false);
-  const send = async () => {
-    if (!reason || busy) return;
-    setBusy(true);
-    try {
-      const fn = (FirebaseService as any).reportContent;
-      if (typeof fn !== 'function') throw new Error('unavailable');
-      await fn({ kind: 'profile', userId }, reason, details.trim());
-      onDone("Thanks. We'll look at it within a day. They won't be told who reported them.");
-    } catch { onDone("The report couldn't be sent. Please try again."); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div className="flex flex-col gap-1 -mx-3">
-      {PROFILE_REASONS.map(r => (
-        <button key={r} role="radio" aria-checked={reason === r} onClick={() => setReason(r)} className={`ng-menu-item min-h-[48px] ${reason === r ? 'font-semibold' : ''}`}>
-          <span className={`w-4 h-4 rounded-full border ${reason === r ? 'border-stone-900 bg-stone-900' : 'border-stone-400'}`} aria-hidden="true" />{r}
-        </button>
-      ))}
-      {reason === 'Something else' && (
-        <label className="px-3 pt-2 block">
-          <span className="ng-label">What's wrong?</span>
-          <textarea value={details} onChange={e => setDetails(e.target.value.slice(0, 500))} rows={3} className="mt-2 w-full rounded-lg border border-stone-300 bg-white p-3 text-[15px]" />
-        </label>
-      )}
-      <div className="px-3 pt-3">
-        <button onClick={send} disabled={!reason || busy} className="ng-button-primary w-full disabled:opacity-50">{busy ? 'Sending…' : 'Send report'}</button>
-      </div>
-    </div>
-  );
-};
 
 const PushToggle: React.FC<{ onToast: (m: string) => void }> = ({ onToast }) => {
   const [on, setOn] = useState(pushEnabled());

@@ -232,6 +232,10 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<FieldNotification[]>([]);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [openConversationId, setOpenConversationId] = useState<string | null>(null);
+  // "Send in a letter": the sighting rides along into a new letter
+  const [attachPostId, setAttachPostId] = useState<string | null>(null);
+  // Where Explore was opened from, so its back arrow can say so
+  const [exploreFrom, setExploreFrom] = useState<AppView | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [isDetailActive, setIsDetailActive] = useState(false);
 
@@ -600,9 +604,11 @@ const App: React.FC = () => {
       return;
     }
 
+    if (targetView === AppView.EXPLORE && currentViewRef.current !== AppView.EXPLORE) setExploreFrom(currentViewRef.current);
     setCurrentView(targetView);
     setReturnView(null);
   };
+  const sendAsLetter = (postId: string) => { setAttachPostId(postId); openMessages(); };
 
   /**
    * Back returns to the screen the explorer came from (the browser's own history, so the system
@@ -984,6 +990,7 @@ const App: React.FC = () => {
                   onOpenNaturalist={openNaturalist}
                   onOpenActivity={openActivity}
                   onOpenMessages={() => openMessages()}
+                  onSendAsLetter={sendAsLetter}
                   onOpenExplore={() => handleNavigationRequest(AppView.EXPLORE)}
                   unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                   unreadMessages={unreadMessages}
@@ -1048,6 +1055,8 @@ const App: React.FC = () => {
               <Suspense fallback={<ViewLoader />}>
                 <Messages
                   initialConversationId={openConversationId}
+                  attachPostId={attachPostId}
+                  onAttachUsed={() => setAttachPostId(null)}
                   onBack={() => { setOpenConversationId(null); goBack(); }}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onOpenPost={(postId) => { setReturnView(AppView.MESSAGES); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
@@ -1065,6 +1074,9 @@ const App: React.FC = () => {
                 onBack={() => handleNavigationRequest(AppView.COMMUNITY)}
                 onOpenExplore={() => handleNavigationRequest(AppView.EXPLORE)}
                 onOpenActivity={openActivity}
+                onOpenMessages={() => openMessages()}
+                unreadMessages={unreadMessages}
+                onSendAsLetter={sendAsLetter}
                 unreadActivity={unreadCount + (letterUnread ? 1 : 0)}
                 onOpenPost={(postId) => { setReturnView(AppView.REELS); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                 onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
@@ -1080,6 +1092,7 @@ const App: React.FC = () => {
               <div id="main-scroll" className="flex-1 overflow-y-auto overscroll-contain no-scrollbar pb-28 lg:pb-8">
                 <Explore
                   onBack={goBack}
+                  backLabel={exploreFrom === AppView.REELS ? 'Moments' : exploreFrom === AppView.COMMUNITY ? 'Wild' : exploreFrom === AppView.JOURNAL ? 'Journal' : 'Back'}
                   onOpenNaturalist={openNaturalist}
                   onOpenPost={(postId: string) => { setReturnView(AppView.EXPLORE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onOpenProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
