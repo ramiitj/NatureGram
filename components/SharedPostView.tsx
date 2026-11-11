@@ -125,7 +125,13 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   return (
       <div className="fixed inset-0 bg-day-bg flex flex-col md:flex-row overflow-hidden">
           <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-6 pt-6 pb-8 md:px-12 md:pt-8 z-50 flex items-center bg-gradient-to-b from-black/50 to-transparent pointer-events-none safe-pt">
-              <span className="flex items-center gap-2.5 text-white"><BrandMark size={24} /><span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span></span>
+              {/* The mark opens NatureGram; visitors always have a way in and a way on */}
+              <button onClick={onGoToApp} className="pointer-events-auto flex items-center gap-2.5 text-white rounded-lg" aria-label="Open NatureGram">
+                <BrandMark size={24} /><span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span>
+              </button>
+              <button onClick={onGoToApp} className="pointer-events-auto ml-auto inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-white/90 text-stone-900 text-sm font-semibold">
+                See more<Glyph name="forward" size={18} />
+              </button>
           </div>
 
           <div className="flex-1 relative bg-stone-950 flex flex-col justify-center min-h-[48dvh] md:min-h-screen group/media overflow-hidden">

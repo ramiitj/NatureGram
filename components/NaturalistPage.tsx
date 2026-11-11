@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import Glyph from './Glyph';
+import { useBackToClose } from '../services/overlayStack';
 import SpecimenPlate from './SpecimenPlate';
 import { NaturalistExtra } from '../constants/naturalistExtras';
 import { groupOf, seasonOf, toMs } from '../services/lifeList';
@@ -90,11 +91,8 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
     return () => { alive = false; };
   }, [extra.challengeTag]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // The phone's back gesture, Escape and Close all close the page
+  const { close } = useBackToClose(true, onClose);
 
   const thisFortnight = (answers || []).filter(a => a.ms >= span.start.getTime());
   const earlier = (answers || []).filter(a => a.ms < span.start.getTime());
@@ -104,7 +102,7 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
       <div className="relative h-[52vh] min-h-[320px] max-h-[520px] bg-stone-950 overflow-hidden text-white">
         {theme.imageUrl && <img src={theme.imageUrl} alt="" className="ng-settle absolute inset-0 w-full h-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/35" aria-hidden="true" />
-        <button onClick={onClose} autoFocus aria-label="Close" className="ng-icon-button-dark absolute left-4 md:left-10 top-[calc(env(safe-area-inset-top)+1rem)]">
+        <button onClick={close} autoFocus aria-label="Close" className="ng-icon-button-dark fixed z-[130] left-4 md:left-10 top-[calc(env(safe-area-inset-top)+1rem)] bg-black/45 backdrop-blur-md">
           <Glyph name="back" size={24} />
         </button>
         <header className="absolute inset-x-0 bottom-0 max-w-2xl mx-auto px-6 pb-8 md:pb-10 ng-rise">

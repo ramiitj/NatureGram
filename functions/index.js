@@ -434,10 +434,15 @@ export const runAdminJob = onDocumentWritten({ document: 'admin_jobs/{jobId}', r
     const r = await posterBatch(typeof after.next === 'string' ? after.next : '', 8);
     const totals = after.totals || {};
     const add = (k) => (Number(totals[k]) || 0) + (Number(r[k]) || 0);
-    await ref.update({
-      tick: tick + 1, next: r.next || null, status: r.next ? 'running' : 'done',
-      totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
-      updatedAt: FieldValue.serverTimestamp(), ...(r.next ? {} : { finishedAt: FieldValue.serverTimestamp() }),
+    // An admin may have pressed Stop while this batch ran: keep the count, but don't start the next
+    await db.runTransaction(async (tx) => {
+      const now = (await tx.get(ref)).data() || {};
+      const stopped = now.status === 'stopped';
+      tx.update(ref, {
+        tick: tick + 1, next: r.next || null, status: stopped ? 'stopped' : (r.next ? 'running' : 'done'),
+        totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
+        updatedAt: FieldValue.serverTimestamp(), ...(r.next && !stopped ? {} : { finishedAt: FieldValue.serverTimestamp() }),
+      });
     });
   } catch (e) {
     console.error('admin job failed', event.params.jobId, e.message);

@@ -257,6 +257,7 @@ const Overview: React.FC<{ go: (p: Pane) => void }> = ({ go }) => {
 const Controls: React.FC = () => {
   const [flags, setFlags] = useState<any>(null);
   const [caps, setCaps] = useState<any>(null);
+  const [pending, setPending] = useState<null | { kind: 'allowances' | 'caps'; body: any }>(null);
   const [msg, setMsg] = useState('');
   const [asking, setAsking] = useState<string | null>(null);
   const load = useCallback(async () => {
@@ -270,18 +271,28 @@ const Controls: React.FC = () => {
     setAsking(null);
     try { setFlags(await api('/flags', { method: 'PUT', body: { [k]: !flags[k] } })); setMsg('Saved. Takes effect everywhere within 30 seconds.'); } catch (e: any) { setMsg(e.message); }
   };
-  const saveAllowances = async (e: React.FormEvent<HTMLFormElement>) => {
+  // App-wide numbers are asked about first, with the change spelled out, and can't go below 1
+  const saveAllowances = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const allowances = { postsPerDay: Number(f.get('posts')), liveMinutesPerDay: Number(f.get('live')), identificationsPerDay: Number(f.get('ids')) };
-    try { setFlags(await api('/flags', { method: 'PUT', body: { allowances } })); setMsg('Allowances saved. They apply to every account, with no exceptions.'); } catch (err: any) { setMsg(err.message); }
+    if (allowances.postsPerDay < 1 || allowances.identificationsPerDay < 1) { setMsg('Sightings and identifications need at least 1 a day, or nobody could share or name anything.'); return; }
+    setPending({ kind: 'allowances', body: allowances });
   };
-  const saveCaps = async (e: React.FormEvent<HTMLFormElement>) => {
+  const saveCaps = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const next: any = {};
     for (const k of Object.keys(caps)) next[k] = Number(f.get(k));
-    try { const s = await api('/settings', { method: 'PUT', body: { caps: next } }); setCaps(s.caps); setMsg('Limits saved.'); } catch (err: any) { setMsg(err.message); }
+    setPending({ kind: 'caps', body: next });
+  };
+  const applyPending = async () => {
+    const p = pending; setPending(null);
+    if (!p) return;
+    try {
+      if (p.kind === 'allowances') { setFlags(await api('/flags', { method: 'PUT', body: { allowances: p.body } })); setMsg('Allowances saved. They apply to every account, with no exceptions.'); }
+      else { const s = await api('/settings', { method: 'PUT', body: { caps: p.body } }); setCaps(s.caps); setMsg('Limits saved.'); }
+    } catch (err: any) { setMsg(err.message); }
   };
   const CAPS: Record<string, string> = {
     otherAiCallsPerDay: 'Other AI calls per account per day (descriptions, curation, summaries)', maxOutputTokens: 'Longest AI answer (tokens)',
@@ -298,6 +309,9 @@ const Controls: React.FC = () => {
           <label className="text-sm text-stone-700">AI identifications per day<input name="ids" type="number" min={0} max={500} defaultValue={flags.allowances.identificationsPerDay} className={`${INPUT} tabular-nums`} /></label>
           <Btn tone="primary" type="submit" className="sm:col-span-3 justify-self-start">Save allowances</Btn>
         </form>
+        {pending?.kind === 'allowances' && (
+          <Ask question={`Apply to every account now: ${pending.body.postsPerDay} sightings shared, ${pending.body.liveMinutesPerDay} live minutes and ${pending.body.identificationsPerDay} identifications a day?`} yes="Apply to everyone" onNo={() => setPending(null)} onYes={applyPending} />
+        )}
         <p className="text-xs text-stone-500 mt-3">No exceptions. Counted on the server per account per day (UTC). An identification is one photo, sound or clip the guide names.</p>
       </Card>
       <Card title="Switches for everyone">
@@ -322,6 +336,9 @@ const Controls: React.FC = () => {
           ))}
           <Btn tone="primary" type="submit" className="justify-self-start">Save limits</Btn>
         </form>
+        {pending?.kind === 'caps' && (
+          <Ask question="Apply these limits to everyone now? They take effect within 30 seconds." yes="Apply limits" onNo={() => setPending(null)} onYes={applyPending} />
+        )}
       </Card>
     </div>
   );
@@ -805,6 +822,12 @@ const DataTools: React.FC = () => {
         <Btn onClick={exportDwc} disabled={!!busy}>{busy === 'dwc' ? 'Exporting…' : 'Download the Darwin Core archive (GBIF)'}</Btn>
         <AskButton disabled={!!busy} label={busy === 'search' ? 'Adding search keys…' : 'Add search keys to older sightings'}
           question="Add search keys to every sighting that is missing them? Safe to run more than once." yes="Add search keys" onYes={backfill} />
+        {busy === 'posters' && (
+          <Btn onClick={async () => {
+            try { const [{ db }, fs] = await Promise.all([import('../firebaseConfig'), import('firebase/firestore')]); await fs.updateDoc(fs.doc(db, 'admin_jobs', 'posters'), { status: 'stopped' }); }
+            catch (e: any) { setMsg(`Couldn't stop it: ${e?.message || 'unknown error'}`); }
+          }}>Stop</Btn>
+        )}
         <AskButton disabled={!!busy} label={busy === 'posters' ? 'Giving videos posters…' : 'Give every video a poster'}
           question="Make a still, a blurred preview and a size for every older video and photo that lacks them, and mark sound-only recordings? Nothing is overwritten or deleted, and it is safe to run more than once." yes="Make posters" onYes={posters} />
       </div>

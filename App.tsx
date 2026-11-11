@@ -982,6 +982,7 @@ const App: React.FC = () => {
                   userId={userMode.userId!}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
+                  onResumeDraft={handleResumeDraft}
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onPostOpen={(postId?: string) => { if (postId) setSelectedPostId(postId); setIsDetailActive(true); }}
                   onPostClose={handlePostClose}

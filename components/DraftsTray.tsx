@@ -37,13 +37,16 @@ const DraftsTray: React.FC<DraftsTrayProps> = ({ userId, onResume, onBack }) => 
   };
 
   return (
-    <div className="min-h-full bg-day-bg ng-page pt-4 pb-10 ng-rise safe-pt">
-      <button onClick={onBack} aria-label="Back" className="ng-icon-button -ml-3">
-        <Glyph name="back" size={24} />
-      </button>
-      <div className="mt-4 mb-8 max-w-2xl">
+    <div className="min-h-full bg-day-bg ng-page pb-10 ng-rise">
+      {/* The way back stays in view while the list scrolls */}
+      <div className="sticky top-0 z-10 -mx-4 px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-2 bg-day-bg/95 backdrop-blur">
+        <button onClick={onBack} className="inline-flex items-center gap-2 h-11 pr-3 -ml-1 pl-1 rounded-full text-stone-700 hover:text-stone-900">
+          <Glyph name="back" size={24} /><span className="text-[15px] font-medium">Journal</span>
+        </button>
+      </div>
+      <div className="mt-2 mb-8 max-w-2xl">
         <div>
-          <h1 className="ng-title">Unfinished pages</h1>
+          <h1 className="ng-title">Unfinished</h1>
           <p className="ng-small mt-1.5">Outings you started writing up. Only you can see these.</p>
         </div>
       </div>
