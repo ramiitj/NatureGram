@@ -31,7 +31,7 @@ const KindChips: React.FC<{
           <button key={g} type="button" aria-pressed={on} onClick={() => onSelect(on && withAll ? null : g)} className={chip(on)}>
             <Glyph name={GROUP_GLYPH[g]} size={16} className={on ? 'text-stone-900' : 'text-stone-400'} />
             <span>{g}</span>
-            {counts?.[g] !== undefined && <span className="tabular-nums text-stone-400">{counts[g]}</span>}
+            {counts?.[g] !== undefined && <span className="tabular-nums text-stone-600">{counts[g]}</span>}
           </button>
         );
       })}

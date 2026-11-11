@@ -18,7 +18,11 @@ import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';
 import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
-import { wasOverlayPop } from '../services/overlayStack';
+import { wasOverlayPop, useBackToClose, overlayOpen } from '../services/overlayStack';
+import { apiUrl } from '../services/apiOrigin';
+import { watchTeen } from '../services/guardian';
+import { getShareUrl } from '../utils';
+import ReportSheet, { ReportTarget } from './ReportSheet';
 import BrandMark from './BrandMark';
 import FirstHint from './FirstHint';
 import { PlateStamp } from './SpecimenPlate';
@@ -48,7 +52,13 @@ const TILE_SIZES = '(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, (min-wid
 // Cream paper first, with only a breath of the fortnight's colour, so an unloaded grid reads as pages, not a tinted wash
 // Calm cream while a picture is on its way: the paper itself, never a tint
 const THEME_WASH = '#f3efe7';
-const BINOMIAL = /^[A-Z][a-z]+ [a-z-]+(?: [a-z-]+)?$/;
+
+/** A tile's main colour is dark enough for white words on it. */
+const darkTint = (tint?: string | null) => {
+    if (!tint || !/^#[0-9a-f]{6}$/i.test(tint)) return false;
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(tint.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18;
+};
 
 const isSoundTile = (post: CommunityPost) =>
     post.soundOnly === true || (post.mediaType === 'audio' && !(post.thumbSmallUrl || post.thumbnailUrl || post.imageUrl));
@@ -61,16 +71,20 @@ const tileAspect = (post: CommunityPost): number => {
     return post.mediaType === 'video' ? 9 / 16 : 4 / 5;
 };
 
-const isLatin = (s?: string | null) => !!s && BINOMIAL.test(s.trim());
-/**
- * The Latin name to show under a common name: the second label when it is one ("Vulpes vulpes"),
- * the same reading the species page uses. When the first label is itself the Latin name, it is the
- * title (in italics) and nothing goes beneath: a second Latin label there is another species.
- */
-const latinOf = (post: CommunityPost): string | null => {
-    const first = (post.labels?.[0] || '').trim();
-    const l = (post.labels?.[1] || '').trim();
-    return first && !isLatin(first) && isLatin(l) && l.toLowerCase() !== first.toLowerCase() ? l : null;
+const PLACEHOLDER_NAME = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)\b/i;
+/** The names to show for a sighting: the common name first, the Latin beneath (namesOf), never a placeholder. */
+const tileNames = (post: CommunityPost): { name: string; latin: string | null; unnamed: boolean } => {
+    const n = namesOf(post);
+    const name = (n.common || '').trim();
+    if (!name || PLACEHOLDER_NAME.test(name)) return { name: 'Unnamed sighting', latin: null, unnamed: true };
+    return { name, latin: n.latin && n.latin.toLowerCase() !== name.toLowerCase() ? n.latin : null, unnamed: false };
+};
+/** Usernames made up at sign-up ("Explorer-ZJSz") read as "an explorer". */
+const AUTO_NAME = /^explorer[-_][a-z0-9]{3,6}$/i;
+const explorerName = (name?: string | null, capital = false): string => {
+    const n = (name || '').trim();
+    if (!n || AUTO_NAME.test(n)) return capital ? 'An explorer' : 'an explorer';
+    return n;
 };
 
 /** The scroller the feed lives in, so "near the viewport" means near what the explorer can scroll to. */
@@ -122,9 +136,11 @@ const FeedCard: React.FC<{
     onPostClick: (post: CommunityPost) => void;
     /** The first tiles: fetched at once and first */
     priority?: boolean;
-}> = ({ post, onPostClick, priority = false }) => {
-    const label = post.labels?.[0] || post.title || 'Sighting';
-    const latin = latinOf(post);
+    /** Teen viewers: no marvel counts */
+    hideCounts?: boolean;
+}> = ({ post, onPostClick, priority = false, hideCounts = false }) => {
+    const { name: label, latin } = tileNames(post);
+    const by = explorerName(post.userName);
     const sound = isSoundTile(post);
     const isVideo = post.mediaType === 'video' && !post.soundOnly;
     const cardRef = useRef<HTMLDivElement>(null);
@@ -198,7 +214,7 @@ const FeedCard: React.FC<{
             ref={cardRef}
             role="button"
             tabIndex={0}
-            aria-label={`${label}${latin ? ` (${latin})` : ''} by ${post.userName || 'an explorer'}`}
+            aria-label={`${label}${latin ? ` (${latin})` : ''} by ${by}${isVideo ? ', clip' : sound ? ', sound' : ''}`}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
             onClick={open}
             data-feed-tile={post.id}
@@ -236,8 +252,10 @@ const FeedCard: React.FC<{
                             />
                         )}
                         {showFallback && (
-                            <div className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
-                                <Glyph name={GROUP_GLYPH[groupOf(post)]} size={24} strokeWidth={1.2} className="text-stone-400/60" />
+                            // No picture yet (or none at all): a calm card with what it is, never a blank square
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center" aria-hidden="true">
+                                <Glyph name={isVideo ? 'video' : GROUP_GLYPH[groupOf(post)]} size={28} strokeWidth={1.2} className={darkTint(post.tint) ? 'text-white/85' : 'text-stone-500'} />
+                                <span className={`font-display italic text-sm leading-snug line-clamp-2 ${darkTint(post.tint) ? 'text-white' : 'text-stone-700'}`}>{label}</span>
                             </div>
                         )}
                         {canPreview && myTurn && (
@@ -280,8 +298,8 @@ const FeedCard: React.FC<{
                 </h3>
                 {latin && <p className="font-display italic text-xs text-stone-500 leading-snug truncate">{latin}</p>}
                 <div className="flex items-center gap-1 mt-0.5 text-xs leading-[1.5] text-stone-500 min-w-0">
-                    <span className="truncate">{where || post.userName || 'Explorer'}</span>
-                    {likeTotal(post) > 0 && (
+                    <span className="truncate">{where || explorerName(post.userName, true)}</span>
+                    {!hideCounts && likeTotal(post) > 0 && (
                         <span className="ml-auto flex items-center gap-1 shrink-0" aria-label={wonderLabel(likeTotal(post))}>
                             <WonderIcon className="text-[12px]" />
                             <span className="tabular">{likeTotal(post)}</span>
@@ -304,33 +322,108 @@ const useColumnCount = () => {
     }, []);
     return n;
 };
+/** Gaps between columns and between tiles, in px (gap-4 / md:gap-6, gap-6 / md:gap-8 as before). */
+const gapsFor = (n: number) => (n >= 3 ? { x: 24, y: 32 } : { x: 16, y: 24 });
+
+/** The grid while the first page is on its way: the same columns and gaps, so nothing jumps. */
+const SkeletonGrid: React.FC = () => {
+    const n = useColumnCount();
+    const g = gapsFor(n);
+    return (
+        <div className="flex items-start pb-56" style={{ gap: g.x }} aria-hidden="true">
+            {Array.from({ length: n }, (_, c) => (
+                <div key={c} className="flex-1 min-w-0 flex flex-col" style={{ gap: g.y }}>
+                    {Array.from({ length: 4 }, (_, i) => <SkeletonPost key={i} tall={(c + i) % 3 === 0} />)}
+                </div>
+            ))}
+        </div>
+    );
+};
 
 /**
  * The feed grid. Tiles go to the shortest column, by their known shape, in order: the first tiles
  * sit across the top row, and tiles added later never move the ones already shown (CSS columns
  * reshuffled everything whenever a page arrived).
+ *
+ * Each tile is placed at an exact position, and the tiles sit in the page in the order they were
+ * placed, which is top to bottom across the rows. So Tab, a screen reader and the eye all read the
+ * grid row by row, not down one column and then the next.
  */
-const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: CommunityPost) => void }> = ({ posts, onPostClick }) => {
+const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: CommunityPost) => void; hideCounts?: boolean; label?: string }> = ({ posts, onPostClick, hideCounts, label = 'Sightings' }) => {
     const n = useColumnCount();
-    const columns = React.useMemo(() => {
-        const cols: { post: CommunityPost; index: number }[][] = Array.from({ length: n }, () => []);
-        const heights = new Array(n).fill(0);
-        posts.forEach((post, index) => {
-            let c = 0;
-            for (let i = 1; i < n; i++) if (heights[i] < heights[c] - 0.001) c = i;
-            cols[c].push({ post, index });
-            heights[c] += 1 / tileAspect(post) + 0.32; // the name and place beneath
+    const g = gapsFor(n);
+    const boxRef = useRef<HTMLDivElement>(null);
+    const [width, setWidth] = useState(0);
+    // Measured heights of each tile (picture plus the words beneath), by post id
+    const heights = useRef(new Map<string, number>());
+    const [, setVersion] = useState(0);
+    const observerRef = useRef<ResizeObserver | null>(null);
+    const frame = useRef<number | null>(null);
+
+    React.useLayoutEffect(() => {
+        const el = boxRef.current;
+        if (!el) return;
+        setWidth(el.clientWidth);
+        if (typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    const observer = () => {
+        if (observerRef.current || typeof ResizeObserver === 'undefined') return observerRef.current;
+        observerRef.current = new ResizeObserver((entries) => {
+            let changed = false;
+            entries.forEach(e => {
+                const id = (e.target as HTMLElement).dataset.tileId;
+                const h = Math.round((e.target as HTMLElement).offsetHeight);
+                if (id && h > 0 && heights.current.get(id) !== h) { heights.current.set(id, h); changed = true; }
+            });
+            if (changed && frame.current === null) frame.current = requestAnimationFrame(() => { frame.current = null; setVersion(v => v + 1); });
         });
-        return cols;
+        return observerRef.current;
+    };
+    useEffect(() => () => { observerRef.current?.disconnect(); observerRef.current = null; if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+    const measure = useCallback((el: HTMLDivElement | null) => {
+        if (el) observer()?.observe(el);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Which column each tile belongs to: decided by shape alone, so later pages never change it
+    const columns = React.useMemo(() => {
+        const heightsByShape = new Array(n).fill(0);
+        return posts.map(post => {
+            let c = 0;
+            for (let i = 1; i < n; i++) if (heightsByShape[i] < heightsByShape[c] - 0.001) c = i;
+            heightsByShape[c] += 1 / tileAspect(post) + 0.32; // the name and place beneath
+            return c;
+        });
     }, [posts, n]);
+
+    const colW = width > 0 ? (width - g.x * (n - 1)) / n : 0;
+    const tops: number[] = [];
+    const colBottom = new Array(n).fill(0);
+    posts.forEach((post, i) => {
+        const c = columns[i];
+        tops.push(colBottom[c]);
+        const est = colW / tileAspect(post) + 72;
+        colBottom[c] += (heights.current.get(post.id) ?? est) + g.y;
+    });
+    const total = Math.max(0, ...colBottom) - g.y;
+
     useEffect(() => { if (posts.length) scheduleBlankCount(); }, [posts.length]);
     return (
-        <div className="flex items-start gap-4 md:gap-6">
-            {columns.map((col, ci) => (
-                <div key={ci} className="flex-1 min-w-0 flex flex-col gap-6 md:gap-8">
-                    {col.map(({ post, index }) => (
-                        <FeedCard key={post.id} post={post} onPostClick={onPostClick} priority={index < 2} />
-                    ))}
+        <div ref={boxRef} role="list" aria-label={label} className="relative w-full" style={{ height: colW ? Math.max(0, total) : undefined }}>
+            {colW > 0 && posts.map((post, index) => (
+                <div
+                    key={post.id}
+                    ref={measure}
+                    data-tile-id={post.id}
+                    role="listitem"
+                    className="absolute"
+                    style={{ width: colW, left: columns[index] * (colW + g.x), top: tops[index] }}
+                >
+                    <FeedCard post={post} onPostClick={onPostClick} priority={index < 2} hideCounts={hideCounts} />
                 </div>
             ))}
         </div>
@@ -374,6 +467,36 @@ const SightingSound: React.FC<{ src?: string; image?: string | null; noDownload:
             )}
             <PlayableAudio src={src} controls controlsList={noDownload ? 'nodownload' : undefined} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} className="w-full max-w-md shrink-0 rounded-full" />
         </div>
+    );
+};
+
+/**
+ * Where the name came from and how sure anyone is: the guide (AI) or the explorer, whether it still
+ * needs confirming, and how many explorers agree. Plain words, one quiet line.
+ */
+const Provenance: React.FC<{ item: any; post: CommunityPost; agree: number }> = ({ item, post, agree }) => {
+    const p: any = post;
+    const proposed: string[] = item?.aiProposedLabels || p.aiProposedLabels || [];
+    const first = String(item?.labels?.[0] || p.labels?.[0] || '').trim().toLowerCase();
+    const source: 'guide' | 'explorer' | null = item?.nameSource || p.nameSource
+        || (proposed.length ? (String(proposed[0] || '').trim().toLowerCase() === first && !(item?.humanDelta ?? p.humanDelta) ? 'guide' : 'explorer') : null);
+    const conf = item?.aiConfidence ?? p.aiConfidence;
+    const idConf = String((item?.aiIdentifications || p.aiIdentifications || [])[0]?.confidence || '').toLowerCase();
+    const low = (typeof conf === 'number' && conf < 0.6) || conf === 'low' || idConf === 'low';
+    const confirmed = agree >= 2;
+    const unconfirmed = !confirmed && (item?.needsExpertReview === true || p.needsExpertReview === true || low);
+    const bits: { text: string; glyph: React.ComponentProps<typeof Glyph>['name'] }[] = [];
+    if (source === 'guide') bits.push({ text: 'Suggested by the guide (AI)', glyph: 'guide' });
+    if (source === 'explorer') bits.push({ text: 'Named by the explorer', glyph: 'feather' });
+    if (confirmed) bits.push({ text: `Confirmed by ${agree} explorers`, glyph: 'stamp' });
+    else if (unconfirmed) bits.push({ text: 'Not confirmed yet', glyph: 'help' });
+    if (!bits.length) return null;
+    return (
+        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-600">
+            {bits.map(b => (
+                <span key={b.text} className="inline-flex items-center gap-1.5"><Glyph name={b.glyph} size={14} className="text-stone-500" />{b.text}</span>
+            ))}
+        </p>
     );
 };
 
@@ -427,7 +550,18 @@ interface CommunityProps {
   /** Journal grid only. The journal draws the header: a string is its search (this header, chips and
    *  filters are hidden); null keeps the search, chips and filters here but drops the title row. */
   journalQuery?: string | null;
+  /** Opens a new letter with this sighting attached (App opens Letters with attachPostId) */
+  onSendAsLetter?: (postId: string) => void;
+  /** Hide marvel counts. Defaults to on for teen explorers (services/guardian.ts) */
+  hideCounts?: boolean;
 }
+
+/** Sightings asked for at a time on Following */
+const FOLLOW_PAGE = 30;
+
+/** Header ways on (Activity, Explore, Letters, Drafts): an icon with its name beneath, 44 px or more */
+const HEADER_ACTION = 'relative inline-flex flex-col items-center justify-center gap-1 min-w-[48px] min-h-[52px] px-1 rounded-xl text-stone-700 transition-colors hover:text-stone-900 hover:bg-stone-900/[0.04]';
+const HEADER_LABEL = 'text-[11px] leading-none font-medium text-stone-600';
 
 const Community: React.FC<CommunityProps> = ({
     currentUserMode,
@@ -451,7 +585,9 @@ const Community: React.FC<CommunityProps> = ({
     headerActions,
     onOpenNaturalist,
     onOpenExplore,
-    journalQuery
+    journalQuery,
+    onSendAsLetter,
+    hideCounts: hideCountsProp
 }) => {
   // The first tiles arrive inside the page itself (server/media.js): paint them before any request
   const [bootPosts] = useState<CommunityPost[]>(() => {
@@ -463,10 +599,15 @@ const Community: React.FC<CommunityProps> = ({
   const [posts, setPosts] = useState<CommunityPost[]>(bootPosts);
   // Tiles already on screen keep their places when the full first page arrives
   const pinnedIdsRef = useRef<string[]>(bootPosts.map(p => p.id));
-  const sendAsLetter = onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
-          // Letters have no recipient picker yet: carry the link over so it can be pasted into any letter.
-          const url = `${window.location.origin}/s/${post.id}`;
-          try { navigator.clipboard?.writeText(url); } catch { /* ignore */ }
+  // Teen explorers see no marvel counts (unless the caller decides otherwise)
+  const [teenViewer, setTeenViewer] = useState(false);
+  useEffect(() => watchTeen(s => setTeenViewer(s.teen)), []);
+  const hideCounts = hideCountsProp ?? teenViewer;
+  const sendAsLetter = onSendAsLetter && !currentUserMode?.isAnonymous
+      ? (post: CommunityPost) => onSendAsLetter(post.id)
+      : onOpenMessages && !currentUserMode?.isAnonymous ? (post: CommunityPost) => {
+          // Older callers without onSendAsLetter: carry the public link over to paste into a letter
+          try { navigator.clipboard?.writeText(getShareUrl(post.id)); } catch { /* ignore */ }
           onOpenMessages();
       } : undefined;
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -477,14 +618,26 @@ const Community: React.FC<CommunityProps> = ({
   const [isLoading, setIsLoading] = useState(bootPosts.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [searchTag, setSearchTag] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  /** One confirm sheet for every step that can't be undone (delete a sighting or a field note, block) */
+  const [confirmAsk, setConfirmAsk] = useState<{ title: string; body: string; action: string; glyph: 'trash' | 'block'; run: () => void; cancel?: () => void } | null>(null);
+  const confirmedRef = useRef(false);
+  const { close: closeConfirm } = useBackToClose(!!confirmAsk, () => {
+      const ask = confirmAsk;
+      setConfirmAsk(null);
+      if (confirmedRef.current) { confirmedRef.current = false; ask?.run(); } else ask?.cancel?.();
+  });
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [feedMode, setFeedMode] = useState<'foryou' | 'following'>('foryou');
   const [blockedIds, setBlockedIds] = useState<string[]>([]);
   const [loadMoreState, setLoadMoreState] = useState<'idle' | 'loading' | 'error'>('idle');
+  /** Following: whom the explorer follows (null until known) and how long a list has been asked for */
+  const [followIdList, setFollowIdList] = useState<string[] | null>(null);
+  const [followLimit, setFollowLimit] = useState(FOLLOW_PAGE);
   const [isSaved, setIsSaved] = useState(false);
   const [postMenuOpen, setPostMenuOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
+  /** What is being reported; the field-notes sheet steps aside while it is open, and comes back after */
+  const [reportTarget, setReportTarget] = useState<(ReportTarget & { what: string; backToNotes?: boolean }) | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [toast, setToast] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
   const isMember = !!currentUserMode.userId && currentUserMode.userId !== 'explorer_guest' && !currentUserMode.isAnonymous;
@@ -576,7 +729,7 @@ const Community: React.FC<CommunityProps> = ({
   // Words to offer in the search before anything is typed: the species most seen in what's loaded
   const searchSuggestions = React.useMemo(() => {
     const seen = new Map<string, number>();
-    posts.forEach(p => { const l = String(p.labels?.[0] || '').trim(); if (l && !/^(unknown|nature|unidentified|captured|uploaded)/i.test(l)) seen.set(l, (seen.get(l) || 0) + 1); });
+    posts.forEach(p => { const l = String(namesOf(p).common || '').trim(); if (l && !/^(unknown|nature|unidentified|captured|uploaded)/i.test(l)) seen.set(l, (seen.get(l) || 0) + 1); });
     return [...seen.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([l]) => l);
   }, [posts]);
 
@@ -645,16 +798,27 @@ const Community: React.FC<CommunityProps> = ({
   const drawerFiltersOn = mediaFilter !== 'all' || dateFilter !== 'all' || sortOrder !== 'newest';
   const anyFilterOn = drawerFiltersOn || !!selectedGroup || !!searchTag || (isJournalOnly && !!searchQuery.trim());
 
-  // "For you" is ranked when no filter or order is chosen; otherwise explicit ordering wins
+  // "For you" is ranked when no filter or order is chosen; otherwise explicit ordering wins.
+  // Only sightings that have just arrived are ranked, and they go after the ones already shown:
+  // a new page never reshuffles tiles on screen.
+  const rankedOrderRef = useRef<string[]>([]);
   const displayPosts = React.useMemo(() => {
     const ranked = !isJournalOnly && feedMode === 'foryou' && !searchTag && !anyFilterOn;
     if (!ranked) return filteredAndSortedPosts;
-    // Tiles painted from the page keep their places; AI-curated picks (persona) come next; the rest is ranked transparently
-    const pinned = new Set(pinnedIdsRef.current);
-    const first = pinnedIdsRef.current.map(id => filteredAndSortedPosts.find(p => p.id === id)).filter(Boolean) as CommunityPost[];
-    const curated = filteredAndSortedPosts.filter(p => p.curatorNote && !pinned.has(p.id));
-    const rest = filteredAndSortedPosts.filter(p => !p.curatorNote && !pinned.has(p.id));
-    return [...first, ...curated, ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId })];
+    const byId = new Map(filteredAndSortedPosts.map(p => [p.id, p]));
+    // Tiles painted from the page keep their places first
+    let order = rankedOrderRef.current.filter(id => byId.has(id));
+    if (!order.length) order = pinnedIdsRef.current.filter(id => byId.has(id));
+    const placed = new Set(order);
+    const fresh = filteredAndSortedPosts.filter(p => !placed.has(p.id));
+    if (fresh.length) {
+      // AI-curated picks (persona) lead the new arrivals; the rest is ranked transparently
+      const curated = fresh.filter(p => p.curatorNote);
+      const rest = fresh.filter(p => !p.curatorNote);
+      order = [...order, ...curated.map(p => p.id), ...rankForYou(rest, { followingIds, persona: userPersona, challengeTag: themeExtra.challengeTag, myUid: currentUserMode.userId }).map(p => p.id)];
+    }
+    rankedOrderRef.current = order;
+    return order.map(id => byId.get(id)!).filter(Boolean);
   }, [filteredAndSortedPosts, isJournalOnly, feedMode, searchTag, anyFilterOn, followingIds, userPersona, themeExtra.challengeTag, currentUserMode.userId]);
 
   // Clear every filter (and the journal's own search)
@@ -667,6 +831,16 @@ const Community: React.FC<CommunityProps> = ({
     setSearchTag(null);
     setIsSearchFocused(false);
   };
+
+  // The bottom of the feed: worth knowing how often explorers get there
+  const endTrackedRef = useRef('');
+  useEffect(() => {
+    if (isJournalOnly || isLoading || hasMore || posts.length === 0) return;
+    const key = `${feedMode}|${searchTag || ''}`;
+    if (endTrackedRef.current === key) return;
+    endTrackedRef.current = key;
+    track('feed_end_reached', { feed: feedMode, count: posts.length, filtered: anyFilterOn });
+  }, [hasMore, isLoading, isJournalOnly, posts.length, feedMode, searchTag, anyFilterOn]);
 
   const [activeItemIndex, setActiveItemIndex] = useState(0);
   const activePostIndex = activePost ? displayPosts.findIndex(p => p.id === activePost.id) : -1;
@@ -743,8 +917,20 @@ const Community: React.FC<CommunityProps> = ({
   const [sharingPost, setSharingPost] = useState<CommunityPost | null>(null);
 
   const loadMore = useCallback(async () => {
-      if (!hasMore || isLoading || isJournalOnly || feedMode === 'following' || loadMoreState === 'loading') return;
+      if (!hasMore || isLoading || isJournalOnly || loadMoreState === 'loading') return;
       setLoadMoreState('loading');
+      if (feedMode === 'following') {
+          // Following has no cursor: ask for a longer list and keep what is already on screen in place
+          try {
+              const want = followLimit + FOLLOW_PAGE;
+              const feed = await FirebaseService.getFollowingFeed(followIdList || [], want);
+              setPosts(prev => { const seen = new Set(prev.map(p => p.id)); return [...prev, ...feed.filter(p => !seen.has(p.id))]; });
+              setFollowLimit(want);
+              setHasMore(feed.length >= want);
+              setLoadMoreState('idle');
+          } catch { setLoadMoreState('error'); }
+          return;
+      }
       try {
           const { posts: newPosts, lastVisible: newLastVisible } = await FirebaseService.getMorePosts(lastVisible, searchTag);
           setPosts(prev => {
@@ -758,7 +944,7 @@ const Community: React.FC<CommunityProps> = ({
           console.error("Failed to load more posts:", err);
           setLoadMoreState('error');
       }
-  }, [hasMore, isLoading, lastVisible, searchTag, isJournalOnly, feedMode, loadMoreState]);
+  }, [hasMore, isLoading, lastVisible, searchTag, isJournalOnly, feedMode, loadMoreState, followLimit, followIdList]);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -786,12 +972,15 @@ const Community: React.FC<CommunityProps> = ({
   const [lastTap, setLastTap] = useState<number>(0);
   const [wonderBurst, setWonderBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const { close: closeNotes } = useBackToClose(isCommentsOpen, () => setIsCommentsOpen(false));
+  const { close: closeMenu } = useBackToClose(postMenuOpen, () => setPostMenuOpen(false));
   const sheetRef = useRef<HTMLDivElement>(null);
   const sheetDrag = useRef<{ y: number; t: number; on: boolean }>({ y: 0, t: 0, on: false });
 
   // Species field-guide page
   const [selectedSpecies, setSelectedSpecies] = useState<{name: string, location: string, id: string} | null>(null);
-  const [speciesData, setSpeciesData] = useState<{extract: string, thumbnail: string, loading: boolean, url?: string} | null>(null);
+  const [speciesData, setSpeciesData] = useState<{extract: string, loading: boolean, url?: string, failed?: boolean} | null>(null);
+  const { close: closeSpecies } = useBackToClose(!!selectedSpecies, () => setSelectedSpecies(null));
 
   /** What the loaded sightings say about the open species: who has seen it, when, and what it is confused with. */
   const speciesPage = React.useMemo(() => {
@@ -836,37 +1025,34 @@ const Community: React.FC<CommunityProps> = ({
 
   const handleSpeciesClick = async (label: string, locationArea?: string) => {
     setSelectedSpecies({name: label, location: locationArea || '', id: label});
-    setSpeciesData({extract: "", thumbnail: "", loading: true});
+    setSpeciesData({extract: "", loading: true});
+    const clean = label.replace(/\(.*?\)/g, '').trim();
     try {
-        const clean = label.replace(/\(.*?\)/g, '').trim();
-        const candidates = Array.from(new Set([clean, clean.split(' ').slice(0, 2).join(' ')])).filter(Boolean);
-        let found: any = null;
-        for (const c of candidates) {
-            const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(c)}?redirect=true`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.type !== 'disambiguation' && data.extract) { found = data; break; }
-            }
-        }
+        // Our server asks Wikipedia (and remembers the answer), so the explorer's phone never contacts it
+        const res = await fetch(apiUrl(`/api/species/summary?name=${encodeURIComponent(clean)}`));
+        const found = res.ok ? await res.json() : null;
+        if (!res.ok || found?.unavailable) throw new Error('unavailable');
         setSpeciesData({
             extract: found?.extract || `The encyclopedia has nothing on "${clean}" yet. The name may cover a group rather than a single species.`,
-            thumbnail: found?.thumbnail?.source || "",
             loading: false,
-            url: found?.content_urls?.desktop?.page || '',
+            url: found?.url || '',
         });
     } catch(e) {
-        setSpeciesData({extract: "The encyclopedia can't be reached right now. Try again in a little while.", thumbnail: "", loading: false});
+        setSpeciesData({extract: "The encyclopedia can't be reached right now. Try again in a little while.", loading: false, failed: true});
     }
   };
 
-  const handleDeletePost = async (postId: string) => {
-      setConfirmDeleteId(postId);
+  const handleDeletePost = (postId: string) => {
+      setConfirmAsk({
+          title: 'Delete this sighting?',
+          body: "It will be removed from the feed and your journal. This can't be undone.",
+          action: 'Delete sighting',
+          glyph: 'trash',
+          run: () => executeDelete(postId),
+      });
   };
 
-  const executeDelete = async () => {
-      if (!confirmDeleteId) return;
-      const postId = confirmDeleteId;
-      setConfirmDeleteId(null);
+  const executeDelete = async (postId: string) => {
       try {
           // Optimistic update
           setPosts(prev => prev.filter(p => p.id !== postId));
@@ -877,8 +1063,7 @@ const Community: React.FC<CommunityProps> = ({
           }
       } catch (e) {
           console.error("Failed to delete post", e);
-          alert("Could not delete the sighting. Please try again.");
-          // Revert optimistic update is handled by the onSnapshot listener automatically
+          showToast("Could not delete the sighting. Please try again.");
       }
   };
 
@@ -911,11 +1096,16 @@ const Community: React.FC<CommunityProps> = ({
     setIsLoading(true);
     setError(null);
     setHasMore(false);
+    setPosts([]);
+    setFollowLimit(FOLLOW_PAGE);
     (async () => {
       try {
         const ids = currentUserMode.userId ? await FirebaseService.getFollowingIds(currentUserMode.userId) : [];
-        const feed = await FirebaseService.getFollowingFeed(ids);
-        if (active) setPosts(feed);
+        const feed = await FirebaseService.getFollowingFeed(ids, FOLLOW_PAGE);
+        if (!active) return;
+        setFollowIdList(ids);
+        setPosts(feed);
+        setHasMore(feed.length >= FOLLOW_PAGE);
       } catch (e: any) {
         if (active) setError(e?.message || 'failed');
       } finally {
@@ -923,7 +1113,7 @@ const Community: React.FC<CommunityProps> = ({
       }
     })();
     return () => { active = false; };
-  }, [feedMode, isJournalOnly, currentUserMode.userId]);
+  }, [feedMode, isJournalOnly, currentUserMode.userId, retryKey]);
 
   useEffect(() => {
     if (!userPersona || isJournalOnly || feedMode !== 'foryou' || searchTag || posts.length === 0) return;
@@ -956,6 +1146,7 @@ const Community: React.FC<CommunityProps> = ({
     // First visit with tiles from the page: they stay on screen while the full first page loads
     const fromPage = !searchTag && peekFirstTiles().length > 0 && pinnedIdsRef.current.length > 0;
 
+    rankedOrderRef.current = [];
     if (!fromPage) {
       window.scrollTo(0, 0);
       const container = document.getElementById('community-scroll-container');
@@ -996,7 +1187,7 @@ const Community: React.FC<CommunityProps> = ({
         setIsLoading(false);
     });
     return () => { live = false; };
-  }, [searchTag, isJournalOnly, feedMode]);
+  }, [searchTag, isJournalOnly, feedMode, retryKey]);
 
   useEffect(() => {
     if (selectedPostId) {
@@ -1044,10 +1235,69 @@ const Community: React.FC<CommunityProps> = ({
 
   useEffect(() => {
       setPostMenuOpen(false);
-      setReportOpen(false);
       if (activePost && isMember) FirebaseService.isSaved(activePost.id).then(setIsSaved);
       else setIsSaved(false);
   }, [activePost?.id, isMember]);
+
+  // Follow the author from the post (hidden on your own sightings)
+  const [followsAuthor, setFollowsAuthor] = useState<boolean | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  useEffect(() => {
+      setFollowsAuthor(null);
+      const uid = activePost?.userId;
+      if (!uid || !isMember || uid === currentUserMode.userId) return;
+      if (followingIds.has(uid)) { setFollowsAuthor(true); return; }
+      let alive = true;
+      FirebaseService.isFollowing(uid).then(f => { if (alive) setFollowsAuthor(f); }).catch(() => { if (alive) setFollowsAuthor(false); });
+      return () => { alive = false; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePost?.userId, isMember, currentUserMode.userId]);
+  const toggleFollowAuthor = async () => {
+      const post = activePost;
+      if (!post || followBusy) return;
+      if (!isMember) { askAccount('Create a free account to follow explorers and gather their sightings in Following.', () => toggleFollowAuthor()); return; }
+      const next = !followsAuthor;
+      setFollowBusy(true);
+      setFollowsAuthor(next);
+      try {
+          if (next) await FirebaseService.followUser(post.userId); else await FirebaseService.unfollowUser(post.userId);
+          setFollowingIds(prev => { const n = new Set(prev); if (next) n.add(post.userId); else n.delete(post.userId); return n; });
+          track(next ? 'follow' : 'unfollow', { surface: 'post' });
+      } catch (err: any) {
+          setFollowsAuthor(!next);
+          showToast(String(err?.message || '').length < 90 && err?.message ? err.message : 'Could not update. Please try again.');
+      } finally { setFollowBusy(false); }
+  };
+
+  // How many explorers agree with the name, read from the identifications kept with the sighting
+  const [agreeCount, setAgreeCount] = useState(0);
+  useEffect(() => {
+      setAgreeCount(0);
+      if (!activePost?.id || !activePost.isPublic) return;
+      const stored = Number((activePost as any).idAgreeCount);
+      if ((activePost as any).communityVerified === true && stored >= 2) { setAgreeCount(stored); return; }
+      let alive = true;
+      const primary = String(activePost.labels?.[0] || '').trim().toLowerCase();
+      FirebaseService.getIdentifications(activePost.id).then(ids => {
+          if (!alive) return;
+          setAgreeCount(ids.filter(i => i.agree === true || String(i.name || '').trim().toLowerCase() === primary).length);
+      }).catch(() => {});
+      return () => { alive = false; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePost?.id, activePost?.isPublic]);
+
+  // Escape closes the open sighting, when no window is open on top of it (those close first)
+  useEffect(() => {
+      if (!activePost) return;
+      const onKey = (e: KeyboardEvent) => {
+          if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen() || isEditing) return;
+          const t = e.target as HTMLElement | null;
+          if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+          closeDetail();
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Real back-button support: an open post gets its own URL (/post/:id); Back closes it
   const historyPushedRef = useRef(false);
@@ -1189,19 +1439,23 @@ const Community: React.FC<CommunityProps> = ({
       }
   };
 
-  const handleReport = async (reason: string) => {
-      if (!activePost) return;
-      setReportOpen(false);
+  /** Open the report sheet. From the field notes, it takes the sheet's place and hands back after. */
+  const openReport = (target: ReportTarget, what: string) => {
+      setPostMenuOpen(false);
       if (!isMember) { askAccount('Create a free account to report content.'); return; }
-      if (activePost.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this sighting. Thank you.'); return; }
-      try {
-          await FirebaseService.reportPost(activePost.id, reason);
-          track('report', { reason });
-          setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
-          showToast('Thanks. Our moderators will review this sighting.');
-      } catch {
-          showToast('Could not send the report. Please try again.');
-      }
+      if (target.kind === 'post' && activePost?.reports?.includes(currentUserMode.userId!)) { showToast('You already reported this sighting. Thank you.'); return; }
+      const backToNotes = isCommentsOpen;
+      if (backToNotes) setIsCommentsOpen(false);
+      setReportTarget({ ...target, what, backToNotes });
+  };
+  const onReportSent = () => {
+      const t = reportTarget;
+      if (t?.kind === 'post') setActivePost(prev => prev ? { ...prev, reports: [...(prev.reports || []), currentUserMode.userId!] } : prev);
+  };
+  const onReportClosed = () => {
+      const back = reportTarget?.backToNotes;
+      setReportTarget(null);
+      if (back && activePost) setIsCommentsOpen(true);
   };
 
   const handleMuteAuthor = async () => {
@@ -1216,17 +1470,26 @@ const Community: React.FC<CommunityProps> = ({
       } catch { showToast('Could not mute. Please try again.'); }
   };
 
-  const handleBlockAuthor = async () => {
+  const handleBlockAuthor = () => {
       if (!activePost) return;
       setPostMenuOpen(false);
       if (!isMember) { askAccount('Create a free account to block explorers.'); return; }
-      if (!window.confirm(`Block ${activePost.userName}? You won't see their sightings or field notes.`)) return;
-      try {
-          await FirebaseService.blockUser(activePost.userId);
-          setBlockedIds(prev => [...prev, activePost.userId]);
-          closeDetail();
-          showToast(`${activePost.userName} blocked`);
-      } catch { showToast('Could not block. Please try again.'); }
+      const who = explorerName(activePost.userName, true);
+      const uid = activePost.userId;
+      setConfirmAsk({
+          title: `Block ${who}?`,
+          body: "You won't see their sightings or field notes, and they can't write to you. You can unblock them from their field page.",
+          action: 'Block',
+          glyph: 'block',
+          run: async () => {
+              try {
+                  await FirebaseService.blockUser(uid);
+                  setBlockedIds(prev => [...prev, uid]);
+                  closeDetail();
+                  showToast(`${who} blocked`);
+              } catch { showToast('Could not block. Please try again.'); }
+          },
+      });
   };
 
   const handleSendComment = async (e: React.FormEvent) => {
@@ -1294,21 +1557,36 @@ const Community: React.FC<CommunityProps> = ({
                                             <span>{[showSpeciesCounts ? speciesLine(c.userId) : '', timeAgo(c.timestamp)].filter(Boolean).join(', ')}</span>
                                             {looksLikeSpam(c.text) && isPostOwner && <span className="text-amber-900 font-medium">Looks like spam, hidden from others</span>}
                                             {isMember && c.userId !== currentUserMode.userId && (
-                                                <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-medium min-h-[32px] hover:text-stone-800">Reply</button>
+                                                <button onClick={() => { setNewComment(prev => `@${c.userName} ${prev}`.slice(0, 1000)); (document.getElementById('new-comment') as HTMLInputElement | null)?.focus(); }} className="font-medium min-h-[44px] hover:text-stone-800">Reply</button>
                                             )}
                                             {(c.userId === currentUserMode.userId || activePost.userId === currentUserMode.userId) && (
-                                                <button onClick={() => handleDeleteComment(c.id)} className="font-medium min-h-[32px] hover:text-red-700">Delete</button>
+                                                <button onClick={() => handleDeleteComment(c.id)} className="font-medium min-h-[44px] hover:text-red-700">Delete</button>
+                                            )}
+                                            {c.userId !== currentUserMode.userId && (
+                                                <button onClick={() => openReport({ kind: 'comment', postId: activePost.id, commentId: c.id, userId: c.userId }, 'this field note')} aria-label={`Report ${explorerName(c.userName)}'s field note`} className="font-medium min-h-[44px] hover:text-stone-800">Report</button>
                                             )}
                                         </div>
                                     </div>
                                 </div>
   );
 
-  const handleDeleteComment = async (commentId: string) => {
-      if (!activePost || !window.confirm('Delete this field note?')) return;
-      try {
-          await FirebaseService.deleteComment(activePost.id, commentId);
-      } catch { showToast('Could not delete the field note.'); }
+  const handleDeleteComment = (commentId: string) => {
+      if (!activePost) return;
+      const postId = activePost.id;
+      // The confirm takes the field notes' place, then hands back to them
+      setIsCommentsOpen(false);
+      setConfirmAsk({
+          title: 'Delete this field note?',
+          body: "It will be removed for everyone. This can't be undone.",
+          action: 'Delete field note',
+          glyph: 'trash',
+          run: async () => {
+              try { await FirebaseService.deleteComment(postId, commentId); }
+              catch { showToast('Could not delete the field note.'); }
+              setIsCommentsOpen(true);
+          },
+          cancel: () => setIsCommentsOpen(true),
+      });
   };
 
   const handleProfileClick = (userId: string) => {
@@ -1396,7 +1674,7 @@ const Community: React.FC<CommunityProps> = ({
         }
     } catch (e) {
         console.error("Failed to update post", e);
-        alert("Could not save your changes. Please try again.");
+        showToast("Could not save your changes. Please try again.");
     }
   };
 
@@ -1418,7 +1696,7 @@ const Community: React.FC<CommunityProps> = ({
             const g = speciesPage.group;
             return (
             <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center sm:p-6 animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="species-title">
-                <div className="absolute inset-0 ng-scrim" onClick={() => setSelectedSpecies(null)} aria-hidden="true"></div>
+                <div className="absolute inset-0 ng-scrim" onClick={closeSpecies} aria-hidden="true"></div>
                 <div className="relative w-full max-w-lg ng-sheet overflow-hidden animate-slide-up flex flex-col max-h-[88vh] sm:max-h-[82vh]">
                     <div className="flex flex-col min-h-0 flex-1">
                         <div className="px-6 pt-6 pb-5 flex items-start justify-between gap-4">
@@ -1427,7 +1705,7 @@ const Community: React.FC<CommunityProps> = ({
                                 <h3 id="species-title" className="ng-title italic mt-3">{selectedSpecies.name}</h3>
                                 {speciesPage.scientific && <p className="font-display italic text-base text-stone-500 mt-1">{speciesPage.scientific}</p>}
                             </div>
-                            <button onClick={() => setSelectedSpecies(null)} aria-label="Close" className="ng-icon-button -mr-2 -mt-1">
+                            <button onClick={closeSpecies} aria-label="Close" className="ng-icon-button -mr-2 -mt-1">
                                 <Glyph name="close" size={24} />
                             </button>
                         </div>
@@ -1454,19 +1732,17 @@ const Community: React.FC<CommunityProps> = ({
                                 <PressingLoader label={`Looking up ${selectedSpecies.name}`} className="py-8" />
                             ) : (
                                 <>
-                                    {speciesData?.thumbnail && (
-                                        <figure className="ng-thumb">
-                                            <img src={speciesData.thumbnail} className="w-full aspect-[16/10] object-cover" alt={selectedSpecies.name} />
-                                        </figure>
-                                    )}
                                     {speciesData?.extract && (
                                         <p className="ng-body ng-measure">{speciesData.extract}</p>
                                     )}
-                                    <p className="ng-caption">
-                                        {speciesData?.url
-                                            ? <>From Wikipedia, under CC BY-SA. <a href={speciesData.url} target="_blank" rel="noopener noreferrer" className="underline">Read the full article</a>.</>
-                                            : 'Encyclopedia text from Wikipedia when available.'}
-                                    </p>
+                                    {speciesData?.failed ? (
+                                        <button onClick={() => handleSpeciesClick(selectedSpecies.name, selectedSpecies.location)} className="ng-link-quiet min-h-[44px]">Try again</button>
+                                    ) : speciesData?.url ? (
+                                        <p className="ng-caption">
+                                            <a href={speciesData.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">From Wikipedia</a>,{' '}
+                                            <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener noreferrer license" className="underline underline-offset-4">CC BY-SA 4.0</a>
+                                        </p>
+                                    ) : null}
                                 </>
                             )}
                             {speciesPage.explorers > 0 && speciesPath(speciesPage.scientific || selectedSpecies.name) && (
@@ -1500,28 +1776,23 @@ const Community: React.FC<CommunityProps> = ({
             );
         })()}
 
-        {/* Custom Confirmation Modal */}
-        {confirmDeleteId && (
-            <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-fade-in">
-                <div className="absolute inset-0 ng-scrim" onClick={() => setConfirmDeleteId(null)}></div>
+        {/* One confirm sheet for steps that can't be undone */}
+        {confirmAsk && (
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-fade-in motion-reduce:animate-none" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+                <div className="absolute inset-0 ng-scrim" onClick={closeConfirm} aria-hidden="true"></div>
                 <div className="relative w-full max-w-sm bg-day-bg rounded-2xl p-8 shadow-2xl ng-rise text-center">
-                    <Glyph name="trash" size={32} strokeWidth={1.2} className="text-stone-400 mb-5" />
-                    <h3 className="ng-subtitle mb-2">Delete this sighting?</h3>
-                    <p className="ng-small mb-8">
-                        It will be removed from the feed and your journal. This can't be undone.
-                    </p>
+                    <Glyph name={confirmAsk.glyph} size={32} strokeWidth={1.2} className="text-stone-400 mb-5" />
+                    <h3 id="confirm-title" className="ng-subtitle mb-2">{confirmAsk.title}</h3>
+                    <p id="confirm-body" className="ng-small mb-8">{confirmAsk.body}</p>
                     <div className="flex flex-col gap-3">
                         <button
-                            onClick={executeDelete}
+                            onClick={() => { confirmedRef.current = true; closeConfirm(); }}
                             className="w-full min-h-[48px] bg-red-700 hover:bg-red-800 text-white font-semibold text-[15px] rounded-full transition-colors"
                         >
-                            Delete sighting
+                            {confirmAsk.action}
                         </button>
-                        <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="ng-button-quiet w-full"
-                        >
-                            Keep it
+                        <button onClick={closeConfirm} className="ng-button-quiet w-full" autoFocus>
+                            Cancel
                         </button>
                     </div>
                 </div>
@@ -1545,10 +1816,11 @@ const Community: React.FC<CommunityProps> = ({
                         {isJournalOnly ? (
                             <h2 className="ng-title">My journal</h2>
                         ) : (
-                            <h2 className="flex items-center gap-2.5 text-stone-900">
+                            <h1 className="flex items-center gap-2.5 text-stone-900">
                                 <BrandMark size={24} />
                                 <span className="ng-wordmark">NatureGram</span>
-                            </h2>
+                                <span className="sr-only">: Wild, today's sightings</span>
+                            </h1>
                         )}
                     </button>
                     {!isJournalOnly && (
@@ -1559,37 +1831,41 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
 
-                <div className="flex items-center gap-1 -mr-2 shrink-0">
+                <div className="flex items-start gap-0.5 -mr-2 shrink-0">
                     {headerActions}
+                    {/* Each way on carries its name beneath it */}
                     {!isJournalOnly && onOpenActivity && (
-                        <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative ng-icon-button">
-                            <Glyph name="ripples" size={24} />
-                            {unreadActivity > 0 && <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
+                        <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className={HEADER_ACTION}>
+                            <span className="relative"><Glyph name="ripples" size={22} />
+                            {unreadActivity > 0 && <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}</span>
+                            <span className={HEADER_LABEL} aria-hidden="true">Activity</span>
                         </button>
                     )}
                     {!isJournalOnly && onOpenExplore && (
-                        <button onClick={onOpenExplore} aria-label="Explore" data-tour="explore" className="ng-icon-button">
-                            <Glyph name="leafCompass" size={24} />
+                        <button onClick={onOpenExplore} aria-label="Explore" data-tour="explore" className={HEADER_ACTION}>
+                            <Glyph name="leafCompass" size={22} />
+                            <span className={HEADER_LABEL} aria-hidden="true">Explore</span>
                         </button>
                     )}
                     {!isJournalOnly && onOpenMessages && (
-                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} data-tour="letters" className="relative ng-icon-button">
-                            <Glyph name="sealed" size={24} />
-                            {unreadMessages > 0 && <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}
+                        <button onClick={onOpenMessages} aria-label={unreadMessages ? `Letters, ${unreadMessages} unread` : 'Letters'} data-tour="letters" className={HEADER_ACTION}>
+                            <span className="relative"><Glyph name="sealed" size={22} />
+                            {unreadMessages > 0 && <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-theme-accent ring-2 ring-day-bg" aria-hidden="true" />}</span>
+                            <span className={HEADER_LABEL} aria-hidden="true">Letters</span>
                         </button>
                     )}
                     {onViewDrafts && activeDraftsCount > 0 && (
                         <button
                             onClick={onViewDrafts}
-                            className="relative ng-icon-button"
-                            aria-label={activeDraftsCount > 0 ? `Unfinished pages, ${activeDraftsCount}` : 'Unfinished pages'}
+                            className={HEADER_ACTION}
+                            aria-label={`Drafts, ${activeDraftsCount} unfinished ${activeDraftsCount === 1 ? 'page' : 'pages'}`}
                         >
-                            <Glyph name="satchel" size={24} />
-                            {activeDraftsCount > 0 ? (
-                                <span className="absolute top-1 right-0.5 min-w-[18px] h-[18px] px-1 bg-stone-900 rounded-full ring-2 ring-day-bg flex items-center justify-center text-[11px] font-semibold text-white tabular">
+                            <span className="relative"><Glyph name="satchel" size={22} />
+                                <span className="absolute -top-2 -right-3 min-w-[18px] h-[18px] px-1 bg-stone-900 rounded-full ring-2 ring-day-bg flex items-center justify-center text-[11px] font-semibold text-white tabular" aria-hidden="true">
                                     {activeDraftsCount}
                                 </span>
-                            ) : null}
+                            </span>
+                            <span className={HEADER_LABEL} aria-hidden="true">Drafts</span>
                         </button>
                     )}
                 </div>
@@ -1604,6 +1880,7 @@ const Community: React.FC<CommunityProps> = ({
                             aria-selected={feedMode === key}
                             onClick={() => {
                                 if (key === 'following' && !isMember) { askAccount('Create a free account to follow explorers and gather their sightings here.'); return; }
+                                if (key === 'following' && feedMode !== 'following') track('following_tab_open');
                                 setFeedMode(key);
                             }}
                             className={`ng-tab ${feedMode === key ? 'ng-tab-on' : ''}`}
@@ -1620,15 +1897,15 @@ const Community: React.FC<CommunityProps> = ({
                     <ul className="flex gap-4 overflow-x-auto no-scrollbar -mx-6 px-6 md:-mx-12 md:px-12 pb-1" role="list">
                         {freshRail.map(r => (
                             <li key={r.userId} className="shrink-0">
-                                <button onClick={() => handlePostClick(r.post)} className="group flex flex-col items-start gap-1.5 w-[84px] text-left" aria-label={`${r.post.labels?.[0] || 'New sighting'} from ${r.userName}${r.count > 1 ? `, ${r.count} new sightings` : ''}`}>
+                                <button onClick={() => handlePostClick(r.post)} className="group flex flex-col items-start gap-1.5 w-[84px] text-left" aria-label={`${tileNames(r.post).name} from ${explorerName(r.userName)}${r.count > 1 ? `, ${r.count} new sightings` : ''}`}>
                                     <span className="relative block w-[84px] h-[100px] rounded-md overflow-hidden bg-[#f3efe7]">
                                         {(r.post.thumbnailUrl || r.post.imageUrl)
                                             ? <img src={(r.post.thumbSmallUrl || r.post.thumbnailUrl || r.post.imageUrl)!} alt="" className="w-full h-full object-cover" />
                                             : <span className="w-full h-full flex items-center justify-center text-stone-400"><Glyph name={r.post.mediaType === 'audio' ? 'sound' : 'image'} size={20} /></span>}
                                         {r.count > 1 && <span className="absolute top-1.5 right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-black/45 backdrop-blur text-white text-[11px] font-semibold flex items-center justify-center tabular">{r.count}</span>}
                                     </span>
-                                    <span className="text-sm font-display italic text-stone-900 truncate w-full leading-snug">{r.post.labels?.[0] || 'New sighting'}</span>
-                                    <span className="text-xs text-stone-500 truncate w-full -mt-1.5">{r.userName}</span>
+                                    <span className="text-sm font-display italic text-stone-900 truncate w-full leading-snug">{tileNames(r.post).name}</span>
+                                    <span className="text-xs text-stone-500 truncate w-full -mt-1.5">{explorerName(r.userName, true)}</span>
                                 </button>
                             </li>
                         ))}
@@ -1715,7 +1992,7 @@ const Community: React.FC<CommunityProps> = ({
                             <legend className="ng-label mb-3">Photo, video or sound</legend>
                             <div className="flex flex-wrap gap-2">
                                 {([['all', 'Any'], ['image', 'Photos'], ['video', 'Videos'], ['audio', 'Sounds']] as const).map(([media, label]) => (
-                                    <button key={media} type="button" aria-pressed={mediaFilter === media} onClick={() => setMediaFilter(media)} className={seg(mediaFilter === media)}>{label}</button>
+                                    <button key={media} type="button" aria-pressed={mediaFilter === media} onClick={() => { setMediaFilter(media); track('filter_use', { filter: 'media', value: media }); }} className={seg(mediaFilter === media)}>{label}</button>
                                 ))}
                             </div>
                         </fieldset>
@@ -1729,7 +2006,7 @@ const Community: React.FC<CommunityProps> = ({
                                     ['month', 'This month', ''],
                                     ['season', 'This season', ''],
                                 ] as const).map(([key, label, hint]) => (
-                                    <button key={key} type="button" aria-pressed={dateFilter === key} title={hint || undefined} onClick={() => setDateFilter(key)} className={seg(dateFilter === key)}>
+                                    <button key={key} type="button" aria-pressed={dateFilter === key} title={hint || undefined} onClick={() => { setDateFilter(key); track('filter_use', { filter: 'date', value: key }); }} className={seg(dateFilter === key)}>
                                         {label}
                                     </button>
                                 ))}
@@ -1739,7 +2016,7 @@ const Community: React.FC<CommunityProps> = ({
                             <legend className="ng-label mb-3">Order</legend>
                             <div className="flex flex-wrap gap-2">
                                 {([['newest', 'Newest first'], ['likes', 'Most marvelled']] as const).map(([opt, label]) => (
-                                    <button key={opt} type="button" aria-pressed={sortOrder === opt} onClick={() => setSortOrder(opt)} className={seg(sortOrder === opt)}>{label}</button>
+                                    <button key={opt} type="button" aria-pressed={sortOrder === opt} onClick={() => { setSortOrder(opt); track('filter_use', { filter: 'order', value: opt }); }} className={seg(sortOrder === opt)}>{label}</button>
                                 ))}
                             </div>
                         </fieldset>
@@ -1751,15 +2028,13 @@ const Community: React.FC<CommunityProps> = ({
             })()}
 
             {!searchOpen && (
-                <KindChips present={groupsPresent} selected={selectedGroup} onSelect={(g) => { setSelectedGroup(g); hapticFeedback(); }} />
+                <KindChips present={groupsPresent} selected={selectedGroup} onSelect={(g) => { setSelectedGroup(g); hapticFeedback(); track('filter_use', { filter: 'kind', value: g || 'all' }); }} />
             )}
         </div>)}
 
         <div className={`w-full ng-page pt-6 pb-8 md:pt-8 ${searchOpen ? 'hidden' : ''}`}>
             {isLoading ? (
-                <div className="columns-2 md:columns-3 lg:columns-4 xl:columns-5 gap-4 md:gap-6 pb-56 space-y-6 md:space-y-8">
-                    {[...Array(10)].map((_, i) => <SkeletonPost key={i} tall={i % 3 === 0} />)}
-                </div>
+                <SkeletonGrid />
             ) : error ? (
                 <div role="alert" className="ng-empty py-24 max-w-xl mx-auto ng-rise">
                     <Glyph name="offline" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
@@ -1770,7 +2045,7 @@ const Community: React.FC<CommunityProps> = ({
                             : "Something went wrong on our side. Please try again in a moment."}
                     </p>
                     <button
-                        onClick={() => window.location.reload()}
+                        onClick={() => { setError(null); setRetryKey(k => k + 1); }}
                         className="ng-button-primary"
                     >
                         Try again
@@ -1778,42 +2053,66 @@ const Community: React.FC<CommunityProps> = ({
                 </div>
             ) : filteredAndSortedPosts.length === 0 ? (
                 <div className="ng-empty py-24 sm:py-32">
-                    {isJournalOnly && !searchQuery && !searchTag && feedMode !== 'following'
-                      ? <Glyph name="rings" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
-                      : <Glyph name={feedMode === 'following' && !searchQuery ? 'binoculars' : 'compass'} size={40} strokeWidth={1.2} className="ng-empty-glyph" />}
-                    {feedMode === 'following' && !searchQuery ? (
-                        <>
-                            <h3 className="ng-empty-title">You aren't following anyone yet</h3>
-                            <p className="ng-empty-body mb-8">Follow explorers from their sightings.</p>
-                            <button onClick={() => setFeedMode('foryou')} className="ng-button-primary">For you</button>
-                        </>
-                    ) : isJournalOnly && !searchQuery && !searchTag ? (
-                        <>
+                    {(() => {
+                        const typed = isJournalOnly && !!searchQuery.trim();
+                        // Filters only look through what has been loaded so far: say so, and offer more
+                        const canLoadMore = hasMore && !isJournalOnly && posts.length > 0;
+                        const loadMoreButton = canLoadMore && (
+                            <button onClick={() => loadMore()} disabled={loadMoreState === 'loading'} className="ng-button-primary">
+                                {loadMoreState === 'loading' ? 'Looking further…' : 'Load more'}
+                            </button>
+                        );
+                        if (isJournalOnly && !searchQuery && !searchTag && !anyFilterOn) return (<>
+                            <Glyph name="rings" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
                             <h3 className="ng-empty-title">Your journal starts outside</h3>
                             <p className="ng-empty-body">Your sightings will gather here.</p>
-                        </>
-                    ) : (
-                        <>
-                            <h3 className="ng-empty-title">Nothing found here yet</h3>
-                            <p className="ng-empty-body mb-8">Try another word.</p>
-                            <button onClick={resetAllFilters} className="ng-button-quiet">Clear filters</button>
-                        </>
-                    )}
+                        </>);
+                        if (feedMode === 'following' && !anyFilterOn) {
+                            const none = followIdList !== null && followIdList.length === 0;
+                            return (<>
+                                <Glyph name="binoculars" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                                <h3 className="ng-empty-title">{none ? "You aren't following anyone yet" : "The explorers you follow haven't shared yet"}</h3>
+                                <p className="ng-empty-body mb-8">{none ? 'Follow explorers from their sightings: tap Follow beside their name.' : 'Their next sightings will gather here.'}</p>
+                                <button onClick={() => setFeedMode('foryou')} className="ng-button-primary">For you</button>
+                            </>);
+                        }
+                        return (<>
+                            <Glyph name="compass" size={40} strokeWidth={1.2} className="ng-empty-glyph" />
+                            {typed ? (<>
+                                <h3 className="ng-empty-title">Nothing matches “{searchQuery.trim()}”</h3>
+                                <p className="ng-empty-body mb-8">Try another word.</p>
+                            </>) : feedMode === 'following' ? (<>
+                                <h3 className="ng-empty-title">Your filters hide their sightings</h3>
+                                <p className="ng-empty-body mb-8">{posts.length} {posts.length === 1 ? 'sighting' : 'sightings'} from the explorers you follow, none with these filters.</p>
+                            </>) : (<>
+                                <h3 className="ng-empty-title">{canLoadMore ? `Nothing among the latest ${posts.length} sightings` : 'Nothing with these filters'}</h3>
+                                <p className="ng-empty-body mb-8">{canLoadMore ? 'Older sightings may match. Load more?' : "That's every sighting there is for now."}</p>
+                            </>)}
+                            <div className="flex flex-col items-center gap-3">
+                                {loadMoreButton}
+                                {loadMoreState === 'error' && <p role="alert" className="ng-small">Couldn't load more. Try again.</p>}
+                                {anyFilterOn && <button onClick={resetAllFilters} className="ng-button-quiet">Clear filters</button>}
+                            </div>
+                        </>);
+                    })()}
                 </div>
             ) : (
                 <>
                     {!isJournalOnly && <FirstHint id="wild" text="Scroll for today's sightings. Tap one to open it." className="!mx-0 !mt-0 mb-6" />}
-                    <FeedGrid posts={displayPosts} onPostClick={handlePostClick} />
+                    <FeedGrid posts={displayPosts} onPostClick={handlePostClick} hideCounts={hideCounts} label={isJournalOnly ? 'Your sightings' : feedMode === 'following' ? 'Sightings from explorers you follow' : "Today's sightings"} />
                 </>
             )}
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
-                <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
+                <div ref={loadMoreRef} className="py-8 pb-40 flex flex-col items-center gap-3 text-sm text-stone-500" aria-live="polite">
                     {loadMoreState === 'loading' ? (
                         <PressingLoader size={28} label="Finding more sightings" />
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="ng-link-quiet min-h-[44px]">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span className="font-display italic text-base text-stone-500">That's every sighting for now. The next one is outside.</span>
+                        <span className="font-display italic text-base text-stone-500">{anyFilterOn ? `That's every sighting with these filters, out of ${posts.length}.` : "That's every sighting for now. The next one is outside."}</span>
+                    ) : anyFilterOn && !isJournalOnly ? (
+                        // Filters look through what is loaded: keep looking further on request
+                        <button onClick={() => loadMore()} className="ng-link-quiet min-h-[44px]">Look through older sightings</button>
                     ) : null}
                 </div>
             )}
@@ -1834,11 +2133,19 @@ const Community: React.FC<CommunityProps> = ({
                     </button>
 
                     <div className="flex items-center gap-1 relative">
-                        <button onClick={() => setPostMenuOpen(o => !o)} aria-label="More options" aria-expanded={postMenuOpen} className="ng-icon-button -mr-2">
+                        {/* Phones: the previous and next sighting are a tap away here too, not only a swipe */}
+                        {activePostIndex !== -1 && displayPosts.length > 1 && (
+                            <div className="flex items-center md:hidden" role="group" aria-label="Move between sightings">
+                                <button onClick={() => navigateSequential('prev')} disabled={activePostIndex <= 0} aria-label="Previous sighting" className="ng-icon-button"><Glyph name="chevronLeft" size={22} /></button>
+                                <button onClick={() => navigateSequential('next')} disabled={activePostIndex >= displayPosts.length - 1} aria-label="Next sighting" className="ng-icon-button"><Glyph name="chevronRight" size={22} /></button>
+                            </div>
+                        )}
+                        <button onClick={() => (postMenuOpen ? closeMenu() : setPostMenuOpen(true))} aria-label="More options" aria-haspopup="menu" aria-expanded={postMenuOpen} className="ng-icon-button -mr-2">
                             <Glyph name="more" size={24} />
                         </button>
+                        {postMenuOpen && <div className="fixed inset-0 z-[190]" onClick={closeMenu} aria-hidden="true" />}
                         {postMenuOpen && (
-                            <div role="menu" className="absolute right-0 top-12 w-64 ng-menu z-[200] animate-fade-in">
+                            <div role="menu" aria-label="More options" className="absolute right-0 top-12 w-64 ng-menu z-[200] animate-fade-in motion-reduce:animate-none">
                                 {activePost.userId === currentUserMode.userId ? (
                                     <>
                                         {(((activePost.items && activePost.items[activeItemIndex]) || activePost).mediaType !== 'audio') && (
@@ -1849,10 +2156,10 @@ const Community: React.FC<CommunityProps> = ({
                                     </>
                                 ) : (
                                     <>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="ng-menu-item"><Glyph name="person" size={20} className="text-stone-500" />View {activePost.userName}</button>
-                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); setReportOpen(true); }} className="ng-menu-item ng-menu-item-danger"><Glyph name="flag" size={20} />Report sighting</button>
-                                        <button role="menuitem" onClick={handleMuteAuthor} className="ng-menu-item"><Glyph name="soundOff" size={20} className="text-stone-500" />Mute {activePost.userName}</button>
-                                        <button role="menuitem" onClick={handleBlockAuthor} className="ng-menu-item ng-menu-item-danger"><Glyph name="block" size={20} />Block {activePost.userName}</button>
+                                        <button role="menuitem" onClick={() => { setPostMenuOpen(false); handleProfileClick(activePost.userId); }} className="ng-menu-item"><Glyph name="person" size={20} className="text-stone-500" />View {explorerName(activePost.userName)}</button>
+                                        <button role="menuitem" onClick={() => openReport({ kind: 'post', postId: activePost.id, userId: activePost.userId }, 'this sighting')} className="ng-menu-item ng-menu-item-danger"><Glyph name="flag" size={20} />Report sighting</button>
+                                        <button role="menuitem" onClick={handleMuteAuthor} className="ng-menu-item"><Glyph name="soundOff" size={20} className="text-stone-500" />Mute {explorerName(activePost.userName)}</button>
+                                        <button role="menuitem" onClick={handleBlockAuthor} className="ng-menu-item ng-menu-item-danger"><Glyph name="block" size={20} />Block {explorerName(activePost.userName)}</button>
                                     </>
                                 )}
                             </div>
@@ -1906,13 +2213,13 @@ const Community: React.FC<CommunityProps> = ({
                                                 {activePost.items!.map((item, index) => (
                                                     <div key={index} className="w-full h-full shrink-0 snap-center flex items-center justify-center relative p-4 bg-transparent select-none">
                                                         {item.mediaType === 'video' ? (
-                                                            <SightingVideo src={item.videoUrl} streamUrl={(item as any).streamUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
+                                                            <SightingVideo src={item.videoUrl} streamUrl={(item as any).streamUrl} poster={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={namesOf({ ...item, aiIdentifications: (item as any).aiIdentifications || (activePost as any).aiIdentifications }).common || undefined} />
                                                         ) : item.mediaType === 'audio' ? (
-                                                            <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={item.labels?.[0]} />
+                                                            <SightingSound src={item.audioUrl} image={item.thumbnailUrl || item.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={namesOf({ ...item, aiIdentifications: (item as any).aiIdentifications || (activePost as any).aiIdentifications }).common || undefined} />
                                                         ) : (
                                                             <img
                                                                 src={item.imageUrl || item.thumbnailUrl}
-                                                                alt={item.labels?.[0] ? `${item.labels[0]}${item.behavior ? `: ${item.behavior}` : ''}` : 'Sighting'}
+                                                                alt={item.labels?.[0] ? `${namesOf(item).common}${item.behavior ? `: ${item.behavior}` : ''}` : 'Sighting'}
                                                                 className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-md"
                                                             />
                                                         )}
@@ -1956,13 +2263,13 @@ const Community: React.FC<CommunityProps> = ({
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             {currentItem.mediaType === 'video' ? (
-                                                <SightingVideo src={currentItem.videoUrl} streamUrl={(currentItem as any).streamUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
+                                                <SightingVideo src={currentItem.videoUrl} streamUrl={(currentItem as any).streamUrl} poster={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={namesOf({ ...currentItem, aiIdentifications: (currentItem as any).aiIdentifications || (activePost as any).aiIdentifications }).common || undefined} />
                                             ) : currentItem.mediaType === 'audio' ? (
-                                                <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={currentItem.labels?.[0]} />
+                                                <SightingSound src={currentItem.audioUrl} image={currentItem.thumbnailUrl || currentItem.imageUrl} noDownload={activePost.userId !== currentUserMode.userId} label={namesOf({ ...currentItem, aiIdentifications: (currentItem as any).aiIdentifications || (activePost as any).aiIdentifications }).common || undefined} />
                                             ) : (
                                                 <img
                                                     src={currentItem.imageUrl || currentItem.thumbnailUrl}
-                                                    alt={currentItem.labels?.[0] ? `${currentItem.labels[0]}${currentItem.behavior ? `: ${currentItem.behavior}` : ''}` : 'Sighting'}
+                                                    alt={currentItem.labels?.[0] ? `${namesOf(currentItem).common}${currentItem.behavior ? `: ${currentItem.behavior}` : ''}` : 'Sighting'}
                                                     className="w-full h-full md:w-auto md:h-auto md:max-w-full md:max-h-full object-contain rounded-none md:rounded-md"
                                                 />
                                             )}
@@ -1977,19 +2284,30 @@ const Community: React.FC<CommunityProps> = ({
                                                 ? <img src={activePost.userAvatar} alt="" className="w-10 h-10 rounded-full object-cover" />
                                                 : <span className="w-10 h-10 rounded-full bg-[#f3efe7] flex items-center justify-center text-stone-700 font-display text-lg" aria-hidden="true">{(activePost.userName || '?').charAt(0).toUpperCase()}</span>}
                                             <span className="min-w-0">
-                                                <span className="block font-medium text-sm text-stone-900 truncate group-hover:underline decoration-stone-300 underline-offset-4">{activePost.userName}{speciesLine(activePost.userId) && <span className="font-normal text-stone-500"> · {speciesLine(activePost.userId)}</span>}</span>
+                                                <span className="block font-medium text-sm text-stone-900 truncate group-hover:underline decoration-stone-300 underline-offset-4">{explorerName(activePost.userName, true)}{speciesLine(activePost.userId) && <span className="font-normal text-stone-500"> · {speciesLine(activePost.userId)}</span>}</span>
                                                 <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
                                             </span>
                                         </button>
+                                        {activePost.userId !== currentUserMode.userId && (
+                                            <button
+                                                onClick={toggleFollowAuthor}
+                                                disabled={followBusy || (isMember && followsAuthor === null)}
+                                                aria-pressed={!!followsAuthor}
+                                                aria-label={followsAuthor ? `Following ${explorerName(activePost.userName)}. Tap to unfollow` : `Follow ${explorerName(activePost.userName)}`}
+                                                className={`shrink-0 ml-auto -mr-2 min-h-[44px] px-2 text-sm font-semibold transition-colors disabled:opacity-50 ${followsAuthor ? 'text-stone-500 hover:text-stone-800' : 'text-stone-900 underline decoration-stone-300 underline-offset-[6px] hover:decoration-stone-900'}`}
+                                            >
+                                                {followsAuthor ? 'Following' : 'Follow'}
+                                            </button>
+                                        )}
                                         {(() => { const liked = isLikedByMe(activePost); const n = likeTotal(activePost); return (
                                             <button
                                                 onClick={(e) => handleLike(e, activePost)}
                                                 aria-pressed={liked}
-                                                aria-label={liked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this sighting. ${wonderLabel(n)}`}
+                                                aria-label={hideCounts ? (liked ? 'You marvelled at this' : 'Marvel at this sighting') : (liked ? `You marvelled at this. ${wonderLabel(n)}` : `Marvel at this sighting. ${wonderLabel(n)}`)}
                                                 className={`shrink-0 flex items-center gap-2 min-h-[44px] pl-3.5 pr-4 rounded-full border transition-colors duration-300 ${liked ? 'border-stone-900 text-stone-900' : 'border-stone-200 text-stone-700 hover:border-stone-300 hover:text-stone-900'}`}
                                             >
                                                 <WonderIcon active={liked} className={`text-[20px] ${liked ? 'text-theme-accent' : ''}`} />
-                                                <span className="text-sm font-medium tabular">{n > 0 ? n.toLocaleString() : 'Marvel'}</span>
+                                                <span className="text-sm font-medium tabular">{!hideCounts && n > 0 ? n.toLocaleString() : liked ? 'Marvelled' : 'Marvel'}</span>
                                             </button>
                                         ); })()}
                                     </div>
@@ -2007,14 +2325,15 @@ const Community: React.FC<CommunityProps> = ({
                                             return (
                                                 <>
                                                     <div>
-                                                        {species ? (
-                                                            <button onClick={() => handleSpeciesClick(species, currentItem.locationArea)} className="text-left" aria-label={`About ${names.common || species}`}>
+                                                        {species && !PLACEHOLDER_NAME.test(names.common || species) ? (
+                                                            <button onClick={() => handleSpeciesClick(names.common || species, currentItem.locationArea)} className="text-left" aria-label={`About ${names.common || species}`}>
                                                                 <h2 className="ng-title italic hover:underline decoration-theme-accent/50 decoration-1 underline-offset-[6px]">{names.common || species}</h2>
                                                                 {names.latin && <p className="font-display italic text-base text-stone-500 mt-0.5">{names.latin}</p>}
                                                             </button>
-                                                        ) : activePost.title ? (
+                                                        ) : activePost.title && !PLACEHOLDER_NAME.test(activePost.title) ? (
                                                             <h2 className="ng-title">{activePost.title}</h2>
-                                                        ) : null}
+                                                        ) : <h2 className="ng-title italic text-stone-700">Unnamed sighting</h2>}
+                                                        <Provenance item={currentItem} post={activePost} agree={agreeCount} />
                                                         {behaviour && <p className="ng-body mt-3">{behaviour}</p>}
                                                         {alsoSeen.length > 0 && (
                                                             <p className="ng-small mt-2">Also in view: {alsoSeen.map((l, i) => (
@@ -2028,13 +2347,14 @@ const Community: React.FC<CommunityProps> = ({
                                                     {activePost.caption && (
                                                         <figure className="border-l border-theme-accent pl-5">
                                                             <blockquote className="ng-body text-stone-800 whitespace-pre-line"><RichText text={activePost.caption} onMention={openMention} onTag={handleTagClick} /></blockquote>
-                                                            <figcaption className="ng-caption mt-2">{activePost.userName}</figcaption>
+                                                            <figcaption className="ng-caption mt-2">{explorerName(activePost.userName, true)}</figcaption>
                                                         </figure>
                                                     )}
 
                                                     {insight.length > 0 && (
                                                         <section aria-labelledby={`why-${activePost.id}`}>
-                                                            <h3 id={`why-${activePost.id}`} className="ng-subtitle mb-3 flex items-center gap-3"><span className="ng-rule" aria-hidden="true" />Why it does this</h3>
+                                                            <h3 id={`why-${activePost.id}`} className="ng-subtitle flex items-center gap-3"><span className="ng-rule" aria-hidden="true" />Why it does this</h3>
+                                                            <p className="ng-caption mt-1 mb-3 pl-11">{(currentItem as any).aiInsightEdited || (activePost as any).aiInsightEdited ? 'From the guide (AI), edited by the explorer' : 'From the guide (AI)'}</p>
                                                             <WhyItDoes key={`${activePost.id}-${activeItemIndex}`} paragraphs={insight} />
                                                         </section>
                                                     )}
@@ -2097,16 +2417,17 @@ const Community: React.FC<CommunityProps> = ({
 
     <>
         {isCommentsOpen && (
-            <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 ng-scrim font-body">
+            <div className="fixed inset-0 z-[200] flex flex-col justify-end p-0 ng-scrim font-body" role="dialog" aria-modal="true" aria-labelledby="comments-title">
                 <div
                     className="absolute inset-0 animate-in fade-in duration-200"
-                    onClick={() => setIsCommentsOpen(false)}
+                    onClick={closeNotes}
+                    aria-hidden="true"
                 />
                 <div
                     ref={sheetRef}
                     onTouchStart={(e) => { sheetDrag.current = { y: e.touches[0].clientY, t: Date.now(), on: !!(e.target as HTMLElement).closest('[data-sheet-handle]') }; }}
                     onTouchMove={(e) => { const d = e.touches[0].clientY - sheetDrag.current.y; if (sheetDrag.current.on && d > 0 && sheetRef.current) sheetRef.current.style.transform = `translateY(${d}px)`; }}
-                    onTouchEnd={(e) => { if (!sheetDrag.current.on) return; const d = e.changedTouches[0].clientY - sheetDrag.current.y; const v = d / Math.max(1, Date.now() - sheetDrag.current.t); if (sheetRef.current) sheetRef.current.style.transform = ''; if (d > 100 || v > 0.5) setIsCommentsOpen(false); }}
+                    onTouchEnd={(e) => { if (!sheetDrag.current.on) return; const d = e.changedTouches[0].clientY - sheetDrag.current.y; const v = d / Math.max(1, Date.now() - sheetDrag.current.t); if (sheetRef.current) sheetRef.current.style.transform = ''; if (d > 100 || v > 0.5) closeNotes(); }}
                     className="animate-in slide-in-from-bottom duration-300 transition-transform w-full max-w-md mx-auto ng-sheet md:rounded-b-none overflow-hidden flex flex-col h-[75vh] relative z-10 pb-[env(safe-area-inset-bottom)]"
                 >
                     <div data-sheet-handle className="w-full flex justify-center pt-3 pb-2 shrink-0 cursor-grab active:cursor-grabbing">
@@ -2115,7 +2436,7 @@ const Community: React.FC<CommunityProps> = ({
 
                     <div className="px-6 pb-4 flex justify-between items-center shrink-0 border-b border-stone-200/80">
                         <h3 id="comments-title" className="ng-subtitle">Field notes</h3>
-                        <button onClick={() => setIsCommentsOpen(false)} aria-label="Close field notes" className="ng-icon-button -mr-2">
+                        <button onClick={closeNotes} aria-label="Close field notes" className="ng-icon-button -mr-2">
                             <Glyph name="close" size={24} />
                         </button>
                     </div>
@@ -2138,11 +2459,13 @@ const Community: React.FC<CommunityProps> = ({
                                 id="new-comment"
                                 value={newComment}
                                 onChange={e => setNewComment(e.target.value.slice(0, 1000))}
-                                onFocus={() => { if (!isMember) askAccount('Create a free account to join the conversation.'); }}
-                                placeholder="What did you notice?"
+                                // Guests: the account prompt comes on a tap, not on focus (focus alone could loop)
+                                readOnly={!isMember}
+                                onClick={() => { if (!isMember) askAccount('Create a free account to join the conversation.'); }}
+                                placeholder={isMember ? 'What did you notice?' : 'Log in to add a field note'}
                                 className="ng-field-line flex-1"
                             />
-                            <button type="submit" disabled={!newComment.trim() || sendingComment} className="min-h-[44px] px-1 text-stone-900 text-[15px] font-semibold disabled:text-stone-400 transition-colors">
+                            <button type="submit" disabled={isMember && (!newComment.trim() || sendingComment)} className="min-h-[44px] px-1 text-stone-900 text-[15px] font-semibold disabled:text-stone-500 transition-colors">
                                 {sendingComment ? 'Adding…' : 'Add'}
                             </button>
                         </form>
@@ -2161,6 +2484,7 @@ const Community: React.FC<CommunityProps> = ({
                 onClose={() => setSharingPost(null)}
                 onSendLetter={sendAsLetter}
                 allowMediaDownload={sharingPost.userId === currentUserMode.userId}
+                surface="post"
             /></React.Suspense>
         )}
     </>
@@ -2180,31 +2504,14 @@ const Community: React.FC<CommunityProps> = ({
         )}
         </>
 
-        {reportOpen && activePost && (
-            <div className="fixed inset-0 z-[260] flex items-end sm:items-center justify-center animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="report-title">
-                <div className="absolute inset-0 ng-scrim" onClick={() => setReportOpen(false)} aria-hidden="true" />
-                <div className="relative w-full sm:max-w-md ng-sheet px-6 pt-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
-                    <h2 id="report-title" className="ng-subtitle">Why are you reporting this sighting?</h2>
-                    <p className="ng-small mt-1 mb-4">Your report is anonymous to the author.</p>
-                    <div className="flex flex-col">
-                        {[
-                            ['sensitive_location', 'Reveals a sensitive species location'],
-                            ['wildlife_harm', 'Harming or disturbing wildlife'],
-                            ['misidentification', 'Dangerous misidentification'],
-                            ['spam', 'Spam or scam'],
-                            ['harassment', 'Harassment or hate'],
-                            ['nudity_violence', 'Nudity or graphic violence'],
-                            ['ip', 'Not their photo / copyright'],
-                            ['other', 'Something else'],
-                        ].map(([key, label]) => (
-                            <button key={key} onClick={() => handleReport(key)} className="text-left min-h-[48px] py-3 border-b border-stone-200/70 last:border-b-0 text-[15px] text-stone-800 hover:text-stone-900 flex items-center justify-between gap-4">
-                                {label}<Glyph name="chevronRight" size={20} className="text-stone-400 shrink-0" />
-                            </button>
-                        ))}
-                    </div>
-                    <button onClick={() => setReportOpen(false)} className="ng-button-quiet w-full mt-4">Cancel</button>
-                </div>
-            </div>
+        {reportTarget && (
+            <ReportSheet
+                target={reportTarget}
+                what={reportTarget.what}
+                onClose={onReportClosed}
+                onSent={onReportSent}
+                surface="post"
+            />
         )}
 
         {toast && <div role="status" className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] ng-toast animate-fade-in">{toast}</div>}
