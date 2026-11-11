@@ -59,6 +59,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
   const [picked, setPicked] = useState<string[]>(() => picksFrom(initialPersona));
   const [note, setNote] = useState<string>(initialPersona?.customFocus || '');
   const [state, setState] = useState<'choosing' | 'saving' | 'saved'>('choosing');
+  const [saveError, setSaveError] = useState('');
   const theme = getDailyTheme();
   const extra = getNaturalistExtra(theme.id);
 
@@ -87,7 +88,13 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
     if (initialPersona?.curatorPrompt) persona.curatorPrompt = initialPersona.curatorPrompt;
     try {
       if (userId && userId !== 'explorer_guest') await FirebaseService.updateNaturalistPersona(userId, persona);
-    } catch { /* saved quietly; the feed simply stays unpersonalised */ }
+    } catch {
+      // Say so honestly and keep the choices, so trying again is one tap
+      setState('choosing');
+      setSaveError("That didn't save. Check your connection and try again; your choices are still here.");
+      return;
+    }
+    setSaveError('');
     setState('saved');
     window.setTimeout(() => onSave(persona), 1900); // the parent closes the modal on save
   };
@@ -151,6 +158,7 @@ export const NaturalistPersonaModal: React.FC<NaturalistPersonaModalProps> = ({ 
               </label>
             </div>
 
+            {saveError && <p role="alert" className="px-6 pt-3 text-sm text-stone-800">{saveError}</p>}
             <footer className="px-6 pt-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] border-t border-stone-200/80 flex items-center justify-between gap-4">
               <button type="button" onClick={onClose} className="ng-link-quiet min-h-[44px]">Not now</button>
               <button
