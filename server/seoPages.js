@@ -242,7 +242,7 @@ export const TEAM = [
     name: 'Roshini Ganuthula',
     role: 'Co-founder · design and product',
     linkedin: 'https://www.linkedin.com/in/roshiniganuthula',
-    line: 'Shapes how NatureGram looks, reads and feels.',
+    line: 'Shapes how NatureGram looks, sounds and feels.',
     bio: 'Designer and researcher, trained in economics and communication design. Product work across healthcare, climate tech and edtech in India, the US and the UAE. Guest lecturer at IIT Bombay and IIT Jodhpur.',
   },
   {
