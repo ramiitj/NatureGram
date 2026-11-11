@@ -1,9 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PressingLoader } from './SkeletonPost';
 import { Snapshot } from '../types.ts';
-import { GenAiService } from '../services/genAiService.ts';
-import { RateLimitService } from '../services/rateLimitService.ts';
-import { coarsenCoordinate } from '../utils';
+import { GenAiService, tooLargeToAnalyse } from '../services/genAiService.ts';
+import { RateLimitService, IDENTIFICATIONS_USED_MESSAGE } from '../services/rateLimitService.ts';
+import { getMyAllowance } from '../services/firebaseService.ts';
+import { useBackToClose } from '../services/overlayStack';
+import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE } from '../utils';
 import Glyph from './Glyph';
 
 /**
@@ -115,6 +117,8 @@ interface UploadedFileItem {
   takenAtMs?: number;
   coarse?: { lat: number; lng: number };
   place?: string;
+  /** Larger than the guide can look at; it can still be added and named by the explorer */
+  tooLarge?: boolean;
 }
 
 /** The fields an upload brings from its metadata: a date to show, and only a coarse place. */
@@ -144,6 +148,12 @@ const governedFields = (r: any): Pick<Snapshot, "labels" | "behavior" | "aiInsig
   aiError: null,
 };
 
+/** A sighting the explorer names themselves: nothing from the guide, and no error to explain. */
+const selfNamedFields = (): Pick<Snapshot, "labels" | "behavior" | "aiInsight"> & Partial<Snapshot> => ({
+  labels: [], behavior: '', aiInsight: '', aiError: null,
+});
+const TOO_LARGE_FOR_GUIDE = 'Too large for your guide to look at';
+
 const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
   onClose,
@@ -155,18 +165,31 @@ const UploadModal: React.FC<UploadModalProps> = ({
   const [processingStatus, setProcessingStatus] = useState("");
   const [shouldStitch, setShouldStitch] = useState(true);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Why the guide can't look today (allowance used); naming them yourself still works */
+  const [guideBlocked, setGuideBlocked] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Closing while the guide is still looking drops its answer instead of opening review later
+  const cancelledRef = useRef(false);
+
+  const handleClose = () => { if (isProcessing) cancelledRef.current = true; setIsProcessing(false); onClose(); };
+  const { close } = useBackToClose(isOpen, handleClose);
+
+  // Say up front when today's identifications are used, before anything is chosen
+  useEffect(() => {
+    if (!isOpen) return;
+    cancelledRef.current = false;
+    let alive = true;
+    getMyAllowance().then(a => {
+      if (alive && a?.identifications && a.identifications.used >= a.identifications.limit) setGuideBlocked(IDENTIFICATIONS_USED_MESSAGE);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const validateAndAddFiles = async (files: FileList | File[]) => {
     setUploadError(null);
     const fileList = Array.from(files);
-
-    if (!RateLimitService.canUpload(userId, fileList.length)) {
-        setUploadError("That's today's uploads (3 batches or 15 files a day). Try again tomorrow.");
-        return;
-    }
 
     if (items.length + fileList.length > 5) {
       setUploadError("Up to 5 at a time. The first ones are in.");
@@ -223,6 +246,12 @@ const UploadModal: React.FC<UploadModalProps> = ({
           });
         }
       } else {
+        // A photo this browser can't redraw would keep its hidden location: it is never added
+        if (!(await canCleanImage(file))) {
+          URL.revokeObjectURL(previewUrl);
+          setUploadError(`"${file.name}": ${UNCLEANABLE_IMAGE_MESSAGE}`);
+          continue;
+        }
         newItems.push({
           id: Math.random().toString(36).substr(2, 9),
           file,
@@ -231,6 +260,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
         });
       }
     }
+    newItems.forEach(it => { it.tooLarge = tooLargeToAnalyse([it.file]); });
 
     setItems(prev => [...prev, ...newItems]);
 
@@ -268,11 +298,17 @@ const UploadModal: React.FC<UploadModalProps> = ({
     });
   };
 
-  const handleProcess = async () => {
+  /** useGuide: the guide looks at them (an AI identification); otherwise the explorer names them in review. */
+  const handleProcess = async (useGuide: boolean) => {
     if (items.length === 0) return;
+    if (useGuide && !RateLimitService.canUpload(userId, items.length)) {
+      setGuideBlocked(IDENTIFICATIONS_USED_MESSAGE);
+      return;
+    }
+    cancelledRef.current = false;
 
     setIsProcessing(true);
-    setProcessingStatus("Looking closely at your sightings…");
+    setProcessingStatus(useGuide ? "Looking closely at your sightings…" : "Getting them ready…");
 
     try {
       const processedSnapshots: Snapshot[] = [];
@@ -280,14 +316,17 @@ const UploadModal: React.FC<UploadModalProps> = ({
 
       // Check if we can perform a multimodal combined analysis if stitched
       if (shouldStitch && items.length > 1) {
-        setProcessingStatus("Your guide is looking at them together…");
+        if (useGuide) setProcessingStatus("Your guide is looking at them together…");
         const imageItems = items.filter(i => i.type === 'image');
         const mediaItem = items.find(i => i.type === 'video' || i.type === 'audio');
 
         const imageBlobs = imageItems.map(i => i.file);
         const mediaBlob = mediaItem ? mediaItem.file : null;
 
-        const result = await GenAiService.analyzeMultimodal(mediaBlob, imageBlobs, locationHint(items.find(i => i.coarse))).catch((e: any) => ({ failed: true, message: e?.message } as any));
+        const tooLarge = tooLargeToAnalyse([mediaBlob, ...imageBlobs.slice(0, 4)]);
+        const result: any = !useGuide ? { failed: true, selfNamed: true }
+          : tooLarge ? { failed: true, message: TOO_LARGE_FOR_GUIDE }
+          : await GenAiService.analyzeMultimodal(mediaBlob, imageBlobs, locationHint(items.find(i => i.coarse))).catch((e: any) => ({ failed: true, message: e?.message }));
 
         // Create a primary stitched snapshot plus associated files
         const primaryItem = mediaItem || items[0];
@@ -302,7 +341,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
           audioUrl: primaryItem.type === 'audio' ? primaryItem.previewUrl : undefined,
           audioBlob: primaryItem.type === 'audio' ? primaryItem.file : undefined,
           timestamp: new Date().toLocaleTimeString(),
-          ...governedFields(result),
+          ...(result.selfNamed ? selfNamedFields() : governedFields(result)),
           ...metaFields(items.find(i => i.takenAtMs || i.coarse) || primaryItem),
           type: primaryItem.type,
           userId,
@@ -317,10 +356,12 @@ const UploadModal: React.FC<UploadModalProps> = ({
         // Individual analysis per uploaded file
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
-          setProcessingStatus(items.length > 1 ? `Looking at ${i + 1} of ${items.length}…` : 'Looking closely…');
+          if (useGuide) setProcessingStatus(items.length > 1 ? `Looking at ${i + 1} of ${items.length}…` : 'Looking closely…');
 
-          // One file failing never blocks the others; the explorer labels it in review
-          const result: any = await GenAiService.analyzeMedia(item.file, item.type, locationHint(item)).catch((e: any) => ({ failed: true, message: e?.message }));
+          // One file failing never blocks the others; the explorer names it in review
+          const result: any = !useGuide ? { failed: true, selfNamed: true }
+            : item.tooLarge ? { failed: true, message: TOO_LARGE_FOR_GUIDE }
+            : await GenAiService.analyzeMedia(item.file, item.type, locationHint(item)).catch((e: any) => ({ failed: true, message: e?.message }));
           const snapId = (Date.now() + i).toString();
 
           const snapshot: Snapshot = {
@@ -332,7 +373,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
             audioUrl: item.type === 'audio' ? item.previewUrl : undefined,
             audioBlob: item.type === 'audio' ? item.file : undefined,
             timestamp: new Date().toLocaleTimeString(),
-            ...governedFields(result),
+            ...(result.selfNamed ? selfNamedFields() : governedFields(result)),
             ...metaFields(item),
             type: item.type,
             userId,
@@ -345,8 +386,9 @@ const UploadModal: React.FC<UploadModalProps> = ({
         }
       }
 
+      if (cancelledRef.current) return;
       let summaryText = "";
-      if (collectionItemsForSynthesis.length > 1) {
+      if (useGuide && collectionItemsForSynthesis.length > 1) {
         setProcessingStatus("Writing a few lines on the outing…");
         try {
           const collectionSynthesis = await GenAiService.synthesizeCollection(collectionItemsForSynthesis);
@@ -356,12 +398,14 @@ const UploadModal: React.FC<UploadModalProps> = ({
         }
       }
 
+      if (cancelledRef.current) return;
       setIsProcessing(false);
-      RateLimitService.incrementUpload(userId, items.length);
+      if (useGuide) RateLimitService.incrementUpload(userId, items.length);
       onProcessUploads(processedSnapshots, summaryText);
     } catch (err) {
       console.error("Upload processing failed", err);
-      setUploadError("Your guide couldn't look at these just now. Please try again.");
+      if (cancelledRef.current) return;
+      setUploadError(useGuide ? "Your guide couldn't look at these just now. Try again, or name them yourself." : "These couldn't be added just now. Please try again.");
       setIsProcessing(false);
     }
   };
@@ -370,7 +414,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
     <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 sm:p-6 animate-fade-in">
       <div
         className="absolute inset-0 ng-scrim"
-        onClick={isProcessing ? undefined : onClose}
+        onClick={isProcessing ? undefined : close}
         aria-hidden="true"
       />
 
@@ -384,8 +428,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
             </p>
           </div>
           <button
-            disabled={isProcessing}
-            onClick={onClose}
+            onClick={close}
             aria-label="Close"
             className="ng-icon-button -mr-2 -mt-1 text-stone-500"
           >
@@ -416,7 +459,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                 </span>
                 <span className="block font-display italic text-[20px] text-stone-900 mb-1">Choose photos, videos or sounds</span>
                 <span className="block ng-small max-w-xs mx-auto">
-                  Or drag them here. Your guide will name what it can.
+                  Or drag them here. Your guide, an AI, names what it can, or you can name them yourself.
                 </span>
               </label>
             </div>
@@ -477,6 +520,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                           {takenLine(item) || (item.type === 'image' ? 'Photo' : item.type === 'video' ? 'Video' : 'Sound')}
                           {item.duration !== undefined && ` · ${item.duration} s`}
                         </p>
+                        {item.tooLarge && <p className="ng-caption text-amber-900">Too large for your guide to look at. You can name it yourself.</p>}
                       </div>
                     </div>
 
@@ -504,23 +548,34 @@ const UploadModal: React.FC<UploadModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 sm:px-8 py-5 border-t border-stone-200/80 flex items-center justify-between gap-4 shrink-0">
-          <button
-            disabled={isProcessing}
-            onClick={onClose}
-            className="ng-link-quiet min-h-[44px] disabled:opacity-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            disabled={items.length === 0 || isProcessing}
-            onClick={handleProcess}
-            className="ng-button-primary flex-1 sm:flex-none"
-          >
-            <Glyph name="guide" size={20} className="ng-arrow" />
-            <span>{items.length > 1 ? `Show your guide (${items.length})` : 'Show your guide'}</span>
-          </button>
+        <div className="px-6 sm:px-8 py-5 border-t border-stone-200/80 shrink-0 space-y-3">
+          {guideBlocked && <p className="ng-small text-stone-700" role="status">{guideBlocked}</p>}
+          {!guideBlocked && items.length > 0 && items.every(i => i.tooLarge) && (
+            <p className="ng-small text-stone-700" role="status">{items.length === 1 ? 'This file is' : 'These files are'} too large for your guide to look at. You can still add them and name them yourself.</p>
+          )}
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center gap-3">
+            <button
+              onClick={close}
+              className="ng-link-quiet min-h-[44px] sm:mr-auto"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={items.length === 0 || isProcessing}
+              onClick={() => handleProcess(false)}
+              className="ng-button-quiet"
+            >
+              Name it myself
+            </button>
+            <button
+              disabled={items.length === 0 || isProcessing || !!guideBlocked || items.every(i => i.tooLarge)}
+              onClick={() => handleProcess(true)}
+              className="ng-button-primary"
+            >
+              <Glyph name="guide" size={20} className="ng-arrow" />
+              <span>{items.length > 1 ? `Show your guide (${items.length})` : 'Show your guide'}</span>
+            </button>
+          </div>
         </div>
       </section>
     </div>

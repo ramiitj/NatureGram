@@ -19,6 +19,10 @@ export const AI_PROMPT_VERSION = 'identify-2026.11-2';
 const MODEL_IDENTIFY = 'ng-identify';
 const MODEL_SYNTHESIZE = 'ng-synthesize';
 const MAX_INLINE_BYTES = 18 * 1024 * 1024;
+/** The largest file (or set of files) the guide can look at; larger ones can still be named by the explorer. */
+export const AI_MAX_BYTES = MAX_INLINE_BYTES;
+/** True when these files are too large for the guide to look at (checked before anything is sent). */
+export const tooLargeToAnalyse = (blobs: (Blob | null | undefined)[]) => blobs.reduce((n, b) => n + (b?.size || 0), 0) > MAX_INLINE_BYTES;
 const TIMEOUT_MS = 90_000;
 
 export type Confidence = 'high' | 'medium' | 'low';
@@ -59,7 +63,7 @@ export interface AnalysisResult {
 }
 
 export class AiError extends Error {
-  constructor(message: string, public readonly kind: 'quota' | 'too_large' | 'auth' | 'unavailable' | 'invalid' | 'timeout') {
+  constructor(message: string, public readonly kind: 'quota' | 'too_large' | 'auth' | 'unavailable' | 'invalid' | 'timeout' | 'offline') {
     super(message);
   }
 }
@@ -110,7 +114,8 @@ const classify = (e: any): AiError => {
   const msg = String(e?.message || e || '');
   const status = e?.status || e?.code || (msg.match(/"code":\s*(\d{3})/)?.[1] ? Number(msg.match(/"code":\s*(\d{3})/)![1]) : 0);
   if (e instanceof AiError) return e;
-  if (status === 429 || /quota|limit reached|too many|today's/i.test(msg)) return new AiError(/(You've used today's[^"]*|Daily AI limit[^"]*)/.exec(msg)?.[0] || "You've reached today's AI limit. You can still label sightings yourself.", 'quota');
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return new AiError("You're offline, so your guide can't look just now.", 'offline');
+  if (status === 429 || /quota|limit reached|too many|today's/i.test(msg)) return new AiError(/(You've used today's[^"]*|Daily AI limit[^"]*)/.exec(msg)?.[0] || "You've used today's identifications. You can still name sightings yourself.", 'quota');
   if (status === 503 && /paused|resume|unavailable for a moment/i.test(msg)) return new AiError(/(AI features[^"]*|The guide is unavailable[^"]*)/.exec(msg)?.[0] || 'AI identification is temporarily unavailable.', 'unavailable');
   if (status === 413 || /too large/i.test(msg)) return new AiError('This file is too large to analyse. Try a shorter clip.', 'too_large');
   if (status === 401 || status === 403) return new AiError('Please sign in again to use AI identification.', 'auth');
@@ -130,7 +135,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (e) {
       last = classify(e);
       const daily = last.kind === 'quota' && /daily|today/i.test(last.message);
-      if (last.kind === 'auth' || last.kind === 'too_large' || daily) break;
+      if (last.kind === 'auth' || last.kind === 'too_large' || last.kind === 'offline' || daily) break;
       if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * Math.pow(2, i) + Math.random() * 300));
     }
   }

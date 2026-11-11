@@ -1,5 +1,5 @@
 
-import { getShareUrl } from '../utils';
+import { getShareUrl, coarsenCoordinate } from '../utils';
 import { PressingLoader } from './SkeletonPost';
 import { FungiWarning, isFungiPost } from './AiBadge';
 import { WonderBurst } from './Wonder';
@@ -19,6 +19,8 @@ import { groupOf, seasonOf } from '../services/lifeList';
 import { answersChallenge, carriesChallengeTag } from '../services/challenge';
 import { getDailyTheme } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
+import { useBackToClose } from '../services/overlayStack';
+import { watchTeen } from '../services/guardian';
 
 interface PostSessionViewProps {
   snapshots: Snapshot[];
@@ -48,7 +50,14 @@ const shortDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { d
 
 /** The guide's confidence, said in words. */
 const confidenceWords = (c?: string | null) =>
-  c === 'high' ? 'Your guide is quite sure' : c === 'medium' ? 'Your guide is fairly sure' : c === 'low' ? 'Your guide is not sure' : '';
+  c === 'high' ? 'quite sure' : c === 'medium' ? 'fairly sure' : c === 'low' ? 'not sure' : '';
+/** A candidate name's confidence, in the Lens's words. */
+const candidateWords = (c?: string | null) => c === 'high' ? 'probably' : c === 'medium' ? 'could be' : 'not sure';
+/** Labels a capture carries before (or without) a name; never shown or shared as a name. */
+const PLACEHOLDER_NAME = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting|manual observation|audio recording|video recording|uploaded discovery)$/i;
+const PROCESSING = "Processing...";
+/** How long the explorer waits for the guide before they may name it themselves */
+const GUIDE_WAIT_MS = 20_000;
 
 const ordinal = (n: number) => { const v = n % 100; const suf = (v >= 11 && v <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'; return `${n}${suf}`; };
 /** A line that marks how far the explorer has come, with the round numbers called out. */
@@ -74,6 +83,22 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [reviewOffer, setReviewOffer] = useState<null | { mode: 'stitch' | 'separate' }>(null);
   const [heldMessage, setHeldMessage] = useState('');
   const [sharesLeft, setSharesLeft] = useState<number | null>(null);
+  /** The server refused the note's words: its message, shown by the note, word for word */
+  const [captionError, setCaptionError] = useState('');
+  // Teen mode: the place is never shown (the server hides it too)
+  const [teen, setTeen] = useState(false);
+  useEffect(() => watchTeen(s => setTeen(s.teen)), []);
+  /** Captures already shared in this review, so trying again never shares them twice */
+  const publishedIdsRef = useRef<Set<string>>(new Set());
+  const lastCreatedIdRef = useRef<string | null>(null);
+  const speciesBeforeRef = useRef<Set<string> | null>(null);
+  /** Names and notes the explorer changed by hand; a late answer from the guide never overwrites them */
+  const editedLabelsRef = useRef<Set<string>>(new Set());
+  const editedInsightRef = useRef<Set<string>>(new Set());
+  /** Captures the guide is looking at from here (first look or "Name it again") */
+  const [lookingIds, setLookingIds] = useState<Set<string>>(new Set());
+  const startedLookRef = useRef<Set<string>>(new Set());
+  const detailsRef = useRef<HTMLDetailsElement>(null);
   useEffect(() => { getMyAllowance().then(a => { if (a) setSharesLeft(Math.max(0, a.posts.limit - a.posts.used)); }); }, []);
   const [newSpecies, setNewSpecies] = useState<string[]>([]);
   const [lifeListTotal, setLifeListTotal] = useState(0);
@@ -107,7 +132,20 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const [objectUrls, setObjectUrls] = useState<Record<string, { image?: string; video?: string; audio?: string }>>({});
 
   useEffect(() => {
-    setSnapshots(initialSnapshots);
+    // The guide's answers arrive through the session; the explorer's own edits are kept over them
+    setSnapshots(prev => {
+      let changed = false;
+      const next = initialSnapshots.map(s => {
+        const p = prev.find(x => x.id === s.id);
+        if (!p) return s;
+        const keepLabels = editedLabelsRef.current.has(s.id) && p.labels !== s.labels;
+        const keepInsight = editedInsightRef.current.has(s.id) && p.aiInsight !== s.aiInsight;
+        if (!keepLabels && !keepInsight) return s;
+        changed = true;
+        return { ...s, ...(keepLabels ? { labels: p.labels } : {}), ...(keepInsight ? { aiInsight: p.aiInsight } : {}) };
+      });
+      return changed ? next : initialSnapshots;
+    });
   }, [initialSnapshots]);
 
   // Preview URLs depend only on which media exist, not on text edits (avoids flicker while typing)
@@ -137,8 +175,63 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const persistCurrent = (updates: Partial<Snapshot>) => {
       setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, ...updates } : s));
   };
-  const editLabels = (v: string[]) => { setLabels(v); persistCurrent({ labels: v }); };
-  const editInsight = (v: string) => { setAiInsight(v); persistCurrent({ aiInsight: v }); };
+  const markEdited = (ref: React.MutableRefObject<Set<string>>) => { const id = snapshots[currentSnapIndex]?.id; if (id) ref.current.add(id); };
+  const editLabels = (v: string[]) => { markEdited(editedLabelsRef); setLabels(v); persistCurrent({ labels: v }); };
+  const editInsight = (v: string) => { markEdited(editedInsightRef); setAiInsight(v); persistCurrent({ aiInsight: v }); };
+
+  /** The guide looks at one capture (again): its answer lands on that capture, whichever is open. */
+  const runIdentification = async (current: Snapshot) => {
+    setLookingIds(prev => new Set(prev).add(current.id));
+    try {
+        const associatedImages = current.associatedImages?.map(i => i.blob).filter(Boolean) as Blob[] || [];
+        const mainBlob = current.videoBlob || current.audioBlob || current.blob;
+        const where = resolvedArea || (current.location && !/^-?\d/.test(current.location) ? current.location : undefined);
+
+        let result;
+        if ((current.type === 'audio' || current.type === 'video') && (current.blob || associatedImages.length > 0)) {
+            // Use multimodal analysis for audio/video + images
+            result = await GenAiService.analyzeMultimodal(
+                current.videoBlob || current.audioBlob || null,
+                [current.blob, ...associatedImages].filter(Boolean) as Blob[],
+                where
+            );
+        } else {
+            if (!mainBlob) throw new Error('Nothing for your guide to look at');
+            const typeToAnalyze = current.videoBlob ? 'video' : (current.audioBlob ? 'audio' : 'image');
+            result = await GenAiService.analyzeMedia(mainBlob, typeToAnalyze, where);
+        }
+
+        if (result) {
+            editedLabelsRef.current.delete(current.id);
+            editedInsightRef.current.delete(current.id);
+            if (!tagsTouchedRef.current) setTags((result.hashtags || []).map((h: string) => `#${String(h).replace(/^#/, '')}`));
+            if (result.location && !resolvedArea) setResolvedArea(result.location);
+            setSnapshots(prev => prev.map(s => s.id === current.id ? {
+                ...s,
+                aiInsight: result.ecologic,
+                labels: result.taxonomy,
+                ...(result.location ? { locationArea: result.location } : {}),
+                aiProposedLabels: result.taxonomy,
+                aiProposedBehavior: result.ecologic,
+                aiConfidence: result.confidence,
+                aiIdentifications: result.identifications,
+                aiFlags: result.flags,
+                needsExpertReview: result.needsExpertReview,
+                aiSafetyNote: result.safetyNote,
+                aiModel: result.model,
+                aiPromptVersion: result.promptVersion,
+                aiResultId: result.resultId,
+                isAnalyzing: false,
+                aiError: null,
+            } : s));
+        }
+    } catch (e: any) {
+        console.error("Analysis failed", e);
+        setSnapshots(prev => prev.map(s => s.id === current.id ? { ...s, aiInsight: s.aiInsight === PROCESSING ? '' : s.aiInsight, isAnalyzing: false, aiError: e?.message || 'Identification unavailable right now' } : s));
+    } finally {
+        setLookingIds(prev => { const n = new Set(prev); n.delete(current.id); return n; });
+    }
+  };
 
   // Keep the parent session in sync (drafts saved from the header include these edits)
   useEffect(() => { onUpdateSnapshots?.(snapshots); }, [snapshots]);
@@ -150,69 +243,24 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
         setBehavior(current.behavior || "");
         setAiInsight(current.aiInsight || "");
-        setLabels(current.labels || []);
+        // A placeholder ("Manual Observation") is never shown as the name
+        setLabels((current.labels || []).filter((l, i) => !(i === 0 && PLACEHOLDER_NAME.test((l || '').trim()))));
 
         if (current.isAnalyzing) {
             setIsAnalyzing(true);
             return;
         }
 
+        setIsAnalyzing(false);
         // glossary-ok: matches a stored placeholder from LiveLens
-        if (current.aiInsight === "Processing..." || current.aiInsight === "Audio analysis pending..." || current.aiInsight === "Visual record for field study.") {
-            if (current.aiInsight === "Processing..." && geminiServiceRef.current?.isConnected() && pendingSnapshotIdRef.current === current.id) {
+        if (current.aiInsight === PROCESSING || current.aiInsight === "Audio analysis pending..." || current.aiInsight === "Visual record for field study.") {
+            if (current.aiInsight === PROCESSING && geminiServiceRef.current?.isConnected() && pendingSnapshotIdRef.current === current.id) {
                 setIsAnalyzing(true);
                 return; // Let Live API handle it
             }
-
-            setIsAnalyzing(true);
-            try {
-                const associatedImages = current.associatedImages?.map(i => i.blob).filter(Boolean) as Blob[] || [];
-                const mainBlob = current.videoBlob || current.audioBlob || current.blob;
-
-                let result;
-                if ((current.type === 'audio' || current.type === 'video') && (current.blob || associatedImages.length > 0)) {
-                    // Use multimodal analysis for audio/video + images
-                    result = await GenAiService.analyzeMultimodal(
-                        current.videoBlob || current.audioBlob || null,
-                        [current.blob, ...associatedImages].filter(Boolean) as Blob[],
-                        resolvedArea || current.location
-                    );
-                } else {
-                    const typeToAnalyze = current.videoBlob ? 'video' : (current.audioBlob ? 'audio' : 'image');
-                    result = await GenAiService.analyzeMedia(mainBlob!, typeToAnalyze, resolvedArea || current.location);
-                }
-
-                if (result) {
-                    setAiInsight(result.ecologic);
-                    setLabels(result.taxonomy);
-                    if (!tagsTouchedRef.current) setTags((result.hashtags || []).map((h: string) => `#${String(h).replace(/^#/, '')}`));
-                    if (result.location && !resolvedArea) setResolvedArea(result.location);
-
-                    setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? {
-                        ...s,
-                        aiInsight: result.ecologic,
-                        labels: result.taxonomy,
-                        ...(result.location ? { locationArea: result.location } : {}),
-                        aiProposedLabels: s.aiProposedLabels || result.taxonomy,
-                        aiProposedBehavior: s.aiProposedBehavior || result.ecologic,
-                        aiConfidence: result.confidence,
-                        aiIdentifications: result.identifications,
-                        aiFlags: result.flags,
-                        needsExpertReview: result.needsExpertReview,
-                        aiSafetyNote: result.safetyNote,
-                        aiModel: result.model,
-                        aiPromptVersion: result.promptVersion,
-                        aiResultId: result.resultId,
-                        aiError: null,
-                    } : s));
-                }
-            } catch (e: any) {
-                console.error("Analysis failed", e);
-                setAiInsight('');
-                setSnapshots(prev => prev.map((s, i) => i === currentSnapIndex ? { ...s, aiInsight: '', isAnalyzing: false, aiError: e?.message || 'Identification unavailable right now' } : s));
-            } finally {
-                setIsAnalyzing(false);
-            }
+            if (startedLookRef.current.has(current.id)) return;
+            startedLookRef.current.add(current.id);
+            runIdentification(current);
         }
     };
     analyzeCurrent();
@@ -248,20 +296,16 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                 locationResolvedRef.current = true;
                 return;
             }
+            // Only coordinates rounded to about 1 km go to the town lookup. With no town, the place
+            // stays empty ("Add a place"): a made-up name would be shared as if it were real.
+            locationResolvedRef.current = true;
             try {
                 const [lat, lng] = current.location.split(',').map(Number);
-                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`);
-                const data = await res.json();
-                if (data.address) {
-                    setResolvedArea(data.address.city || data.address.town || data.address.village || data.address.county || data.address.state || "Nearby Wilderness");
-                } else {
-                    setResolvedArea("Nearby Wilderness");
-                }
-                locationResolvedRef.current = true;
-            } catch (e) {
-                setResolvedArea("Wilderness Area");
-                locationResolvedRef.current = true;
-            }
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${coarsenCoordinate(lat)}&lon=${coarsenCoordinate(lng)}&zoom=10&addressdetails=1`);
+                const a = (await res.json())?.address;
+                const town = a && (a.city || a.town || a.village || a.county || a.state);
+                if (town) setResolvedArea(town);
+            } catch { /* no place name: the explorer can add one */ }
         }
     };
     resolveLocation();
@@ -302,6 +346,18 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
     }
   };
 
+  const { close: closeLeave } = useBackToClose(confirmLeave, () => setConfirmLeave(false));
+
+  // Waiting for the guide has an end: after 20 s the explorer may share with a name of their own
+  const waitingForGuide = Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === PROCESSING);
+  const [waitTimedOut, setWaitTimedOut] = useState(false);
+  useEffect(() => {
+    if (!waitingForGuide) { setWaitTimedOut(false); return; }
+    const t = window.setTimeout(() => setWaitTimedOut(true), GUIDE_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [waitingForGuide]);
+  const blockedByGuide = waitingForGuide && !waitTimedOut;
+
   const anySensitive = Array.from(selectedIndices).some(i => snapshots[i]?.aiFlags?.sensitiveSpecies);
   const anyPeople = Array.from(selectedIndices).some(i => snapshots[i]?.aiFlags?.peopleVisible);
   useEffect(() => { if (anySensitive) setShowLocation(false); }, [anySensitive]);
@@ -317,8 +373,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         return;
     }
     if (snapshots.length === 0 || selectedIndices.size === 0) { setPublishError('Select at least one capture to share.'); return; }
-    const selectedSnapshots = Array.from(selectedIndices).map(idx => snapshots[idx]).filter(Boolean);
-    if (selectedSnapshots.some(s => s.aiInsight === "Processing...")) {
+    if (blockedByGuide) {
         setPublishError('Your guide is still analysing a capture. It will be ready in a moment.');
         return;
     }
@@ -331,39 +386,57 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const executeDispatch = async (mode: 'stitch' | 'separate', requestReview = false) => {
     setIsProcessing(true);
     setPublishError('');
+    setCaptionError('');
     setReviewOffer(null);
     let held = '';
+    let total = 0;
     try {
         const activeUserId = FirebaseService.getCurrentUserId()!;
-        const before = await FirebaseService.getMySpeciesSet();
-        (knownSpecies || []).forEach(n => { if (n) before.add(n.trim().toLowerCase()); });
+        // The life list as it was before this review's first share (a retry must not count those again)
+        if (!speciesBeforeRef.current) {
+            const set = await FirebaseService.getMySpeciesSet();
+            (knownSpecies || []).forEach(n => { if (n) set.add(n.trim().toLowerCase()); });
+            speciesBeforeRef.current = set;
+        }
+        const before = new Set(speciesBeforeRef.current);
         const selectedSnapshots = Array.from(selectedIndices).sort((a, b) => a - b).map(idx => {
-            const current = snapshots[idx];
+            const raw = snapshots[idx];
+            // A capture the guide never finished: shared with the explorer's own name, without placeholders
+            const current = {
+                ...raw,
+                labels: (raw.labels || []).filter((l, i) => !(i === 0 && PLACEHOLDER_NAME.test((l || '').trim()))),
+                aiInsight: raw.aiInsight === PROCESSING ? '' : raw.aiInsight,
+            };
             const proposed = current.aiProposedLabels || [];
             return {
                 ...current,
-                locationArea: resolvedArea,
-                showLocation,
+                locationArea: teen ? '' : resolvedArea,
+                showLocation: showLocation && !teen,
                 // Human-in-the-loop signal: did the explorer change what the AI proposed?
                 humanDelta: proposed.length > 0 && JSON.stringify((current.labels || []).map(l => l.toLowerCase())) !== JSON.stringify(proposed.map(l => l.toLowerCase())),
             };
         });
         const cleanTags = tags.map(t => t.trim()).filter(Boolean);
 
-        let lastCreatedId = null;
+        total = selectedSnapshots.length;
         if (mode === 'stitch') {
             const itemsForSynthesis = selectedSnapshots.map(s => ({ taxonomy: s.labels || [], ecologic: s.aiInsight || '' }));
             const synthesizedData = await GenAiService.synthesizeCollection(itemsForSynthesis).catch(() => undefined);
             const res = await FirebaseService.publishPost(selectedSnapshots, activeUserId, { feed: postToFeed, journal: true }, cleanTags, { caption, title: synthesizedData?.title, description: synthesizedData?.description, requestReview });
-            if (res?.id) lastCreatedId = res.id;
+            if (res?.id) lastCreatedIdRef.current = res.id;
             if (res?.held) held = res.message || '';
+            selectedSnapshots.forEach(s => publishedIdsRef.current.add(s.id));
         } else {
+            // Each capture is its own sighting; those already shared in this review are skipped
             for (const snap of selectedSnapshots) {
+                if (publishedIdsRef.current.has(snap.id)) continue;
                 const res = await FirebaseService.publishPost([snap], activeUserId, { feed: postToFeed, journal: true }, cleanTags, { caption, requestReview });
-                if (res?.id) lastCreatedId = res.id;
+                publishedIdsRef.current.add(snap.id);
+                if (res?.id) lastCreatedIdRef.current = res.id;
                 if (res?.held) held = res.message || '';
             }
         }
+        const lastCreatedId = lastCreatedIdRef.current;
         if (lastCreatedId) setCreatedPostId(lastCreatedId);
         setHeldMessage(held);
         FirebaseService.logAiFeedback(selectedSnapshots, lastCreatedId).catch(() => {});
@@ -384,7 +457,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                 thumb: (objectUrls[plateSnap.id]?.image || plateSnap.url || plateSnap.associatedImages?.[0]?.url) || undefined,
                 no: fresh.length ? before.size + 1 : undefined,
                 firstMs: (plateSnap as any).takenAtMs || now,
-                place: showLocation && !plateSnap.aiFlags?.sensitiveSpecies ? (resolvedArea || undefined) : undefined,
+                place: showLocation && !teen && !plateSnap.aiFlags?.sensitiveSpecies ? (resolvedArea || undefined) : undefined,
                 season: seasonOf((plateSnap as any).takenAtMs || now, plateSnap.rawLocation?.lat),
                 group: groupOf(plateSnap),
             });
@@ -401,19 +474,29 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
             geminiServiceRef.current.disconnect();
             geminiServiceRef.current = null;
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error('Publish failed', e);
+        // Some captures went out before this one failed: say how far it got; trying again shares the rest
+        const done = Array.from(selectedIndices).filter(i => snapshots[i] && publishedIdsRef.current.has(snapshots[i].id)).length;
+        const partial = done > 0 && total > 0 ? `${done} of ${total} shared. Try again to share the rest. ` : '';
         if (e instanceof PublishError) {
             // The server says what to fix: crop, retake, change the words, or wait for tomorrow's allowance
             track('post_held', { code: e.code });
-            setPublishError(e.message);
+            if (e.code === 'caption' || e.code === 'safety' || (e.details as any)?.fix === 'text') {
+                // The note's words were refused: the server's own message sits by the note
+                setCaptionError(e.message);
+                setPublishError(`${partial}Change your note, then share again.`);
+                return;
+            }
+            setPublishError(`${partial}${e.message}`);
             if (e.details?.canRequestReview) setReviewOffer({ mode });
             return;
         }
-        track('post_publish_failed', { offline: navigator.onLine === false });
-        setPublishError(navigator.onLine === false
+        if (e?.name === 'ImageCleanError') { setPublishError(`${partial}${e.message}`); return; }
+        track('post_publish_failed', { offline: navigator.onLine === false, partial: done > 0 });
+        setPublishError(partial + (navigator.onLine === false
             ? "You're offline. Your captures are safe here. Reconnect and tap Share again, or save a draft."
-            : "We couldn't publish just now. Your captures are safe. Please try again or save a draft.");
+            : "We couldn't share just now. Your captures are safe. Please try again or save a draft."));
     } finally { setIsProcessing(false); }
   };
 
@@ -488,6 +571,33 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
   const currentPreviewUrl = currentSnapshot ? (currentUrls?.image || currentSnapshot.url) : null;
   const currentVideoUrl = currentSnapshot ? (currentUrls?.video || currentSnapshot.videoUrl) : null;
   const currentAudioUrl = currentSnapshot ? (currentUrls?.audio || currentSnapshot.audioUrl) : null;
+  const lookingNow = isAnalyzing || (!!currentSnapshot && lookingIds.has(currentSnapshot.id));
+  const stillWaiting = !!currentSnapshot && currentSnapshot.aiInsight === PROCESSING;
+  // The name as the guide gave it (not changed by the explorer): its words are labelled as the AI's
+  const nameFromGuide = !!currentSnapshot?.aiConfidence && !!labels[0] && (currentSnapshot.aiProposedLabels?.[0] || '').toLowerCase() === labels[0].toLowerCase();
+  const insightFromGuide = !!aiInsight && !!currentSnapshot?.aiProposedBehavior && currentSnapshot.aiProposedBehavior === aiInsight;
+  // Up to three other names the guide considered, each with how sure it was
+  const candidates = (currentSnapshot?.aiIdentifications || [])
+      .filter(c => c?.commonName && c.commonName.toLowerCase() !== (labels[0] || '').toLowerCase())
+      .filter((c, i, arr) => arr.findIndex(x => x.commonName.toLowerCase() === c.commonName.toLowerCase()) === i)
+      .slice(0, 3);
+  const canNameAgain = !!currentSnapshot && !lookingNow && (!stillWaiting || waitTimedOut) && !!(currentSnapshot.blob || currentSnapshot.videoBlob || currentSnapshot.audioBlob || currentSnapshot.associatedImages?.length);
+  const nameAgain = () => { if (currentSnapshot) { track('ai_name_again', { failed: !!currentSnapshot.aiError }); runIdentification(currentSnapshot); } };
+  const openPlaceSetting = () => {
+      const d = detailsRef.current;
+      if (d) d.open = true;
+      window.setTimeout(() => {
+          const el = document.getElementById(showLocation ? 'post-location' : 'post-show-area');
+          el?.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+          (el as HTMLElement | null)?.focus({ preventScroll: true });
+      }, 50);
+  };
+  // What a public share will say about the place, in one line above the Share button
+  const placeLine = teen ? 'Place hidden in teen mode'
+      : anySensitive ? 'Place hidden to protect this species'
+      : !showLocation ? 'Shared without a place'
+      : resolvedArea ? `Shared as: near ${resolvedArea}` : 'Shared without a place';
+  const remainingToShare = Array.from(selectedIndices).filter(i => snapshots[i] && !publishedIdsRef.current.has(snapshots[i].id)).length;
 
   return (
     <motion.div
@@ -498,7 +608,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
         className="fixed inset-0 bg-day-bg flex flex-col z-[70] overflow-hidden"
     >
       <header className="h-16 px-4 md:px-8 flex justify-between items-center bg-day-bg border-b border-stone-200/80 shrink-0 z-20 safe-pt box-content">
-          <button onClick={() => snapshots.length ? setConfirmLeave(true) : onClose()} aria-label="Close review" className="ng-icon-button -ml-2"><Glyph name="close" size={24} /></button>
+          <button onClick={() => (snapshots.length ? setConfirmLeave(true) : onClose())} aria-label="Close review" className="ng-icon-button -ml-2"><Glyph name="close" size={24} /></button>
           <div className="text-center">
               <h2 className="font-display italic text-lg text-stone-900">{selectedIndices.size > 1 && !combine ? 'Your sightings' : 'Your sighting'}</h2>
               {snapshots.length > 1 && <p className="ng-caption">{selectedIndices.size} of {snapshots.length} captures selected</p>}
@@ -568,14 +678,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               )}
                           </div>
                       )}
-                      <button
+                      {snapshots.length > 1 && <button
                           onClick={() => toggleSelection(currentSnapIndex)}
                           aria-pressed={selectedIndices.has(currentSnapIndex)}
                           aria-label={selectedIndices.has(currentSnapIndex) ? 'Selected to share. Tap to leave out' : 'Not selected. Tap to include'}
                           className={`absolute top-4 right-4 md:top-6 md:right-6 z-30 w-12 h-12 rounded-full flex items-center justify-center transition-colors ${selectedIndices.has(currentSnapIndex) ? 'bg-white text-stone-900' : 'bg-black/40 backdrop-blur-md text-white'}`}
                       >
                           <Glyph name={selectedIndices.has(currentSnapIndex) ? 'checkCircle' : 'plusCircle'} size={24} />
-                      </button>
+                      </button>}
                       {(currentSnapshot.type === 'image' || currentSnapshot.type === 'video') && (
                           <button
                               onClick={async () => {
@@ -694,11 +804,37 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   aria-describedby="post-labels-hint"
                                   className="ng-field-line text-[28px] leading-[1.2] font-display italic"
                               />
-                              <p id="post-labels-hint" className="ng-caption mt-2 flex items-center gap-1.5">
-                                  {isAnalyzing
-                                      ? <><span className="inline-flex" aria-hidden="true"><Glyph name="guide" size={14} /></span>Your guide is looking…</>
-                                      : <>{confidenceWords(currentSnapshot?.aiConfidence) && <><Glyph name="guide" size={14} className="text-stone-500" /><span className="text-stone-700">{confidenceWords(currentSnapshot?.aiConfidence)}.</span></>}<span>Change it if it's wrong.</span></>}
+                              <p id="post-labels-hint" className="ng-caption mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1" aria-live="polite">
+                                  {stillWaiting && waitTimedOut
+                                      ? <><Glyph name="guide" size={14} className="text-stone-500" /><span className="text-stone-700">Your guide is taking too long. You can name it yourself.</span></>
+                                      : lookingNow
+                                      ? <><span className="inline-flex" aria-hidden="true"><Glyph name="guide" size={14} /></span>Your guide, an AI, is looking…</>
+                                      : <>{nameFromGuide && confidenceWords(currentSnapshot?.aiConfidence) && <><Glyph name="guide" size={14} className="text-stone-500" /><span className="text-stone-700">From your guide (AI): {confidenceWords(currentSnapshot?.aiConfidence)}.</span></>}<span>Change it if it's wrong.</span></>}
                               </p>
+                              {!lookingNow && candidates.length > 0 && (
+                                  <div className="mt-3">
+                                      <p className="ng-caption mb-1.5">Could also be:</p>
+                                      <div className="flex flex-wrap gap-2">
+                                          {candidates.map(c => (
+                                              <button
+                                                  key={c.commonName}
+                                                  type="button"
+                                                  onClick={() => editLabels([c.commonName, ...(c.scientificName && c.scientificName.toLowerCase() !== c.commonName.toLowerCase() ? [c.scientificName] : [])])}
+                                                  aria-label={`Use ${c.commonName} as the name (your guide: ${candidateWords(c.confidence)})`}
+                                                  className="min-h-[44px] px-4 rounded-full border border-stone-300 text-sm text-stone-900 hover:border-stone-900 transition-colors"
+                                              >
+                                                  <span className="font-display italic">{c.commonName}</span>
+                                                  <span className="text-stone-500"> · {candidateWords(c.confidence)}</span>
+                                              </button>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+                              {canNameAgain && (
+                                  <button type="button" onClick={nameAgain} className="mt-2 ng-link-quiet min-h-[44px] inline-flex items-center gap-2">
+                                      <Glyph name="guide" size={16} className="text-stone-500" />Name it again
+                                  </button>
+                              )}
                           </section>
 
                           {/* Safety notes stay in view */}
@@ -706,7 +842,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <div className="space-y-3 -mt-3">
                                   {(isFungiPost({ labels }) || currentSnapshot?.aiFlags?.fungi) && <FungiWarning />}
                                   {currentSnapshot?.aiError && (
-                                      <p className="text-sm text-amber-950 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">{currentSnapshot.aiError}. Add your own name above. You know what you saw.</p>
+                                      <p className="text-sm text-amber-950 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">{currentSnapshot.aiError.replace(/[.\s]+$/, '')}. Add your own name above, or tap Name it again. You know what you saw.</p>
                                   )}
                                   {currentSnapshot?.aiFlags && currentSnapshot.aiFlags.isNatureSubject === false && (
                                       <p className="text-sm text-amber-950 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">This doesn't look like a nature sighting. NatureGram is for wild plants, animals, fungi and natural sounds.</p>
@@ -730,11 +866,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                               <textarea
                                   id="post-caption"
                                   value={caption}
-                                  onChange={(e) => setCaption(e.target.value.slice(0, 2200))}
+                                  onChange={(e) => { setCaption(e.target.value.slice(0, 2200)); if (captionError) setCaptionError(''); }}
                                   placeholder="What did you notice? What was it doing?"
                                   rows={3}
+                                  aria-invalid={!!captionError}
+                                  aria-describedby={captionError ? 'post-caption-error' : undefined}
                                   className="ng-field w-full p-4 leading-[1.65] resize-none"
                               />
+                              {captionError && <p id="post-caption-error" role="alert" className="mt-2 text-sm text-red-900 border-l-2 border-red-700 pl-3.5 py-1 leading-[1.6]">{captionError}</p>}
                               {caption.length > 1800 && <p className="ng-caption text-right mt-1 tabular">{caption.length}/2200</p>}
                           </section>
 
@@ -769,9 +908,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           )}
 
                           {/* Everything else, already filled in by the guide */}
-                          <details className="group border-y border-stone-200/80">
+                          <details ref={detailsRef} className="group border-y border-stone-200/80">
                               <summary className="cursor-pointer list-none flex items-center justify-between gap-3 min-h-[56px] font-medium text-stone-800 text-sm">
-                                  <span>More details <span className="font-normal text-stone-500">· filled in by your guide</span></span>
+                                  <span>More details <span className="font-normal text-stone-500">· from your guide (AI)</span></span>
                                   <Glyph name="chevronDown" size={20} className="text-stone-500 transition-transform group-open:rotate-180" />
                               </summary>
                               <div className="pb-6 pt-2 space-y-7">
@@ -790,7 +929,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
                                   {!!currentSnapshot?.aiIdentifications?.length && (
                                       <section className="border-l border-stone-300 pl-4 text-sm text-stone-700 leading-[1.6]">
-                                          <h4 className="ng-label">Why your guide thinks so</h4>
+                                          <h4 className="ng-label">Why your guide thinks so <span className="font-normal text-stone-500">(AI)</span></h4>
                                           <ul className="mt-2 space-y-2">
                                               {currentSnapshot.aiIdentifications.map((id, i) => (
                                                   <li key={i}><strong>{id.commonName}</strong>{id.scientificName && <em className="text-stone-500"> · {id.scientificName}</em>} <span className="text-xs text-stone-500">({id.rank}, {id.confidence} confidence)</span><br />{id.evidence}</li>
@@ -800,16 +939,16 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   )}
 
                                   <section>
-                                      <label htmlFor="post-insight" className="block ng-label mb-2">Why it does this <span className="font-normal text-stone-500">(a draft, edit freely)</span></label>
+                                      <label htmlFor="post-insight" className="block ng-label mb-2">Why it does this <span className="font-normal text-stone-500">{insightFromGuide ? '· From your guide (AI), a draft to edit freely' : '(edit freely)'}</span></label>
                                       <div className="relative">
                                           <textarea
                                               id="post-insight"
                                               value={aiInsight}
                                               onChange={(e) => editInsight(e.target.value)}
                                               placeholder="What it was doing, and why"
-                                              className={`ng-field w-full p-4 font-display leading-[1.6] resize-none h-36 ${isAnalyzing && aiInsight === "Processing..." ? 'opacity-60' : ''}`}
+                                              className={`ng-field w-full p-4 font-display leading-[1.6] resize-none h-36 ${lookingNow && aiInsight === PROCESSING ? 'opacity-60' : ''}`}
                                           />
-                                          {isAnalyzing && aiInsight === "Processing..." && (
+                                          {lookingNow && aiInsight === PROCESSING && (
                                               <div className="absolute inset-0 flex items-center justify-center rounded-lg pointer-events-none" role="status">
                                                   <div className="flex flex-col items-center gap-3">
                                                       <PressingLoader size={28} />
@@ -823,28 +962,30 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                                   <section>
                                       <div className="flex items-center justify-between mb-2">
                                           <label htmlFor="post-location" className="ng-label">Location</label>
-                                          <label className="flex items-center gap-2 text-sm text-stone-700 cursor-pointer min-h-[44px]">
+                                          {!teen && <label className="flex items-center gap-2 text-sm text-stone-700 cursor-pointer min-h-[44px]">
                                               <input
+                                                  id="post-show-area"
                                                   type="checkbox"
                                                   checked={showLocation}
                                                   onChange={(e) => setShowLocation(e.target.checked)}
                                                   className="w-4 h-4 accent-stone-900"
                                               />
                                               Show area
-                                          </label>
+                                          </label>}
                                       </div>
-                                      <div className={`relative transition-opacity ${showLocation ? '' : 'opacity-40'}`}>
+                                      <div className={`relative transition-opacity ${showLocation && !teen ? '' : 'opacity-40'}`}>
                                           <Glyph name="pin" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500" />
                                           <input
                                               id="post-location"
                                               type="text"
                                               value={resolvedArea}
-                                              disabled={!showLocation}
+                                              placeholder="Add a place"
+                                              disabled={!showLocation || teen}
                                               onChange={(e) => setResolvedArea(e.target.value)}
                                               className="ng-field w-full pl-11 pr-4 py-3"
                                           />
                                       </div>
-                                      <p className="ng-caption mt-2">Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
+                                      <p className="ng-caption mt-2">{teen ? 'Place hidden in teen mode. ' : ''}Only the approximate area is shown. Exact GPS is never public. It stays in your journal, just for you.</p>
                                       {(currentSnapshot as any)?.takenAtMs && <p className="ng-caption mt-2 flex items-center gap-1.5"><Glyph name="sun" size={14} className="text-stone-400" />Taken {shortDate((currentSnapshot as any).takenAtMs)}</p>}
                                   </section>
 
@@ -871,10 +1012,28 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
 
           {/* Static Finalize Button at Bottom */}
           <div className="shrink-0 px-6 pt-4 bg-day-bg border-t border-stone-200/80 z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              {sharesLeft !== null && !publishError && (
-                  <p className="mb-3 ng-caption text-center">
-                      {sharesLeft === 0 ? "You've shared today's sightings. Save this one as a draft and share it tomorrow." : `You can share ${sharesLeft} more sighting${sharesLeft === 1 ? '' : 's'} today.`}
+              {postToFeed && selectedIndices.size > 0 && !publishError && (
+                  <p className="mb-2 ng-caption text-center flex items-center justify-center gap-1.5 flex-wrap">
+                      <Glyph name="pin" size={14} className="text-stone-500" />
+                      <span>{placeLine}</span>
+                      {!teen && !anySensitive && (
+                          <>
+                              <span aria-hidden="true">·</span>
+                              <button type="button" onClick={openPlaceSetting} className="ng-link-quiet min-h-[44px] -my-3" aria-label="Change the place shown with this sighting">
+                                  {showLocation && !resolvedArea ? 'Add a place' : 'Change'}
+                              </button>
+                          </>
+                      )}
                   </p>
+              )}
+              {/* "Only me" saves don't use the sharing allowance, so it's only mentioned for public shares */}
+              {postToFeed && sharesLeft !== null && !publishError && (
+                  <p className="mb-3 ng-caption text-center">
+                      {sharesLeft === 0 ? "You've shared today's sightings. You can still keep this one with Only me, or share it tomorrow." : `You can share ${sharesLeft} more sighting${sharesLeft === 1 ? '' : 's'} with everyone today.`}
+                  </p>
+              )}
+              {waitingForGuide && waitTimedOut && !publishError && (
+                  <p className="mb-3 ng-caption text-center" role="status">Your guide is taking too long. You can name it yourself.</p>
               )}
               {publishError && (
                   <div role="alert" className="mb-3 text-sm text-stone-800 border-l-2 border-amber-600 pl-3.5 py-1 leading-[1.6]">
@@ -888,7 +1047,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
               )}
               <button
                   onClick={handleFinalizeClick}
-                  disabled={isProcessing || selectedIndices.size === 0 || (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing..."))}
+                  disabled={isProcessing || selectedIndices.size === 0 || blockedByGuide}
                   aria-busy={isProcessing}
                   className="ng-button-primary w-full max-w-2xl mx-auto flex min-h-[52px] text-base"
               >
@@ -897,7 +1056,7 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                           <span className="w-4 h-4 border-[1.5px] border-white/80 border-t-transparent animate-spin rounded-full" aria-hidden="true" />
                           <span>Publishing…</span>
                       </>
-                  ) : (Array.from(selectedIndices).some(idx => snapshots[idx]?.aiInsight === "Processing...") ? (
+                  ) : (blockedByGuide ? (
                       <>
                           <span className="inline-flex" aria-hidden="true"><Glyph name="guide" size={20} /></span>
                           <span>Waiting for your guide…</span>
@@ -905,7 +1064,9 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
                   ) : (
                       <>
                           {postToFeed ? <Glyph name="globe" size={20} className="ng-arrow" /> : <Glyph name="rings" size={20} className="ng-arrow" />}
-                          <span>{selectedIndices.size === 0 ? 'Select a capture' : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Save for only me'}</span>
+                          <span>{selectedIndices.size === 0 ? 'Select a capture'
+                              : remainingToShare < selectedIndices.size && remainingToShare > 0 && !combine ? (postToFeed ? `Share the other ${remainingToShare}` : `Save the other ${remainingToShare}`)
+                              : postToFeed ? (selectedIndices.size > 1 && !combine ? `Share ${selectedIndices.size} sightings` : 'Share') : 'Save for only me'}</span>
                       </>
                   ))}
               </button>
@@ -913,14 +1074,14 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
       </main>
 
       {confirmLeave && (
-          <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center ng-scrim animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+          <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center ng-scrim animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title" onClick={(e) => { if (e.target === e.currentTarget) closeLeave(); }}>
               <div className="w-full sm:max-w-sm ng-sheet p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
                   <h3 id="leave-title" className="ng-subtitle">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
                   <p className="ng-small mt-1 mb-6">Save a draft to finish later, or discard them for good.</p>
                   <div className="flex flex-col items-center gap-3">
-                      <button autoFocus onClick={() => { setConfirmLeave(false); onSaveDraft(); }} className="ng-button-primary w-full">Save draft</button>
-                      <button onClick={() => setConfirmLeave(false)} className="ng-button-quiet w-full">Keep editing</button>
-                      <button onClick={() => { setConfirmLeave(false); onClose(); }} className="min-h-[44px] px-4 text-sm font-medium text-red-800 underline decoration-red-200 underline-offset-[6px] hover:decoration-red-800">Discard</button>
+                      <button autoFocus onClick={() => { closeLeave(); onSaveDraft(); }} className="ng-button-primary w-full">Save draft</button>
+                      <button onClick={closeLeave} className="ng-button-quiet w-full">Keep editing</button>
+                      <button onClick={() => { closeLeave(); onClose(); }} className="min-h-[44px] px-4 text-sm font-medium text-red-800 underline decoration-red-200 underline-offset-[6px] hover:decoration-red-800">Discard</button>
                   </div>
               </div>
           </div>
