@@ -641,7 +641,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
           <button onClick={() => onRequireAccount?.('Create a free account to keep your journal and life list.')} className="ng-button-primary group mt-6 w-full">Create my field page<Glyph name="forward" size={20} className="ng-arrow transition-transform group-hover:translate-x-0.5" /></button>
           <button onClick={() => onLogIn?.()} className="ng-button-quiet mt-3 w-full">I already have an account: Log in</button>
           <div className="mt-8 pt-5 border-t border-stone-200/80 flex flex-col -mx-3">
-            {onAbout && <button onClick={onAbout} className="ng-menu-item min-h-[52px]"><BrandMark size={20} />About NatureGram</button>}
+            {onAbout && <button onClick={onAbout} className="ng-menu-item min-h-[52px]"><BrandMark size={20} /><span className="flex-1 text-left">About NatureGram<span className="block ng-caption">What it is, who makes it, how to reach us</span></span></button>}
             <button onClick={() => setSheet('words')} className="ng-menu-item min-h-[52px]"><Glyph name="help" size={20} className="text-stone-500" />What the words mean</button>
             <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
             <button onClick={() => onSignOut()} className="ng-menu-item min-h-[52px]"><Glyph name="signOut" size={20} className="text-stone-500" />Leave guest mode</button>
@@ -902,7 +902,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <button onClick={() => setSheet('words')} className="ng-menu-item min-h-[52px]"><Glyph name="help" size={20} className="text-stone-500" />What the words mean</button>
             {!isInstalled() && <button onClick={() => { setSheet(null); openInstallCard(); }} className="ng-menu-item min-h-[52px]"><Glyph name="plus" size={20} className="text-stone-500" />Add NatureGram to your home screen</button>}
             {onAbout && (
-              <button onClick={() => { setSheet(null); onAbout(); }} className="ng-menu-item min-h-[52px]"><BrandMark size={20} />About NatureGram</button>
+              <button onClick={() => { setSheet(null); onAbout(); }} className="ng-menu-item min-h-[52px]"><BrandMark size={20} /><span className="flex-1 text-left">About NatureGram<span className="block ng-caption">What it is, who makes it, how to reach us</span></span></button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="lines" size={20} className="text-stone-500" />Terms & community guidelines</a>

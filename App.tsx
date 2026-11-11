@@ -836,7 +836,8 @@ const App: React.FC = () => {
                   <BrandMark size={26} />
                   <span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span>
                 </span>
-                <span className="hidden md:block text-sm text-white/75">A field notebook for the living world</span>
+                {/* Who makes NatureGram: one quiet link, so the landing keeps its single invitation */}
+                <a href="/about" className="text-sm text-white/85 hover:text-white underline decoration-white/30 hover:decoration-white underline-offset-[6px] min-h-[44px] inline-flex items-center rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white/80">About us</a>
               </header>
 
               <main className="mt-auto px-6 md:px-12 pb-10 md:pb-16 safe-pb max-w-3xl landing-rise">
@@ -1034,7 +1035,7 @@ const App: React.FC = () => {
                   onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
-                  onAbout={() => handleNavigationRequest(AppView.LANDING)}
+                  onAbout={() => { window.location.assign(window.location.hostname === 'localhost' && window.location.protocol !== 'http:' ? `${PUBLIC_ORIGIN}/about` : '/about'); }}
                   onLogIn={() => setAuthModal({ signUp: false })}
                   onRetakeTour={() => { resetFirstRunTour(); setTourPending(true); handleNavigationRequest(AppView.COMMUNITY); }}
                   onMessage={async (uid: string) => {

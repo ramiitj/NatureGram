@@ -49,6 +49,14 @@ dl.faq dt{font-family:"Newsreader",Georgia,serif;font-size:20px;color:var(--ink)
 a{color:var(--ink);text-decoration-color:var(--accent);text-underline-offset:4px}
 a.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 24px;border-radius:999px;background:var(--ink);color:#fff;text-decoration:none;font-weight:600;font-size:15px;margin-top:32px}
 a.btn:after{content:"\\2192";color:#a8a29e}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+section.team{margin-top:40px;padding-top:28px;border-top:1px solid var(--rule,#e7e5e4)}
+.people{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:28px;margin-top:20px}
+.person h3{font-family:"Newsreader",Georgia,serif;font-weight:400;font-size:24px;line-height:1.2;color:var(--ink);margin:0}
+.person .role{font-size:14px;color:#78716c;margin:4px 0 0}
+.person .line{font-family:"Newsreader",Georgia,serif;font-style:italic;font-size:19px;color:var(--ink);margin:14px 0 6px}
+.person p{margin:0 0 8px;max-width:60ch}
+.person a.in{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--ink);text-underline-offset:4px}
 a.btn:hover{background:#292524}a:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:6px}
 footer.site{font-size:12px;color:var(--muted);margin-top:48px;padding-top:24px;border-top:1px solid var(--rule);text-align:center}footer.site a{color:var(--muted);margin:0 8px}
 @media (max-width:480px){h1{font-size:28px}nav.site a{margin-left:12px}}`;
@@ -228,14 +236,46 @@ ${speciesList.length ? `<h2>Species recorded</h2><ul class="names">${speciesList
 }
 
 // ------------------------------------------------------------------ about
+/** The people behind NatureGram (shown on /about, and as founders in the page's structured data). */
+export const TEAM = [
+  {
+    name: 'Roshini Ganuthula',
+    role: 'Co-founder · design and product',
+    linkedin: 'https://www.linkedin.com/in/roshiniganuthula',
+    line: 'Shapes how NatureGram looks, reads and feels.',
+    bio: 'Designer and researcher, trained in economics and communication design. Product work across healthcare, climate tech and edtech in India, the US and the UAE. Guest lecturer at IIT Bombay and IIT Jodhpur.',
+  },
+  {
+    name: 'Venkat Ram Reddy Ganuthula',
+    role: 'Co-founder · research and build',
+    linkedin: 'https://www.linkedin.com/in/ganuthula',
+    line: 'Studies behaviour, builds with AI.',
+    bio: 'Faculty at IIT Jodhpur, teaching and studying the behaviour of AI agents. Has built eight AI apps end to end. Thoreauvian at heart, he built NatureGram out of a lifelong love of nature and its small wonders.',
+  },
+];
+export const CONTACT_EMAIL = 'ramganuthula@gmail.com';
+
 export function aboutPage({ host, appLdNodes }) {
   const crumbs = [{ name: 'NatureGram', path: '/' }, { name: 'About', path: '/about' }];
   const description = 'What NatureGram is, whether it is free, how AI identification and community verification work, and how location privacy and teen protections work.';
   const ld = graph(organizationLd(host), websiteLd(host), appLdNodes, crumbLd(host, crumbs), faqLd(FAQS), {
     '@type': 'AboutPage', '@id': `${origin(host)}/about`, url: `${origin(host)}/about`, name: 'About NatureGram', description, isPartOf: { '@id': `${origin(host)}/#website` }, about: { '@id': `${origin(host)}/#organization` },
-  });
+  }, ...TEAM.map(t => ({ '@type': 'Person', name: t.name, jobTitle: t.role.replace(/^Co-founder · /, 'Co-founder, '), sameAs: [t.linkedin], worksFor: { '@id': `${origin(host)}/#organization` } })));
   const body = `<h1>About NatureGram</h1>
 <p class="lede">A living field notebook: notice something wild, learn what it is with the guide, and share it with explorers everywhere.</p>
+<section class="team" aria-labelledby="who">
+<h2 id="who">Who we are</h2>
+<p>NatureGram is made by two people who love being outside and noticing what lives there.</p>
+<div class="people">${TEAM.map(t => `<article class="person">
+<h3>${e(t.name)}</h3>
+<p class="role">${e(t.role)}</p>
+<p class="line">${e(t.line)}</p>
+<p>${e(t.bio)}</p>
+<a class="in" href="${e(t.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn: ${e(t.linkedin.replace(/^https:\/\/www\./, ''))} <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
+</article>`).join('')}</div>
+<p style="margin-top:24px">Questions, ideas or a problem to report? Write to <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>.</p>
+</section>
+<h2>Questions people ask</h2>
 <dl class="faq">${FAQS.map(f => `<dt>${e(f.q)}</dt><dd>${e(f.a)}</dd>`).join('')}</dl>
 <h2>More to read</h2>
 <ul><li><a href="/species">The species field guide</a></li><li><a href="/naturalists">Naturalists of the fortnight</a></li><li><a href="/privacy.html">Privacy policy</a></li><li><a href="/terms.html">Terms of use</a></li></ul>
