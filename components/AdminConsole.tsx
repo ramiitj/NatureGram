@@ -275,7 +275,7 @@ const Controls: React.FC = () => {
   const saveAllowances = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const allowances = { postsPerDay: Number(f.get('posts')), liveMinutesPerDay: Number(f.get('live')), identificationsPerDay: Number(f.get('ids')) };
+    const allowances = { postsPerDay: Number(f.get('posts')), liveMinutesPerDay: Number(f.get('live')), identificationsPerDay: Number(f.get('ids')), privateSavesPerDay: Number(f.get('private')) };
     if (allowances.postsPerDay < 1 || allowances.identificationsPerDay < 1) { setMsg('Sightings and identifications need at least 1 a day, or nobody could share or name anything.'); return; }
     setPending({ kind: 'allowances', body: allowances });
   };
@@ -304,15 +304,16 @@ const Controls: React.FC = () => {
       {msg && <Notice>{msg}</Notice>}
       <Card title="Daily allowance for every account">
         <form onSubmit={saveAllowances} className="grid sm:grid-cols-3 gap-3 items-end">
-          <label className="text-sm text-stone-700">Sightings shared per day<input name="posts" type="number" min={0} max={100} defaultValue={flags.allowances.postsPerDay} className={`${INPUT} tabular-nums`} /></label>
+          <label className="text-sm text-stone-700">Sightings shared per day<input name="posts" type="number" min={1} max={100} defaultValue={flags.allowances.postsPerDay} className={`${INPUT} tabular-nums`} /></label>
           <label className="text-sm text-stone-700">Live guide minutes per day<input name="live" type="number" min={0} max={240} defaultValue={flags.allowances.liveMinutesPerDay} className={`${INPUT} tabular-nums`} /></label>
-          <label className="text-sm text-stone-700">AI identifications per day<input name="ids" type="number" min={0} max={500} defaultValue={flags.allowances.identificationsPerDay} className={`${INPUT} tabular-nums`} /></label>
+          <label className="text-sm text-stone-700">AI identifications per day<input name="ids" type="number" min={1} max={500} defaultValue={flags.allowances.identificationsPerDay} className={`${INPUT} tabular-nums`} /></label>
+          <label className="text-sm text-stone-700">Private saves ("Only me") per day<input name="private" type="number" min={20} max={2000} defaultValue={flags.allowances.privateSavesPerDay ?? 200} className={`${INPUT} tabular-nums`} /></label>
           <Btn tone="primary" type="submit" className="sm:col-span-3 justify-self-start">Save allowances</Btn>
         </form>
         {pending?.kind === 'allowances' && (
           <Ask question={`Apply to every account now: ${pending.body.postsPerDay} sightings shared, ${pending.body.liveMinutesPerDay} live minutes and ${pending.body.identificationsPerDay} identifications a day?`} yes="Apply to everyone" onNo={() => setPending(null)} onYes={applyPending} />
         )}
-        <p className="text-xs text-stone-500 mt-3">No exceptions. Counted on the server per account per day (UTC). An identification is one photo, sound or clip the guide names.</p>
+        <p className="text-xs text-stone-500 mt-3">No exceptions. Counted on the server per account per day, resetting at 5:30 am India time (midnight UTC). Private saves are counted separately from shares. An identification is one photo, sound or clip the guide names.</p>
       </Card>
       <Card title="Switches for everyone">
         <ul className={`divide-y ${DIVIDE}`}>
@@ -574,6 +575,7 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
         )}
       </Card>
       <ReviewWords />
+      <ContentReports openUser={openUser} />
       <Card title="Reported by explorers">
         {!reported ? <Loading label="Gathering reports" /> : reported.length === 0 ? <Quiet glyph="binoculars">No reports from explorers. All is well in the feed.</Quiet> : (
           <ul className="space-y-3">
@@ -600,6 +602,42 @@ const Review: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => 
 };
 
 /** Extra words that send a sighting or field note to review (added to the built-in list). */
+/** Reports on field notes and on explorers' pages (content_reports). Reporters are visible here only. */
+const ContentReports: React.FC<{ openUser: (uid: string) => void }> = ({ openUser }) => {
+  const [items, setItems] = useState<any[] | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => api('/content-reports?status=open').then(r => setItems(r.items || [])).catch(e => { setItems([]); setMsg(e.message); }), []);
+  useEffect(() => { load(); }, [load]);
+  const act = async (id: string, action: 'close' | 'hide-comment') => {
+    try { await api(`/content-reports/${encodeURIComponent(id)}`, { method: 'POST', body: { action } }); setMsg(action === 'close' ? 'Closed.' : 'Field note hidden and report closed.'); load(); }
+    catch (e: any) { setMsg(e.message); }
+  };
+  return (
+    <Card title="Reported field notes and explorers">
+      {msg && <Notice>{msg}</Notice>}
+      {!items ? <Loading label="Gathering reports" /> : items.length === 0 ? <Quiet glyph="binoculars">No open reports on field notes or explorers.</Quiet> : (
+        <ul className="space-y-3">
+          {items.map((r: any) => (
+            <li key={r.id} className="border border-stone-200/80 bg-white/60 rounded-md p-3 text-sm text-stone-800 space-y-1">
+              <p><span className="font-medium">{r.kind === 'comment' ? 'Field note' : 'Explorer'}</span> · {r.reason}{r.details ? ` (${r.details})` : ''}</p>
+              {r.kind === 'comment' && r.comment && (r.comment.missing
+                ? <p className="text-stone-500">The field note has already gone.</p>
+                : <p className="text-stone-700 break-words">“{r.comment.text}”{r.comment.hidden ? ' (hidden)' : ''}</p>)}
+              {(r.kind === 'profile' ? r.reportedUid || r.userId : r.comment?.userId) && (
+                <p><button onClick={() => openUser(r.kind === 'profile' ? (r.reportedUid || r.userId) : r.comment.userId)} className={linkCls}>Open the explorer</button></p>
+              )}
+              <div className="flex gap-2 flex-wrap pt-1">
+                <Btn onClick={() => act(r.id, 'close')}>Close, nothing wrong</Btn>
+                {r.kind === 'comment' && !r.comment?.missing && <Btn tone="danger" onClick={() => act(r.id, 'hide-comment')}>Hide the field note</Btn>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+};
+
 const ReviewWords: React.FC = () => {
   const [words, setWords] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
@@ -822,6 +860,22 @@ const DataTools: React.FC = () => {
         <Btn onClick={exportDwc} disabled={!!busy}>{busy === 'dwc' ? 'Exporting…' : 'Download the Darwin Core archive (GBIF)'}</Btn>
         <AskButton disabled={!!busy} label={busy === 'search' ? 'Adding search keys…' : 'Add search keys to older sightings'}
           question="Add search keys to every sighting that is missing them? Safe to run more than once." yes="Add search keys" onYes={backfill} />
+        <AskButton disabled={!!busy} label={busy === 'reporters' ? 'Clearing…' : 'Remove reporter names from older sightings'}
+          question="Remove the list of who reported each older sighting from the sightings themselves? Reports stay with moderators; nothing else changes. Safe to run again." yes="Remove them" onYes={async () => {
+            setBusy('reporters');
+            try {
+              let after: string | null = null, scanned = 0, cleared = 0;
+              for (let i = 0; i < 200; i++) {
+                const r: any = await api('/clear-reporter-ids', { method: 'POST', body: after ? { after } : {} });
+                scanned += r.scanned || 0; cleared += r.cleared || 0;
+                setMsg(`Checked ${scanned} sightings, cleared ${cleared}…`);
+                if (r.done || !r.next) break;
+                after = r.next;
+              }
+              setMsg(`Done: checked ${scanned} sightings, cleared ${cleared}.`);
+            } catch (e: any) { setMsg(`Stopped: ${e?.message || 'unknown error'}. Press again to carry on.`); }
+            finally { setBusy(''); }
+          }} />
         {busy === 'posters' && (
           <Btn onClick={async () => {
             try { const [{ db }, fs] = await Promise.all([import('../firebaseConfig'), import('firebase/firestore')]); await fs.updateDoc(fs.doc(db, 'admin_jobs', 'posters'), { status: 'stopped' }); }

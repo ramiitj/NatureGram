@@ -1096,7 +1096,7 @@ export const FirebaseService = {
       } catch (e) {
           console.warn("Could not delete from feed_thumbnails:", e);
           if (!mainFeedSuccess) {
-              throw new Error("Failed to delete post from both feed and thumbnails.");
+              throw new Error("This sighting couldn't be deleted. Please try again.");
           }
       }
   },
@@ -1172,7 +1172,7 @@ export const FirebaseService = {
     const userProfile = await FirebaseService.getUserProfile(userId);
     const userName = userProfile?.username || auth.currentUser?.displayName || `Explorer-${userId.slice(0, 4)}`;
     const clean = text.trim().slice(0, 1000);
-    if (!clean) throw new Error("Comment is empty.");
+    if (!clean) throw new Error("Write something in your field note first.");
     if (looksLikeSpam(clean)) throw new Error("Field notes can't contain links or promotions.");
     // The same note twice on one post is almost always spam or a double tap
     try {
@@ -1517,8 +1517,8 @@ export const FirebaseService = {
   /** Opens (creating if needed) the 1:1 conversation with another explorer. */
   openConversation: async (otherUid: string): Promise<string> => {
     const me = auth.currentUser;
-    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
-    if (otherUid === me.uid) throw new Error("You can't message yourself.");
+    if (!me || me.isAnonymous) throw new Error('Please log in to write letters.');
+    if (otherUid === me.uid) throw new Error("You can't write a letter to yourself.");
     const participants = [me.uid, otherUid].sort();
     const cid = participants.join('_');
     const ref = doc(db, 'conversations', cid);
@@ -1564,7 +1564,7 @@ export const FirebaseService = {
 
   sendMessage: async (cid: string, text: string, postId?: string) => {
     const me = auth.currentUser;
-    if (!me || me.isAnonymous) throw new Error('Please sign in to send messages.');
+    if (!me || me.isAnonymous) throw new Error('Please log in to write letters.');
     const clean = text.trim().slice(0, 2000);
     if (!clean && !postId) return;
     const msg: any = { senderId: me.uid, text: clean, createdAt: serverTimestamp() };

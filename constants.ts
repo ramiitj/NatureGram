@@ -20,15 +20,15 @@ export const tools: FunctionDeclaration[] = [
   },
   {
     name: 'switch_camera',
-    description: 'Switches between the front (user) and back (environment) camera.',
+    description: 'Suggests the back (environment) camera for a better view of the subject. The front camera is never used by the guide; never ask to see faces or people.',
     behavior: Behavior.NON_BLOCKING,
     parameters: {
       type: Type.OBJECT,
       properties: {
         facing_mode: { 
           type: Type.STRING, 
-          enum: ['user', 'environment'],
-          description: "'user' for front camera, 'environment' for back camera."
+          enum: ['environment'],
+          description: "Always 'environment' (the back camera)."
         },
       },
       required: ['facing_mode'],
@@ -50,7 +50,7 @@ export const tools: FunctionDeclaration[] = [
   },
   {
     name: 'trigger_capture',
-    description: 'Captures a high-quality visual snapshot of one or more species.',
+    description: 'Asks the explorer to tap the shutter for a high-quality snapshot of one or more species. The guide never takes a picture by itself.',
     behavior: Behavior.NON_BLOCKING,
     parameters: {
       type: Type.OBJECT,
