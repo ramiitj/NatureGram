@@ -27,7 +27,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const EXPLORABLE = {
   users: 'joinedAt', ecosystem_feed: 'timestamp', feed_thumbnails: 'timestamp', ai_feedback: 'createdAt',
   ai_log: 'at', ai_usage: 'updatedAt', usage_global: 'updatedAt', ai_results: 'createdAt', suspended: 'at',
-  review_queue: 'createdAt', letter_reports: 'createdAt', admin_audit: 'at', app_config: null, themes: null,
+  review_queue: 'createdAt', letter_reports: 'createdAt', content_reports: 'createdAt', admin_audit: 'at', app_config: null, themes: null,
   daily_themes: null, media_variants: null, naturalist_profiles: null, config: null, live_leases: 'startedAt',
 };
 
@@ -222,7 +222,7 @@ export function mountAdmin(app, deps) {
   router.get('/overview', wrap(async (req, res) => {
     const d = db();
     const since = Timestamp.fromMillis(Date.now() - 86_400_000);
-    const [flags, settings, global, logSnap, queue, reported, postsToday, letterReports] = await Promise.all([
+    const [flags, settings, global, logSnap, queue, reported, postsToday, letterReports, contentReports] = await Promise.all([
       getFlags(), getSettings(),
       d.doc(`usage_global/${today()}`).get(),
       d.collection('ai_log').where('at', '>=', since).orderBy('at', 'desc').limit(2000).get(),
@@ -230,6 +230,7 @@ export function mountAdmin(app, deps) {
       d.collection('ecosystem_feed').where('reportStatus', '==', 'pending').count().get(),
       d.collection('ecosystem_feed').where('timestamp', '>=', Timestamp.fromMillis(new Date(today() + 'T00:00:00Z').getTime())).count().get(),
       d.collection('letter_reports').where('status', '==', 'open').count().get().catch(() => ({ data: () => ({ count: 0 }) })),
+      d.collection('content_reports').where('status', '==', 'open').count().get().catch(() => ({ data: () => ({ count: 0 }) })),
     ]);
     const byTask = {}; const flagged = {}; const users = new Set(); let errors = 0; let tokens = 0;
     const hourly = Array(24).fill(0);
@@ -247,7 +248,7 @@ export function mountAdmin(app, deps) {
       store: storeHealth(), policy: AI_POLICY_VERSION, flags,
       ceiling: settings.caps.dailyTokenCeiling, tokensToday: global.exists ? global.get('tokens') || 0 : 0, callsToday: global.exists ? global.get('calls') || 0 : 0,
       last24h: { calls: logSnap.size, errors, tokens, activeExplorers: users.size, byTask, flagged, hourly, truncated: logSnap.size >= 2000 },
-      queues: { review: queue.data().count, reported: reported.data().count, letters: letterReports.data().count },
+      queues: { review: queue.data().count, reported: reported.data().count, letters: letterReports.data().count, contentReports: contentReports.data().count },
       postsToday: postsToday.data().count,
     });
   }));
@@ -384,10 +385,69 @@ export function mountAdmin(app, deps) {
     const post = snap.data(); const batch = d.batch();
     if (action === 'hide') { batch.update(ref, { reportStatus: 'hidden', isPublic: false }); batch.delete(d.doc(`feed_thumbnails/${id}`)); }
     if (action === 'restore') { batch.update(ref, { reportStatus: 'safe', isPublic: true, moderation: { status: 'clear', reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } }); batch.set(d.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, isPublic: true })); }
-    if (action === 'dismiss') batch.update(ref, { reportStatus: 'safe', reports: [] });
+    if (action === 'dismiss') batch.update(ref, { reportStatus: 'safe', reports: FieldValue.delete() });
     if (action === 'delete') { batch.delete(ref); batch.delete(d.doc(`feed_thumbnails/${id}`)); }
     await batch.commit();
     await audit(req.admin, `post.${action}`, { postId: id, userId: post.userId });
+    res.json({ ok: true });
+  }));
+
+  // Reports used to add the reporter's uid to a public `reports` list on the post. Removes that list from
+  // every post (reports themselves stay in each post's private reports/ sub-collection, and the queue uses
+  // reportStatus / reportCount). Idempotent and batched; a long run returns `next` to continue from.
+  router.post('/clear-reporter-ids', wrap(async (req, res) => {
+    const d = db();
+    const started = Date.now();
+    const budgetMs = Math.min(50_000, Math.max(2_000, Number(req.body?.budgetMs) || 45_000));
+    let after = String(req.body?.after || '');
+    if (after && !ID_RE.test(after)) throw new Error('Bad cursor');
+    let scanned = 0; let cleared = 0; let next = null;
+    for (;;) {
+      let q = d.collection('ecosystem_feed').orderBy(FieldPath.documentId()).select('reports').limit(400);
+      if (after) q = q.startAfter(after);
+      const snap = await q.get();
+      scanned += snap.size;
+      const batch = d.batch(); let n = 0;
+      for (const doc of snap.docs) {
+        if (doc.get('reports') !== undefined) { batch.update(doc.ref, { reports: FieldValue.delete() }); n++; }
+      }
+      if (n) await batch.commit();
+      cleared += n;
+      if (snap.size < 400) { next = null; break; }
+      after = snap.docs[snap.size - 1].id;
+      if (Date.now() - started > budgetMs) { next = after; break; }
+    }
+    await audit(req.admin, 'reports.clearReporterIds', { scanned, cleared, done: !next });
+    res.json({ ok: true, scanned, cleared, next, done: !next });
+  }));
+
+  // Reports on field notes and profiles (content_reports), newest first; reporter ids are shown to the admin only
+  router.get('/content-reports', wrap(async (req, res) => {
+    const status = req.query.status === 'closed' ? 'closed' : 'open';
+    const snap = await db().collection('content_reports').where('status', '==', status).limit(100).get();
+    const items = snap.docs.map(docOut).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // The field note's words, so the admin can decide without opening the post
+    const notes = await Promise.all(items.map(async (r) => {
+      if (r.kind !== 'comment' || !ID_RE.test(String(r.postId)) || !ID_RE.test(String(r.commentId))) return null;
+      const c = await db().doc(`ecosystem_feed/${r.postId}/comments/${r.commentId}`).get().catch(() => null);
+      return c?.exists ? { text: String(c.get('text') || '').slice(0, 1000), userId: c.get('userId') || null, hidden: c.get('hidden') === true } : { missing: true };
+    }));
+    res.json({ items: items.map((r, i) => (notes[i] ? { ...r, comment: notes[i] } : r)) });
+  }));
+  router.post('/content-reports/:id', wrap(async (req, res) => {
+    const id = req.params.id; if (!/^[cu]_[A-Za-z0-9_-]{3,400}$/.test(id)) throw new Error('Bad report');
+    const action = req.body?.action; if (!['close', 'hide-comment'].includes(action)) throw new Error('Choose close or hide-comment');
+    const d = db(); const ref = d.doc(`content_reports/${id}`); const snap = await ref.get();
+    if (!snap.exists) throw Object.assign(new Error('Report not found'), { status: 404 });
+    const r = snap.data(); const batch = d.batch();
+    if (action === 'hide-comment') {
+      if (r.kind !== 'comment' || !ID_RE.test(String(r.postId)) || !ID_RE.test(String(r.commentId))) throw new Error('Only a field note can be hidden');
+      const cref = d.doc(`ecosystem_feed/${r.postId}/comments/${r.commentId}`);
+      if ((await cref.get()).exists) batch.update(cref, { hidden: true, moderation: { status: 'rejected', reasons: ['reported'], reviewedBy: req.admin.uid, at: FieldValue.serverTimestamp() } });
+    }
+    batch.update(ref, { status: 'closed', closedBy: req.admin.uid, closedAt: FieldValue.serverTimestamp(), outcome: action });
+    await batch.commit();
+    await audit(req.admin, `contentReport.${action}`, { id, kind: r.kind });
     res.json({ ok: true });
   }));
 

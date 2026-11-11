@@ -877,6 +877,8 @@ export const FirebaseService = {
       note: (data.note || '').trim().slice(0, 280),
       userName: (profile?.username || me.displayName || 'Explorer').slice(0, 60),
       agree: !!data.agree,
+      // Lets account deletion find this identification (firestore.rules: must be the identifier's own uid)
+      userId: me.uid,
       createdAt: serverTimestamp(),
     }, { merge: true }); // merge keeps a thank-you from the post's author
     // Close the loop for the explorer who posted it: their ID was confirmed or questioned.
@@ -1209,22 +1211,73 @@ export const FirebaseService = {
     } catch (e) { /* counter best-effort */ }
   },
 
-  /** One report per user per post; the post is flagged for moderator review. */
+  /**
+   * Report a sighting, a field note or an explorer. Anonymous to everyone but the moderators: the
+   * reporter's uid is never written where other explorers can read it (firestore.rules).
+   *  - post:    ecosystem_feed/{postId}/reports/{me} (private) + the post's reportCount / reportStatus
+   *             'pending', which is what the admin's moderation queue lists.
+   *  - comment: content_reports/c_{postId}_{commentId}_{me}
+   *  - profile: content_reports/u_{userId}_{me}
+   * One report per explorer per target: reporting the same thing again resolves quietly.
+   * Throws Error('signin') for guests or signed-out explorers.
+   */
+  reportContent: async (
+    target: { kind: 'post' | 'comment' | 'profile'; postId?: string; commentId?: string; userId?: string },
+    reason: string,
+    details?: string,
+  ): Promise<void> => {
+    const me = auth.currentUser;
+    if (!me || me.isAnonymous) throw Object.assign(new Error('signin'), { code: 'signin' });
+    const uid = me.uid;
+    const why = String(reason || '').trim().slice(0, 40) || 'other';
+    const more = String(details || '').trim().slice(0, 500);
+    const okId = (v?: string) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v);
+    // Already reported by me? (each explorer can read only their own report)
+    const already = async (ref: ReturnType<typeof doc>) => {
+      try { return (await getDoc(ref)).exists(); } catch { return false; }
+    };
+
+    if (target.kind === 'post') {
+      if (!okId(target.postId)) throw new Error('bad-target');
+      const mine = doc(db, 'ecosystem_feed', target.postId!, 'reports', uid);
+      if (await already(mine)) return;
+      const batch = writeBatch(db);
+      batch.set(mine, { reason: why, details: more, createdAt: serverTimestamp() });
+      batch.update(doc(db, 'ecosystem_feed', target.postId!), { reportStatus: 'pending', reportCount: increment(1) });
+      await batch.commit();
+      return;
+    }
+    if (target.kind === 'comment') {
+      if (!okId(target.postId) || !okId(target.commentId)) throw new Error('bad-target');
+      const ref = doc(db, 'content_reports', `c_${target.postId}_${target.commentId}_${uid}`);
+      if (await already(ref)) return;
+      let reportedUid: string | undefined;
+      try {
+        const c = await getDoc(doc(db, 'ecosystem_feed', target.postId!, 'comments', target.commentId!));
+        const author = c.exists() ? (c.data() as any).userId : undefined;
+        if (okId(author)) reportedUid = author;
+      } catch { /* the moderators can still find the note by its ids */ }
+      await setDoc(ref, {
+        kind: 'comment', postId: target.postId, commentId: target.commentId,
+        ...(reportedUid ? { reportedUid } : {}),
+        reporterId: uid, reason: why, details: more, status: 'open', createdAt: serverTimestamp(),
+      });
+      return;
+    }
+    if (target.kind === 'profile') {
+      if (!okId(target.userId) || target.userId === uid) throw new Error('bad-target');
+      const ref = doc(db, 'content_reports', `u_${target.userId}_${uid}`);
+      if (await already(ref)) return;
+      await setDoc(ref, { kind: 'profile', reportedUid: target.userId, reporterId: uid, reason: why, details: more, status: 'open', createdAt: serverTimestamp() });
+      return;
+    }
+    throw new Error('bad-target');
+  },
+
+  /** One report per user per post; the post is flagged for moderator review (kept for older callers). */
   reportPost: async (postId: string, reason: string, details = "") => {
-    const uid = auth.currentUser?.uid;
-    if (!uid || auth.currentUser?.isAnonymous) throw new Error("Please sign in to report.");
-    const batch = writeBatch(db);
-    batch.set(doc(db, "ecosystem_feed", postId, "reports", uid), {
-      reason: reason.slice(0, 40),
-      details: details.slice(0, 500),
-      createdAt: serverTimestamp(),
-    });
-    batch.update(doc(db, "ecosystem_feed", postId), {
-      reports: arrayUnion(uid),
-      reportStatus: 'pending',
-      reportCount: increment(1),
-    });
-    await batch.commit();
+    if (!auth.currentUser || auth.currentUser.isAnonymous) throw new Error("Please sign in to report.");
+    await FirebaseService.reportContent({ kind: 'post', postId }, reason, details);
   },
 
   subscribeToComments: (postId: string, callback: (comments: Comment[]) => void) => {
@@ -1917,7 +1970,8 @@ export const FirebaseService = {
   },
 
   dismissReports: async (postId: string) => {
-      await updateDoc(doc(db, "ecosystem_feed", postId), { reports: [], reportStatus: 'safe' });
+      // Older posts may still carry a list of reporter ids: drop it with the dismissal
+      await updateDoc(doc(db, "ecosystem_feed", postId), { reports: deleteField(), reportStatus: 'safe' });
   },
 
   seedThemesMigration: async (): Promise<void> => {

@@ -44,13 +44,14 @@ service cloud.firestore {
       );
     }
 
-    // A report may only add the caller's own uid and mark the post pending
-    function ownReport() {
-      let before = existing().get('reports', []).toSet();
-      let after = incoming().get('reports', []).toSet();
-      return after.difference(before) == [request.auth.uid].toSet()
-        && before.difference(after).size() == 0
-        && incoming().reportStatus == 'pending';
+    // A report moves the post's counter by one and marks it pending, only together with the caller's own
+    // private report document (ecosystem_feed/{post}/reports/{uid}): one report per explorer, and the
+    // reporter's identity never appears on the public post.
+    function reportStep(postPath) {
+      return incoming().get('reportCount', 0) == existing().get('reportCount', 0) + 1
+        && incoming().reportStatus == 'pending'
+        && existsAfter(/databases/$(database)/documents/ecosystem_feed/$(postPath)/reports/$(request.auth.uid))
+        && !exists(/databases/$(database)/documents/ecosystem_feed/$(postPath)/reports/$(request.auth.uid));
     }
 
     // likeCount may only move with the caller's own like document (batched write)
@@ -140,6 +141,20 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/users/$(b)/following/$(a)));
     }
 
+    // A teen writes in public (field notes, identifications, letters) only once a parent has said yes
+    function teenMayTalk() {
+      let p = profileOf(request.auth.uid);
+      return !isTeenProfile(p) || teenApproved(p);
+    }
+    // Push notification switches (functions/index.js reads them). Teens always keep quiet hours.
+    function notifyPrefsOk() {
+      return !('notifyPrefs' in incoming())
+        || (incoming().notifyPrefs is map
+            && incoming().notifyPrefs.keys().hasOnly(['marvels', 'notes', 'follows', 'identifications', 'letters', 'quietHours'])
+            && incoming().notifyPrefs.values().hasOnly([true, false])
+            && (!isTeenProfile(incoming()) || incoming().notifyPrefs.get('quietHours', true) == true));
+    }
+
     // Changing the picture takes the sighting out of the feed until the server checks it again.
     // mediaPaths: the clips' storage paths, kept in step with a new clip (the poster function finds posts by them)
     function authorMediaEdit() {
@@ -168,13 +183,13 @@ service cloud.firestore {
         && incoming().uid == userId
         && !incoming().keys().hasAny(['admin', 'role', 'verified', 'followersCount', 'followingCount'])
         && freshStats()
-        && isStr(incoming().username, 40) && ageOk() && ageBandCreateOk(userId)
+        && isStr(incoming().username, 40) && ageOk() && ageBandCreateOk(userId) && notifyPrefsOk()
         && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60);
       allow update: if isAdmin()
         || (isOwner(userId)
             && !changedKeys().hasAny(['uid', 'admin', 'role', 'verified', 'joinedAt', 'followersCount', 'stats'])
             && (!('followingCount' in changedKeys()) || stepOne('followingCount'))
-            && ageOk() && ageBandUpdateOk(userId)
+            && ageOk() && ageBandUpdateOk(userId) && notifyPrefsOk()
             && optStr('username', 40) && optStr('usernameLower', 40) && optStr('bio', 300) && optStr('avatarUrl', 2048) && optStr('displayName', 60))
         // Followers counter: only moves with the caller's own follower doc (batched write)
         || (isMember() && !isOwner(userId)
@@ -272,7 +287,7 @@ service cloud.firestore {
         || (signedIn() && changedKeys().hasOnly(['likes']) && ownLikeToggle())
         || (signedIn() && changedKeys().hasOnly(['likeCount']) && likeCounterStep(postId))
         || (signedIn() && changedKeys().hasOnly(['commentCount']) && stepOne('commentCount'))
-        || (isMember() && changedKeys().hasOnly(['reports', 'reportStatus', 'reportCount']) && ownReport());
+        || (isMember() && changedKeys().hasOnly(['reportStatus', 'reportCount']) && reportStep(postId));
 
       // One like document per explorer (id = uid); readable for "liked by" lists
       match /likes/{likerId} {
@@ -294,7 +309,7 @@ service cloud.firestore {
         allow read: if get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.isPublic == true
           || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
           || isAdmin();
-        allow create: if isMember()
+        allow create: if isMember() && teenMayTalk()
           && incoming().userId == request.auth.uid
           && isStr(incoming().text, 1000) && incoming().text.size() > 0
           && optStr('userName', 60) && optStr('parentId', 128) && optStr('avatarUrl', 2048)
@@ -312,10 +327,12 @@ service cloud.firestore {
         allow read: if get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.isPublic == true
           || isOwner(get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.userId)
           || isAdmin();
-        allow create, update: if isOwner(identifierId) && isMember()
+        allow create, update: if isOwner(identifierId) && isMember() && teenMayTalk()
           && isStr(incoming().name, 80) && incoming().name.size() > 0
           && optStr('scientificName', 80) && optStr('note', 280) && optStr('userName', 60)
-          && incoming().keys().hasOnly(['name', 'scientificName', 'note', 'userName', 'agree', 'createdAt', 'thanked', 'thankedAt'])
+          && incoming().keys().hasOnly(['name', 'scientificName', 'note', 'userName', 'userId', 'agree', 'createdAt', 'thanked', 'thankedAt'])
+          // userId (newer apps) lets account deletion find an explorer's identifications
+          && (!('userId' in incoming()) || incoming().userId == request.auth.uid)
           // The identifier can keep a thank-you when re-saving, never award one
           && keepsThanks();
         // The post's author can thank an identifier (and only that)
@@ -326,10 +343,16 @@ service cloud.firestore {
         allow delete: if isOwner(identifierId) || isAdmin();
       }
 
-      // One report per user per post (reason kept private to moderators)
+      // One report per user per post (reason and reporter kept private to moderators). Created only
+      // together with the post's counter step (see reportStep), so every report reaches the queue.
       match /reports/{reporterId} {
         allow create: if isOwner(reporterId) && isMember()
-          && isStr(incoming().reason, 40) && optStr('details', 500);
+          && isStr(incoming().reason, 40) && incoming().reason.size() > 0 && optStr('details', 500)
+          && incoming().keys().hasOnly(['reason', 'details', 'createdAt'])
+          && getAfter(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('reportCount', 0)
+             == get(/databases/$(database)/documents/ecosystem_feed/$(postId)).data.get('reportCount', 0) + 1;
+        // The reporter may check their own (so the app can say "you already reported this")
+        allow get: if isOwner(reporterId);
         allow read, delete: if isAdmin();
       }
     }
@@ -364,7 +387,7 @@ service cloud.firestore {
     // Admins never read letters here; reported conversations are read through the admin API only.
     match /conversations/{cid} {
       allow read: if isParticipant(existing());
-      allow create: if isMember() && lettersOn()
+      allow create: if isMember() && lettersOn() && teenMayTalk()
         && incoming().participants is list && incoming().participants.size() == 2
         && request.auth.uid in incoming().participants
         && incoming().participants[0] < incoming().participants[1]
@@ -376,7 +399,7 @@ service cloud.firestore {
 
       match /messages/{mid} {
         allow read: if isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data);
-        allow create: if isMember() && lettersOn()
+        allow create: if isMember() && lettersOn() && teenMayTalk()
           && isParticipant(get(/databases/$(database)/documents/conversations/$(cid)).data)
           && incoming().senderId == request.auth.uid
           && isStr(incoming().text, 2000)
@@ -401,6 +424,32 @@ service cloud.firestore {
         && incoming().keys().hasOnly(['cid', 'reporterId', 'reason', 'details', 'status', 'createdAt'])
         && isParticipant(get(/databases/$(database)/documents/conversations/$(incoming().cid)).data);
       allow read, update, delete: if false;
+    }
+
+    // Reports on a field note (comment) or an explorer's profile. One per reporter per target (the id
+    // says which); the reporter can check their own, nobody else can read them (the admin reads them
+    // through the server, /api/admin/content-reports).
+    match /content_reports/{reportId} {
+      allow create: if isMember()
+        && incoming().reporterId == request.auth.uid
+        && incoming().status == 'open'
+        && isStr(incoming().reason, 40) && incoming().reason.size() > 0 && optStr('details', 500)
+        && incoming().keys().hasOnly(['kind', 'postId', 'commentId', 'reportedUid', 'reporterId', 'reason', 'details', 'status', 'createdAt'])
+        && (
+          (incoming().kind == 'comment'
+            && isStr(incoming().postId, 128) && isStr(incoming().commentId, 128)
+            && reportId == 'c_' + incoming().postId + '_' + incoming().commentId + '_' + request.auth.uid
+            && exists(/databases/$(database)/documents/ecosystem_feed/$(incoming().postId)/comments/$(incoming().commentId))
+            && optStr('reportedUid', 128))
+          ||
+          (incoming().kind == 'profile'
+            && isStr(incoming().reportedUid, 128) && incoming().reportedUid != request.auth.uid
+            && reportId == 'u_' + incoming().reportedUid + '_' + request.auth.uid
+            && !incoming().keys().hasAny(['postId', 'commentId']))
+        );
+      allow get: if isMember() && reportId.matches('^[cu]_.+_' + request.auth.uid + '$')
+        && (resource == null || resource.data.reporterId == request.auth.uid);
+      allow list, update, delete: if false;
     }
 
     // ------------------------------------------------- AI feedback (governance / evaluation)

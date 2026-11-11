@@ -349,7 +349,7 @@ export function mountPublish(app, deps) {
       likes: [], likeCount: 0, commentCount: 0,
       isPublic: wantsFeed && !held,
       isJournal: body.journal !== false || held || (body.feed === true && !wantsFeed),
-      reportStatus: 'safe', reports: [],
+      reportStatus: 'safe', reportCount: 0,
       isHybrid: items.length > 1 || items.some(i => i.associatedImageUrls.length > 0),
       items: items.map(({ aiResultId, observedAt, ...rest }) => ({ ...rest, aiResultId, ...(observedAt ? { observedAt } : {}) })),
       ...(items.find(i => i.observedAt) ? { observedAt: items.find(i => i.observedAt).observedAt } : {}),
