@@ -3,7 +3,7 @@ import Glyph from './Glyph';
 import { track } from '../services/analytics.ts';
 
 /**
- * A three-step welcome (Wild, the Lens, your field page), skippable at every step.
+ * A four-step welcome (Moments, Wild, the Lens, your field page), skippable at every step.
  * Each step spotlights a real element marked with data-tour="…" and puts a small card beside it;
  * a step whose element is not on screen shows a centred card. Everything else is taught in place,
  * once, by FirstHint.
@@ -14,8 +14,12 @@ export const TOUR_KEY = 'naturegram_tour_v1';
 export const hasSeenFirstRunTour = (): boolean => {
   try { return !!localStorage.getItem(TOUR_KEY); } catch { return true; } // storage blocked: never nag
 };
+/** Retaking the tour also brings back the one-time hints (swipe on Moments, scroll on Wild, …). */
 export const resetFirstRunTour = () => {
-  try { localStorage.removeItem(TOUR_KEY); } catch { /* storage blocked */ }
+  try {
+    localStorage.removeItem(TOUR_KEY);
+    Object.keys(localStorage).filter(k => k.startsWith('ng_hint_')).forEach(k => localStorage.removeItem(k));
+  } catch { /* storage blocked */ }
 };
 const remember = (how: 'done' | 'skipped') => {
   try { localStorage.setItem(TOUR_KEY, how); } catch { /* storage blocked */ }
@@ -23,9 +27,10 @@ const remember = (how: 'done' | 'skipped') => {
 
 type Step = { id: string; target: string; title: string; body: string };
 
-/** Three steps, then the explorer finds the rest in place (see FirstHint). */
+/** Four steps, then the explorer finds the rest in place (see FirstHint and the swipe cue on Moments). */
 const STEPS: Step[] = [
-  { id: 'wild', target: 'feed', title: 'Wild', body: 'What others are noticing outside today, from first buds to rare visitors.' },
+  { id: 'moments', target: 'reels', title: 'Moments', body: 'Short clips from outside. Swipe up for the next one, tap the name to read the whole sighting. These tabs take you anywhere, any time.' },
+  { id: 'wild', target: 'feed', title: 'Wild', body: 'Every sighting shared today, from first buds to rare visitors. Scroll down to wander, tap one to open it.' },
   { id: 'lens', target: 'capture', title: 'The Lens', body: 'Your guide sees and hears with you. Point it at anything alive and put a name to it together.' },
   { id: 'you', target: 'profile', title: 'Your field page', body: 'Every species you meet joins your life list here, in the order you found them.' },
 ];
@@ -60,7 +65,7 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
   const closed = useRef(false);
   const reduced = useRef(prefersReducedMotion());
 
-  // Let the feed settle. All three steps always show; a step whose element is off screen
+  // Let the feed settle. Every step always shows; a step whose element is off screen
   // gets a centred card instead of a spotlight.
   useEffect(() => {
     const t = setTimeout(() => setSteps(STEPS), 650);
@@ -196,7 +201,7 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
           <button onClick={() => close('skipped')} className="absolute top-3 right-3 min-h-[44px] px-3 ng-link-quiet no-underline hover:underline">
             Skip
           </button>
-          <Glyph name={step.id === 'wild' ? 'fern' : step.id === 'lens' ? 'lens' : 'compass'} size={24} className="text-stone-500" />
+          <Glyph name={step.id === 'moments' ? 'firefly' : step.id === 'wild' ? 'fern' : step.id === 'lens' ? 'lens' : 'compass'} size={24} className="text-stone-500" />
           <h2 id="first-tour-title" className="pr-14 ng-subtitle mt-3">{step.title}</h2>
           <p id="first-tour-body" className="ng-small text-[15px] text-stone-700 mt-2">{step.body}</p>
           <p className="sr-only" aria-live="polite" aria-atomic="true">{`Step ${index + 1} of ${total}. ${step.title}. ${step.body}`}</p>

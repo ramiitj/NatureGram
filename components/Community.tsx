@@ -18,6 +18,7 @@ import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';
 import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
+import FirstHint from './FirstHint';
 import { PlateStamp } from './SpecimenPlate';
 import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs, namesOf, reconciledStats } from '../services/lifeList';
 import { speciesPath } from '../services/speciesSlug';
@@ -1794,7 +1795,10 @@ const Community: React.FC<CommunityProps> = ({
                     )}
                 </div>
             ) : (
-                <FeedGrid posts={displayPosts} onPostClick={handlePostClick} />
+                <>
+                    {!isJournalOnly && <FirstHint id="wild" text="Scroll for today's sightings. Tap one to open it." className="!mx-0 !mt-0 mb-6" />}
+                    <FeedGrid posts={displayPosts} onPostClick={handlePostClick} />
+                </>
             )}
             {!isLoading && !error && filteredAndSortedPosts.length > 0 && (
                 <div ref={loadMoreRef} className="py-8 pb-40 flex justify-center text-sm text-stone-500" aria-live="polite">
