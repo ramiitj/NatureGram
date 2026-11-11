@@ -13,7 +13,7 @@
     "open:ios": "cap open ios",
     "open:android": "cap open android",
     "check:copy": "node scripts/check-glossary.mjs",
-    "test:server": "npm run check:copy && node --test server/test/governance.test.mjs server/test/roadmap.test.mjs server/test/authMail.test.mjs server/test/guardian.test.mjs server/test/seo.test.mjs server/test/palettes.test.mjs server/test/feedMedia.test.mjs server/test/userStats.test.mjs",
+    "test:server": "npm run check:copy && node --test server/test/governance.test.mjs server/test/roadmap.test.mjs server/test/authMail.test.mjs server/test/guardian.test.mjs server/test/seo.test.mjs server/test/palettes.test.mjs server/test/feedMedia.test.mjs server/test/userStats.test.mjs server/test/brandIcon.test.mjs",
     "assets:native": "node scripts/generate-native-assets.mjs",
     "set-admin": "node scripts/set-admin.mjs"
   },
@@ -22,6 +22,7 @@
     "@capacitor/core": "^7.6.10",
     "@capacitor/ios": "^7.6.10",
     "@google/genai": "^1.52.0",
+    "@resvg/resvg-js": "^2.6.2",
     "compression": "^1.8.2",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",

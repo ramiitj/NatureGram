@@ -13,6 +13,7 @@ import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
 import ConsentBanner from './components/ConsentBanner.tsx';
+import InstallCard from './components/InstallCard.tsx';
 import TeenBanner from './components/TeenBanner.tsx';
 import { weekKey, seasonNote, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
@@ -1080,6 +1081,7 @@ const App: React.FC = () => {
       </main>
 
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && !(tourPending && currentView === AppView.COMMUNITY) && <ConsentBanner />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && !tourPending && <InstallCard />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
       {showNav && (

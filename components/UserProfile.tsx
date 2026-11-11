@@ -12,6 +12,7 @@ import { lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
+import { isInstalled, openInstallCard } from '../services/install';
 import { getThemePeriod } from '../constants/naturalistExtras';
 import { resolvePoster } from './PlayableVideo';
 import FirstHint from './FirstHint';
@@ -836,6 +837,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             <button onClick={() => setSheet('edit')} className="ng-menu-item min-h-[52px]"><Glyph name="edit" size={20} className="text-stone-500" />Edit field page</button>
             <button onClick={() => { setSheet(null); setPersonaOpen(true); }} className="ng-menu-item min-h-[52px]"><Glyph name="guide" size={20} className="text-stone-500" /><span className="flex-1">What makes you stop and look<span className="block ng-caption">{profile?.naturalistPersona?.archetype || 'Personalise your feed and guide'}</span></span></button>
             {pushSupported() && <PushToggle onToast={showToast} />}
+            {!isInstalled() && <button onClick={() => { setSheet(null); openInstallCard(); }} className="ng-menu-item min-h-[52px]"><Glyph name="plus" size={20} className="text-stone-500" />Add NatureGram to your home screen</button>}
             <button onClick={downloadData} className="ng-menu-item min-h-[52px]"><Glyph name="download" size={20} className="text-stone-500" />Download my data</button>
             {!!profile?.guardianOf?.length && currentUserId && <GuardianCare uids={profile.guardianOf} me={currentUserId} onToast={showToast} />}
             {isAdmin && onAdminConsole && (

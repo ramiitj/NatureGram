@@ -21,6 +21,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY server ./server
+COPY shared ./shared
+COPY constants/palettes.json ./constants/palettes.json
 COPY firebase-applet-config.json ./
 USER node
 # Cloud Run injects PORT; the server honours it (defaults to 3000)
