@@ -15,6 +15,10 @@ interface Props {
   onViewProfile: (uid: string) => void;
   onRequireAccount: (reason: string, then?: () => void) => void;
   onBack: () => void;
+  /** Moments is home, so it carries the same ways on as Wild: search and activity */
+  onOpenExplore?: () => void;
+  onOpenActivity?: () => void;
+  unreadActivity?: number;
 }
 
 const PROGRAMME_MAX = 7;
@@ -38,7 +42,7 @@ const isEvening = () => new Date().getHours() >= 17;
  * title card (the species, the place, one line), and a natural end. Clips that suit the hour come first.
  * "Keep watching" opens the full reel, so nothing that was possible before is lost.
  */
-const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount, onBack }) => {
+const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount, onBack, onOpenExplore, onOpenActivity, unreadActivity = 0 }) => {
   const [items, setItems] = useState<CommunityPost[]>([]);
   const [cursor, setCursor] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -172,6 +176,22 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
     if (hasMore && items.length <= programme.length) loadMore();
   };
 
+  // On a keyboard: up and down (or j and k) move between clips, m turns the sound on or off
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const el = containerRef.current; if (!el) return;
+      const step = (d: number) => { e.preventDefault(); el.scrollBy({ top: d * el.clientHeight, behavior: 'smooth' }); };
+      if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'PageDown') step(1);
+      else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'PageUp') step(-1);
+      else if (e.key === 'm') setMuted(m => !m);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const watchAgain = () => {
     setTitleShown({});
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -185,7 +205,18 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
       <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 md:px-8 lg:pl-28 land:pl-24 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-8 bg-gradient-to-b from-black/40 to-transparent">
         {/* Moments is where explorers arrive; the bottom bar is the way on, so there is no back arrow */}
         <h1 className="font-display italic text-xl text-white/90">Moments</h1>
-        <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="ng-icon-button-dark -mr-2"><Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} /></button>
+        <div className="flex items-center gap-1 -mr-2">
+          {onOpenActivity && (
+            <button onClick={onOpenActivity} aria-label={unreadActivity ? `Activity, ${unreadActivity} new` : 'Activity'} className="relative ng-icon-button-dark">
+              <Glyph name="ripples" size={24} />
+              {unreadActivity > 0 && <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-theme-vivid ring-2 ring-black/60" aria-hidden="true" />}
+            </button>
+          )}
+          {onOpenExplore && (
+            <button onClick={onOpenExplore} aria-label="Explore" className="ng-icon-button-dark"><Glyph name="leafCompass" size={24} /></button>
+          )}
+          <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="ng-icon-button-dark"><Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} /></button>
+        </div>
       </header>
       <FirstHint id="moments" tone="dark" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
 
