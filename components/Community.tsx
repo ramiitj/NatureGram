@@ -18,6 +18,7 @@ import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';
 import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
+import { wasOverlayPop } from '../services/overlayStack';
 import BrandMark from './BrandMark';
 import FirstHint from './FirstHint';
 import { PlateStamp } from './SpecimenPlate';
@@ -1065,7 +1066,8 @@ const Community: React.FC<CommunityProps> = ({
       }
   }, [activePost?.id]);
   useEffect(() => {
-      const onPop = () => {
+      const onPop = (e: PopStateEvent) => {
+          if (wasOverlayPop(e)) return; // Back closed a window on top of the post, nothing more
           if (historyPushedRef.current && !window.location.pathname.startsWith('/post/')) {
               historyPushedRef.current = false;
               setIsCommentsOpen(false);

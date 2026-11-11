@@ -20,6 +20,7 @@ import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import BrandMark from './components/BrandMark';
+import { wasOverlayPop, useBackToClose } from './services/overlayStack';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
@@ -170,7 +171,8 @@ const App: React.FC = () => {
   }, [currentView, targetProfileId]);
 
   useEffect(() => {
-    const handlePopState = () => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (wasOverlayPop(e)) return; // Back closed the window on top; the page stays where it is
       const params = new URLSearchParams(window.location.search);
       if (params.get('post')) {
         setSelectedPostId(params.get('post'));
