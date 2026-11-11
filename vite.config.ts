@@ -77,7 +77,8 @@ export default defineConfig({
           if (id.includes('firebase/firestore') || id.includes('@firebase/firestore')) return 'vendor-firestore';
           if (id.includes('firebase') || id.includes('@firebase')) return 'vendor-firebase';
           if (id.includes('motion') || id.includes('framer')) return 'vendor-motion';
-          if (id.includes('react')) return 'vendor-react';
+          // React, its renderer and scheduler together (scheduler in another chunk made a vendor <-> vendor-react cycle)
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
           return 'vendor';
         },
       },

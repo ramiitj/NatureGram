@@ -15,7 +15,7 @@ import FirstHint from './FirstHint';
  *  - Kinds of life: the life list's groups, the first one open
  *  - Places: where recent sightings were made
  *  - Recently confirmed: sightings at least two explorers have agreed on
- * The fortnight's challenge lives on the feed card and the naturalist's page; Explore links to it.
+ * The fortnight's challenge lives on the feed card and the naturalist's page only.
  * Everything is built from existing public queries; nothing new is stored.
  */
 export interface ExploreProps {
@@ -115,13 +115,6 @@ const Explore: React.FC<ExploreProps> = ({ onOpenPost, onOpenProfile, onOpenNatu
             onOpenProfile={onOpenProfile}
             suggestions={suggestions}
           />
-          {!searching && onOpenNaturalist && (
-            <button type="button" onClick={onOpenNaturalist} className="group mt-4 w-full text-left flex items-center gap-3 text-sm text-stone-600 hover:text-stone-900 min-h-[44px]">
-              <span className="ng-rule shrink-0" aria-hidden="true" />
-              <span className="min-w-0 truncate">{period.theme.naturalist.split(' ').slice(-1)[0]}'s challenge: <span className="font-display italic text-base text-stone-900">{extra.challenge}</span></span>
-              <Glyph name="forward" size={20} className="text-theme-accent shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
-            </button>
-          )}
         </section>
 
         {!searching && (<>

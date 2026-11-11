@@ -132,7 +132,6 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
                   <p className="ng-body mt-4 max-w-[34ch]">
                     It starts blank on purpose. Go outside, look closely at one living thing, and it becomes No. 1 on your life list.
                   </p>
-                  <NaturalistLine quote={theme.quote} by={theme.naturalist} />
                   <div className="mt-10 flex flex-col sm:flex-row sm:items-center gap-x-6 gap-y-4">
                     <button onClick={() => onDone('lens')} className="ng-button-primary px-7">
                       Open the Lens<Glyph name="forward" size={20} className="ng-arrow" />
@@ -158,7 +157,6 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
                 {stage.signedIn
                   ? <Primary onClick={() => onDone('feed')}>Back to the wild</Primary>
                   : <Primary onClick={onSignIn}>Sign in</Primary>}
-                <NaturalistLine quote={theme.quote} by={theme.naturalist} />
               </Moment>
             )}
 

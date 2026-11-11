@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, useCallback } from 'react';
 import Journal from './components/Journal.tsx';
 import Community from './components/Community.tsx';
 import AuthModal from './components/AuthModal.tsx';
@@ -19,24 +19,25 @@ import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
-import ChangingOfTheGuard, { pendingHandover } from './components/ChangingOfTheGuard.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
 import { db } from './firebaseConfig.ts';
 import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
-import LiveLens from './components/LiveLens.tsx';
-import GuardianConsent from './components/GuardianConsent.tsx';
-import AdminConsole from './components/AdminConsole.tsx';
-import PostSessionView from './components/PostSessionView.tsx';
-import UserProfile from './components/UserProfile.tsx';
-import DraftsTray from './components/DraftsTray.tsx';
-import Messages from './components/Messages.tsx';
-import Reels from './components/Reels.tsx';
-import Explore from './components/Explore.tsx';
-import SharedPostView from './components/SharedPostView.tsx';
-import NaturalistPage from './components/NaturalistPage.tsx';
-import NaturalistPersonaModal from './components/NaturalistPersonaModal.tsx';
-import AuthAction from './components/AuthAction.tsx';
+// Heavy, rarely-first views load on demand to keep the first paint fast (a stale chunk after a deploy
+// is caught by ErrorBoundary, which reloads once)
+const LiveLens = lazy(() => import('./components/LiveLens.tsx'));
+const GuardianConsent = lazy(() => import('./components/GuardianConsent.tsx'));
+const AdminConsole = lazy(() => import('./components/AdminConsole.tsx'));
+const PostSessionView = lazy(() => import('./components/PostSessionView.tsx'));
+const UserProfile = lazy(() => import('./components/UserProfile.tsx'));
+const DraftsTray = lazy(() => import('./components/DraftsTray.tsx'));
+const Messages = lazy(() => import('./components/Messages.tsx'));
+const Reels = lazy(() => import('./components/Reels.tsx'));
+const Explore = lazy(() => import('./components/Explore.tsx'));
+const SharedPostView = lazy(() => import('./components/SharedPostView.tsx'));
+const NaturalistPage = lazy(() => import('./components/NaturalistPage.tsx'));
+const NaturalistPersonaModal = lazy(() => import('./components/NaturalistPersonaModal.tsx'));
+const AuthAction = lazy(() => import('./components/AuthAction.tsx'));
 
 /** One gentle loader for the whole app: a leaf outline being pressed into the page (still under reduced motion). */
 const PressingLeaf: React.FC<{ className?: string; size?: number }> = ({ className = '', size = 44 }) => (
@@ -273,7 +274,7 @@ const App: React.FC = () => {
   // The naturalist of the fortnight: their page, and the one-time handover card after a rotation
   const [naturalistOpen, setNaturalistOpen] = useState(false);
   const [authActionUrl, setAuthActionUrl] = useState<string | null>(AUTH_ACTION_URL);
-  const [handoverFrom, setHandoverFrom] = useState<string | null>(() => pendingHandover(getFallbackTheme().id));
+  const handoverFrom: string | null = null; // The handover card is retired: the landing greets each new naturalist
   const openNaturalist = useCallback(() => { track('naturalist_page_open', {}); setNaturalistOpen(true); }, []);
 
   // "What makes you stop and look?" is offered once the explorer has three sightings, not at sign-up
@@ -1062,14 +1063,6 @@ const App: React.FC = () => {
           </Suspense>
         )}
 
-        {handoverFrom && !naturalistOpen && currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && currentView !== AppView.SHARED_POST && (
-          <ChangingOfTheGuard
-            previousId={handoverFrom}
-            current={dailyTheme}
-            onOpenNaturalist={openNaturalist}
-            onDone={() => setHandoverFrom(null)}
-          />
-        )}
 
         {personaOffer && currentView === AppView.COMMUNITY && !isDetailActive && !handoverFrom && userMode?.userId && (
           <Suspense fallback={null}>
