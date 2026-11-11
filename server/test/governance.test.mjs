@@ -10,6 +10,7 @@ import { nextReset, RESET_WORDS } from '../ledger.js';
 import { DEFAULT_PROMPTS } from '../aiDefaults.js';
 import { recentLoginProblem, uidRef, mountAccountDeletion } from '../accountDeletion.js';
 import express from 'express';
+import { pushDecision, prefsFor, inQuietHours } from '../../functions/notifyPolicy.js';
 
 const S = DEFAULT_SETTINGS;
 
@@ -213,6 +214,37 @@ test('account deletion needs a sign-in from the last 10 minutes, before anything
     assert.equal((await none.json()).error, 'auth');
     assert.equal(touched, 0);
   } finally { server.close(); }
+});
+
+test('pushes follow the explorer\'s switches and India-time quiet hours', () => {
+  const noonIst = Date.UTC(2026, 10, 11, 6, 30);   // 12:00 IST
+  const lateIst = Date.UTC(2026, 10, 11, 16, 0);   // 21:30 IST
+  const earlyIst = Date.UTC(2026, 10, 11, 1, 0);   // 06:30 IST
+  const sevenIst = Date.UTC(2026, 10, 11, 1, 30);  // 07:00 IST
+  assert.equal(inQuietHours(noonIst), false);
+  assert.equal(inQuietHours(lateIst), true);
+  assert.equal(inQuietHours(earlyIst), true);
+  assert.equal(inQuietHours(sevenIst), false);
+  // Defaults: marvels off, everything else on, quiet hours on
+  assert.deepEqual(prefsFor(null), { marvels: false, notes: true, follows: true, identifications: true, letters: true, quietHours: true });
+  assert.equal(pushDecision({ type: 'like', postId: 'p1', message: 'x' }, {}, noonIst).reason, 'off');
+  const note = pushDecision({ type: 'comment', postId: 'p1', message: 'Lovely' }, {}, noonIst);
+  assert.equal(note.send, true); assert.equal(note.title, 'New field notes'); assert.equal(note.tag, 'ng-comment-p1');
+  assert.equal(pushDecision({ type: 'comment', postId: 'p1' }, {}, lateIst).reason, 'quiet');
+  const on = { notifyPrefs: { marvels: true, quietHours: false } };
+  const marvel = pushDecision({ type: 'like', postId: 'p1', message: 'x' }, on, lateIst);
+  assert.equal(marvel.send, true); assert.equal(marvel.title, 'New marvels');
+  assert.equal(pushDecision({ type: 'like', postId: 'p1' }, on, lateIst).tag, marvel.tag); // repeats replace each other
+  assert.equal(pushDecision({ type: 'follow', senderId: 'u2' }, { notifyPrefs: { follows: false } }, noonIst).reason, 'off');
+  assert.equal(pushDecision({ type: 'message', senderId: 'u2' }, { notifyPrefs: { letters: false } }, noonIst).reason, 'off');
+  assert.equal(pushDecision({ type: 'identification', postId: 'p' }, { notifyPrefs: { identifications: false } }, noonIst).reason, 'off');
+  assert.equal(pushDecision({ type: 'review', postId: 'p' }, { notifyPrefs: { marvels: false, notes: false } }, noonIst).send, true);
+  // Teens always keep quiet hours, whatever is saved
+  const teen = { ageBand: 'teen', adultFrom: { toMillis: () => lateIst + 1e10 }, notifyPrefs: { quietHours: false, notes: true } };
+  assert.equal(prefsFor(teen, lateIst).quietHours, true);
+  assert.equal(pushDecision({ type: 'comment', postId: 'p' }, teen, lateIst).reason, 'quiet');
+  // Junk in saved switches is ignored
+  assert.equal(prefsFor({ notifyPrefs: { marvels: 'yes', notes: false } }).marvels, false);
 });
 
 test('allowances turn over at the next midnight UTC', () => {

@@ -1,6 +1,6 @@
 /**
  * NatureGram Cloud Functions
- * - sendActivityPush: delivers a web/mobile push for every new in-app notification.
+ * - sendActivityPush: a web/mobile push for a new in-app notification, as the explorer's switches and quiet hours allow.
  * - transcodeMedia / backfillTranscodes: playable MP4s for WebM recordings.
  * - transcodeMedia / backfillPosters: posters, blur-up previews, sizes and the sound-only mark for clips.
  * Deploy: firebase deploy --only functions   (requires the Blaze plan)
@@ -21,26 +21,32 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { statsFromPosts, affectsStats, recomputeUserStats } from './userStats.js';
+import { pushDecision } from './notifyPolicy.js';
 
 initializeApp();
 const db = getFirestore();
 
-const TITLES = { like: 'A new marvel', comment: 'A new field note', follow: 'A new follower', mention: 'You were mentioned', reply: 'A reply to your field note', message: 'A new letter' };
-
+// Pushes follow the explorer's switches (users/{uid}.notifyPrefs) and quiet hours (21:00 to 07:00 India
+// time, always on for teens); see functions/notifyPolicy.js. The in-app Activity list keeps every one.
 export const sendActivityPush = onDocumentCreated({ document: 'users/{uid}/notifications/{notifId}', region: 'asia-east1' }, async (event) => {
   const n = event.data?.data();
   if (!n) return;
   const { uid } = event.params;
-  const pushDoc = await db.doc(`users/${uid}/private/push`).get();
+  const [pushDoc, profileDoc] = await Promise.all([db.doc(`users/${uid}/private/push`).get(), db.doc(`users/${uid}`).get()]);
   const tokens = (pushDoc.exists && pushDoc.data().tokens) || [];
   if (!tokens.length) return;
+  const decision = pushDecision(n, profileDoc.exists ? profileDoc.data() : null);
+  if (!decision.send) return;
 
-  const url = n.type === 'follow' && n.senderId ? `/profile?user=${n.senderId}` : (n.postId ? `/feed?p=${n.postId}` : '/feed');
+  const { title, body, tag, url } = decision;
   const res = await getMessaging().sendEachForMulticast({
     tokens,
-    notification: { title: TITLES[n.type] || 'NatureGram', body: String(n.message || '').slice(0, 180) },
-    data: { url, tag: `ng-${n.type || 'activity'}` },
-    webpush: { fcmOptions: { link: url } },
+    notification: { title, body },
+    data: { url, tag },
+    // The same tag replaces the earlier push for this kind of event on this sighting instead of stacking
+    webpush: { notification: { tag, renotify: false }, fcmOptions: { link: url } },
+    android: { collapseKey: tag, notification: { tag } },
+    apns: { headers: { 'apns-collapse-id': tag } },
   });
   // Prune tokens that are no longer valid
   const stale = res.responses.map((r, i) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code || '') ? tokens[i] : null)).filter(Boolean);
