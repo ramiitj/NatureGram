@@ -1121,7 +1121,14 @@ const App: React.FC = () => {
           <AuthModal
             initialIsSignUp={authModal.signUp}
             reason={authModal.reason}
-            onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
+            onClose={() => {
+              pendingAuthActionRef.current = null; setAuthModal(null);
+              // Closing the window mid-save keeps everything where it was, and says so
+              if (currentViewRef.current === AppView.POST_SESSION && currentSessionRef.current.length > 0) {
+                setLimitNotice('Not saved yet. Your captures are still here; create an account whenever you are ready.');
+                window.setTimeout(() => setLimitNotice(n => n.startsWith('Not saved yet.') ? '' : n), 6000);
+              }
+            }}
             onSuccess={(how) => {
               setAuthModal(null);
               if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.REELS);
