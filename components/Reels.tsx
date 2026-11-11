@@ -183,8 +183,8 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
   return (
     <div className="fixed inset-0 z-[45] bg-black text-white">
       <header className="absolute top-0 inset-x-0 z-20 flex items-center justify-between px-4 md:px-8 lg:pl-28 land:pl-24 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-8 bg-gradient-to-b from-black/40 to-transparent">
-        <button onClick={onBack} aria-label="Back to the wild" className="ng-icon-button-dark -ml-2"><Glyph name="back" size={24} /></button>
-        <h1 className="sr-only">Moments</h1>
+        {/* Moments is where explorers arrive; the bottom bar is the way on, so there is no back arrow */}
+        <h1 className="font-display italic text-xl text-white/90">Moments</h1>
         <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="ng-icon-button-dark -mr-2"><Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} /></button>
       </header>
       <FirstHint id="moments" tone="dark" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
