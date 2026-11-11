@@ -6,7 +6,6 @@ import { track } from '../services/analytics';
 import { resolvePlayableVideo } from './PlayableVideo';
 import { WonderBurst, WonderIcon, wonderLabel, fieldMoment, observedBehaviour, firstSentence } from './Wonder';
 import { groupOf, namesOf } from '../services/lifeList';
-import FirstHint from './FirstHint';
 import Glyph from './Glyph';
 
 interface Props {
@@ -192,6 +191,15 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // The first time: a quiet cue on the first clip showing how to move on, gone after the first swipe
+  const [swipeCue, setSwipeCue] = useState(() => { try { return !localStorage.getItem('ng_hint_moments_swipe'); } catch { return false; } });
+  const [cueReady, setCueReady] = useState(false);
+  useEffect(() => { const t = window.setTimeout(() => setCueReady(true), 1800); return () => clearTimeout(t); }, []);
+  useEffect(() => {
+    if (swipeCue && activeIdx > 0) { setSwipeCue(false); try { localStorage.setItem('ng_hint_moments_swipe', '1'); } catch { /* storage blocked */ } }
+  }, [activeIdx, swipeCue]);
+  const touch = useMemo(() => { try { return window.matchMedia('(pointer: coarse)').matches; } catch { return true; } }, []);
+
   const watchAgain = () => {
     setTitleShown({});
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -218,7 +226,6 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
           <button onClick={() => setMuted(m => !m)} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} className="ng-icon-button-dark"><Glyph name={muted ? 'soundOff' : 'soundOn'} size={24} /></button>
         </div>
       </header>
-      <FirstHint id="moments" tone="dark" text="Moments are short clips from outside. Swipe up for the next one." className="absolute top-[calc(env(safe-area-inset-top)+3.75rem)] inset-x-0 z-30 lg:ml-28 land:ml-24 max-w-md" />
 
       {toast && <div role="status" className="fixed left-1/2 -translate-x-1/2 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-30 ng-toast bg-white text-stone-900">{toast}</div>}
       {loading ? (
@@ -253,6 +260,14 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                   ) : p.thumbnailUrl ? (
                     <img src={p.thumbnailUrl} alt="" className="w-full h-full object-contain md:max-w-[min(100%,calc(100dvh*9/16))] opacity-80" />
                   ) : null}
+                  {idx === 0 && swipeCue && cueReady && visible.length > 1 && (
+                    <div role="note" className="pointer-events-none absolute inset-x-0 top-[40%] z-10 flex flex-col items-center gap-2 text-white ng-rise">
+                      <Glyph name="chevronUp" size={28} className="motion-safe:animate-bounce drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]" />
+                      <span className="rounded-full bg-black/50 backdrop-blur-md px-4 py-2 text-sm text-white/95 whitespace-nowrap">
+                        {touch ? 'Swipe up for the next moment' : 'Scroll or press ↓ for the next moment'}
+                      </span>
+                    </div>
+                  )}
                   {burst?.id === p.id && <WonderBurst key={burst.key} x={burst.x} y={burst.y} count={18} />}
                 </div>
                 {/* A soft shade where the words sit, instead of shadows on the letters */}
