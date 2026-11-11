@@ -59,7 +59,7 @@ export const sendActivityPush = onDocumentCreated({ document: 'users/{uid}/notif
 // only empty fields. A file with no picture stream is marked `soundOnly: true`. Nothing is deleted.
 // ---------------------------------------------------------------------------------------------
 const MEDIA_RE = /^(videos|audio|drafts)\/[^/]+\/[^/]+\.webm$/;
-const POSTER_RE = /^videos\/[^/]+\/[^/]+\.(mp4|m4v|mov|webm)$/i;
+const POSTER_RE = /^(videos|drafts)\/[^/]+\/[^/]+\.(mp4|m4v|mov|webm)$/i;
 const variantRef = (name) => db.doc(`media_variants/${name.replace(/\//g, '|')}`);
 // Clips are downloaded to /tmp, which counts against the function's memory: posters skip anything larger
 const MAX_POSTER_BYTES = 600 * 1024 * 1024;
@@ -191,15 +191,17 @@ async function transcodeObject(bucketName, name, contentType, { transcode = true
     const stem = basename(name).replace(/\.[^.]+$/, '');
     if (transcode) {
       if (isVideo && info?.hasVideo === false) await run(['-i', src, '-vn', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]);
-      // Streaming copy: longest side at most 1280, capped bitrate, moov atom first so playback starts at once
-      else if (isVideo) await run(['-i', src, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-maxrate', '2500k', '-bufsize', '5000k', '-pix_fmt', 'yuv420p', '-vf', "scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'", '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '96k', out]);
+      // Streaming copy: full 1080p kept (longest side at most 1920), visually lossless on phones (CRF 21,
+      // capped at 6 Mbps), 30 fps at most, moov atom first so playback starts at once. Phone originals are
+      // often 15-25 Mbps and laid out so the whole file must arrive before the first frame.
+      else if (isVideo) await run(['-i', src, '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-crf', '21', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p', '-vf', "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',fps='min(30,source_fps)'", '-movflags', '+faststart', '-c:a', 'aac', '-b:a', '128k', out]);
       else await run(['-i', src, '-vn', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]);
       // A different name from an MP4 original, so the original is never overwritten
       const outName = /\.webm$/i.test(name) ? `${dir}/${stem}.${isVideo ? 'mp4' : 'm4a'}` : `${dir}/${stem}.stream.${isVideo ? 'mp4' : 'm4a'}`;
       variant.mp4Url = await uploader(bucket)(out, outName, isVideo ? 'video/mp4' : 'audio/mp4');
     }
     let media = null;
-    if (isVideo && name.startsWith('videos/')) {
+    if (isVideo && /^(videos|drafts)\//.test(name)) {
       media = await postersFor(bucket, name, src, info, id).catch(e => { console.error('poster failed', name, e.message); return null; });
       if (media) Object.assign(variant, Object.fromEntries(Object.entries(media).filter(([, v]) => v !== null && v !== undefined)));
       if (media && !media.soundOnly && variant.mp4Url) media.streamUrl = variant.mp4Url;
@@ -219,7 +221,7 @@ export const transcodeMedia = onObjectFinalized({ region: 'asia-east1', memory: 
   if (!webm && Number(size) > MAX_POSTER_BYTES) return;
   // Every clip gets a streaming copy now (MP4s included): phones' originals are large and often not quick-start
   const { media } = await transcodeObject(bucket, name, contentType, { transcode: true });
-  if (media && name.startsWith('videos/')) await writeBack(name, media);
+  if (media && /^(videos|drafts)\//.test(name)) await writeBack(name, media);
 });
 
 /** Admin-only: transcode existing WebM media (run once after deploying). */
@@ -340,11 +342,15 @@ async function posterBatch(after, size, { budgetMs = 420_000 } = {}) {
     if (!needsPoster(p)) continue;
     try {
       let changed = false;
-      const clips = [p, ...(Array.isArray(p.items) ? p.items : [])]
-        .map(i => storagePathOf(i?.videoUrl)).filter(path => path && /^videos\/[^/]+\/[^/]+$/.test(path) && path.split('/')[1] === p.userId);
+      // Clips live in videos/{uid}/ or, when published from a draft, drafts/{uid}/: only the author's own
+      const raw = [p, ...(Array.isArray(p.items) ? p.items : [])].map(i => i?.videoUrl).filter(Boolean);
+      const clips = raw.map(u => storagePathOf(u)).filter(path => path && /^(videos|drafts)\/[^/]+\/[^/]+$/.test(path) && path.split('/')[1] === p.userId);
+      if (raw.length && !clips.length) {
+        console.warn('poster backfill: no usable clip', JSON.stringify({ id: doc.id, folders: raw.map(u => (storagePathOf(u) || 'not-storage').split('/').slice(0, 1).join('/')), ownerMatch: raw.map(u => (storagePathOf(u) || '').split('/')[1] === p.userId) }));
+      }
       for (const path of [...new Set(clips)].slice(0, 4)) {
         const media = await mediaForClip(bucket, path);
-        if (!media) continue;
+        if (!media) { console.warn('poster backfill: clip could not be read', JSON.stringify({ id: doc.id, path })); continue; }
         if (media.soundOnly) tally.soundOnly++; else if (media.posterUrl) tally.posters++;
         if (await applyToPost(doc.ref, path, media)) changed = true;
       }
@@ -361,7 +367,7 @@ async function posterBatch(after, size, { budgetMs = 420_000 } = {}) {
       if (changed) tally.updated++;
     } catch (e) {
       tally.failed++;
-      console.error('poster backfill failed', doc.id, e.message);
+      console.error('poster backfill failed', doc.id, e?.stack || e?.message);
     }
   }
   const finished = tally.processed === snap.size && snap.size < size;
@@ -402,7 +408,7 @@ export const posterBackfillSchedule = onSchedule({ schedule: 'every 20 minutes',
     totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
     ...(r.next ? {} : { doneAt: FieldValue.serverTimestamp() }),
   }, { merge: true });
-  console.log('poster backfill', JSON.stringify({ ...r }));
+  console.log('poster backfill run', JSON.stringify({ ...r }));
 });
 
 export const runAdminJob = onDocumentWritten({ document: 'admin_jobs/{jobId}', region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (event) => {

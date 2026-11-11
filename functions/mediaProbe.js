@@ -37,7 +37,7 @@ export function mediaPathsOf(post) {
   for (const i of all) {
     for (const u of [i?.videoUrl, i?.audioUrl]) {
       const path = u ? storagePathOf(u) : null;
-      if (path && !path.includes('..') && /^(videos|audio)\/[^/]+\/[^/]+$/.test(path)) out.add(path);
+      if (path && !path.includes('..') && /^(videos|audio|drafts)\/[^/]+\/[^/]+$/.test(path)) out.add(path);
     }
   }
   return [...out].slice(0, 24);
