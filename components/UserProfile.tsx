@@ -1094,7 +1094,8 @@ const EditProfileSheet: React.FC<{ profile: UserProfileData | null; onClose: () 
       await FirebaseService.updateMyProfile({ username, bio, displayName });
       onSaved('Field page updated');
     } catch (err: any) {
-      setError(err?.message?.includes('Usernames') ? err.message : 'Could not save your field page. Please try again.');
+      // A photo that can't be cleaned of its location is refused with its own explanation
+      setError(err?.message?.includes('Usernames') || err?.name === 'ImageCleanError' || /location|JPEG/i.test(err?.message || '') ? err.message : 'Could not save your field page. Please try again.');
     } finally { setBusy(false); }
   };
 
