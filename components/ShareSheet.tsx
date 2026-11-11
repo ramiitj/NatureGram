@@ -43,7 +43,9 @@ export const leadNameOf = (post: any): string => {
 /** Area only when the explorer chose to show it and the species isn't flagged as sensitive. */
 export const publicArea = (post: any): string => {
   if (!post || post.showLocation === false || post.aiFlags?.sensitiveSpecies) return '';
-  return String(post.locationArea || '').trim();
+  const area = String(post.locationArea || '').trim();
+  // Old uploads carry a placeholder place that says nothing about where they were made
+  return /^(uploaded|captured)?\s*field station$/i.test(area) ? '' : area;
 };
 
 /** "Indian Roller, seen near Jaipur on NatureGram" */

@@ -207,7 +207,7 @@ const FeedCard: React.FC<{
 
     const open = () => { releasePreview(post.id); onPostClick(post); };
     const showFallback = !sound && (!src || failed) && !lqip;
-    const where = post.locationArea;
+    const where = /^(uploaded|captured)?\s*field station$/i.test(String(post.locationArea || '').trim()) ? '' : post.locationArea;
 
     return (
         <div
@@ -2285,7 +2285,7 @@ const Community: React.FC<CommunityProps> = ({
                                                 : <span className="w-10 h-10 rounded-full bg-[#f3efe7] flex items-center justify-center text-stone-700 font-display text-lg" aria-hidden="true">{(activePost.userName || '?').charAt(0).toUpperCase()}</span>}
                                             <span className="min-w-0">
                                                 <span className="block font-medium text-sm text-stone-900 truncate group-hover:underline decoration-stone-300 underline-offset-4">{explorerName(activePost.userName, true)}{speciesLine(activePost.userId) && <span className="font-normal text-stone-500"> · {speciesLine(activePost.userId)}</span>}</span>
-                                                <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim() || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
+                                                <span className="block text-xs text-stone-500 truncate">{[(currentItem.locationArea || '').trim().replace(/^(uploaded|captured)?\s*field station$/i, '') || 'Somewhere wild', timeAgo(activePost.timestamp)].filter(Boolean).join(', ')}</span>
                                             </span>
                                         </button>
                                         {activePost.userId !== currentUserMode.userId && (

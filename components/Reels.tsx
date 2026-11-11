@@ -349,7 +349,7 @@ const Reels: React.FC<Props> = ({ currentUserMode, onOpenPost, onRequireAccount,
                     </span>
                   )}
                   {idx === 0 && swipeCue && cueReady && visible.length > 1 && (
-                    <div role="note" className="pointer-events-none absolute inset-x-0 top-[40%] land:top-[22%] z-10 flex flex-col items-center gap-2 text-white ng-rise">
+                    <div role="note" className="pointer-events-none absolute inset-x-0 top-[24%] land:top-[20%] z-10 flex flex-col items-center gap-2 text-white ng-rise">
                       <Glyph name="chevronUp" size={28} className="motion-safe:animate-bounce drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)]" />
                       <span className="rounded-full bg-black/50 backdrop-blur-md px-4 py-2 text-sm text-white/95 whitespace-nowrap">
                         {touch ? 'Swipe up for the next moment' : 'Scroll or press ↓ for the next moment'}

@@ -25,7 +25,7 @@ export const plateOfPost = (p: CommunityPost): PlateData => {
     scientific: names.latin,
     thumb: (p as any).thumbSmallUrl || p.thumbnailUrl || (p as any).imageUrl,
     firstMs: ms || undefined,
-    place: p.showLocation !== false && p.locationArea ? p.locationArea : undefined,
+    place: placeOf(p) ? p.locationArea : undefined,
     season: ms ? seasonOf(ms) : undefined,
     group: groupOf(p),
     sound: p.mediaType === 'audio' || (p as any).soundOnly === true,
@@ -36,7 +36,12 @@ export const plateOfPost = (p: CommunityPost): PlateData => {
 export const PAGE = 12;
 
 /** The first part of a sighting's place ("Lodhi Garden, Delhi" → "Lodhi Garden"), if it may be shown. */
-export const placeOf = (p: CommunityPost) => p.showLocation === false ? '' : String(p.locationArea || '').split(',')[0].trim();
+export const placeOf = (p: CommunityPost) => {
+  if (p.showLocation === false) return '';
+  const first = String(p.locationArea || '').split(',')[0].trim();
+  // Old uploads carry a placeholder place that says nothing about where they were made
+  return /^(uploaded|captured)?\s*field station$/i.test(first) ? '' : first;
+};
 
 /** "12 species · 40 sightings", only once the server has reconciled the counts. */
 export const explorerStatsLine = (u: any): string => {
