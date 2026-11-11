@@ -18,6 +18,7 @@ import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';
 import SkeletonPost, { PressingLoader } from './SkeletonPost';
 import Glyph from './Glyph';
+import BrandMark from './BrandMark';
 import FirstHint from './FirstHint';
 import { PlateStamp } from './SpecimenPlate';
 import { groupOf, seasonOf, GROUP_GLYPH, LifeGroup, toMs, namesOf, reconciledStats } from '../services/lifeList';
@@ -1531,27 +1532,30 @@ const Community: React.FC<CommunityProps> = ({
         <div className="w-full ng-page pt-6 md:pt-8 pb-2 flex flex-col gap-6 animate-fade-in select-none relative z-50">
             {journalQuery === undefined && (
             <div className="flex items-start justify-between gap-4">
-                <button
-                    type="button"
-                    onClick={() => onLogoClick?.()}
-                    aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram home'}
-                    className="text-left transition-opacity hover:opacity-80 rounded-lg min-w-0"
-                >
-                    {isJournalOnly ? (
-                        <h2 className="ng-title">My journal</h2>
-                    ) : (
-                        <h2 className="flex items-center gap-2.5 text-stone-900">
-                            <Glyph name="mark" size={22} />
-                            <span className="ng-wordmark">NatureGram</span>
-                        </h2>
-                    )}
+                <div className="min-w-0">
+                    {/* The mark goes back to the top, as on Instagram; it never leaves the app */}
+                    <button
+                        type="button"
+                        onClick={() => onLogoClick?.()}
+                        aria-label={isJournalOnly ? 'Scroll to top of journal' : 'NatureGram, back to the top'}
+                        className="text-left transition-opacity hover:opacity-80 rounded-lg"
+                    >
+                        {isJournalOnly ? (
+                            <h2 className="ng-title">My journal</h2>
+                        ) : (
+                            <h2 className="flex items-center gap-2.5 text-stone-900">
+                                <BrandMark size={24} />
+                                <span className="ng-wordmark">NatureGram</span>
+                            </h2>
+                        )}
+                    </button>
                     {!isJournalOnly && (
                         <p className="text-sm leading-[1.5] text-stone-500 mt-2 flex items-center gap-2">
                             <Glyph name={moment.icon} size={16} className="text-stone-400" />
                             <span>{moment.name}: {moment.hint}</span>
                         </p>
                     )}
-                </button>
+                </div>
 
                 <div className="flex items-center gap-1 -mr-2 shrink-0">
                     {headerActions}

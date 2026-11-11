@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { reload } from 'firebase/auth';
 import Glyph from './Glyph';
+import BrandMark from './BrandMark';
 import AuthModal from './AuthModal';
 import { auth } from '../firebaseConfig';
 import { FirebaseService } from '../services/firebaseService';
@@ -12,7 +13,7 @@ type Phase = 'loading' | 'open' | 'approved' | 'declined' | 'expired' | 'used' |
 
 const Mark: React.FC = () => (
   <a href="/" className="inline-flex items-center gap-2.5" aria-label="NatureGram home">
-    <Glyph name="mark" size={22} className="text-stone-900" />
+    <BrandMark size={24} />
     <span className="ng-wordmark">NatureGram</span>
   </a>
 );

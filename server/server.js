@@ -38,6 +38,7 @@ import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
 import { mountBrandIcons } from './brandIcon.js';
+import { mountNaturalistWiki } from './naturalistWiki.js';
 import { feedFirstPost, firstTilesJson } from './media.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -281,6 +282,7 @@ async function startServer() {
   app.use(canonicalHost(PUBLIC_HOST));
   // Home-screen icons and manifest that follow the mark in the browser tab
   mountBrandIcons(app, { db: () => firestoreDb, log });
+  mountNaturalistWiki(app, { db: () => firestoreDb, log });
   // Public pages and discovery files (mounted with the frontend below); /s/ uses it for share cards
   let seo = null;
 

@@ -7,6 +7,15 @@ import { NaturalistExtra } from '../constants/naturalistExtras';
 import { groupOf, seasonOf, toMs } from '../services/lifeList';
 import { periodAt, periodLabel, tagVariants } from '../services/stamps';
 
+interface WikiAbout {
+  source: 'wikipedia';
+  title: string;
+  extract: string;
+  url: string;
+  textLicense: { name: string; url: string };
+  portrait: { src: string; artist: string; license: string; licenseUrl?: string | null; filePage: string; width?: number; height?: number } | null;
+}
+
 // Re-exported so the profile can import the stamp helper from either place.
 export { challengeStamps } from '../services/stamps';
 export type { ChallengeStamp } from '../services/stamps';
@@ -49,6 +58,16 @@ export const fetchChallengeAnswers = async (tag: string, max = 24): Promise<any[
  */
 const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpenPost, onOpenLens }) => {
   const [answers, setAnswers] = useState<Answer[] | null>(null);
+  // "From Wikipedia": fetched and licence-checked by our server (visitors never contact Wikipedia)
+  const [wiki, setWiki] = useState<WikiAbout | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/naturalist/${encodeURIComponent(theme.id)}/about`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d?.source && d.extract) setWiki(d); })
+      .catch(() => { /* the page keeps NatureGram's own words */ });
+    return () => { alive = false; };
+  }, [theme.id]);
   const span = useMemo(() => periodAt(), []);
 
   useEffect(() => {
@@ -98,7 +117,34 @@ const NaturalistPage: React.FC<Props> = ({ theme, extra, period, onClose, onOpen
       <article className="relative max-w-2xl mx-auto px-6 pt-10 pb-24">
         <header>
           <div>
-            {extra.bio && <p className="ng-body text-stone-800">{extra.bio}</p>}
+            {wiki ? (
+              <section aria-labelledby="from-wikipedia" className="flex flex-col sm:flex-row gap-5 sm:gap-6">
+                {wiki.portrait && (
+                  <figure className="shrink-0 w-32 sm:w-36 self-start bg-[#fbf7ef] border border-[#e8dfcd] rounded-md p-2">
+                    <div className="aspect-[3/4] overflow-hidden rounded-[3px] bg-[#f3efe7]">
+                      <img src={wiki.portrait.src} alt={`Portrait of ${theme.naturalist}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </div>
+                    <figcaption className="sr-only">{`Portrait: ${wiki.portrait.artist}, ${wiki.portrait.license}`}</figcaption>
+                  </figure>
+                )}
+                <div className="min-w-0">
+                  <p id="from-wikipedia" className="ng-kicker">From Wikipedia</p>
+                  <p className="ng-body text-stone-800 mt-2">{wiki.extract}</p>
+                  <a href={wiki.url} target="_blank" rel="noopener noreferrer" className="ng-link mt-3 inline-flex items-center gap-1.5 min-h-[44px]">
+                    Read more on Wikipedia <Glyph name="external" size={16} />
+                  </a>
+                  <p className="ng-caption mt-2">
+                    Text from <a href={wiki.url} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">Wikipedia</a>,{' '}
+                    <a href={wiki.textLicense.url} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">{wiki.textLicense.name}</a>
+                    {wiki.portrait && (<>
+                      {' · '}Portrait:{' '}
+                      <a href={wiki.portrait.filePage} target="_blank" rel="noopener noreferrer" className="underline decoration-stone-300 underline-offset-2 hover:text-stone-700">{wiki.portrait.artist}</a>
+                      , {wiki.portrait.license}, via Wikimedia Commons
+                    </>)}
+                  </p>
+                </div>
+              </section>
+            ) : extra.bio && <p className="ng-body text-stone-800">{extra.bio}</p>}
             {theme.locationCaption && <p className="ng-small mt-3">{theme.locationName ? `${theme.locationName}: ` : ''}{theme.locationCaption}</p>}
             {theme.imageUrl && theme.imageCredit?.author && (
               <p className="ng-caption mt-3">

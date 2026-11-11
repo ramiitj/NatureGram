@@ -19,6 +19,7 @@ import { weekKey, seasonNote, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
+import BrandMark from './components/BrandMark';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
@@ -176,6 +177,12 @@ const App: React.FC = () => {
         setCurrentView(AppView.SHARED_POST);
         return;
       }
+      // Back in the Lens with captures, or while a clip is recording: finish and review, like ×
+      if (currentViewRef.current === AppView.LENS && (currentSessionRef.current.length > 0 || lensBusyRef.current)) {
+        window.history.pushState({ view: AppView.LENS, depth: (window.history.state?.depth ?? 0) + 1 }, '', PATHS[AppView.LENS]);
+        setIsFinalizing(true);
+        return;
+      }
       // Leaving the live lens or review via Back: never silently drop captures
       if (currentViewRef.current === AppView.POST_SESSION && currentSessionRef.current.length > 0) {
         if (!window.confirm(`Leave review? Your ${currentSessionRef.current.length} capture(s) will be saved as a draft.`)) {
@@ -196,6 +203,7 @@ const App: React.FC = () => {
   }, []);
 
   const [returnView, setReturnView] = useState<AppView | null>(null);
+  const lensBusyRef = useRef(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [currentSessionSnapshots, setCurrentSessionSnapshots] = useState<Snapshot[]>([]);
   const currentSessionRef = useRef<Snapshot[]>([]);
@@ -510,8 +518,12 @@ const App: React.FC = () => {
     // No mode dialog: the Lens starts as the quiet companion unless the explorer turned on "Talk with me"
     let saved: string | null = null;
     try { saved = localStorage.getItem(MODE_PREF_KEY); } catch { /* storage blocked */ }
-    const mode: 'observation' | 'conversation' = saved === 'conversation' ? 'conversation' : 'observation';
-    if (!allowSession(mode)) return;
+    let mode: 'observation' | 'conversation' = saved === 'conversation' ? 'conversation' : 'observation';
+    if (!allowSession(mode)) {
+      // Conversations used up for today: open the quiet Lens instead of nothing
+      if (mode === 'conversation' && !RateLimitService.isSessionActive()) mode = 'observation';
+      else return;
+    }
     track('lens_open', { mode, remembered: !!saved });
     setSelectedMode(mode);
     setCurrentView(AppView.LENS);
@@ -521,9 +533,10 @@ const App: React.FC = () => {
   const allowSession = (mode: 'observation' | 'conversation') => {
     const uid = userMode?.userId || 'explorer_guest';
     if (RateLimitService.isSessionActive()) { setLimitNotice('A session is already open in another tab. Close it to start a new one.'); return false; }
-    const ok = mode === 'observation' ? RateLimitService.canStartObservation(uid) : RateLimitService.canStartConversation(uid);
-    if (!ok) { setLimitNotice(`You've used today's ${mode === 'observation' ? 'observation' : 'conversation'} sessions. They refresh tomorrow. You can still upload sightings.`); return false; }
-    if (mode === 'observation') RateLimitService.incrementObservation(uid); else RateLimitService.incrementConversation(uid);
+    // The quiet Lens costs nothing to open (identifications are limited on the server), so opening and
+    // closing it never uses anything up. A conversation is counted once the guide connects (in the Lens).
+    if (mode === 'observation') return true;
+    if (!RateLimitService.canStartConversation(uid)) { setLimitNotice("You've used today's conversations with the guide. They refresh tomorrow. The quiet Lens still works."); return false; }
     return true;
   };
 
@@ -769,7 +782,7 @@ const App: React.FC = () => {
             <div className="relative h-full w-full flex flex-col safe-pt">
               <header className="flex items-center justify-between px-6 md:px-12 pt-6 md:pt-8">
                 <span className="flex items-center gap-2.5">
-                  <Glyph name="mark" size={22} className="text-white/95" />
+                  <BrandMark size={26} />
                   <span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span>
                 </span>
                 <span className="hidden md:block text-sm text-white/75">A field notebook for the living world</span>
@@ -831,10 +844,13 @@ const App: React.FC = () => {
                 <LiveLens
                   onCapture={handleCapture}
                   onEndSession={handleEndSession}
-                  onExit={() => {
+                  onBusyChange={(busy) => { lensBusyRef.current = busy; }}
+                  onExit={(note?: string) => {
+                    setIsFinalizing(false);
                     if (currentSessionRef.current.length > 0) {
                       handleEndSession(sessionSummary || CLOSING_LINE);
                     } else {
+                      if (note) { setLimitNotice(note); window.setTimeout(() => setLimitNotice(n => n === note ? '' : n), 6000); }
                       if (geminiServiceRef.current) { geminiServiceRef.current.disconnect(); geminiServiceRef.current = null; }
                       goBack();
                     }
@@ -904,7 +920,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
-                  onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
+                  onLogoClick={scrollFeedToTop}
                   onRequireAccount={requireAccount}
                   dailyTheme={dailyTheme}
                   onOpenNaturalist={openNaturalist}
@@ -952,6 +968,7 @@ const App: React.FC = () => {
                   onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
+                  onAbout={() => handleNavigationRequest(AppView.LANDING)}
                   onRetakeTour={() => { resetFirstRunTour(); setTourPending(true); handleNavigationRequest(AppView.COMMUNITY); }}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
