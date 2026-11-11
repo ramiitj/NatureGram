@@ -166,10 +166,9 @@ const FirstRunTour: React.FC<FirstRunTourProps> = ({ onClose }) => {
     if (step) nextRef.current?.focus({ preventScroll: true });
   }, [step]);
 
-  // Nothing to show (no target found): bow out quietly and try again another time
-  if (!steps || !steps.length || !step) return steps && !steps.length ? null : (
-    <div className="fixed inset-0 z-[150]" aria-hidden="true" />
-  );
+  // Nothing to show yet (the feed settling) or at all: render nothing, so the tabs stay tappable
+  // until the first card actually appears
+  if (!steps || !steps.length || !step) return null;
 
   const isLast = index === total - 1;
   const round = rect && rect.width <= 72 && Math.abs(rect.width - rect.height) < 16;

@@ -1,6 +1,7 @@
 import { apiUrl } from './apiOrigin';
 import { appCheckHeaders } from './appCheck';
 import { auth } from "../firebaseConfig";
+import { signInAnonymously } from "firebase/auth";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
 
 /**
@@ -68,7 +69,16 @@ export class AiError extends Error {
   }
 }
 
+/**
+ * A real sign-in token for the guide's server. Someone who arrived straight at an inner page (a
+ * search result, a link) may not have a guest sign-in yet: make one quietly instead of failing
+ * with "Please sign in again".
+ */
 export const getApiKey = async (): Promise<string> => {
+  try { await (auth as any).authStateReady?.(); } catch { /* older SDK */ }
+  if (!auth.currentUser) {
+    try { await signInAnonymously(auth); } catch { /* offline or blocked: the server will say so */ }
+  }
   const currentUser = auth.currentUser;
   if (currentUser) {
     try { return await currentUser.getIdToken(); } catch { /* fall through */ }
@@ -119,6 +129,8 @@ const classify = (e: any): AiError => {
   if (status === 503 && /paused|resume|unavailable for a moment/i.test(msg)) return new AiError(/(AI features[^"]*|The guide is unavailable[^"]*)/.exec(msg)?.[0] || 'AI identification is temporarily unavailable.', 'unavailable');
   if (status === 413 || /too large/i.test(msg)) return new AiError('This file is too large to analyse. Try a shorter clip.', 'too_large');
   if (status === 401 || status === 403) return new AiError('Please sign in again to use AI identification.', 'auth');
+  // Out of credit or billing switched off upstream: no point retrying; say so plainly
+  if (status === 402 || /prepayment credits|billing/i.test(msg)) return new AiError("Your guide can't name things right now. You can still name sightings yourself.", 'unavailable');
   if (/timeout|aborted/i.test(msg)) return new AiError('The analysis took too long. Please try again.', 'timeout');
   return new AiError('AI identification is temporarily unavailable.', 'unavailable');
 };
@@ -135,7 +147,8 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (e) {
       last = classify(e);
       const daily = last.kind === 'quota' && /daily|today/i.test(last.message);
-      if (last.kind === 'auth' || last.kind === 'too_large' || last.kind === 'offline' || daily) break;
+      const noCredit = last.message.startsWith("Your guide can't name things right now");
+      if (last.kind === 'auth' || last.kind === 'too_large' || last.kind === 'offline' || daily || noCredit) break;
       if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * Math.pow(2, i) + Math.random() * 300));
     }
   }
