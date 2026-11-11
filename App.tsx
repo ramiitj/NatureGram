@@ -630,10 +630,10 @@ const App: React.FC = () => {
       }
     }
     if (!hasSeenFirstRunTour()) setTourPending(true);
-    // Explore the wild always lands on the feed: explorers look around first, the tour shows them
-    // the way, and the Lens is one tap away in the middle of the nav.
+    // Explore the wild opens on Moments: living clips first, the feed one tap away, the tour shows the way,
+    // and the Lens is one tap away in the middle of the nav.
     try { localStorage.setItem(FIRST_LOOK_KEY, '1'); } catch { /* storage blocked */ }
-    setCurrentView(AppView.COMMUNITY);
+    setCurrentView(AppView.REELS);
   };
 
   // Escape closes the activity panel
@@ -657,8 +657,8 @@ const App: React.FC = () => {
   const extra = getNaturalistExtra(dailyTheme?.id);
 
   const navItems: { key: string; label: string; icon: GlyphName; active: boolean; onClick: () => void; badge?: number }[] = [
-    { key: 'feed', label: 'Wild', icon: 'meadow', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
     { key: 'reels', label: 'Moments', icon: 'firefly', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
+    { key: 'feed', label: 'Wild', icon: 'meadow', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
     { key: 'capture', label: 'Lens', icon: 'eyeEar', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
     { key: 'journal', label: 'Journal', icon: 'rings', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
     { key: 'profile', label: 'You', icon: 'seedling', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
@@ -1075,12 +1075,12 @@ const App: React.FC = () => {
             />
           </Suspense>
         )}
-        {tourPending && currentView === AppView.COMMUNITY && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showUploadModal && (
+        {tourPending && (currentView === AppView.COMMUNITY || currentView === AppView.REELS) && !isDetailActive && !isNotificationsOpen && !naturalistOpen && !handoverFrom && !personaOffer && !authModal && !authActionUrl && !showUploadModal && (
           <FirstRunTour onClose={() => setTourPending(false)} />
         )}
       </main>
 
-      {currentView !== AppView.LANDING && currentView !== AppView.LENS && !(tourPending && currentView === AppView.COMMUNITY) && <ConsentBanner />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && !(tourPending && (currentView === AppView.COMMUNITY || currentView === AppView.REELS)) && <ConsentBanner />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && !tourPending && <InstallCard />}
       {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
 
