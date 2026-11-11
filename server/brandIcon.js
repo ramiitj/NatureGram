@@ -138,6 +138,15 @@ export function mountBrandIcons(app, { db, log }) {
       res.type('image/png').send(render(mark, name));
     } catch { next(); }
   });
+  // The mark as the app shows it in headers: the disc in the fortnight's colours (the server pages use it)
+  app.get('/brand/mark.svg', async (req, res) => {
+    try {
+      const mark = await currentMark();
+      if (mark.style === 'custom') return res.redirect(302, '/brand/icon-192.png');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.type('image/svg+xml').send(markSvg(mark.colors, mark.style, 'circle'));
+    } catch { res.redirect(302, '/icon.svg?static=1'); }
+  });
   app.get('/icon.svg', async (req, res, next) => {
     if (req.query.static) return next();
     try {

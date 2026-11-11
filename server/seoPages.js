@@ -3,13 +3,24 @@
  * JavaScript. No client script at all; each page carries one link into the app.
  * Every value from the store is escaped (escapeHtml) or serialised by ldScript.
  */
+import { naturalistAt } from './brandIcon.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const ROTATION = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../constants/palettes.json'), 'utf8'));
 import {
   escapeHtml as e, ldScript, graph, organizationLd, websiteLd, breadcrumbLd, taxonLd, observationsListLd, personLd, faqLd, postLd,
   speciesSummary, relatedSpecies, fieldDate, GROUPS, GROUP_NOUN, FAQS, origin, clip, featuredWindow, isoDate,
 } from './seo.js';
 
 const FONTS = 'https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=Inter:wght@400;500;600&display=swap';
-const MARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.7" fill="currentColor"/><path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M5.8 18.2l1.7-1.7M16.5 7.5l1.7-1.7" stroke-width="2"/></svg>';
+// The same mark as the app and the browser tab: the disc in the fortnight's colours, drawn by the server
+const MARK = '<img src="/brand/mark.svg" alt="" width="24" height="24">';
+
+/** The fortnight's accent (contrast-tested on cream, constants/palettes.json), so these pages follow the theme too. */
+const accentNow = () => {
+  try { const p = ROTATION.palettes[naturalistAt()]; return /^#[0-9a-f]{6}$/i.test(p?.accent || '') ? p.accent : null; } catch { return null; }
+};
 
 const CSS = `:root{--bg:#fcfaf8;--paper:#f3efe7;--rule:#e7e5e4;--ink:#1c1917;--text:#44403c;--muted:#78716c;--accent:#57534e}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
@@ -17,7 +28,7 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:"Inter",system-
 .wrap{max-width:760px;margin:0 auto}
 header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:24px 0 16px}
 .mark{display:inline-flex;align-items:center;gap:10px;min-height:44px;color:var(--ink);text-decoration:none;font-family:"Newsreader",Georgia,serif;font-style:italic;font-size:22px;font-weight:400;letter-spacing:-.01em}
-.mark svg{width:22px;height:22px;color:var(--ink)}
+.mark img{width:24px;height:24px;border-radius:50%;flex-shrink:0}
 nav.site a{color:var(--text);text-decoration:none;font-size:14px;margin-left:20px;display:inline-flex;min-height:44px;align-items:center}nav.site a:hover{color:var(--ink);text-decoration:underline;text-underline-offset:6px}
 .crumbs{font-size:12px;color:var(--muted);margin:8px 0 24px}.crumbs a{color:var(--muted)}
 .page{padding:0}
@@ -50,7 +61,7 @@ a{color:var(--ink);text-decoration-color:var(--accent);text-underline-offset:4px
 a.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 24px;border-radius:999px;background:var(--ink);color:#fff;text-decoration:none;font-weight:600;font-size:15px;margin-top:32px}
 a.btn:after{content:"\\2192";color:#a8a29e}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-section.team{margin-top:40px;padding-top:28px;border-top:1px solid var(--rule,#e7e5e4)}
+section.team{margin:0}
 .people{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:28px;margin-top:20px}
 .person h3{font-family:"Newsreader",Georgia,serif;font-weight:400;font-size:24px;line-height:1.2;color:var(--ink);margin:0}
 .person .role{font-size:14px;color:#78716c;margin:4px 0 0}
@@ -85,7 +96,7 @@ ${o.noindex ? '<meta name="robots" content="noindex">' : '<meta name="robots" co
 <meta name="theme-color" content="#fcfaf8">
 <link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${FONTS}" rel="stylesheet">
-<style>${CSS}</style>
+<style>${CSS}${accentNow() ? `:root{--accent:${accentNow()}}` : ''}</style>
 ${o.ld ? ldScript(o.ld) : ''}
 </head><body><div class="wrap">
 <header class="top"><a class="mark" href="/">${MARK}NatureGram</a><nav class="site" aria-label="Field guide"><a href="/species">Species</a><a href="/naturalists">Naturalists</a><a href="/about">About</a></nav></header>
