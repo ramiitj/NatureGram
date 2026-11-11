@@ -18,7 +18,22 @@ export interface PlateData {
   season?: string;
   group?: LifeEntry['group'];
   count?: number;
+  /** A sound recording: drawn as a waveform when there is no photograph */
+  sound?: boolean;
 }
+
+/** A recording drawn as a waveform (the plate's photo box for sounds). */
+const SoundMotif: React.FC<{ seed: string }> = ({ seed }) => {
+  const offset = Array.from(seed || 'sound').reduce((n, c) => n + c.charCodeAt(0), 0) % 7;
+  const bars = Array.from({ length: 16 }, (_, i) => 18 + Math.round(72 * Math.abs(Math.sin((i + offset) * 0.62) * Math.cos((i + offset) * 0.21))));
+  return (
+    <span className="w-full h-full bg-gradient-to-b from-stone-700 to-stone-900 flex items-center justify-center" aria-hidden="true">
+      <span className="flex items-center justify-center gap-[3px] h-1/2 w-3/4">
+        {bars.map((h, i) => <span key={i} className="w-[3px] rounded-full bg-white/70" style={{ height: `${h}%` }} />)}
+      </span>
+    </span>
+  );
+};
 
 export const plateFoot = (d: PlateData) =>
   [d.firstMs ? fieldDate(d.firstMs) : '', d.place, d.season].filter(Boolean).join(' · ');
@@ -48,7 +63,9 @@ export const SpecimenPlate: React.FC<{
         <div className={`aspect-[4/3] overflow-hidden rounded-[3px] ${ghost ? 'bg-stone-100/60' : 'bg-[#f3efe7]'} flex items-center justify-center`}>
           {data.thumb && !ghost
             ? <img src={data.thumb} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
-            : <Glyph name={data.group ? GROUP_GLYPH[data.group] : 'seedling'} size={size === 'lg' ? 40 : 24} strokeWidth={1.2} className="text-stone-400/70" />}
+            : data.sound && !ghost
+              ? <SoundMotif seed={data.name} />
+              : <Glyph name={data.group ? GROUP_GLYPH[data.group] : 'seedling'} size={size === 'lg' ? 40 : 24} strokeWidth={1.2} className="text-stone-400/70" />}
         </div>
         <div className="px-1 pt-2 flex-1 flex flex-col">
           <p className={`font-display italic leading-snug ${nameCls} ${ghost ? 'text-stone-400' : 'text-stone-900'} line-clamp-2`}>{data.name}</p>

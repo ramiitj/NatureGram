@@ -37,7 +37,8 @@ import { mountLive, LIVE_DIRECT_TOKENS } from './liveTokens.js';
 import { mountAuthMail } from './authMail.js';
 import { mountGuardian } from './guardian.js';
 import { mountSeo, canonicalHost } from './seoRoutes.js';
-import { mountBrandIcons } from './brandIcon.js';
+import { leadName } from './seo.js';
+import { mountBrandIcons, naturalistAt } from './brandIcon.js';
 import { mountNaturalistWiki } from './naturalistWiki.js';
 import { mountAccountDeletion } from './accountDeletion.js';
 import { getStorage } from 'firebase-admin/storage';
@@ -285,6 +286,7 @@ async function startServer() {
   // Home-screen icons and manifest that follow the mark in the browser tab
   mountBrandIcons(app, { db: () => firestoreDb, log });
   mountNaturalistWiki(app, { db: () => firestoreDb, log });
+  (await import('./speciesWiki.js')).mountSpeciesWiki(app, { log });
   // Public pages and discovery files (mounted with the frontend below); /s/ uses it for share cards
   let seo = null;
 
@@ -444,11 +446,15 @@ async function startServer() {
     ['Carl Linnaeus', '#444b8f', '#6258e9'], ['Robin Wall Kimmerer', '#305b26', '#008017'], ['Maria Sibylla Merian', '#753157', '#c62e82'],
     ['Salim Ali', '#035587', '#006fc8'], ['Aldo Leopold', '#7f4001', '#a55b01'], ['Henry David Thoreau', '#085546', '#047c6b'],
   ];
-  const shareTheme = (now = new Date()) => {
-    const day = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86_400_000);
-    const [naturalist, deep, accent] = SHARE_THEMES[Math.floor(day / 15.21) % SHARE_THEMES.length];
+  // Row order of SHARE_THEMES (constants/palettes.json "order")
+  const SHARE_ORDER = JSON.parse(fs.readFileSync(path.join(__dirname, '../constants/palettes.json'), 'utf8')).order;
+  const shareTheme = (now = Date.now()) => {
+    // The same naturalist as the browser tab and home-screen icon: local (India) date and the cutover
+    const i = SHARE_ORDER.indexOf(naturalistAt(now));
+    const [naturalist, deep, accent] = SHARE_THEMES[i >= 0 ? i : 0];
     return { naturalist, deep, accent };
   };
+
   const PLACEHOLDER_LABEL = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)$/i;
 
   app.get('/s/:postId', async (req, res) => {
@@ -502,7 +508,9 @@ async function startServer() {
         const items = f.items?.arrayValue?.values || [];
         const main = items.length ? (items[0].mapValue?.fields || {}) : f;
         const labels = (main.labels?.arrayValue?.values || f.labels?.arrayValue?.values || []).map(v => v.stringValue).filter(Boolean);
-        const first = String(labels[0] || '').trim();
+        // The common name first, as the app shows it (the guide's name for a Latin-only label)
+        const plain = (v) => v?.stringValue ?? (v?.mapValue ? Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, plain(x)])) : v?.arrayValue ? (v.arrayValue.values || []).map(plain) : undefined);
+        const first = String(leadName({ labels, aiIdentifications: plain(main.aiIdentifications || f.aiIdentifications) || [], behavior: main.behavior?.stringValue || f.behavior?.stringValue }) || labels[0] || '').trim();
         const species = first && !PLACEHOLDER_LABEL.test(first) ? first : '';
         const flags = (main.aiFlags || f.aiFlags)?.mapValue?.fields || {};
         const showLocation = (main.showLocation || f.showLocation)?.booleanValue;
@@ -510,7 +518,7 @@ async function startServer() {
         const area = hidden ? '' : String(main.locationArea?.stringValue || f.locationArea?.stringValue || '').trim().slice(0, 80);
         const name = species || String(f.title?.stringValue || '').trim() || 'A wild sighting';
         heading = name;
-        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : '';
+        scientific = labels[1] && /^[A-Z][a-z]+ [a-z]+/.test(labels[1]) ? labels[1] : (labels[0] && labels[0] !== name && /^[A-Z][a-z]+ [a-z]+$/.test(labels[0]) ? labels[0] : '');
         title = `${name}, seen${area ? ` near ${area}` : ''} · NatureGram`;
         const explorer = String(f.userName?.stringValue || '').trim();
         byline = [explorer, area ? `near ${area}` : ''].filter(Boolean).join(' · ');
