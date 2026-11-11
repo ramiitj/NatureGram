@@ -88,11 +88,6 @@ export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; 
               <p className="ng-dark-title">{card.name}</p>
               {card.scientific && <p className="font-display italic text-base text-white/70 mt-0.5">{card.scientific}</p>}
               {card.line && <p className="ng-dark-caption text-white/85 mt-2">{card.line}</p>}
-              {card.challenge && (
-                  <p className="mt-3 flex items-center gap-2 text-sm text-white/85">
-                      <Glyph name="stamp" size={16} className="text-white/70" />Answers {card.challenge}'s challenge
-                  </p>
-              )}
               {card.firstForList && <span className="sr-only">First for your list.</span>}
           </div>
           <button

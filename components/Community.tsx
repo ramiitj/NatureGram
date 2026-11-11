@@ -12,7 +12,7 @@ import { rankForYou } from '../services/ranking';
 import { track } from '../services/analytics';
 import { markFirstTile, registerTile, unregisterTile, scheduleBlankCount, setFirstSource } from '../services/feedMetrics';
 import { CommunityPost, UserMode, Comment } from '../types';
-import ShareSheet from './ShareSheet';
+const ShareSheet = React.lazy(() => import('./ShareSheet'));
 import SearchPanel from './SearchPanel';
 import KindChips from './KindChips';
 import MediaEditor from './MediaEditor';

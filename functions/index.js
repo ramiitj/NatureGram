@@ -384,6 +384,27 @@ export const backfillPosters = onCall({ region: 'asia-east1', memory: '2GiB', cp
  * triggers the next batch until the job is done. Each batch is claimed by its tick in a transaction,
  * so a repeated event never runs the same batch twice.
  */
+/**
+ * The poster backfill also runs by itself, so older clips get their stills and quick-start streaming copies
+ * without anyone pressing a button: every 20 minutes it handles the next batch, and once it has been through
+ * every sighting it rests for six hours before checking again (new uploads are handled on upload).
+ */
+export const posterBackfillSchedule = onSchedule({ schedule: 'every 20 minutes', region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async () => {
+  const ref = db.doc('admin_private/posterBackfill');
+  const st = (await ref.get()).data() || {};
+  const doneMs = st.doneAt?.toMillis?.() || 0;
+  if (!st.next && doneMs && Date.now() - doneMs < 6 * 3600_000) return;
+  const r = await posterBatch(typeof st.next === 'string' ? st.next : '', 25);
+  const t = st.totals || {};
+  const add = (k) => (Number(t[k]) || 0) + (Number(r[k]) || 0);
+  await ref.set({
+    next: r.next || null, lastRunAt: FieldValue.serverTimestamp(),
+    totals: { processed: add('processed'), updated: add('updated'), posters: add('posters'), soundOnly: add('soundOnly'), failed: add('failed') },
+    ...(r.next ? {} : { doneAt: FieldValue.serverTimestamp() }),
+  }, { merge: true });
+  console.log('poster backfill', JSON.stringify({ ...r }));
+});
+
 export const runAdminJob = onDocumentWritten({ document: 'admin_jobs/{jobId}', region: 'asia-east1', memory: '2GiB', cpu: 2, timeoutSeconds: 540 }, async (event) => {
   const after = event.data?.after?.exists ? event.data.after.data() : null;
   if (!after || after.kind !== 'posters' || !['requested', 'running'].includes(after.status)) return;

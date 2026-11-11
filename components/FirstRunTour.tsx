@@ -3,7 +3,7 @@ import Glyph from './Glyph';
 import { track } from '../services/analytics.ts';
 
 /**
- * A three-step welcome (Wild, the Lens, the challenge card), skippable at every step.
+ * A three-step welcome (Wild, the Lens, your field page), skippable at every step.
  * Each step spotlights a real element marked with data-tour="…" and puts a small card beside it;
  * a step whose element is not on screen shows a centred card. Everything else is taught in place,
  * once, by FirstHint.
@@ -27,7 +27,7 @@ type Step = { id: string; target: string; title: string; body: string };
 const STEPS: Step[] = [
   { id: 'wild', target: 'feed', title: 'Wild', body: 'What others are noticing outside today, from first buds to rare visitors.' },
   { id: 'lens', target: 'capture', title: 'The Lens', body: 'Your guide sees and hears with you. Point it at anything alive and put a name to it together.' },
-  { id: 'challenge', target: 'challenge', title: 'The challenge card', body: 'A small invitation every fortnight, set by a great naturalist. It lives on this card.' },
+  { id: 'you', target: 'profile', title: 'Your field page', body: 'Every species you meet joins your life list here, in the order you found them.' },
 ];
 
 const findTarget = (target: string): HTMLElement | null => {

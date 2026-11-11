@@ -111,7 +111,7 @@ export function verificationLetter({ username, link, naturalist = letterNaturali
     ],
     button: { label: 'Confirm my email', url: link },
     after: ["If you didn't sign up, you can ignore this letter."],
-    quote: { text: naturalist.quote, by: naturalist.name },
+    // The naturalist lives on the landing and their page; the letter stays about the explorer
     accent: naturalist.accent,
     footnote: 'This link works once and expires in a few days. You can always ask for a new one from your field page.',
   };
@@ -128,7 +128,7 @@ export function resetLetter({ link, naturalist = letterNaturalist() }) {
     ],
     button: { label: 'Choose a new password', url: link },
     after: ["If you didn't ask, you can ignore this letter. Your password stays as it is."],
-    quote: { text: naturalist.quote, by: naturalist.name },
+    // The naturalist lives on the landing and their page; the letter stays about the explorer
     accent: naturalist.accent,
     footnote: 'This link works once and expires in about an hour.',
   };

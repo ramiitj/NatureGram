@@ -208,7 +208,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
         </div>
       )}
       {mode === 'signup' && isGuest && <p className="ng-small">Everything you've found as a guest comes with you.</p>}
-      {epigraph && <div className="hidden md:block mt-auto pt-6"><span className="ng-rule mb-4" aria-hidden="true" />{epigraph}</div>}
     </aside>
   ) : null;
 
@@ -242,7 +241,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
               </div>
             )}
             {subtitle && <p className="ng-small text-[15px] mt-3">{subtitle}</p>}
-            {mode === 'login' && !inline && epigraph && <div className="md:hidden mt-5 pl-4 border-l border-theme-accent">{epigraph}</div>}
           </header>
           {threshold}
         </div>
@@ -384,7 +382,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, inline, initi
           </form>
         )}
 
-        {mode === 'signup' && !blocked && !teenStep && !inline && epigraph && <div className="md:hidden mt-6 pt-4 border-t border-[#e8dfcd]">{epigraph}</div>}
 
         <div className={`mt-4 text-center text-sm text-stone-600 ${step === 'sent' && mode === 'signup' ? 'hidden' : ''}`}>
           {mode === 'reset' && (
