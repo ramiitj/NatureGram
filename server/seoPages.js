@@ -66,7 +66,7 @@ footer.site{font-size:12px;color:var(--muted);margin-top:48px;padding-top:24px;b
  */
 export function layout(o) {
   const url = `${origin(o.host)}${o.path}`;
-  const image = o.image || `${origin(o.host)}/og-default.jpg`;
+  const image = o.image || `${origin(o.host)}/og-default.jpg?v=2`;
   const size = o.image ? o.imageSize : [1200, 630];
   const crumbs = o.crumbs?.length > 1
     ? `<nav class="crumbs" aria-label="Breadcrumb">${o.crumbs.map((c, i) => (i < o.crumbs.length - 1 ? `<a href="${e(c.path)}">${e(c.name)}</a> › ` : `<span aria-current="page">${e(c.name)}</span>`)).join('')}</nav>`
@@ -309,7 +309,7 @@ ${p.insight ? `<p style="font-size:16px;line-height:1.55;border-left:2px solid #
 /** Head tags for the app shell: title, description, canonical, social cards, robots, JSON-LD. */
 export function shellHead({ host, path, title, description, image, imageAlt, imageSize, type = 'website', noindex = false, ld }) {
   const url = `${origin(host)}${path}`;
-  const img = image || `${origin(host)}/og-default.jpg`;
+  const img = image || `${origin(host)}/og-default.jpg?v=2`;
   const size = image ? imageSize : [1200, 630];
   return `<title>${e(title)}</title>
     <meta name="description" content="${e(description)}" />

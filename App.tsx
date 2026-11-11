@@ -885,16 +885,27 @@ const App: React.FC = () => {
                     Meet {dailyTheme.naturalist}
                   </button>
                 </div>
+                {dailyTheme.imageCredit?.author && (
+                  <a
+                    href={dailyTheme.imageCredit.source}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="md:hidden mt-6 block text-[10px] leading-snug text-white/50 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)]"
+                  >
+                    Photo: {dailyTheme.imageCredit.author}, {dailyTheme.imageCredit.license}
+                  </a>
+                )}
               </main>
             </div>
 
-            {/* CC BY / BY-SA ask for attribution: the photographer, quietly, in the corner */}
+            {/* CC BY / BY-SA ask for attribution: the photographer, quietly, in the bottom corner on larger
+                screens (on phones it sits under the buttons, so nothing crowds the header) */}
             {dailyTheme.imageCredit?.author && (
               <a
                 href={dailyTheme.imageCredit.source}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="absolute right-6 top-[calc(env(safe-area-inset-top)+1.9rem)] md:top-auto md:right-5 md:bottom-4 max-w-[52vw] md:max-w-[40vw] text-right leading-snug md:truncate text-[10px] md:text-[11px] text-white/70 md:text-white/50 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)] hover:text-white/80 transition-colors"
+                className="hidden md:block absolute right-5 bottom-4 max-w-[40vw] truncate text-right text-[10px] text-white/45 [text-shadow:0_1px_2px_rgba(0,0,0,0.55)] hover:text-white/80 transition-colors"
               >
                 Photo: {dailyTheme.imageCredit.author}, {dailyTheme.imageCredit.license}
               </a>
