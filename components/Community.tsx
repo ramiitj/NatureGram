@@ -1,7 +1,7 @@
 
 import { openExternal, timeAgo, likeTotal, looksLikeSpam } from '../utils';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import PlayableVideo, { PlayableAudio, resolvePoster } from './PlayableVideo';
+import PlayableVideo, { PlayableAudio, resolvePoster, resolvePlayableVideo } from './PlayableVideo';
 import { FirebaseService, peekFirstTiles, releaseFirstTiles } from '../services/firebaseService';
 import { getNaturalistExtra, getThemePeriod } from '../constants/naturalistExtras';
 import { isFungiPost, FungiWarning } from './AiBadge';
@@ -149,6 +149,9 @@ const FeedCard: React.FC<{
     const [loaded, setLoaded] = useState(false);
     const [failed, setFailed] = useState(false);
     const [legacyPoster, setLegacyPoster] = useState<string | null>(null);
+    // No still anywhere yet: the clip itself, paused on an early frame, stands in for one
+    const [frameSrc, setFrameSrc] = useState<string | null>(null);
+    const [frameReady, setFrameReady] = useState(false);
 
     // Near the viewport (600 px ahead): load the picture, and look up a still for older clips
     useEffect(() => {
@@ -173,7 +176,14 @@ const FeedCard: React.FC<{
         if (!near || !isVideo || post.thumbnailUrl || post.imageUrl || post.posterUrl || post.thumbSmallUrl) return;
         let live = true;
         (post.videoUrl ? Promise.resolve(post.videoUrl) : FirebaseService.getFullPost(post.id).then(f => f?.videoUrl || f?.items?.[0]?.videoUrl))
-            .then(u => resolvePoster(u)).then(p => { if (live && p) setLegacyPoster(p); }).catch(() => {});
+            .then(async u => {
+                const p = await resolvePoster(u);
+                if (!live) return;
+                if (p) { setLegacyPoster(p); return; }
+                // Prefer the quick-start streaming copy: its first frame arrives without the whole file
+                const playable = await resolvePlayableVideo(u, 'video', (post as any).streamUrl).catch(() => u);
+                if (live && playable) setFrameSrc(`${playable}#t=0.5`);
+            }).catch(() => {});
         return () => { live = false; };
     }, [near, isVideo, post.id, post.videoUrl, post.thumbnailUrl, post.imageUrl, post.posterUrl, post.thumbSmallUrl]);
 
@@ -184,7 +194,7 @@ const FeedCard: React.FC<{
     }, [src, near]);
 
     // Blank-tile count: anything to show at all (a picture, a still, a preview or the sound drawing)
-    const hasSource = sound || !!lqip || (!!src && !failed);
+    const hasSource = sound || !!lqip || (!!src && !failed) || frameReady;
     useEffect(() => { if (near) registerTile(post.id, hasSource); else unregisterTile(post.id); }, [post.id, hasSource, near]);
     useEffect(() => () => unregisterTile(post.id), [post.id]);
 
@@ -206,7 +216,7 @@ const FeedCard: React.FC<{
     const startPreview = useCallback((v: HTMLVideoElement | null) => { if (v) { v.muted = true; v.play().catch(() => {}); } }, []);
 
     const open = () => { releasePreview(post.id); onPostClick(post); };
-    const showFallback = !sound && (!src || failed) && !lqip;
+    const showFallback = !sound && (!src || failed) && !lqip && !frameReady;
     const where = /^(uploaded|captured)?\s*field station$/i.test(String(post.locationArea || '').trim()) ? '' : post.locationArea;
 
     return (
@@ -249,6 +259,19 @@ const FeedCard: React.FC<{
                                 onLoad={() => { setLoaded(true); markFirstTile('image'); }}
                                 onError={() => setFailed(true)}
                                 className={`absolute inset-0 w-full h-full object-cover transition-[opacity,transform] duration-700 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+                            />
+                        )}
+                        {frameSrc && (!src || failed) && (
+                            <video
+                                src={frameSrc}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                aria-hidden="true"
+                                tabIndex={-1}
+                                onLoadedData={() => { setFrameReady(true); markFirstTile('image'); }}
+                                onError={() => setFrameSrc(null)}
+                                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-500 ${frameReady ? 'opacity-100' : 'opacity-0'}`}
                             />
                         )}
                         {showFallback && (
