@@ -12,6 +12,7 @@ import { lifeStats, buildLifeList, LifeEntry, LifeGroup, GROUP_GLYPH, MILESTONES
 import { renderPlate, sharePlate } from '../services/plateImage';
 import { SpecimenPlate, PlateStamp, PlateData } from './SpecimenPlate';
 import Glyph from './Glyph';
+import BrandMark from './BrandMark';
 import { isInstalled, openInstallCard } from '../services/install';
 import { getThemePeriod } from '../constants/naturalistExtras';
 import { resolvePoster } from './PlayableVideo';
@@ -41,6 +42,8 @@ interface UserProfileProps {
   onMessage?: (uid: string) => void | Promise<void>;
   /** Clears the first-run tour flag and walks the explorer round the app again, from the feed */
   onRetakeTour?: () => void;
+  /** The landing page: what NatureGram is, in full */
+  onAbout?: () => void;
 }
 
 type Tab = 'posts' | 'lifelist' | 'saved';
@@ -436,7 +439,7 @@ const CheckInbox: React.FC<{ email: string; onToast: (m: string) => void }> = ({
   );
 };
 
-const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnonymous, onBack, onSignOut, onViewJournal, onAdminConsole, onOpenPost, onViewProfile, onRequireAccount, onMessage, onRetakeTour, onAbout }) => {
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -845,6 +848,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
             )}
             {onRetakeTour && (
               <button onClick={() => { setSheet(null); onRetakeTour(); }} className="ng-menu-item min-h-[52px]"><Glyph name="leafCompass" size={20} className="text-stone-500" />Take the tour again</button>
+            )}
+            {onAbout && (
+              <button onClick={() => { setSheet(null); onAbout(); }} className="ng-menu-item min-h-[52px]"><BrandMark size={20} />About NatureGram</button>
             )}
             <a href="/privacy.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="shield" size={20} className="text-stone-500" />Privacy policy</a>
             <a href="/terms.html" target="_blank" rel="noopener" className="ng-menu-item min-h-[52px]"><Glyph name="lines" size={20} className="text-stone-500" />Terms & community guidelines</a>

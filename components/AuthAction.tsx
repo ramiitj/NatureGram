@@ -5,6 +5,7 @@ import { FirebaseService } from '../services/firebaseService';
 import { getDailyTheme } from '../constants/naturalists';
 import { track } from '../services/analytics';
 import Glyph from './Glyph';
+import BrandMark from './BrandMark';
 import SpecimenPlate, { PlateStamp } from './SpecimenPlate';
 
 /**
@@ -116,7 +117,7 @@ const AuthAction: React.FC<Props> = ({ url, onDone, onSignIn }) => {
     <div className="fixed inset-0 z-[150] overflow-y-auto bg-day-bg text-stone-800">
       <div className="min-h-full flex flex-col items-center justify-center px-6 py-8 sm:py-14 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
         <header className={`w-full ${stage.k === 'verified' ? 'max-w-[920px]' : 'max-w-[640px]'} flex items-center gap-2.5 mb-8 sm:mb-12`}>
-          <Glyph name="mark" size={22} className="text-stone-900" />
+          <BrandMark size={24} />
           <span className="ng-wordmark">NatureGram</span>
         </header>
 

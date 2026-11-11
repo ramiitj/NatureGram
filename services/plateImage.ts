@@ -4,6 +4,7 @@
  * image can't be read (for example a cross-origin URL without CORS headers).
  */
 import { PlateData, plateFoot } from '../components/SpecimenPlate';
+import { currentMarkUrl } from './brandMark';
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
   const img = new Image();
@@ -38,12 +39,20 @@ export async function renderPlate(d: PlateData & { line?: string; accent?: strin
   ctx.textBaseline = 'top';
   // NatureGram's mark (the landing's sun) and the wordmark, top left; the plate number top right
   const mx = 128, my = 120;
-  ctx.fillStyle = ink; ctx.strokeStyle = ink; ctx.lineCap = 'round'; ctx.lineWidth = 3.4;
-  ctx.beginPath(); ctx.arc(mx, my, 9, 0, Math.PI * 2); ctx.fill();
-  for (let k = 0; k < 8; k++) {
-    const a = (k * Math.PI) / 4, r1 = 15, r2 = 21;
-    ctx.beginPath(); ctx.moveTo(mx + Math.cos(a) * r1, my + Math.sin(a) * r1); ctx.lineTo(mx + Math.cos(a) * r2, my + Math.sin(a) * r2); ctx.stroke();
+  // The same disc as the browser tab and home-screen icon (the fortnight's colours, or the admin's)
+  try {
+    const mark = await loadImage(currentMarkUrl());
+    ctx.save(); ctx.beginPath(); ctx.arc(mx, my, 24, 0, Math.PI * 2); ctx.clip();
+    ctx.drawImage(mark, mx - 24, my - 24, 48, 48); ctx.restore();
+  } catch {
+    ctx.fillStyle = ink; ctx.strokeStyle = ink; ctx.lineCap = 'round'; ctx.lineWidth = 3.4;
+    ctx.beginPath(); ctx.arc(mx, my, 9, 0, Math.PI * 2); ctx.fill();
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4, r1 = 15, r2 = 21;
+      ctx.beginPath(); ctx.moveTo(mx + Math.cos(a) * r1, my + Math.sin(a) * r1); ctx.lineTo(mx + Math.cos(a) * r2, my + Math.sin(a) * r2); ctx.stroke();
+    }
   }
+  ctx.fillStyle = ink;
   ctx.font = 'italic 400 38px Newsreader, Georgia, serif';
   ctx.fillText('NatureGram', mx + 36, my - 22);
   if (d.no) { ctx.fillStyle = muted; const no = `No. ${d.no}`; ctx.fillText(no, W - 110 - ctx.measureText(no).width, my - 22); }

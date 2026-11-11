@@ -21,7 +21,8 @@ export const mailConfigured = () => Boolean(process.env.RESEND_API_KEY);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
- * A letter in NatureGram's hand: cream paper, the mark, a serif heading, one clear button, and a
+ * A letter in NatureGram's hand: cream paper, the mark (drawn by the server in the fortnight's colours,
+ * the same disc as the browser tab), a serif heading, one clear button, and a
  * line from the naturalist of the fortnight. Table layout and inline styles so it renders in Gmail,
  * Outlook and Apple Mail alike; dark-mode clients keep it legible.
  *
@@ -38,7 +39,7 @@ export function letterHtml(m) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fcfaf8">
     <tr><td style="padding:0 0 8px">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td style="vertical-align:middle"><img src="${PUBLIC_ORIGIN}/icon-192.png" width="36" height="36" alt="" style="display:block;border-radius:9px"></td>
+        <td style="vertical-align:middle"><img src="${PUBLIC_ORIGIN}/brand/icon-192.png" width="36" height="36" alt="" style="display:block;border-radius:50%"></td>
         <td style="vertical-align:middle;padding-left:10px;font:italic 400 22px Georgia,'Times New Roman',serif;color:#1c1917">NatureGram</td>
       </tr></table>
     </td></tr>

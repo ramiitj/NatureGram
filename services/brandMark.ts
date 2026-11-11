@@ -87,12 +87,30 @@ let lastTheme: Parameters<typeof markColorsFor>[0] = undefined;
 const listeners = new Set<(b: BrandingConfig | null) => void>();
 
 export const currentBranding = () => branding;
+
+/** The mark as shown right now (theme or admin colours, style, custom image), for the app's own logo. */
+export interface CurrentMark { colors: MarkColors; style: Exclude<MarkStyle, 'custom'>; custom: string | null }
+let current: CurrentMark = { colors: DEFAULT_MARK, style: 'sun', custom: null };
+const markListeners = new Set<() => void>();
+const publishMark = () => {
+  current = {
+    colors: resolveColors(lastTheme, branding),
+    style: branding?.style === 'lens' ? 'lens' : 'sun',
+    custom: branding?.style === 'custom' && isSafeIcon(branding.customIcon) ? branding.customIcon : null,
+  };
+  markListeners.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+};
+export const getCurrentMark = () => current;
+export const subscribeMark = (fn: () => void) => { markListeners.add(fn); return () => { markListeners.delete(fn); }; };
+/** The current mark as an image URL (a disc, like the landing sun and the browser tab). */
+export const currentMarkUrl = (m: CurrentMark = current) => m.custom || svgUrl(markSvg(m.colors, m.style, 'circle'));
 export const onBrandingChange = (fn: (b: BrandingConfig | null) => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
 
 /** Called by the theme service whenever the fortnight's colours are applied. */
 export const applyThemeMark = (themeColors: Parameters<typeof markColorsFor>[0]) => {
   lastTheme = themeColors;
   applyMark(resolveColors(themeColors, branding), branding);
+  publishMark();
 };
 
 /** Follow config/branding so an admin's change reaches open apps within seconds. Safe to call once. */
@@ -105,6 +123,7 @@ export const startBranding = async () => {
     fs.onSnapshot(fs.doc(db, 'config', 'branding'), snap => {
       branding = snap.exists() ? (snap.data() as BrandingConfig) : null;
       applyMark(resolveColors(lastTheme, branding), branding);
+      publishMark();
       listeners.forEach(fn => { try { fn(branding); } catch { /* ignore */ } });
     }, () => { /* no access or offline: keep the default mark */ });
   } catch { /* keep the default mark */ }

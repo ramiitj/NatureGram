@@ -167,6 +167,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>(initialMode);
   // Quiet watching (waiting for a bird) needs time; the live guide costs live minutes, so it rests sooner
   const IDLE_LIMIT_MS = selectedMode === 'observation' ? 180_000 : 60_000;
+  // Live time is billed: however lively the sound around the phone (a pocket, a street), a conversation
+  // asks "Still with me?" after five minutes without a touch, so a forgotten Lens can't run on
+  const HANDS_FREE_MAX_MS = 5 * 60_000;
+  /** When the explorer last spoke (voice heard on the microphone), for the guide's idle clock */
+  const lastVoiceRef = useRef(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
   const captureCountRef = useRef(0);
@@ -836,11 +841,22 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       events.forEach(ev => window.addEventListener(ev, touch, { passive: true }));
       const tick = setInterval(() => {
           if (agentState === 'FINALIZING') return;
-          const idle = Date.now() - lastInteractionRef.current;
-          const busy = isRecordingAudio || isRecordingVideo || agentState === 'SPEAKING' || agentState === 'HEARING_USER';
-          if (busy) lastInteractionRef.current = Date.now();
-          else if (idle > IDLE_LIMIT_MS) finalizeSession(selectedMode === 'observation' ? 'The Lens rested after a few quiet minutes.' : 'The Lens rested after a quiet minute.');
-          else if (idle > IDLE_LIMIT_MS - 10_000) setIdleWarning(Math.ceil((IDLE_LIMIT_MS - idle) / 1000));
+          const now = Date.now();
+          // A clip being recorded is someone at work; it is capped at 30 seconds anyway
+          if (isRecordingAudio || isRecordingVideo) lastInteractionRef.current = now;
+          let left: number;
+          if (selectedMode === 'conversation') {
+              // Talking to the guide counts as being there, and the guide finishing a sentence pauses the
+              // clock; the guide's own voice never keeps a session alive, and nor does sound for ever
+              if (agentState === 'SPEAKING') lastVoiceRef.current = Math.max(lastVoiceRef.current, now - 1);
+              const quiet = now - Math.max(lastInteractionRef.current, lastVoiceRef.current);
+              const untouched = now - lastInteractionRef.current;
+              left = Math.min(IDLE_LIMIT_MS - quiet, HANDS_FREE_MAX_MS - untouched);
+          } else {
+              left = IDLE_LIMIT_MS - (now - lastInteractionRef.current);
+          }
+          if (left <= 0) finalizeSession(selectedMode === 'observation' ? 'The Lens rested after a few quiet minutes.' : 'The guide rested to save your live time.');
+          else if (left <= 10_000) setIdleWarning(Math.ceil(left / 1000));
           if (conversationEndsAtRef.current) {
               const left = Math.max(0, Math.ceil((conversationEndsAtRef.current - Date.now()) / 1000));
               setSecondsLeft(left);
@@ -891,8 +907,10 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the screen awake while the Lens is open (quiet watching would otherwise dim and end it)
+  // Keep the screen awake for the quiet Lens (watching is free; dimming would end it). A conversation
+  // with the guide is billed, so there the phone may sleep as usual, which closes the session.
   useEffect(() => {
+      if (selectedMode !== 'observation') return;
       let lock: any = null; let gone = false;
       const take = async () => {
           try { if (document.visibilityState === 'visible' && (navigator as any).wakeLock) { lock = await (navigator as any).wakeLock.request('screen'); if (gone) lock.release?.(); } } catch { /* not allowed: fine */ }
@@ -901,7 +919,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       const again = () => { if (document.visibilityState === 'visible') take(); };
       document.addEventListener('visibilitychange', again);
       return () => { gone = true; document.removeEventListener('visibilitychange', again); try { lock?.release?.(); } catch { /* ignore */ } };
-  }, []);
+  }, [selectedMode]);
 
   const applyOpticalSettings = useCallback(async (settings: { zoom?: number, torch?: boolean, pan?: number, tilt?: number }) => {
     if (!videoTrackRef.current) return;
@@ -1339,10 +1357,26 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         // -------------------------------------
 
         processor = inputCtx.createScriptProcessor(4096, 1, 1);
+        // Only sound around speech goes to the guide: silence is billed like speech, and a session that
+        // sends nothing is closed by the server after a minute. A chunk of pre-roll keeps the first word,
+        // and 1.5 s of hang-over lets the guide hear that the explorer has finished.
+        let preRoll: Float32Array | null = null;
         processor.onaudioprocess = (e) => {
+            const pcm = e.inputBuffer.getChannelData(0);
+            let sum = 0;
+            for (let i = 0; i < pcm.length; i += 4) sum += pcm[i] * pcm[i];
+            const rms = Math.sqrt(sum / (pcm.length / 4));
+            const now = Date.now();
+            const voiced = rms > 0.012;
+            const wasQuiet = now - lastVoiceRef.current > 1500;
+            if (voiced) lastVoiceRef.current = now;
             if (geminiServiceRef.current && geminiServiceRef.current.isConnected()) {
-                service.sendAudioChunk(e.inputBuffer.getChannelData(0));
+                if (now - lastVoiceRef.current <= 1500) {
+                    if (voiced && wasQuiet && preRoll) service.sendAudioChunk(preRoll);
+                    service.sendAudioChunk(pcm);
+                }
             }
+            preRoll = new Float32Array(pcm);
         };
         agentGainNode.connect(processor);
         processor.connect(inputCtx.destination);
@@ -1365,6 +1399,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                  const still = lastProbe && diff / (16 * 16 * 3) < 6;
                  lastProbe = px;
                  if (still && Date.now() - lastSent < 4000) return;
+                 // Nothing moving and nobody speaking or touching for 20 s: send nothing (a phone left on a table)
+                 if (still && Date.now() - Math.max(lastVoiceRef.current, lastInteractionRef.current) > 20_000) return;
              }
              const scale = Math.min(1, 768 / Math.max(v.videoWidth, v.videoHeight));
              streamCanvas.width = Math.round(v.videoWidth * scale);

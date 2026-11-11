@@ -75,7 +75,7 @@ ${o.noindex ? '<meta name="robots" content="noindex">' : '<meta name="robots" co
 <meta property="og:image" content="${e(image)}"><meta property="og:image:alt" content="${e(o.imageAlt || o.title)}">${size ? `<meta property="og:image:width" content="${size[0]}"><meta property="og:image:height" content="${size[1]}">` : ''}
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${e(o.title)}"><meta name="twitter:description" content="${e(o.description)}"><meta name="twitter:image" content="${e(image)}">
 <meta name="theme-color" content="#fcfaf8">
-<link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${FONTS}" rel="stylesheet">
 <style>${CSS}</style>
 ${o.ld ? ldScript(o.ld) : ''}

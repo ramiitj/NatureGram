@@ -8,6 +8,7 @@ import { isFungiPost, FungiWarning } from './AiBadge';
 import { getThemePeriod, getNaturalistExtra } from '../constants/naturalistExtras';
 import { speciesOf, publicArea } from './ShareSheet';
 import Glyph from './Glyph';
+import BrandMark from './BrandMark';
 
 interface SharedPostViewProps {
   postId: string;
@@ -124,7 +125,7 @@ const SharedPostView: React.FC<SharedPostViewProps> = ({ postId, onGoToApp, onOp
   return (
       <div className="fixed inset-0 bg-day-bg flex flex-col md:flex-row overflow-hidden">
           <div className="absolute top-0 left-0 right-0 md:right-[400px] lg:right-[450px] px-6 pt-6 pb-8 md:px-12 md:pt-8 z-50 flex items-center bg-gradient-to-b from-black/50 to-transparent pointer-events-none safe-pt">
-              <span className="flex items-center gap-2.5 text-white"><Glyph name="mark" size={22} /><span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span></span>
+              <span className="flex items-center gap-2.5 text-white"><BrandMark size={24} /><span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span></span>
           </div>
 
           <div className="flex-1 relative bg-stone-950 flex flex-col justify-center min-h-[48dvh] md:min-h-screen group/media overflow-hidden">

@@ -19,6 +19,7 @@ import { weekKey, seasonNote, WonderIcon } from './components/Wonder.tsx';
 import { identify, track } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
+import BrandMark from './components/BrandMark';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
@@ -781,7 +782,7 @@ const App: React.FC = () => {
             <div className="relative h-full w-full flex flex-col safe-pt">
               <header className="flex items-center justify-between px-6 md:px-12 pt-6 md:pt-8">
                 <span className="flex items-center gap-2.5">
-                  <Glyph name="mark" size={22} className="text-white/95" />
+                  <BrandMark size={26} />
                   <span className="font-display italic text-xl md:text-2xl tracking-tight">NatureGram</span>
                 </span>
                 <span className="hidden md:block text-sm text-white/75">A field notebook for the living world</span>
@@ -919,7 +920,7 @@ const App: React.FC = () => {
                   onViewProfile={(uid) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   activeDraftsCount={activeDraftsCount}
                   onViewDrafts={() => setCurrentView(AppView.DRAFTS)}
-                  onLogoClick={() => handleNavigationRequest(AppView.LANDING)}
+                  onLogoClick={scrollFeedToTop}
                   onRequireAccount={requireAccount}
                   dailyTheme={dailyTheme}
                   onOpenNaturalist={openNaturalist}
@@ -967,6 +968,7 @@ const App: React.FC = () => {
                   onOpenPost={(postId: string) => { setReturnView(AppView.USER_PROFILE); setSelectedPostId(postId); setIsDetailActive(true); setCurrentView(AppView.COMMUNITY); }}
                   onViewProfile={(uid: string) => handleNavigationRequest(AppView.USER_PROFILE, { userId: uid })}
                   onRequireAccount={requireAccount}
+                  onAbout={() => handleNavigationRequest(AppView.LANDING)}
                   onRetakeTour={() => { resetFirstRunTour(); setTourPending(true); handleNavigationRequest(AppView.COMMUNITY); }}
                   onMessage={async (uid: string) => {
                     if (userMode?.isAnonymous) { requireAccount('Create a free account to write letters to explorers.'); return; }
