@@ -64,11 +64,17 @@ const isSoundTile = (post: CommunityPost) =>
     post.soundOnly === true || (post.mediaType === 'audio' && !(post.thumbSmallUrl || post.thumbnailUrl || post.imageUrl));
 
 /** Its own shape when known (kept between 1:2 and 2:1); otherwise 4:5 photos, 9:16 clips, 1:1 sounds. */
+/**
+ * The tile's shape in the grid. Portrait clips and photos are cropped to at most 4:5 here (the full
+ * frame shows when the sighting opens, and in Moments), so a screen holds about twice as many
+ * sightings to compare: about ten on a wide screen, six on a phone, instead of five.
+ */
+const TILE_TALLEST = 4 / 5;
 const tileAspect = (post: CommunityPost): number => {
     if (isSoundTile(post)) return 1;
     const w = Number(post.w), h = Number(post.h);
-    if (w > 0 && h > 0) return Math.min(2, Math.max(0.5, w / h));
-    return post.mediaType === 'video' ? 9 / 16 : 4 / 5;
+    if (w > 0 && h > 0) return Math.min(2, Math.max(TILE_TALLEST, w / h));
+    return TILE_TALLEST;
 };
 
 const PLACEHOLDER_NAME = /^(unknown|nature|unidentified|observation|captured|uploaded|sighting)\b/i;
@@ -315,12 +321,12 @@ const FeedCard: React.FC<{
                 )}
             </div>
 
-            <div className="mt-2.5">
+            <div className="mt-2">
                 <h3 className="font-display italic text-base text-stone-900 leading-snug truncate">
                     {label}
                 </h3>
-                {latin && <p className="font-display italic text-xs text-stone-500 leading-snug truncate">{latin}</p>}
-                <div className="flex items-center gap-1 mt-0.5 text-xs leading-[1.5] text-stone-500 min-w-0">
+                {/* The Latin name only when there is no common one (then it is the name); full names in the sighting */}
+                <div className="flex items-center gap-1 text-xs leading-[1.5] text-stone-500 min-w-0">
                     <span className="truncate">{where || explorerName(post.userName, true)}</span>
                     {!hideCounts && likeTotal(post) > 0 && (
                         <span className="ml-auto flex items-center gap-1 shrink-0" aria-label={wonderLabel(likeTotal(post))}>
@@ -418,7 +424,7 @@ const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: Community
         return posts.map(post => {
             let c = 0;
             for (let i = 1; i < n; i++) if (heightsByShape[i] < heightsByShape[c] - 0.001) c = i;
-            heightsByShape[c] += 1 / tileAspect(post) + 0.32; // the name and place beneath
+            heightsByShape[c] += 1 / tileAspect(post) + 0.24; // the name and place beneath
             return c;
         });
     }, [posts, n]);
@@ -429,14 +435,15 @@ const FeedGrid: React.FC<{ posts: CommunityPost[]; onPostClick: (post: Community
     posts.forEach((post, i) => {
         const c = columns[i];
         tops.push(colBottom[c]);
-        const est = colW / tileAspect(post) + 72;
+        const est = colW / tileAspect(post) + 52;
         colBottom[c] += (heights.current.get(post.id) ?? est) + g.y;
     });
     const total = Math.max(0, ...colBottom) - g.y;
 
     useEffect(() => { if (posts.length) scheduleBlankCount(); }, [posts.length]);
     return (
-        <div ref={boxRef} role="list" aria-label={label} className="relative w-full" style={{ height: colW ? Math.max(0, total) : undefined }}>
+        // On very wide screens the grid stops growing, so tiles stay about 300 px instead of swelling
+        <div ref={boxRef} role="list" aria-label={label} className="relative w-full max-w-[1600px] mx-auto" style={{ height: colW ? Math.max(0, total) : undefined }}>
             {colW > 0 && posts.map((post, index) => (
                 <div
                     key={post.id}
