@@ -2132,7 +2132,15 @@ const Community: React.FC<CommunityProps> = ({
                     ) : loadMoreState === 'error' ? (
                         <button onClick={() => { setLoadMoreState('idle'); loadMore(); }} className="ng-link-quiet min-h-[44px]">Couldn't load more. Tap to retry</button>
                     ) : !hasMore && !isJournalOnly ? (
-                        <span className="font-display italic text-base text-stone-500">{anyFilterOn ? `That's every sighting with these filters, out of ${posts.length}.` : "That's every sighting for now. The next one is outside."}</span>
+                        feedMode === 'following' && !anyFilterOn ? (
+                            // The end of Following is not the end of Wild: say so, and offer the rest
+                            <span className="flex flex-col items-center gap-2 text-center">
+                                <span className="font-display italic text-base text-stone-500">That's everything from the people you follow.</span>
+                                <button onClick={() => setFeedMode('foryou')} className="ng-link-quiet min-h-[44px]">See every sighting in For you</button>
+                            </span>
+                        ) : (
+                            <span className="font-display italic text-base text-stone-500">{anyFilterOn ? `That's every sighting with these filters, out of ${posts.length}.` : "That's every sighting for now. The next one is outside."}</span>
+                        )
                     ) : anyFilterOn && !isJournalOnly ? (
                         // Filters look through what is loaded: keep looking further on request
                         <button onClick={() => loadMore()} className="ng-link-quiet min-h-[44px]">Look through older sightings</button>
