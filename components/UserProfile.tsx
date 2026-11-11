@@ -756,7 +756,15 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 { key: 'lifelist', icon: 'plate', label: 'Life list' },
                 ...(isOwnProfile ? [{ key: 'saved', icon: 'filter_vintage', label: 'Kept' }] : []),
               ] as { key: Tab; icon: string; label: string }[]).map(t => (
-                <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`ng-tab gap-2 min-h-[52px] ${tab === t.key ? 'ng-tab-on after:!bottom-0' : ''}`}>
+                <button key={t.key} id={`tab-${t.key}`} role="tab" aria-selected={tab === t.key} aria-controls="field-page-panel" tabIndex={tab === t.key ? 0 : -1}
+                  onKeyDown={e => {
+                    // Arrow keys move between the tabs, as tabs do everywhere
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                    const keys: Tab[] = isOwnProfile ? ['posts', 'lifelist', 'saved'] : ['posts', 'lifelist'];
+                    const next = keys[(keys.indexOf(t.key) + (e.key === 'ArrowRight' ? 1 : keys.length - 1)) % keys.length];
+                    setTab(next); document.getElementById(`tab-${next}`)?.focus();
+                  }}
+                  onClick={() => setTab(t.key)} className={`ng-tab gap-2 min-h-[52px] ${tab === t.key ? 'ng-tab-on after:!bottom-0' : ''}`}>
                   {t.icon === 'plate'
                     ? <Glyph name="plate" size={20} />
                     : <Glyph name={t.icon === 'filter_vintage' ? 'keep' : 'landscape'} size={20} />}{t.label}
@@ -764,6 +772,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
               ))}
             </div>
 
+            <div id="field-page-panel" role="tabpanel" aria-labelledby={`tab-${tab}`}>
             {tab === 'posts' && (
               visiblePosts.length === 0 ? (
                 <div className="ng-empty">
@@ -798,7 +807,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
 
             {tab === 'saved' && isOwnProfile && (
               saved === null ? (
-                <PressingLoader label="Opening the press…" className="py-14" />
+                <PressingLoader label="Opening what you kept…" className="py-14" />
               ) :
               saved.length === 0 ? (
                 <div className="ng-empty max-w-sm mx-auto">
@@ -809,6 +818,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
                 <KeptPages items={saved} onOpenPost={onOpenPost} />
               )
             )}
+            </div>
           </>
         )}
       </main>
