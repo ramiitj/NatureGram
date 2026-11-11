@@ -20,6 +20,10 @@ export const BASE_WORDS = [
 
 const PROMO = /\b(whatsapp|telegram|dm me|follow me|follow back|promo|discount|coupon|giveaway|buy now|free followers|subscribe|casino|betting|jackpot|lottery|crypto|forex|loan offer|earn money|work from home)\b/i;
 
+// Plant names that contain a listed word: "oilseed rape" is a crop (rapeseed already passes as one word)
+const PLANT_NAMES = /\boil[\s-]*seed[\s-]+rape\b/giu;
+export const withoutPlantNames = (text) => String(text || '').replace(PLANT_NAMES, 'oilseed crop');
+
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const listRe = (words) => (words.length ? new RegExp(`(^|[^\\p{L}\\p{N}])(${words.map(escape).join('|')})(?=$|[^\\p{L}\\p{N}])`, 'iu') : null);
 
@@ -37,7 +41,7 @@ function wordRe(extra = []) {
  *  'spam'  – promotions, shouting, repeated characters or words, hashtag or mention floods
  */
 export function textFlags(texts, { extraWords = [] } = {}) {
-  const all = (Array.isArray(texts) ? texts : [texts]).filter(t => typeof t === 'string' && t.trim()).join('\n');
+  const all = withoutPlantNames((Array.isArray(texts) ? texts : [texts]).filter(t => typeof t === 'string' && t.trim()).join('\n'));
   if (!all) return [];
   const reasons = new Set();
   const re = wordRe(extraWords);

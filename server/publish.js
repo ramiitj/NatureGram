@@ -10,7 +10,9 @@
  *     the sighting is saved to their journal and the admin decides.
  *  5. The guide's words on a post are only the words the guide actually returned
  *     (looked up by ngResultId), never text sent from the phone.
- *  6. The daily post allowance (same for everyone, set by the admin) is charged last.
+ *  6. The daily allowance (same for everyone, set by the admin) is charged last: sharing to the feed
+ *     uses postsPerDay; an "Only me" save uses the separate, generous privateSavesPerDay cap and is
+ *     charged to postsPerDay only if it is shared later (/api/posts/:id/visibility).
  *
  * Writes use the Admin SDK; the database rules stop clients creating posts directly.
  */
@@ -18,8 +20,8 @@ import https from 'https';
 import express from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFlags, getSettings } from './settings.js';
-import { charge, usageFor, logAi, addGlobalTokens } from './ledger.js';
-import { moderationBody, policyText, findPolicyBreach } from './aiGovernance.js';
+import { charge, usageFor, logAi, addGlobalTokens, RESET_WORDS } from './ledger.js';
+import { moderationBody, policyText, findPolicyBreach, safetyRefusal } from './aiGovernance.js';
 import { textFlags } from './moderationText.js';
 import { searchTokensFor } from './searchTokens.js';
 import { appCheckMiddleware } from './appCheck.js';
@@ -127,8 +129,25 @@ function cleanItem(it, uid) {
     // From the phone, only flags that make things stricter are believed
     aiFlags: { sensitiveSpecies: i.aiFlags?.sensitiveSpecies === true, peopleVisible: i.aiFlags?.peopleVisible === true, isNatureSubject: i.aiFlags?.isNatureSubject !== false },
     needsExpertReview: i.needsExpertReview === true,
+    // Who named it: 'guide' only when the server's own record of the guide's answer agrees (below);
+    // the phone may say 'explorer' (never believed the other way)
+    nameSource: i.nameSource === 'explorer' ? 'explorer' : null,
     observedAt: observedAtOf(i.takenAtMs),
   };
+}
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+/**
+ * 'guide' when the explorer kept the name the guide suggested, 'explorer' when they changed it (or
+ * said so), null when there is no record of the guide's answer to compare with.
+ */
+export function nameSourceOf(item, guideLabels) {
+  if (item?.nameSource === 'explorer') return 'explorer';
+  const guide = Array.isArray(guideLabels) ? guideLabels.filter(Boolean) : [];
+  if (!guide.length) return null;
+  const named = Array.isArray(item?.labels) ? item.labels[0] : null;
+  if (!named) return null;
+  return sameName(named, guide[0]) ? 'guide' : 'explorer';
 }
 
 function fetchImage(url, maxBytes = 4 * 1024 * 1024) {
@@ -201,6 +220,38 @@ async function moderateImages(deps, uid, items, settings) {
   return { reasons: [...reasons] };
 }
 
+/** Today's limits from the admin's allowances (an older flags document may lack privateSavesPerDay). */
+export function allowanceLimits(flags) {
+  const a = flags?.allowances || {};
+  return {
+    posts: Math.max(0, Number(a.postsPerDay) || 0),
+    privateSaves: Math.max(1, Number(a.privateSavesPerDay) || 200),
+  };
+}
+
+/**
+ * Whether today's allowance stops this save, with words that only suggest what would work.
+ * Returns null or { code, message }. code 'allowance' (sharing) or 'private-allowance' ("Only me").
+ */
+export function allowanceProblem({ wantsFeed, used, limits }) {
+  const posts = used?.posts || 0;
+  const saves = used?.privateSaves || 0;
+  if (wantsFeed && posts >= limits.posts) {
+    const canKeep = saves < limits.privateSaves;
+    return {
+      code: 'allowance',
+      message: `You've shared today's ${limits.posts} sightings. Sharing opens again ${RESET_WORDS}.${canKeep ? ' You can save this one with "Only me" now and share it from your journal tomorrow.' : ''}`,
+    };
+  }
+  if (!wantsFeed && saves >= limits.privateSaves) {
+    return {
+      code: 'private-allowance',
+      message: `You've saved ${limits.privateSaves} sightings today, the most NatureGram keeps in one day. Saving opens again ${RESET_WORDS}. Keep this one as a draft until then.`,
+    };
+  }
+  return null;
+}
+
 export function mountPublish(app, deps) {
   const { verifyIdToken, bearer, gate, clientIp, log } = deps;
 
@@ -225,11 +276,16 @@ export function mountPublish(app, deps) {
     const profile = await graduateIfDue(db, user.uid, (await db.doc(`users/${user.uid}`).get().catch(() => null))?.data() || {});
     const teen = teenPolicy(profile);
 
+    // Shared with everyone (counts against postsPerDay) or kept to "Only me" (its own generous cap)
+    const wantsFeed = body.feed === true && (!teen.teen || teen.approved);
+    const allowances = allowanceLimits(flags);
+    const limit = allowances.posts;
+
     // Allowance first (read only), so nobody waits through checks they can't use
     const used = await usageFor(user.uid);
     if (used === null) return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
-    const limit = Math.max(0, Number(flags.allowances.postsPerDay) || 0);
-    if ((used.posts || 0) >= limit) return say(429, 'allowance', `You've shared today's ${limit} sightings. Sharing opens again at midnight UTC. Keep this one in your journal until then.`);
+    const over = allowanceProblem({ wantsFeed, used, limits: allowances });
+    if (over) return say(429, over.code, over.message);
 
     let items;
     try {
@@ -249,8 +305,10 @@ export function mountPublish(app, deps) {
     if (textBreach(caption, title, description, behavior, ...tags, ...items.flatMap(i => [i.behavior, i.aiInsight, ...i.labels]))) {
       return say(422, 'caption', g.caption, { fix: 'text' });
     }
-    if ([caption, title, description, behavior, ...items.flatMap(i => [i.behavior, i.aiInsight])].some(t => findPolicyBreach(t))) {
-      return say(422, 'safety', g.safety, { fix: 'text' });
+    const breach = [caption, title, description, behavior, ...items.flatMap(i => [i.behavior, i.aiInsight])].map(t => findPolicyBreach(t)).find(Boolean);
+    if (breach) {
+      // Name the words that tripped the rule and how to say it instead (g.safety stays as the general rule)
+      return say(422, 'safety', safetyRefusal(breach), { fix: 'text', phrase: breach, rule: g.safety });
     }
 
     // The guide's own words, by reference
@@ -273,6 +331,7 @@ export function mountPublish(app, deps) {
       i.aiProposedLabels = Array.isArray(r.labels) ? r.labels : null;
       i.aiModel = r.model || null;
       i.needsExpertReview = i.needsExpertReview || r.confidence === 'low';
+      i.nameSource = nameSourceOf(i, i.aiProposedLabels);
     }));
     const sensitive = items.some(i => i.aiFlags?.sensitiveSpecies);
     if (teen.teen) items.forEach(i => { i.locationArea = ''; i.showLocation = false; });
@@ -296,7 +355,6 @@ export function mountPublish(app, deps) {
     }
     const safetyReasons = [...safety];
 
-    const wantsFeed = body.feed === true && (!teen.teen || teen.approved);
     const requestReview = body.requestReview === true;
     if (reasons.length && !requestReview) {
       const first = PRIVACY_REASONS.find(r => reasons.includes(r));
@@ -304,9 +362,14 @@ export function mountPublish(app, deps) {
     }
 
     // Charge the allowance (atomic, same limit for everyone)
-    const charged = await charge(user.uid, 'posts', 1, limit);
+    const counter = wantsFeed ? 'posts' : 'privateSaves';
+    const counterLimit = wantsFeed ? limit : allowances.privateSaves;
+    const charged = await charge(user.uid, counter, 1, counterLimit);
     if (charged.unavailable) return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
-    if (!charged.ok) return say(429, 'allowance', `You've shared today's ${limit} sightings. Sharing opens again at midnight UTC.`);
+    if (!charged.ok) {
+      const p = allowanceProblem({ wantsFeed, used: { ...used, [counter]: counterLimit }, limits: allowances });
+      return say(429, p.code, p.message);
+    }
 
     // pending: safety flags, the admin decides. held: privacy review the explorer asked for (or an
     // unchecked image when fail-open is off). Unchecked with fail-open: published, queued for a look.
@@ -338,6 +401,8 @@ export function mountPublish(app, deps) {
       aiInsight: primary.aiInsight, aiConfidence: primary.aiConfidence,
       aiPolicyVersion: policyText(settings).match(/v([\d.-]+)/)?.[1] || null,
       needsExpertReview: items.some(i => i.needsExpertReview),
+      // "Suggested by the guide" or "Named by you" (left out when it can't be told)
+      ...(primary.nameSource ? { nameSource: primary.nameSource } : {}),
       aiFlags: {
         isNatureSubject: items.every(i => i.aiFlags?.isNatureSubject !== false),
         fungi: items.some(i => i.aiFlags?.fungi), dangerous: items.some(i => i.aiFlags?.dangerous),
@@ -350,6 +415,8 @@ export function mountPublish(app, deps) {
       isPublic: wantsFeed && !held,
       isJournal: body.journal !== false || held || (body.feed === true && !wantsFeed),
       reportStatus: 'safe', reportCount: 0,
+      // An "Only me" save is charged to the sharing allowance only if it is shared later
+      ...(wantsFeed ? {} : { privateSave: true }),
       isHybrid: items.length > 1 || items.some(i => i.associatedImageUrls.length > 0),
       items: items.map(({ aiResultId, observedAt, ...rest }) => ({ ...rest, aiResultId, ...(observedAt ? { observedAt } : {}) })),
       ...(items.find(i => i.observedAt) ? { observedAt: items.find(i => i.observedAt).observedAt } : {}),
@@ -388,7 +455,7 @@ export function mountPublish(app, deps) {
       await batch.commit();
     } catch (e) {
       log('error', 'publish write failed', { uid: user.uid, error: String(e.message).slice(0, 160) });
-      await charge(user.uid, 'posts', -1, limit).catch(() => {});
+      await charge(user.uid, counter, -1, counterLimit).catch(() => {});
       return say(503, 'unavailable', 'Publishing is unavailable for a moment. Please try again.');
     }
 
@@ -402,7 +469,9 @@ export function mountPublish(app, deps) {
       url: primary.imageUrl || undefined, videoUrl: primary.videoUrl || undefined, audioUrl: primary.audioUrl || undefined,
       message: teen.teen && !teen.approved ? 'Saved to your journal. Sharing opens once a grown-up says yes.' : held ? 'Saved to your journal. It will appear in the feed once it has been reviewed.' : undefined,
       note: sensitive ? g.sensitive : undefined,
-      left: Math.max(0, limit - charged.used),
+      // Shares left today (unchanged by an "Only me" save), and private saves left
+      left: Math.max(0, limit - (wantsFeed ? charged.used : (used.posts || 0))),
+      privateLeft: Math.max(0, allowances.privateSaves - (wantsFeed ? (used.privateSaves || 0) : charged.used)),
     });
   });
 
@@ -461,13 +530,26 @@ export function mountPublish(app, deps) {
       return res.status(409).json({ ok: false, message: 'This sighting is waiting for review before it can join the feed.' });
     }
     if (makePublic && post.reportStatus === 'hidden') return res.status(409).json({ ok: false, message: 'This sighting was removed from the feed.' });
+    // An "Only me" save uses today's sharing allowance when it is shared (once)
+    let chargedShare = null;
+    if (makePublic && post.isPublic !== true && post.privateSave === true) {
+      const limits = allowanceLimits(await getFlags());
+      chargedShare = await charge(user.uid, 'posts', 1, limits.posts);
+      if (chargedShare.unavailable) return res.status(503).json({ ok: false, message: 'Unavailable for a moment. Please try again.' });
+      if (!chargedShare.ok) return res.status(429).json({ ok: false, code: 'allowance', message: `You've shared today's ${limits.posts} sightings. Sharing opens again ${RESET_WORDS}. This one stays safe in your journal until then.` });
+    }
     const batch = db.batch();
     // A teen's sighting joins the feed without its place
     const hidePlace = makePublic && teen.teen ? { showLocation: false, locationArea: '' } : {};
-    batch.update(ref, { ...(recheck ? { isPublic: true, moderation: recheck } : { isPublic: makePublic }), ...hidePlace });
+    batch.update(ref, { ...(recheck ? { isPublic: true, moderation: recheck } : { isPublic: makePublic }), ...hidePlace, ...(chargedShare ? { privateSave: false } : {}) });
     if (makePublic) batch.set(db.doc(`feed_thumbnails/${id}`), thumbnailOf(id, { ...post, ...hidePlace, isPublic: true }));
     else batch.delete(db.doc(`feed_thumbnails/${id}`));
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      if (chargedShare?.ok) await charge(user.uid, 'posts', -1, chargedShare.limit).catch(() => {});
+      throw e;
+    }
     if ((post.isPublic === true) !== makePublic) {
       recomputeUserStats(db, user.uid, FieldValue).catch(e => log('warn', 'stats recount failed', { uid: user.uid, error: String(e.message).slice(0, 120) }));
     }
@@ -486,6 +568,8 @@ export function thumbnailOf(id, post) {
     likes: post.likes || [], likeCount: post.likeCount || 0, commentCount: post.commentCount || 0,
     isPublic: true, tags: post.tags || [], labels: post.labels || [], behavior: post.behavior || '',
     aiInsight: post.aiInsight || null, aiConfidence: post.aiConfidence || null,
+    ...(post.needsExpertReview === true ? { needsExpertReview: true } : {}),
+    ...(post.nameSource === 'guide' || post.nameSource === 'explorer' ? { nameSource: post.nameSource } : {}),
     locationArea: post.showLocation === false ? '' : (post.locationArea || ''),
     isHybrid: !!post.isHybrid,
     searchTokens: Array.isArray(post.searchTokens) ? post.searchTokens : [],

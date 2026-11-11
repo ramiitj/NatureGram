@@ -11,7 +11,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
-import { getFlags, getSettings, saveSection, listHistory, DEFAULT_FLAGS, DEFAULT_SETTINGS } from './settings.js';
+import { getFlags, getSettings, saveSection, listHistory, validNetworkEntry, DEFAULT_FLAGS, DEFAULT_SETTINGS } from './settings.js';
 import { audit, refreshSuspended, storeHealth, today } from './ledger.js';
 import { AI_POLICY_VERSION } from './aiGovernance.js';
 import { thumbnailOf } from './publish.js';
@@ -46,6 +46,14 @@ const bool = (v) => typeof v === 'boolean';
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const text = (v, max) => typeof v === 'string' && v.length <= max;
 
+/** [key, minimum, maximum, label] for each daily allowance the admin can set. */
+export const ALLOWANCE_RANGES = Object.freeze([
+  ['postsPerDay', 1, 100, 'Posts per day'],
+  ['liveMinutesPerDay', 0, 240, 'Live minutes per day'],
+  ['identificationsPerDay', 1, 500, 'Identifications per day'],
+  ['privateSavesPerDay', 20, 1000, 'Private saves per day'],
+]);
+
 export function validateFlags(patch) {
   const out = {};
   for (const k of ['aiEnabled', 'liveEnabled', 'uploadsEnabled', 'guestsEnabled', 'lettersEnabled', 'signupsEnabled']) {
@@ -53,9 +61,14 @@ export function validateFlags(patch) {
   }
   if (patch.allowances) {
     const a = patch.allowances; out.allowances = {};
-    if ('postsPerDay' in a) { if (!int(a.postsPerDay, 0, 100)) throw new Error('Posts per day must be 0 to 100'); out.allowances.postsPerDay = a.postsPerDay; }
-    if ('liveMinutesPerDay' in a) { if (!int(a.liveMinutesPerDay, 0, 240)) throw new Error('Live minutes per day must be 0 to 240'); out.allowances.liveMinutesPerDay = a.liveMinutesPerDay; }
-    if ('identificationsPerDay' in a) { if (!int(a.identificationsPerDay, 0, 500)) throw new Error('Identifications per day must be 0 to 500'); out.allowances.identificationsPerDay = a.identificationsPerDay; }
+    // Minimums keep the app usable: to stop sharing or the guide, use the switches instead of a zero allowance
+    for (const [k, lo, hi, label] of ALLOWANCE_RANGES) {
+      if (!(k in a)) continue;
+      if (!Number.isInteger(a[k])) throw new Error(`${label} must be a whole number`);
+      if (a[k] < lo) throw new Error(`${label} can't be below ${lo}.${lo > 0 ? ' To stop it for everyone, use its switch instead.' : ''}`);
+      if (a[k] > hi) throw new Error(`${label} can't be above ${hi}.`);
+      out.allowances[k] = a[k];
+    }
   }
   const extra = Object.keys(patch).filter(k => !(k in DEFAULT_FLAGS));
   if (extra.length) throw new Error(`Unknown setting: ${extra[0]}`);
@@ -104,8 +117,12 @@ export function validateSettings(patch) {
   }
   if ('blockedNetworks' in patch) {
     const list = patch.blockedNetworks;
-    if (!Array.isArray(list) || list.length > 500 || !list.every(p => typeof p === 'string' && /^[0-9a-f:.]{3,45}$/i.test(p))) throw new Error('Blocked networks must be IP addresses or prefixes');
-    out.blockedNetworks = list;
+    if (!Array.isArray(list) || list.length > 500) throw new Error('Blocked networks must be a list of up to 500 entries');
+    // Older entries without the final dot ("203.0.113") meant the whole range: keep that meaning, written plainly
+    const norm = list.map(p => (typeof p === 'string' ? p.trim().toLowerCase() : p)).map(p => (typeof p === 'string' && /^\d{1,3}(\.\d{1,3}){0,2}$/.test(p) ? `${p}.` : p));
+    const bad = norm.find(p => !validNetworkEntry(p));
+    if (bad !== undefined) throw new Error(`"${String(bad).slice(0, 50)}" isn't a network NatureGram understands. Use one exact address (203.0.113.7), a range ending in a dot (203.0.113.) or a CIDR range (203.0.113.0/24).`);
+    out.blockedNetworks = Array.from(new Set(norm));
   }
   if ('moderationWords' in patch) {
     const list = patch.moderationWords;
@@ -515,7 +532,7 @@ export function mountAdmin(app, deps) {
     const patch = validateSettings({ blockedNetworks: list });
     await saveSection('settings', patch, req.admin);
     await audit(req.admin, 'network.block', { prefix });
-    res.json({ ok: true, blockedNetworks: list });
+    res.json({ ok: true, blockedNetworks: patch.blockedNetworks });
   }));
   router.post('/networks/unblock', wrap(async (req, res) => {
     const prefix = String(req.body?.prefix || '').trim();

@@ -459,6 +459,8 @@ const BASE_WORDS = [
 ];
 const PROMO = /\b(whatsapp|telegram|dm me|follow me|follow back|promo|discount|coupon|giveaway|buy now|free followers|subscribe|casino|betting|jackpot|lottery|crypto|forex|loan offer|earn money|work from home)\b/i;
 const LINKS = /https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|xyz|io|in|co|me|link|site|shop)\b/i;
+// "oilseed rape" is a crop (keep in step with server/moderationText.js)
+const PLANT_NAMES = /\boil[\s-]*seed[\s-]+rape\b/giu;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 let wordsCache = { at: 0, extra: [] };
 async function extraWords() {
@@ -470,7 +472,7 @@ async function extraWords() {
   return wordsCache.extra;
 }
 export function commentFlags(text, extra = []) {
-  const t = String(text || '');
+  const t = String(text || '').replace(PLANT_NAMES, 'oilseed crop');
   if (!t.trim()) return [];
   const words = [...BASE_WORDS, ...extra.map(w => String(w).trim().toLowerCase()).filter(w => w.length >= 2 && w.length <= 40)];
   const re = new RegExp(`(^|[^\\p{L}\\p{N}])(${words.map(escapeRe).join('|')})(?=$|[^\\p{L}\\p{N}])`, 'iu');
