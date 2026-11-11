@@ -16,4 +16,9 @@ window.ngLoadAdsTag = function () {
   gtag('js', new Date());
   gtag('config', 'AW-18396778844');
 };
-try { if (localStorage.getItem('naturegram_analytics_consent') === 'granted') window.ngLoadAdsTag(); } catch (e) {}
+// Ad measurement is its own choice (Settings → Privacy). Those who allowed "statistics and ads"
+// before the two were separated keep that until they change it.
+try {
+  var ads = localStorage.getItem('naturegram_ads_consent');
+  if (ads === 'granted' || (!ads && localStorage.getItem('naturegram_analytics_consent') === 'granted')) window.ngLoadAdsTag();
+} catch (e) {}

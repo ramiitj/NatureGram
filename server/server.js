@@ -459,7 +459,8 @@ async function startServer() {
     const appUrl = `${scheme}://${host}/post/${encodeURIComponent(postId)}`;
     const ua = req.headers['user-agent'] || '';
     const isCrawler = /bot|crawler|spider|crawling|facebookexternalhit|twitterbot|whatsapp|telegram|discord|slack|linkedin|embedly|pinterest/i.test(ua);
-    if (!isCrawler) return res.redirect(302, appUrl);
+    // People opening a shared link land on the visitors' welcome for that post (members see it in the app)
+    if (!isCrawler) return res.redirect(302, `${appUrl}?from=share`);
 
     const apiKey = firebaseWebConfig?.apiKey;
     const databaseId = firebaseWebConfig?.firestoreDatabaseId || '(default)';

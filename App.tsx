@@ -8,7 +8,7 @@ import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { Snapshot, AppView, GeminiConfig, UserMode, FieldNotification, ExpeditionDraft } from './types.ts';
 import { FirebaseService } from './services/firebaseService.ts';
 import { GeminiLiveService } from './services/geminiLiveService.ts';
-import { hapticFeedback, timeAgo } from './utils.ts';
+import { hapticFeedback, timeAgo, PUBLIC_ORIGIN } from './utils.ts';
 import { ThemeService, DailyTheme } from './services/themeService.ts';
 import { getDailyTheme as getFallbackTheme } from './constants/naturalists.ts';
 import { getNaturalistExtra, getThemePeriod } from './constants/naturalistExtras.ts';
@@ -16,11 +16,12 @@ import ConsentBanner from './components/ConsentBanner.tsx';
 import InstallCard from './components/InstallCard.tsx';
 import TeenBanner from './components/TeenBanner.tsx';
 import { weekKey, seasonNote, WonderIcon } from './components/Wonder.tsx';
-import { identify, track } from './services/analytics.ts';
+import { identify, track, getConsent, onConsentChange } from './services/analytics.ts';
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import BrandMark from './components/BrandMark';
 import { wasOverlayPop, useBackToClose } from './services/overlayStack';
+import { useFocusTrap } from './services/focusTrap';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
 import FirstRunTour, { hasSeenFirstRunTour, resetFirstRunTour } from './components/FirstRunTour.tsx';
 import { buildLifeList, toMs } from './services/lifeList.ts';
@@ -141,8 +142,15 @@ const viewFromPath = (p: string): AppView => {
   return AppView.COMMUNITY;
 };
 
+/** A visitor arriving from a shared link (/s/ID → /post/ID?from=share) */
+const SHARED_ARRIVAL = (() => {
+  const q = new URLSearchParams(window.location.search);
+  return q.get('from') === 'share' ? pathId(window.location.pathname, '/post/') : null;
+})();
+
 const getInitialView = () => {
   if (new URLSearchParams(window.location.search).has('post')) return AppView.SHARED_POST;
+  if (SHARED_ARRIVAL) return AppView.SHARED_POST;
   return viewFromPath(window.location.pathname);
 };
 
@@ -265,7 +273,7 @@ const App: React.FC = () => {
     const text = w && w.sightings
       ? `My week outside: ${w.sightings} sighting${w.sightings === 1 ? '' : 's'}${w.newPlates.length ? `, ${w.newPlates.length} new to my list` : ''}. From my field page on NatureGram.`
       : 'My field page on NatureGram.';
-    const url = `${window.location.origin}/profile/${encodeURIComponent(userMode?.userId || '')}`;
+    const url = `${PUBLIC_ORIGIN}/profile/${encodeURIComponent(userMode?.userId || '')}`;
     track('share', { surface: 'sunday_letter' });
     if (w?.newPlates.length) {
       const { sharePlate } = await import('./services/plateImage.ts');
@@ -362,6 +370,12 @@ const App: React.FC = () => {
         if (currentViewRef.current === AppView.LANDING && !user.isAnonymous) {
           setCurrentView(AppView.REELS);
         }
+        // A member opening a shared link sees the post in the app, not the visitors' welcome
+        if (SHARED_ARRIVAL && !user.isAnonymous && currentViewRef.current === AppView.SHARED_POST) {
+          setSelectedPostId(SHARED_ARRIVAL);
+          setIsDetailActive(true);
+          setCurrentView(AppView.COMMUNITY);
+        }
         // Continue the action that required an account (like, comment, publish…)
         if (!user.isAnonymous) maybeOfferPersona(user.uid);
         if (!user.isAnonymous && pendingAuthActionRef.current) {
@@ -421,7 +435,7 @@ const App: React.FC = () => {
   // Deep links (?post=ID) are handled once on load and on history navigation (no polling)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const postId = params.get('post');
+    const postId = params.get('post') || SHARED_ARRIVAL;
     if (postId) {
       setSelectedPostId(postId);
       setCurrentView(AppView.SHARED_POST);
@@ -475,12 +489,22 @@ const App: React.FC = () => {
           setResumedDraftId(null);
         }
       } catch (e) {
+        // Never throw captures away: stay in review, keep everything, and say what happened
         console.error("Failed to save draft:", e);
+        setLimitNotice(navigator.onLine === false
+          ? "You're offline, so the draft couldn't be saved. Your captures are still here; try again when you're back online."
+          : "The draft couldn't be saved. Your captures are still here; please try again.");
+        setCurrentView(AppView.POST_SESSION);
+        return false;
       }
       clearSession();
       refreshDraftsCount();
-      setCurrentView(AppView.COMMUNITY);
+      setCurrentView(AppView.JOURNAL);
+      setLimitNotice('Saved. Your draft is under Unfinished in your Journal.');
+      window.setTimeout(() => setLimitNotice(n => n.startsWith('Saved. Your draft') ? '' : n), 5000);
+      return true;
     }
+    return false;
   };
   const handleSaveDraftRef = useRef(handleSaveDraft);
   handleSaveDraftRef.current = handleSaveDraft;
@@ -662,18 +686,25 @@ const App: React.FC = () => {
     setCurrentView(AppView.REELS);
   };
 
-  // Escape closes the activity panel
-  useEffect(() => {
-    if (!isNotificationsOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsNotificationsOpen(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isNotificationsOpen]);
 
   const isDashboardMode = currentView === AppView.COMMUNITY || currentView === AppView.JOURNAL || currentView === AppView.DRAFTS;
   const showNav = (isDashboardMode || currentView === AppView.USER_PROFILE || currentView === AppView.REELS || currentView === AppView.EXPLORE) && !isDetailActive;
   const darkNav = currentView === AppView.REELS;
   const openActivity = () => setIsNotificationsOpen(true);
+  // Back gesture, Escape and × all close Activity; focus stays inside while it's open
+  const activityRef = useRef<HTMLElement | null>(null);
+  const { close: closeActivity } = useBackToClose(isNotificationsOpen, () => setIsNotificationsOpen(false));
+  useFocusTrap(activityRef, isNotificationsOpen);
+  // Consent and install prompts never stack: the install card waits until consent is decided
+  const [consentDecided, setConsentDecided] = useState(() => getConsent() !== null);
+  useEffect(() => onConsentChange(() => setConsentDecided(getConsent() !== null)), []);
+  // A quiet line when the connection drops, so failures make sense
+  const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
+  useEffect(() => {
+    const on = () => setOffline(false), off = () => setOffline(true);
+    window.addEventListener('online', on); window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
   const openMessages = (cid?: string) => { setOpenConversationId(cid || null); handleNavigationRequest(AppView.MESSAGES); };
   const unreadCount = notifications.filter(n => !n.isRead).length;
   // The weekly line is a member's own week, so guests never get a dot for it
@@ -684,9 +715,9 @@ const App: React.FC = () => {
 
   const navItems: { key: string; label: string; icon: GlyphName; active: boolean; onClick: () => void; badge?: number }[] = [
     { key: 'reels', label: 'Moments', icon: 'firefly', active: currentView === AppView.REELS, onClick: () => handleNavigationRequest(AppView.REELS) },
-    { key: 'feed', label: 'Wild', icon: 'meadow', active: currentView === AppView.COMMUNITY, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
+    { key: 'feed', label: 'Wild', icon: 'meadow', active: currentView === AppView.COMMUNITY || currentView === AppView.EXPLORE, onClick: () => currentView === AppView.COMMUNITY ? scrollFeedToTop() : handleNavigationRequest(AppView.COMMUNITY) },
     { key: 'capture', label: 'Lens', icon: 'eyeEar', active: false, onClick: () => handleNavigationRequest(AppView.LENS) },
-    { key: 'journal', label: 'Journal', icon: 'rings', active: currentView === AppView.JOURNAL, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
+    { key: 'journal', label: 'Journal', icon: 'rings', active: currentView === AppView.JOURNAL || currentView === AppView.DRAFTS, onClick: () => handleNavigationRequest(AppView.JOURNAL) },
     { key: 'profile', label: 'You', icon: 'seedling', active: currentView === AppView.USER_PROFILE && !targetProfileId, onClick: () => handleNavigationRequest(AppView.USER_PROFILE, { userId: userMode?.userId }) },
   ];
 
@@ -696,8 +727,8 @@ const App: React.FC = () => {
 
       {isNotificationsOpen && (
         <div className="fixed inset-0 z-[100] flex justify-end animate-fade-in">
-          <div className="absolute inset-0 ng-scrim" onClick={() => setIsNotificationsOpen(false)} aria-hidden="true"></div>
-          <section role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-md bg-day-bg h-full shadow-[-24px_0_60px_-30px_rgba(28,25,23,0.45)] flex flex-col animate-slide-in-right safe-pt">
+          <div className="absolute inset-0 ng-scrim" onClick={closeActivity} aria-hidden="true"></div>
+          <section ref={activityRef} role="dialog" aria-modal="true" aria-labelledby="activity-title" className="relative w-full max-w-md bg-day-bg h-full shadow-[-24px_0_60px_-30px_rgba(28,25,23,0.45)] flex flex-col animate-slide-in-right safe-pt">
             <header className="px-6 pt-6 pb-5 flex items-start justify-between gap-4 shrink-0">
               <div>
                 <h2 id="activity-title" className="ng-title">Activity</h2>
@@ -707,7 +738,7 @@ const App: React.FC = () => {
                 {unreadCount > 0 && (
                   <button onClick={markAllRead} className="ng-link-quiet min-h-[44px] px-2">Mark all read</button>
                 )}
-                <button onClick={() => setIsNotificationsOpen(false)} aria-label="Close activity" className="ng-icon-button" autoFocus>
+                <button onClick={closeActivity} aria-label="Close activity" className="ng-icon-button" autoFocus>
                   <Glyph name="close" size={24} />
                 </button>
               </div>
@@ -805,7 +836,12 @@ const App: React.FC = () => {
                   </figcaption>
                 </figure>
 
-                <div className="mt-8 md:mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
+                {/* What NatureGram is, in one line, on every screen size */}
+                <p className="mt-6 text-[15px] leading-[1.6] text-white/85 max-w-md">
+                  A field notebook for the living world. Point your camera at anything alive, let your guide (an AI) help you name it, and keep what you find.
+                </p>
+
+                <div className="mt-6 md:mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
                   <button
                     type="button"
                     onClick={enterApp}
@@ -813,6 +849,14 @@ const App: React.FC = () => {
                   >
                     Explore the wild
                     <Glyph name="forward" size={20} className="text-theme-deep transition-transform duration-200 group-hover:translate-x-0.5" />
+                  </button>
+                  {/* Returning members sign in here, without passing through guest mode */}
+                  <button
+                    type="button"
+                    onClick={() => setAuthModal({ signUp: false })}
+                    className="text-sm font-medium text-white hover:text-white underline decoration-white/50 hover:decoration-white underline-offset-[6px] min-h-[44px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white/80 rounded"
+                  >
+                    Log in
                   </button>
                   <button
                     type="button"
@@ -1033,7 +1077,7 @@ const App: React.FC = () => {
 
         {currentView === AppView.ADMIN && (
           <Suspense fallback={<ViewLoader />}>
-            <AdminConsole onBack={() => setCurrentView(AppView.USER_PROFILE)} />
+            <AdminConsole onBack={goBack} />
           </Suspense>
         )}
 
@@ -1064,7 +1108,11 @@ const App: React.FC = () => {
             initialIsSignUp={authModal.signUp}
             reason={authModal.reason}
             onClose={() => { pendingAuthActionRef.current = null; setAuthModal(null); }}
-            onSuccess={() => { setAuthModal(null); if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.REELS); }}
+            onSuccess={(how) => {
+              setAuthModal(null);
+              if (currentViewRef.current === AppView.LANDING) setCurrentView(AppView.REELS);
+              if (how === 'signup') { setLimitNotice("Welcome. We've emailed you a link to confirm your address; it keeps your account safe."); window.setTimeout(() => setLimitNotice(n => n.startsWith('Welcome. We') ? '' : n), 8000); }
+            }}
           />
         )}
 
@@ -1114,9 +1162,13 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {currentView !== AppView.LANDING && currentView !== AppView.LENS && !(tourPending && (currentView === AppView.COMMUNITY || currentView === AppView.REELS)) && <ConsentBanner />}
-      {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && !tourPending && <InstallCard />}
-      {currentView !== AppView.LANDING && currentView !== AppView.LENS && <TeenBanner />}
+      {/* Prompts stay off the Lens, review and open windows, and never stack */}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && currentView !== AppView.SHARED_POST && !isDetailActive && !(tourPending && (currentView === AppView.COMMUNITY || currentView === AppView.REELS)) && <ConsentBanner />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && !tourPending && consentDecided && <InstallCard />}
+      {currentView !== AppView.LANDING && currentView !== AppView.LENS && currentView !== AppView.POST_SESSION && <TeenBanner />}
+      {offline && currentView !== AppView.LANDING && (
+        <p role="status" className="fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 -translate-x-1/2 z-[95] ng-toast text-sm px-4 py-2">You're offline. Sightings you've already seen still open; new ones will load when you're back.</p>
+      )}
 
       {showNav && (
         <div className={`absolute bottom-0 left-0 right-0 z-[48] animate-fade-in pb-[env(safe-area-inset-bottom)] backdrop-blur-md border-t lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r lg:pb-0 land:top-0 land:right-auto land:w-20 land:border-t-0 land:border-r land:pb-0 land:pl-[env(safe-area-inset-left)] ${darkNav ? 'bg-black/80 border-white/10' : 'bg-day-bg/95 border-stone-200/80'}`}>

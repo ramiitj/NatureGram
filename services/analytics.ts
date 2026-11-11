@@ -37,14 +37,40 @@ export type Consent = 'granted' | 'denied' | null;
 export const getConsent = (): Consent => {
   try { return (localStorage.getItem(CONSENT_KEY) as Consent) || null; } catch { return null; }
 };
+/** Usage statistics (our own, anonymous counts) and Google's ad measurement are separate choices. */
 export const setConsent = (c: 'granted' | 'denied') => {
   try { localStorage.setItem(CONSENT_KEY, c); } catch { /* ignore */ }
-  if (c === 'granted' && !teenMode) {
-    track('analytics_consent', { granted: true });
-    try { (window as any).ngLoadAdsTag?.(); } catch { /* ignore */ }
-  }
+  if (c === 'granted' && !teenMode) track('analytics_consent', { granted: true });
   else queue.splice(0, queue.length, ...queue.filter(e => e.kind === 'error'));
+  notifyConsent();
 };
+
+const ADS_KEY = 'naturegram_ads_consent';
+/**
+ * Ad measurement. Explorers who allowed "statistics and ads" before the two were separated keep
+ * what they agreed to; everyone else starts with it off.
+ */
+export const getAdsConsent = (): Consent => {
+  try {
+    const v = localStorage.getItem(ADS_KEY) as Consent;
+    if (v) return v;
+    return localStorage.getItem(CONSENT_KEY) === 'granted' ? 'granted' : (localStorage.getItem(CONSENT_KEY) ? 'denied' : null);
+  } catch { return null; }
+};
+export const setAdsConsent = (c: 'granted' | 'denied') => {
+  try { localStorage.setItem(ADS_KEY, c); } catch { /* ignore */ }
+  const w = window as any;
+  if (c === 'granted' && !teenMode) { try { w.ngLoadAdsTag?.(); } catch { /* ignore */ } }
+  else {
+    // Withdrawn: tell Google at once; the tag stops for good on the next visit
+    try { w.gtag?.('consent', 'update', { ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied', analytics_storage: 'denied' }); } catch { /* ignore */ }
+  }
+  notifyConsent();
+};
+
+const consentListeners = new Set<() => void>();
+const notifyConsent = () => consentListeners.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+export const onConsentChange = (fn: () => void) => { consentListeners.add(fn); return () => { consentListeners.delete(fn); }; };
 
 export const identify = (userId: string | null) => { uid = userId; };
 

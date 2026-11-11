@@ -38,7 +38,8 @@ interface Props {
 const problemOf = (e: any): Problem => {
   const code = String(e?.code || '');
   if (code.includes('expired')) return 'expired';
-  if (code.includes('invalid-action-code')) return 'used';
+  // Firebase says the same for a used link and a mangled one; we can't tell, so say both
+  if (code.includes('invalid-action-code')) return 'invalid';
   if (code.includes('user-disabled')) return 'disabled';
   if (code.includes('network')) return 'network';
   return 'invalid';
@@ -222,7 +223,7 @@ const ResetForm: React.FC<{ email: string; code: string; onSaved: (signedIn: boo
   const [error, setError] = useState('');
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw.length < 6) { setError('Use at least 6 characters. A short phrase you will remember works well.'); return; }
+    if (pw.length < 8) { setError('Use at least 8 characters. A short phrase you will remember works well.'); return; }
     setBusy(true); setError('');
     try {
       await confirmPasswordReset(auth, code, pw);
@@ -251,7 +252,7 @@ const ResetForm: React.FC<{ email: string; code: string; onSaved: (signedIn: boo
         <button type="button" onClick={() => setShow(s => !s)} className="absolute right-1 top-1/2 -translate-y-1/2 px-3 min-h-[44px] text-sm font-medium text-stone-500 hover:text-stone-800" aria-pressed={show}>{show ? 'Hide' : 'Show'}</button>
       </div>
       <p id="pw-help" className={`text-[14px] mt-2 ${error ? 'text-red-800' : 'text-stone-500'}`} role={error ? 'alert' : undefined}>
-        {error || 'At least 6 characters. You will be signed in straight after.'}
+        {error || 'At least 8 characters. You will be signed in straight after.'}
       </p>
       <Primary type="submit" disabled={busy} className="mt-6 w-full sm:w-auto">{busy ? 'Saving…' : 'Save and carry on'}</Primary>
     </form>
@@ -279,7 +280,7 @@ const Recovered: React.FC<{ email: string; onDone: () => void }> = ({ email, onD
 const PROBLEM_COPY: Record<Problem, { title: string; body: string }> = {
   expired: { title: 'This link has gone stale', body: 'Links in our letters only work for a while, so nobody else can use them later. A fresh one takes a moment.' },
   used: { title: 'This link has already been used', body: 'Each link works once. If it was you a moment ago, you are all set. If not, ask for a new one.' },
-  invalid: { title: "This link didn't come through whole", body: 'Part of it may have been cut off on the way, which happens with some mail apps. A new link usually fixes it.' },
+  invalid: { title: "This link doesn't work any more", body: 'It may have been used already (each link works once), or part of it was cut off on the way, which happens with some mail apps. A new link fixes it.' },
   disabled: { title: 'This account is paused', body: 'It has been switched off for now. If you think that is a mistake, reply to any letter from us and we will take a look.' },
   network: { title: "We couldn't reach NatureGram", body: 'Check your connection and open the link again. It still works until it expires.' },
 };
