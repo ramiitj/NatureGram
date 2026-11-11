@@ -48,7 +48,10 @@ interface SightingCard {
 interface LiveLensProps {
   onCapture: (snap: Snapshot) => void;
   onEndSession: (summary: string) => void;
-  onExit: () => void;
+  /** Leave without review; `note` is a quiet line to show afterwards (e.g. the Lens rested). */
+  onExit: (note?: string) => void;
+  /** True while a recording is running, so the app can finish it before a back gesture leaves */
+  onBusyChange?: (busy: boolean) => void;
   config: GeminiConfig;
   userMode: UserMode;
   audioContext: AudioContext | null;
@@ -112,7 +115,7 @@ export const SightingTag: React.FC<{ card: SightingCard; reduceMotion: boolean; 
   </motion.div>
 );
 
-const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, config, userMode, audioContext, isFirstTime, isFinalizing, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef, initialAudioMode = 'voice', selectedMode: initialMode = 'observation', knownSpecies, onImportFromRoll }) => {
+const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, config, userMode, audioContext, isFirstTime, isFinalizing, geminiServiceRef, updateSnapshot, pendingSnapshotIdRef, initialAudioMode = 'voice', selectedMode: initialMode = 'observation', knownSpecies, onImportFromRoll, onBusyChange }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -162,8 +165,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   }, [firstLine, dismissFirstLine]);
   // Quiet companion by default; "Talk with me" switches to the talkative guide (and restarts the session)
   const [selectedMode, setSelectedMode] = useState<'observation' | 'conversation'>(initialMode);
+  // Quiet watching (waiting for a bird) needs time; the live guide costs live minutes, so it rests sooner
+  const IDLE_LIMIT_MS = selectedMode === 'observation' ? 180_000 : 60_000;
   const [menuOpen, setMenuOpen] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
+  const captureCountRef = useRef(0);
+  captureCountRef.current = captureCount;
 
   const [audioMode, setAudioMode] = useState<AudioMode>(initialAudioMode);
   const [hasSelectedMode, setHasSelectedMode] = useState(true);
@@ -172,7 +179,6 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
   // the same daily allowance for everyone); idle timeout; capture cap in observation mode.
   const CONVERSATION_FALLBACK_MS = 60_000;
   const OBSERVATION_MAX_CAPTURES = 3;
-  const IDLE_LIMIT_MS = 60_000;
   const conversationEndsAtRef = useRef<number | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [idleWarning, setIdleWarning] = useState<number | null>(null);
@@ -365,8 +371,12 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (e.data.size > 0) mediaChunksRef.current.push(e.data);
     };
 
+    let settle: () => void = () => {};
+    captureSettledRef.current = new Promise<void>(res => { settle = res; });
     recorder.onstop = () => {
       if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      onBusyChange?.(false);
+      if (discardRecordingRef.current) { settle(); return; } // the Lens closed underneath it
       const recordedType = (recorder.mimeType || (type === 'video' ? 'video/webm' : 'audio/webm')).split(';')[0];
       const mediaBlob = new Blob(mediaChunksRef.current, { type: recordedType });
 
@@ -382,6 +392,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       }
 
       const finishCapture = (imgBlob?: Blob, imgUrl?: string) => {
+          settle();
           const snapId = Date.now().toString();
           pendingSnapshotIdRef.current = snapId;
           setPendingAnalyses(n => n + 1);
@@ -465,7 +476,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       if (blobPromise) {
           blobPromise.then(compressedBlob => {
               finishCapture(compressedBlob, URL.createObjectURL(compressedBlob));
-          });
+          }).catch(() => finishCapture());
       } else {
           finishCapture();
       }
@@ -476,6 +487,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     };
 
     recorder.start();
+    onBusyChange?.(true);
     if (type === 'audio') setIsRecordingAudio(true);
     if (type === 'video') setIsRecordingVideo(true);
     setRecordingTime(30);
@@ -494,7 +506,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         return prev - 1;
       });
     }, 1000);
-  }, [onCapture, userMode.userId, captureFrame]);
+  }, [onCapture, userMode.userId, captureFrame, onBusyChange]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -770,8 +782,29 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     return { icon: isMuted ? 'mic_off' : 'mic_none' };
   };
 
-  const finalizeSession = useCallback(async (summary?: string) => {
+  const finalizingRef = useRef(false);
+  const countedConversationRef = useRef(false);
+  /** Resolves once the clip being recorded has been stopped and handed over as a capture. */
+  const captureSettledRef = useRef<Promise<void>>(Promise.resolve());
+
+  const finalizeSession = useCallback(async (summary?: string, opts: { quiet?: boolean } = {}) => {
+    // Idle, background, Done and the guide can all ask at once: end only once
+    if (finalizingRef.current) return;
+    finalizingRef.current = true;
     setAgentState('FINALIZING');
+    setIdleWarning(null);
+    // A clip being recorded is finished and kept first, never dropped
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === 'recording') {
+      await new Promise<void>(res => { rec.addEventListener('stop', () => setTimeout(res, 0), { once: true }); try { rec.stop(); } catch { res(); } });
+      await Promise.race([captureSettledRef.current, new Promise(r => setTimeout(r, 4000))]);
+    }
+    // Nothing gathered: no empty review, back to where the explorer was with a quiet word
+    if (sessionCapturesRef.current.size === 0 && captureCountRef.current === 0) {
+      stopAllAudioRef.current();
+      onExit(opts.quiet ? undefined : summary);
+      return;
+    }
     const startedAt = Date.now();
     // The closing beat: what the outing gathered, pinned like specimens, while the session wraps up
     const items = Array.from(sessionCapturesRef.current.values());
@@ -787,7 +820,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     // Long enough to see the page close (about 2.5 s with captures), never longer than that
     const beat = items.length ? 2500 : 1200;
     setTimeout(() => onEndSession(finalSummary), Math.max(300, beat - (Date.now() - startedAt)));
-  }, [naturalistId, onEndSession]);
+  }, [naturalistId, onEndSession, onExit]);
 
   useEffect(() => { if (isFinalizing && agentState !== 'FINALIZING') finalizeSession(); }, [isFinalizing, agentState, finalizeSession]);
 
@@ -806,7 +839,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           const idle = Date.now() - lastInteractionRef.current;
           const busy = isRecordingAudio || isRecordingVideo || agentState === 'SPEAKING' || agentState === 'HEARING_USER';
           if (busy) lastInteractionRef.current = Date.now();
-          else if (idle > IDLE_LIMIT_MS) finalizeSession('Session ended after a minute without activity.');
+          else if (idle > IDLE_LIMIT_MS) finalizeSession(selectedMode === 'observation' ? 'The Lens rested after a few quiet minutes.' : 'The Lens rested after a quiet minute.');
           else if (idle > IDLE_LIMIT_MS - 10_000) setIdleWarning(Math.ceil((IDLE_LIMIT_MS - idle) / 1000));
           if (conversationEndsAtRef.current) {
               const left = Math.max(0, Math.ceil((conversationEndsAtRef.current - Date.now()) / 1000));
@@ -814,14 +847,14 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               if (left === 0) finalizeSession("That's today's live time. Captures still work, and live time resets at midnight UTC.");
           }
       }, 1000);
-      const onHide = () => { if (document.visibilityState === 'hidden') finalizeSession('Session ended because the app went to the background.'); };
+      const onHide = () => { if (document.visibilityState === 'hidden') finalizeSession('The Lens closed when NatureGram went to the background.'); };
       document.addEventListener('visibilitychange', onHide);
       return () => {
           events.forEach(ev => window.removeEventListener(ev, touch));
           clearInterval(tick);
           document.removeEventListener('visibilitychange', onHide);
       };
-  }, [agentState, isRecordingAudio, isRecordingVideo, finalizeSession]);
+  }, [agentState, isRecordingAudio, isRecordingVideo, finalizeSession, IDLE_LIMIT_MS, selectedMode]);
 
   const addToChat = useCallback((role: 'user' | 'assistant' | 'system', text: string, links?: GroundingLink[]) => {
     setChatHistory(prev => {
@@ -841,6 +874,34 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
     if (audioContext) nextStartTimeRef.current = audioContext.currentTime || 0;
     if (agentState !== 'RECONNECTING' && agentState !== 'FINALIZING') setAgentState('IDLE');
   }, [audioContext, agentState]);
+
+  const stopAllAudioRef = useRef(stopAllAudio);
+  stopAllAudioRef.current = stopAllAudio;
+  const discardRecordingRef = useRef(false);
+
+  // Leaving the Lens by any road: the guide's voice stops, a half-made recording is let go (the app
+  // finishes recordings before a back gesture leaves, so this is only a last resort), timers end.
+  useEffect(() => () => {
+      activeSourcesRef.current.forEach(src => { try { src.stop(); } catch { /* already stopped */ } });
+      activeSourcesRef.current.clear();
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      const rec = mediaRecorderRef.current;
+      if (rec && rec.state === 'recording') { discardRecordingRef.current = true; try { rec.stop(); } catch { /* ignore */ } }
+      onBusyChange?.(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the screen awake while the Lens is open (quiet watching would otherwise dim and end it)
+  useEffect(() => {
+      let lock: any = null; let gone = false;
+      const take = async () => {
+          try { if (document.visibilityState === 'visible' && (navigator as any).wakeLock) { lock = await (navigator as any).wakeLock.request('screen'); if (gone) lock.release?.(); } } catch { /* not allowed: fine */ }
+      };
+      take();
+      const again = () => { if (document.visibilityState === 'visible') take(); };
+      document.addEventListener('visibilitychange', again);
+      return () => { gone = true; document.removeEventListener('visibilitychange', again); try { lock?.release?.(); } catch { /* ignore */ } };
+  }, []);
 
   const applyOpticalSettings = useCallback(async (settings: { zoom?: number, torch?: boolean, pan?: number, tilt?: number }) => {
     if (!videoTrackRef.current) return;
@@ -922,6 +983,16 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             throw new Error("Could not start media stream. Please ensure camera/microphone permissions are granted.");
         }
 
+        attachStream(stream);
+        return stream;
+    } catch (err) {
+        console.error("Failed to start stream", err);
+        throw err;
+    }
+  }, []);
+
+  /** Show a stream in the viewfinder and read what its camera can do (zoom, torch, pan, tilt). */
+  const attachStream = (stream: MediaStream) => {
         activeStreamRef.current = stream;
         if (videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -955,18 +1026,36 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 setTilt(caps.tilt.min);
             }
         }
+  };
 
-        return stream;
-    } catch (err) {
-        console.error("Failed to start stream", err);
-        throw err;
-    }
-  }, []);
+  /** Stop the camera and microphone that are running now (after a flip that is not the first stream). */
+  const stopActiveStream = () => {
+      activeStreamRef.current?.getTracks().forEach(t => t.stop());
+      activeStreamRef.current = null;
+  };
 
+  /**
+   * Flip the camera without touching the microphone: only the picture is swapped, so the guide keeps
+   * hearing and sound recordings keep their sound. Not while recording (the clip would end).
+   */
   const switchCameraMode = useCallback(async (mode: 'user' | 'environment') => {
-      setFacingMode(mode);
-      await startMediaStream(mode);
-  }, [startMediaStream]);
+      if (mediaRecorderRef.current?.state === 'recording') return;
+      const old = activeStreamRef.current;
+      if (!old) { setFacingMode(mode); await startMediaStream(mode); return; }
+      const prevMode = facingMode;
+      // Some phones open one camera at a time: let go of the current one first
+      old.getVideoTracks().forEach(t => t.stop());
+      const tryVideo = async (c: MediaTrackConstraints | boolean) => { try { return await navigator.mediaDevices.getUserMedia({ video: c }); } catch { return null; } };
+      let got = mode;
+      let fresh = await tryVideo({ facingMode: mode });
+      if (!fresh) { got = prevMode; fresh = (await tryVideo({ facingMode: prevMode })) || (await tryVideo(true)); }
+      if (!fresh) { showStatus('error', "The camera couldn't switch. Close the Lens and open it again."); return; }
+      if (!activeStreamRef.current) { fresh.getTracks().forEach(t => t.stop()); return; } // the Lens closed meanwhile
+      if (got !== mode) showStatus('error', "This device has only one camera.");
+      setFacingMode(got);
+      attachStream(new MediaStream([...fresh.getVideoTracks(), ...old.getAudioTracks()]));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startMediaStream, facingMode]);
 
   useEffect(() => {
     isCameraActiveRef.current = isCameraActive;
@@ -1005,7 +1094,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         await switchCameraMode(args.facing_mode);
         return { result: `Switched to ${args.facing_mode} camera.` };
     }
-    if (name === 'end_session') { finalizeSession(args.summary); return { result: "ok" }; }
+    if (name === 'end_session') { finalizeSession(args.summary, { quiet: true }); return { result: "ok" }; }
     if (name === 'set_camera_state') { setIsCameraActive(args.is_active); return { result: "ok" }; }
     if (name === 'trigger_capture') {
       if (!isCameraActiveRef.current) return { error: "Camera is off." };
@@ -1158,7 +1247,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
         if (selectedMode === 'observation') {
             // Quiet observer: no live AI connection; each capture is identified in the background
             setAgentState('IDLE');
-            return () => { stream.getTracks().forEach(t => t.stop()); };
+            return () => { stream.getTracks().forEach(t => t.stop()); stopActiveStream(); };
         }
 
         const service = new GeminiLiveService(audioContext, {
@@ -1173,6 +1262,11 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
                 switch (state) {
                     case 'CONNECTED':
                         setAgentState('IDLE');
+                        // A conversation counts towards today's three only once the guide is really there
+                        if (!countedConversationRef.current) {
+                            countedConversationRef.current = true;
+                            RateLimitService.incrementConversation(userMode?.userId || 'explorer_guest');
+                        }
                         if (!conversationEndsAtRef.current) {
                             const startedAt = Date.now();
                             conversationEndsAtRef.current = startedAt + CONVERSATION_FALLBACK_MS;
@@ -1292,7 +1386,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
             if (videoInterval) clearInterval(videoInterval);
             if (processor) processor.disconnect();
             if (inputCtx) inputCtx.close();
-            if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop());
+            stopActiveStream();
         };
       } catch (err: any) {
           console.error("Session init failed:", err);
@@ -1316,6 +1410,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               if (videoInterval) clearInterval(videoInterval);
               if (processor) processor.disconnect();
               if (inputCtx) inputCtx.close();
+              stopActiveStream(); // the camera may already be on when a later step fails
           };
       }
   }, [audioContext, isTourActive, hasSelectedMode, userIdValue, selectedMode]);
@@ -1330,7 +1425,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
               showStatus('error', "Today's conversations are used. They refresh tomorrow.");
               return;
           }
-          RateLimitService.incrementConversation(uid);
+          countedConversationRef.current = false; // counted when the guide connects
       }
       try { localStorage.setItem(LENS_MODE_KEY, next); } catch { /* storage blocked */ }
       track('lens_mode_switch', { mode: next });
@@ -1374,7 +1469,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       {/* Top bar: close where people look for it, the guide switch and Done on the right */}
       <div className="absolute safe-top inset-x-4 md:inset-x-8 z-[120] flex items-center justify-between gap-2 pointer-events-none">
           <button
-              onClick={() => (captureCount > 0 ? finalizeSession() : onExit())}
+              onClick={() => (captureCount > 0 || isRecordingAudio || isRecordingVideo ? finalizeSession() : onExit())}
               aria-label={captureCount > 0 ? 'Close the Lens and review your captures' : 'Close the Lens'}
               className="pointer-events-auto w-11 h-11 rounded-full bg-black/40 backdrop-blur-md text-white flex items-center justify-center transition-colors hover:bg-black/55"
           >
@@ -1456,8 +1551,8 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       )}
       {idleWarning !== null && agentState !== 'FINALIZING' && (
           <div className="absolute inset-x-6 top-1/3 z-[130] mx-auto max-w-xs bg-black/70 backdrop-blur-xl text-white rounded-2xl p-6 text-center" role="alertdialog" aria-labelledby="idle-title">
-              <p id="idle-title" className="ng-dark-title text-[20px]">Still with me?</p>
-              <p className="ng-dark-caption mt-1">I'll rest in {idleWarning}s.</p>
+              <p id="idle-title" className="ng-dark-title text-[20px]">{selectedMode === 'observation' ? 'Still watching?' : 'Still with me?'}</p>
+              <p className="ng-dark-caption mt-1">{selectedMode === 'observation' ? `The Lens will rest in ${idleWarning}s.` : `I'll rest in ${idleWarning}s.`}</p>
               <button autoFocus onClick={() => { lastInteractionRef.current = Date.now(); setIdleWarning(null); }} className="ng-button-light mt-5 w-full justify-center px-6">Keep going</button>
           </div>
       )}
