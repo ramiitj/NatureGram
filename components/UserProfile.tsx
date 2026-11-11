@@ -669,7 +669,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ userId, currentUserId, isAnon
       </header>
 
       <main className="flex-1 overflow-y-auto no-scrollbar pb-24">
-        {isOwnProfile && <FirstHint id="field-page" text="This is your field page: your species, your sightings and what you've kept." />}
+        {isOwnProfile && <FirstHint id="field-page-2" text="This is your public field page: what you've shared, your species and what you've kept. Settings (top right) has privacy, notifications and Log out." />}
         <section className="ng-page pt-6 pb-6 max-w-4xl">
           <div className="flex items-center gap-5">
             <button onClick={() => isOwnProfile && setSheet('edit')} disabled={!isOwnProfile} aria-label={isOwnProfile ? 'Change your photo' : undefined} className="shrink-0 rounded-full">
@@ -981,10 +981,13 @@ const WORDS: [string, string][] = [
   ['Journal', 'All your own sightings, shared or only for you.'],
   ['Sighting', 'One thing you saw or heard: photos, a clip or a sound, with its name.'],
   ['Marvel', 'A like. Double-tap a sighting, or tap the star.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
   ['Field notes', 'Comments on a sighting.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
   ['Letters', 'Private messages between explorers.'],
   ['Kept', 'Sightings you saved from other explorers.'],
   ['Life list', 'Every species you have found, numbered in the order you first met them.'],
+  // glossary-ok: the glossary explains NatureGram's words with the everyday ones
   ['Plate', 'A card for one species, like a page in a field guide. You can share it as a picture.'],
   ['Only me (in pencil)', 'A sighting kept private in your Journal.'],
   ['Unfinished', 'Drafts: captures you haven’t written up yet.'],

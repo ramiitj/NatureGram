@@ -20,6 +20,7 @@ import { identify, track, getConsent, onConsentChange } from './services/analyti
 import { registerToken, showLocalNotification } from './services/push.ts';
 import Glyph, { GlyphName } from './components/Glyph.tsx';
 import BrandMark from './components/BrandMark';
+import FirstHint from './components/FirstHint';
 import { wasOverlayPop, useBackToClose } from './services/overlayStack';
 import { useFocusTrap } from './services/focusTrap';
 import SpecimenPlate, { PlateData } from './components/SpecimenPlate.tsx';
@@ -698,6 +699,16 @@ const App: React.FC = () => {
   // Consent and install prompts never stack: the install card waits until consent is decided
   const [consentDecided, setConsentDecided] = useState(() => getConsent() !== null);
   useEffect(() => onConsentChange(() => setConsentDecided(getConsent() !== null)), []);
+  // The first window anyone opens teaches, once, how every window closes
+  useEffect(() => {
+    const onFirst = () => {
+      const tip = "Tap × or outside to close. Your phone's back works too.";
+      window.setTimeout(() => setLimitNotice(n => n || tip), 600);
+      window.setTimeout(() => setLimitNotice(n => n === tip ? '' : n), 6000);
+    };
+    window.addEventListener('ng:first-window', onFirst);
+    return () => window.removeEventListener('ng:first-window', onFirst);
+  }, []);
   // A quiet line when the connection drops, so failures make sense
   const [offline, setOffline] = useState(() => typeof navigator !== 'undefined' && navigator.onLine === false);
   useEffect(() => {
@@ -744,6 +755,7 @@ const App: React.FC = () => {
               </div>
             </header>
             <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-10">
+              <FirstHint id="activity" text="Marvels, field notes, new followers and letters about you land here." className="!mx-0 !mt-0 mb-4" />
               {/* Your week outside: one short line, the week's new plates and a way to share them */}
               <article aria-labelledby="field-letter-title" className="py-6 border-y border-stone-200/80">
                 <p className="ng-kicker">This week</p>

@@ -81,6 +81,12 @@ export function useBackToClose(open: boolean, onClose: () => void, opts: { escap
     entryRef.current = entry;
     stack.push(entry);
     try {
+      if (!localStorage.getItem('ng_hint_first_window')) {
+        localStorage.setItem('ng_hint_first_window', '1');
+        window.dispatchEvent(new CustomEvent('ng:first-window'));
+      }
+    } catch { /* storage blocked: no tip */ }
+    try {
       window.history.pushState({ ...(window.history.state || {}), ngOverlay: entry.id }, '', window.location.href);
     } catch { /* history unavailable */ }
     return () => {
