@@ -1077,9 +1077,12 @@ const PostSessionView: React.FC<PostSessionViewProps> = ({ snapshots: initialSna
           <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center ng-scrim animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="leave-title" onClick={(e) => { if (e.target === e.currentTarget) closeLeave(); }}>
               <div className="w-full sm:max-w-sm ng-sheet p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] animate-slide-up">
                   <h3 id="leave-title" className="ng-subtitle">Save your {snapshots.length} capture{snapshots.length === 1 ? '' : 's'}?</h3>
-                  <p className="ng-small mt-1 mb-6">Save a draft to finish later, or discard them for good.</p>
+                  {/* Drafts live with an account: a guest is told so before tapping, never after */}
+                  <p className="ng-small mt-1 mb-6">{userMode?.isAnonymous
+                    ? 'Drafts are kept with a free account. Create one and this draft is saved straight away, or discard the captures.'
+                    : 'Save a draft to finish later, or discard them for good.'}</p>
                   <div className="flex flex-col items-center gap-3">
-                      <button autoFocus onClick={() => { closeLeave(); onSaveDraft(); }} className="ng-button-primary w-full">Save draft</button>
+                      <button autoFocus onClick={() => { closeLeave(); onSaveDraft(); }} className="ng-button-primary w-full">{userMode?.isAnonymous ? 'Create an account and save' : 'Save draft'}</button>
                       <button onClick={closeLeave} className="ng-button-quiet w-full">Keep editing</button>
                       <button onClick={() => { closeLeave(); onClose(); }} className="min-h-[44px] px-4 text-sm font-medium text-red-800 underline decoration-red-200 underline-offset-[6px] hover:decoration-red-800">Discard</button>
                   </div>

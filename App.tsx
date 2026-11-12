@@ -546,6 +546,9 @@ const App: React.FC = () => {
 
   const openLens = async () => {
     setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
+    // Someone who arrived straight at an inner page has no guest sign-in yet: make it now, before
+    // the Lens opens, so the guide can name what they find (and the session doesn't restart later)
+    if (!FirebaseService.getCurrentUserId()) { try { await FirebaseService.loginAnonymous(); } catch { /* offline: the Lens says so */ } }
     await initAudioContext();
     // No mode dialog: the Lens starts as the quiet companion unless the explorer turned on "Talk with me"
     let saved: string | null = null;

@@ -630,14 +630,23 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
           setIsCameraActive(true);
           return;
       }
+      // A clip is already running (started by a hold, the ⋯ menu or Shift+Enter): this press stops
+      // it on release, and never starts a second recording over the first
+      if (isRecordingVideo) { clearTimeout(holdTimeoutRef.current ?? undefined); holdTimeoutRef.current = null; return; }
 
       holdTimeoutRef.current = window.setTimeout(() => {
           holdTimeoutRef.current = null;
           startRecording('video');
       }, 500); // 500ms hold to start video
-  }, [isCameraActive, startRecording]);
+  }, [isCameraActive, isRecordingVideo, startRecording]);
 
   const handleShutterRelease = useCallback(() => {
+      // While a clip records, the shutter is its Stop button, however the clip was started
+      if (isRecordingVideo) {
+          if (holdTimeoutRef.current) { clearTimeout(holdTimeoutRef.current); holdTimeoutRef.current = null; }
+          stopRecording();
+          return;
+      }
       let wasHold = false;
       if (holdTimeoutRef.current) {
           clearTimeout(holdTimeoutRef.current);

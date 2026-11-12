@@ -5,6 +5,7 @@ import { tools } from "../constants";
 import { floatTo16BitPCM, arrayBufferToBase64, decodeAudioData, base64ToArrayBuffer } from "./audioUtils";
 import { GroundingLink } from "../types";
 import { auth } from "../firebaseConfig";
+import { getApiKey } from "./genAiService";
 import { appCheckHeaders, appCheckToken } from "./appCheck";
 
 interface GeminiLiveDelegate {
@@ -151,10 +152,8 @@ export class GeminiLiveService {
   private async internalConnect() {
     try {
       // Use Firebase Auth token as the key for the proxy to verify
-      let apiKey = "PROXY";
-      if (auth.currentUser) {
-          apiKey = await auth.currentUser.getIdToken();
-      }
+      // The same quiet guest sign-in the identifications use, so the guide never starts unsigned
+      const apiKey = await getApiKey();
 
       let ai: any;
       let model = this.model;
