@@ -14,7 +14,10 @@
  *    profile could not be read is left out rather than guessed about.
  *  - No emails, phone numbers or user IDs. Usernames only for non-guest profiles that are not private.
  */
-import { exportable, namesOf } from './dwc.js';
+import { exportable, namesOf, SYNONYMS } from './dwc.js';
+
+// Names too general to be a species page: kinds of life, placeholders and app words
+export const GENERIC_NAME = /^(birds?|aves|animals?|mammals?|mammalia|insects?|insecta|plants?|plantae|trees?|shrubs?|desert shrubs|flowers?|grass(es)?|weeds?|fungi|fungus|mushrooms?|reptiles?|reptilia|amphibians?|fish(es)?|butterfl(y|ies)|moths?|spiders?|snakes?|lizards?|frogs?|wildlife|manual observation|observation|unknown.*|nature|unidentified.*|living thing|other life|flora|fauna|vegetation|foliage|habitat|landscape|sky|clouds?)$/i;
 
 export const SITE_NAME = 'NatureGram';
 export const POST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
@@ -71,12 +74,12 @@ export const safeHttps = (u) => {
 // ------------------------------------------------------------------ groups of life (port of services/lifeList.ts)
 const RX = [
   ['Fungi', /(mushroom|fung|toadstool|amanita|bolete|chanterelle|morel|agaric|russula|lactarius|cortinarius|polypore|puffball|mycena|psilocybe|galerina|lepiota|coprinus|pleurotus|bracket|lichen|mould|mold)/i],
-  ['Birds', /(bird|sparrow|robin|crow|raven|jay|finch|warbler|thrush|owl|hawk|eagle|kite|falcon|kestrel|heron|egret|stork|crane|duck|goose|swan|gull|tern|pigeon|dove|parrot|parakeet|myna|starling|bulbul|kingfisher|roller|hoopoe|bee-eater|drongo|swallow|swift|martin|wren|tit\b|chickadee|woodpecker|barbet|cuckoo|koel|peacock|peafowl|pheasant|partridge|quail|sandpiper|plover|lapwing|cormorant|pelican|flamingo|ibis|vulture|magpie|oriole|sunbird|hummingbird|weaver|munia|lark|pipit|wagtail|shrike|babbler|minivet|prinia|tailorbird|flycatcher|redstart|chat\b|wheatear|nuthatch|treecreeper|grebe|coot|moorhen|rail\b|bittern|darter|coucal|hornbill|shikra|harrier|buzzard|osprey|francolin|junglefowl|fowl|rosefinch|iora|white-eye|bushchat|stonechat|jacana|stilt|avocet|curlew|godwit|snipe|loon|puffin|albatross|petrel|shearwater|frigatebird|booby|gannet|sandgrouse|nightjar|frogmouth|trogon|toucan|tanager|cardinal|grosbeak|bunting|blackbird|bluebird|mockingbird|catbird|vireo|kinglet|phoebe|pewee|kingbird|aves|passer|corvus|columba|turdus|centropus|accipiter|milvus|halcyon|ardea|egretta)/i],
+  ['Birds', /(bird|sparrow|robin|crow|raven|jay|finch|warbler|thrush|owl|hawk|eagle|kite|falcon|kestrel|heron|egret|stork|crane|duck|goose|swan|gull|tern|pigeon|dove|parrot|parakeet|myna|starling|bulbul|kingfisher|roller|hoopoe|bee-eater|drongo|swallow|swift|martin|wren|tit\b|chickadee|woodpecker|barbet|cuckoo|koel|peacock|peafowl|pheasant|partridge|quail|sandpiper|plover|lapwing|cormorant|pelican|flamingo|ibis|vulture|magpie|oriole|sunbird|hummingbird|weaver|munia|lark|pipit|wagtail|shrike|babbler|minivet|prinia|tailorbird|flycatcher|redstart|chat\b|wheatear|nuthatch|treecreeper|grebe|coot|moorhen|rail\b|bittern|darter|coucal|hornbill|shikra|ortygornis|pavo|vanellus|psittacula|acridotheres|spilopelia|streptopelia|prinia|argya|turdoides|pycnonotus|dicrurus|copsychus|merops|ploceus|euodice|lonchura|orthotomus|psilopogon|bubo|athene|pardirallus|bostrychia|ammoperdix|upupa|coracias|cinnyris|saxicola|motacilla|lanius|oriolus|eudynamys|tyto|corvus|harrier|buzzard|osprey|francolin|junglefowl|fowl|rosefinch|iora|white-eye|bushchat|stonechat|jacana|stilt|avocet|curlew|godwit|snipe|loon|puffin|albatross|petrel|shearwater|frigatebird|booby|gannet|sandgrouse|nightjar|frogmouth|trogon|toucan|tanager|cardinal|grosbeak|bunting|blackbird|bluebird|mockingbird|catbird|vireo|kinglet|phoebe|pewee|kingbird|aves|passer|corvus|columba|turdus|centropus|accipiter|milvus|halcyon|ardea|egretta)/i],
   ['Insects', /(insect|butterfly|moth|bee\b|bees\b|bumblebee|honeybee|wasp|hornet|ant\b|ants\b|beetle|ladybird|ladybug|dragonfly|damselfly|grasshopper|cricket|locust|mantis|cicada|bug\b|aphid|fly\b|hoverfly|mosquito|termite|caterpillar|lepidoptera|coleoptera|odonata|hymenoptera|spider|arachnid|scorpion|centipede|millipede|tick\b|mite\b)/i],
-  ['Mammals', /(mammal|squirrel|chipmunk|mouse|rat\b|vole|shrew|bat\b|bats\b|fox|wolf|jackal|dog\b|deer|antelope|gazelle|elk|moose|boar|pig\b|monkey|macaque|langur|ape|gorilla|chimp|orangutan|lemur|bear|tiger|lion|leopard|cheetah|cat\b|lynx|otter|badger|weasel|mongoose|hedgehog|rabbit|hare|elephant|rhino|hippo|giraffe|zebra|horse|cow\b|buffalo|bison|goat|sheep|ibex|camel|whale|dolphin|seal\b|sea lion|porpoise|kangaroo|wallaby|koala|possum|opossum|raccoon|skunk|beaver|porcupine|pangolin|civet|hyena|mammalia)/i],
-  ['Reptiles & amphibians', /(reptile|lizard|gecko|skink|monitor|iguana|chameleon|snake|cobra|python|viper|krait|rat snake|boa|turtle|tortoise|terrapin|crocodile|alligator|gharial|frog|toad|newt|salamander|caecilian|amphibia|reptilia)/i],
+  ['Mammals', /(mammal|squirrel|chipmunk|mouse|rat\b|vole|shrew|bat\b|bats\b|fox|wolf|jackal|dog\b|deer|antelope|gazelle|elk|moose|boar|pig\b|monkey|macaque|langur|ape|gorilla|chimp|orangutan|lemur|bear|tiger|lion|leopard|cheetah|cat\b|lynx|otter|badger|weasel|mongoose|hedgehog|rabbit|hare|elephant|rhino|hippo|giraffe|zebra|horse|cow\b|buffalo|bison|goat|sheep|ibex|camel|whale|dolphin|seal\b|sea lion|porpoise|kangaroo|wallaby|koala|possum|opossum|raccoon|skunk|beaver|porcupine|pangolin|civet|hyena|mammalia|felis|canis|funambulus|gazella|antilope|boselaphus|herpestes|urva|macaca|semnopithecus|physeter|vulpes|lepus|bubalus|rattus|pteropus|hystrix|panthera|equus|capra|ovis|camelus|axis|rusa|cervus|sus scrofa|bos taurus|bos indicus)/i],
+  ['Reptiles & amphibians', /(reptile|lizard|gecko|skink|monitor|iguana|chameleon|snake|cobra|python|viper|krait|rat snake|boa|turtle|tortoise|terrapin|crocodile|alligator|gharial|frog|toad|newt|salamander|caecilian|amphibia|reptilia|naja|ptyas|varanus|calotes|hemidactylus|bungarus|daboia|eryx|duttaphrynus|hoplobatrachus|euphlyctis|sitana|eutropis)/i],
   ['Water life', /(fish|carp|trout|salmon|perch|bass\b|catfish|eel|shark|ray\b|stingray|goby|minnow|guppy|koi|crab|shrimp|prawn|lobster|barnacle|jellyfish|anemone|coral|starfish|sea star|urchin|octopus|squid|cuttlefish|plankton|tadpole)/i],
-  ['Plants', /(plant|tree|flower|shrub|herb|grass|fern|moss|liverwort|orchid|lily|rose|daisy|sunflower|lotus|water lily|cactus|succulent|palm|pine|fir|spruce|cedar|oak|maple|banyan|peepal|fig|neem|mango|acacia|eucalyptus|bamboo|vine|creeper|ivy|weed|clover|dandelion|poppy|tulip|jasmine|hibiscus|marigold|bougainvillea|lantana|thistle|sedge|reed|rush|algae|seaweed|leaf|leaves|blossom|bloom|seed|fruit|berry|flora|plantae|ficus|quercus|acer|pinus)/i],
+  ['Plants', /(plant|tree|flower|shrub|herb|grass|fern|moss|liverwort|orchid|lily|rose|daisy|sunflower|lotus|water lily|cactus|succulent|palm|pine|fir|spruce|cedar|oak|maple|banyan|peepal|fig|neem|mango|acacia|eucalyptus|bamboo|vine|creeper|ivy|weed|clover|dandelion|poppy|tulip|jasmine|hibiscus|marigold|bougainvillea|lantana|thistle|sedge|reed|rush|algae|seaweed|leaf|leaves|blossom|bloom|seed|fruit|berry|flora|plantae|ficus|quercus|acer|pinus|azadirachta|prosopis|tecoma|ziziphus|gossypium|mentha|nerium|carica|calotropis|capparis|salvadora|tamarindus|delonix|cassia|senna|ricinus|euphorbia|opuntia|leptadenia|vachellia|senegalia|mangifera|cocos|musa|citrus|ocimum|aloe|bougainvillea|hibiscus)/i],
   ['Other life', /(snail|slug|mollus|clam|mussel|oyster|worm|earthworm|leech|sponge)/i],
 ];
 export const GROUPS = RX.map(r => r[0]);
@@ -85,11 +88,35 @@ export const GROUP_NOUN = {
   'Mammals': 'mammal', 'Reptiles & amphibians': 'reptile or amphibian', 'Water life': 'water creature', 'Other life': 'living thing',
 };
 
+/**
+ * The group of life of the sighting's main subject only. Other organisms in the same frame (a bird
+ * on a neem tree) must not decide it, so only the first label and the guide's matching record count.
+ */
+const groupFromText = (t) => { for (const [g, rx] of RX) if (t && rx.test(t)) return g; return ''; };
+
+/**
+ * A second label paired as the first one's scientific name, when the two plainly belong to different
+ * kinds of life ("Acacia Tree" with "Pavo cristatus"), is another organism in the frame, not a name pair.
+ */
+export function subjectNames(p) {
+  const n = namesOf(p || {});
+  const first = String((Array.isArray(p?.labels) ? p.labels[0] : '') || '');
+  if (n.scientific && first && first !== n.scientific && !/\(/.test(first)) {
+    const a = groupFromText(first), b = groupFromText(n.scientific);
+    if (a && b && a !== b) return { scientific: '', vernacular: first, rank: '' };
+  }
+  return n;
+}
+
 export function groupOf(p) {
-  const ids = p?.aiIdentifications || p?.items?.[0]?.aiIdentifications || [];
-  const hay = [...(p?.labels || []), ...(p?.tags || []), ...(Array.isArray(ids) ? ids : []).flatMap(i => [i?.commonName, i?.scientificName])]
-    .filter(x => typeof x === 'string').join(' ');
   if (p?.aiFlags?.fungi) return 'Fungi';
+  const ids = [...(p?.items?.[0]?.aiIdentifications || []), ...(Array.isArray(p?.aiIdentifications) ? p.aiIdentifications : [])].filter(Boolean);
+  const { scientific, vernacular } = subjectNames(p || {});
+  const first = String((Array.isArray(p?.labels) ? p.labels[0] : '') || '');
+  const byFirst = groupFromText(first);
+  if (byFirst) return byFirst;
+  const match = ids.find(i => [i?.commonName, i?.scientificName].some(n => n && [first, scientific, vernacular].some(x => x && String(n).toLowerCase() === String(x).toLowerCase())));
+  const hay = [first, scientific, vernacular, match?.commonName, match?.scientificName].filter(x => typeof x === 'string' && x).join(' ');
   for (const [g, rx] of RX) if (rx.test(hay)) return g;
   return 'Other life';
 }
@@ -104,7 +131,7 @@ const lowerTrim = (s) => String(s || '').trim().toLowerCase();
  * leads with the guide's "Common Tailorbird" here as it does in the app.
  */
 export function leadName(p) {
-  const { scientific, vernacular } = namesOf(p);
+  const { scientific, vernacular } = subjectNames(p);
   const labels = (Array.isArray(p?.labels) ? p.labels : []).map(l => String(l || '').trim()).filter(Boolean);
   const ids = [...(p?.items?.[0]?.aiIdentifications || []), ...(Array.isArray(p?.aiIdentifications) ? p.aiIdentifications : [])].filter(Boolean);
   const first = labels[0] || '';
@@ -157,9 +184,9 @@ export function publicPost(id, p, profile) {
   if (profile === undefined) return null;
   if (profile && profile.ageBand === 'teen') return null;
   if (p.aiFlags?.isNatureSubject === false) return null;
-  const { scientific, rank } = namesOf(p);
+  const { scientific, rank } = subjectNames(p);
   const lead = leadName(p);
-  const name = lead && !PLACEHOLDER.test(lead) ? clip(lead, 80) : '';
+  const name = lead && !PLACEHOLDER.test(lead) && !GENERIC_NAME.test(lead.trim()) ? clip(lead, 80) : '';
   const placeOk = p.showLocation !== false && !sensitive(p);
   const main = Array.isArray(p.items) && p.items[0] ? p.items[0] : {};
   const image = safeHttps(p.imageUrl || main.imageUrl || p.thumbnailUrl || main.thumbnailUrl);
@@ -237,9 +264,15 @@ export function buildCorpus(posts) {
     s.monthList = [...s.months].sort((a, b) => a - b).map(m => MONTHS[m]);
     s.regions = [...s.areas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([a]) => a);
     s.rank = s.scientific ? (s.scientific.split(' ').length >= 2 ? 'species' : 'genus') : '';
+    s.verified = s.posts.some(p => p.verified);
+    // In search only when it is a real species and trustworthy: confirmed by the community, or
+    // recorded more than once. A single unconfirmed AI suggestion keeps its page, out of search.
+    s.indexable = s.rank === 'species' && (s.verified || s.count >= 2 || s.explorers >= 2);
     if (!Number.isFinite(s.firstMs)) s.firstMs = 0;
     delete s.uids; delete s.names; delete s.groups; delete s.areas; delete s.months;
   }
+  // Older scientific names redirect to the current one
+  for (const [old, cur] of Object.entries(SYNONYMS)) { const to = slugify(cur); if (species.has(to)) aliases.set(slugify(old), to); }
   // An alias never points away from a species page that exists under its own slug
   for (const slug of species.keys()) aliases.set(slug, slug);
   for (const p of list) {
@@ -250,6 +283,9 @@ export function buildCorpus(posts) {
   }
   return { species, aliases, posts: list, explorers };
 }
+
+/** A sighting worth a place in search: a named species and a real field note, not just a photo. */
+export const postIndexable = (p) => !!(p && p.name && [p.caption, p.observed, p.insight].some(t => String(t || '').trim().length >= 60));
 
 /** A plain-language description from our own aggregated facts. */
 export function speciesSummary(s) {
@@ -469,7 +505,8 @@ export function llmsTxt({ host, corpus, naturalists, full = false }) {
     '- Do not infer precise locations; the places shown are deliberately approximate.',
     '',
   ];
-  const species = corpus ? [...corpus.species.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)) : [];
+  // Only species confirmed by the community or recorded more than once: answers cite what is reliable
+  const species = corpus ? [...corpus.species.values()].filter(x => x.indexable).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)) : [];
   if (species.length) {
     lines.push('## Species', '');
     const top = full ? species : species.slice(0, 50);

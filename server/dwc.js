@@ -57,14 +57,81 @@ export function exportable(id, p) {
   return true;
 }
 
-/** Scientific and vernacular names from a sighting's labels (and the guide's ID when stored). */
+/**
+ * Taxonomic synonyms: older names that now point to the current one, so one species has one page.
+ * Keys and values are lower-case scientific names.
+ */
+export const SYNONYMS = Object.freeze({
+  'francolinus pondicerianus': 'Ortygornis pondicerianus',
+  'streptopelia senegalensis': 'Spilopelia senegalensis',
+  'turdoides caudata': 'Argya caudata',
+  'turdoides caudatus': 'Argya caudata',
+  'columba livia domestica': 'Columba livia',
+  'canis familiaris': 'Canis lupus familiaris',
+  'megalaima haemacephala': 'Psilopogon haemacephalus',
+  'lonchura malabarica': 'Euodice malabarica',
+  'saxicoloides fulicatus': 'Copsychus fulicatus',
+  'prosopis cineraria': 'Prosopis cineraria',
+});
+export const currentName = (sci) => (sci ? SYNONYMS[sci.toLowerCase()] || sci : sci);
+
+const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+// "Indian palm squirrel" and "Common oak" are shaped like binomials. A scientific name ends in a
+// Latin-looking epithet and doesn't open with an everyday English descriptor.
+const DESCRIPTOR = /^(common|indian|red|black|white|little|great|lesser|greater|house|rock|jungle|spotted|small|large|asian|eurasian|oriental|grey|gray|blue|green|yellow|brown|golden|purple|laughing|plain|desert|wild|ashy|crested|pied|long|short|northern|southern|eastern|western|american|african|european|giant|dwarf|tawny|scaly|striped|banded|barn|tree|palm|sacred|false|true)$/i;
+const LATIN_END = /(us|a|um|is|ii|i|ae|ensis|oides|es|ix|ex|x|on|os|as|ys|er|or|ar|ur|ops)$/;
+export const looksScientific = (name) => {
+  const t = String(name || '').trim();
+  if (!BINOMIAL.test(t)) return false;
+  const words = t.split(' ');
+  return !DESCRIPTOR.test(words[0]) && words.slice(1).every(w => LATIN_END.test(w));
+};
+
+/**
+ * Scientific and vernacular names of the sighting's main subject.
+ *
+ * Labels hold either [common name, scientific name] for one organism, or one name per organism
+ * when the guide saw several ("Gazella bennettii", "Azadirachta indica"). Only the first label is
+ * the main subject; a second label is taken as its scientific name only when it plausibly is
+ * (the first label is a common name and the guide paired the two, or there is no guide record).
+ */
 export function namesOf(p) {
-  const labels = (Array.isArray(p.labels) ? p.labels : []).map(l => String(l || '').trim()).filter(Boolean);
-  const ai = (p.items?.[0]?.aiIdentifications || p.aiIdentifications || [])[0];
-  // Labels are [common name, scientific name, ...]: the first label is never taken as the scientific
-  // name, since "Barn owl" looks just like a binomial. The guide's own scientific name wins when stored.
-  const scientific = [ai?.scientificName, ...labels.slice(1)].map(x => String(x || '').trim()).find(l => BINOMIAL.test(l)) || '';
-  const vernacular = labels.find(l => l !== scientific && !/^(unknown|nature|unidentified)/i.test(l)) || '';
+  const labels = (Array.isArray(p.labels) ? p.labels : []).map(l => String(l || '').trim()).filter(Boolean)
+    .filter(l => !/^(unknown|nature|unidentified)/i.test(l));
+  const ids = [...(p.items?.[0]?.aiIdentifications || []), ...(Array.isArray(p.aiIdentifications) ? p.aiIdentifications : [])].filter(Boolean);
+  let first = labels[0] || '';
+  let scientific = '';
+  let vernacular = '';
+  // "Common Tailorbird (Orthotomus sutorius)" or "Orthotomus sutorius (Common Tailorbird)"
+  const paren = /^(.+?)\s*\((.+)\)$/.exec(first);
+  if (paren) {
+    const [a, c] = [paren[1].trim(), paren[2].trim()];
+    if (looksScientific(c) && !looksScientific(a)) { vernacular = a; scientific = c; }
+    else if (looksScientific(a) && !looksScientific(c)) { vernacular = c; scientific = a; }
+    else first = a;
+  }
+  if (!scientific) {
+    const asSci = ids.some(i => sameName(i?.scientificName, first));
+    const asCommon = ids.some(i => sameName(i?.commonName, first));
+    if (asSci || (!asCommon && looksScientific(first))) {
+      scientific = first;
+      const match = ids.find(i => sameName(i?.scientificName, first) && i?.commonName && !sameName(i.commonName, first));
+      vernacular = match ? String(match.commonName).trim() : first;
+    } else if (first) {
+      vernacular = first;
+      const match = ids.find(i => sameName(i?.commonName, first) && BINOMIAL.test(String(i?.scientificName || '').trim()));
+      if (match) scientific = String(match.scientificName).trim();
+      else if (labels[1] && looksScientific(labels[1])) {
+        // Paired only if the guide has no record that says otherwise
+        const second = ids.find(i => sameName(i?.scientificName, labels[1]));
+        if (!ids.length || (second && sameName(second.commonName, first))) scientific = labels[1];
+      }
+    } else if (ids[0] && BINOMIAL.test(String(ids[0].scientificName || '').trim())) {
+      scientific = String(ids[0].scientificName).trim();
+      vernacular = String(ids[0].commonName || '').trim();
+    }
+  }
+  scientific = currentName(scientific);
   const rank = scientific ? (scientific.split(' ').length >= 2 ? 'species' : 'genus') : '';
   return { scientific, vernacular, rank };
 }

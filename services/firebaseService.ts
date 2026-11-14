@@ -233,6 +233,18 @@ export const peekFirstTiles = (): CommunityPost[] => {
 };
 export const releaseFirstTiles = () => { firstTiles = []; };
 
+/**
+ * A starting username that says nothing about the explorer's email address (it becomes a public
+ * handle on their field page): a field word and four random digits, e.g. "kestrel4821".
+ * Explorers can change it in their profile at any time.
+ */
+const HANDLE_WORDS = ['kestrel', 'heron', 'bulbul', 'hoopoe', 'kingfisher', 'sunbird', 'drongo', 'lapwing', 'barbet', 'koel', 'neem', 'banyan', 'peepal', 'khejri', 'tamarind', 'fern', 'lichen', 'moth', 'firefly', 'dragonfly', 'gecko', 'langur', 'chinkara', 'blackbuck', 'otter', 'owlet', 'wren', 'finch', 'sparrow', 'myna'];
+export const naturalHandle = (): string => {
+  const pick = new Uint32Array(2);
+  try { crypto.getRandomValues(pick); } catch { pick[0] = Math.floor(Math.random() * 1e9); pick[1] = Math.floor(Math.random() * 1e9); }
+  return `${HANDLE_WORDS[pick[0] % HANDLE_WORDS.length]}${1000 + (pick[1] % 9000)}`;
+};
+
 export const FirebaseService = {
   getUserProfile: async (userId: string): Promise<UserProfileData | null> => {
     try {
@@ -277,7 +289,7 @@ export const FirebaseService = {
     try {
       const docSnap = await getDoc(docRef);
       if (!docSnap.exists()) {
-        const username = (email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`).slice(0, 30);
+        const username = (email && email !== "Anonymous" ? naturalHandle() : `Explorer-${userId.slice(0, 4)}`).slice(0, 30);
         const profile: any = {
           uid: userId,
           username,
@@ -313,7 +325,7 @@ export const FirebaseService = {
       }
     } catch (e) {
       console.warn("Failed to retrieve user profile in ensureUserProfile:", e);
-      const username = (email && email !== "Anonymous" ? email.split('@')[0] : `Explorer-${userId.slice(0, 4)}`).slice(0, 30);
+      const username = `Explorer-${userId.slice(0, 4)}`;
       return {
         uid: userId,
         username,
@@ -397,7 +409,7 @@ export const FirebaseService = {
         if (desired) { updates.username = desired; updates.usernameLower = desired.toLowerCase(); }
         await updateDoc(doc(db, "users", cred.user.uid), updates);
         if (desired) await updateProfile(cred.user, { displayName: desired });
-        else if (!cred.user.displayName) await updateProfile(cred.user, { displayName: email.split('@')[0].slice(0, 30) });
+        else if (!cred.user.displayName && existing?.username) await updateProfile(cred.user, { displayName: String(existing.username).slice(0, 30) });
         FirebaseService.sendVerificationEmail().catch(() => {});
     } catch (err) {
         console.warn("Profile setup after registration failed:", err);

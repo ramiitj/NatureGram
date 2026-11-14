@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  slugify, redactContacts, coarseArea, publicPost, publicExplorer, buildCorpus, speciesSummary, relatedSpecies, groupOf,
+  slugify, redactContacts, coarseArea, publicPost, publicExplorer, buildCorpus, speciesSummary, relatedSpecies, groupOf, postIndexable,
   robotsTxt, aiCrawlerMode, sitemapIndexXml, urlsetXml, escapeXml, ldScript, postLd, taxonLd, observationsListLd, personLd,
   websiteLd, organizationLd, breadcrumbLd, faqLd, FAQS, llmsTxt, mergeNaturalists, featuredWindow, appLd, AI_TRAINING_BOTS, AI_SEARCH_BOTS,
 } from '../seo.js';
@@ -240,12 +240,14 @@ test('sitemap XML is valid and escaped', () => {
 
 // ------------------------------------------------------------------ llms.txt, naturalists, shell
 test('llms.txt describes the site, the species and how to cite', () => {
-  const c = buildCorpus([publicPost('p1', post(), adult)]);
+  // Recorded twice, so it is reliable enough to list; a single unconfirmed sighting is not
+  const c = buildCorpus([publicPost('p1', post(), adult), publicPost('p1b', post({ userId: 'u9' }), adult), publicPost('p1c', post({ labels: ['Physeter macrocephalus'] }), adult)]);
   const nats = mergeNaturalists([{ id: 'darwin', naturalist: 'Charles Darwin', quote: 'q' }], { darwin: { lifespan: '1809–1882', bio: 'Voyage of the Beagle.', challenge: 'Find two related organisms.', challengeTag: '#DarwinVariations' } });
   const t = llmsTxt({ host: HOST, corpus: c, naturalists: nats });
   assert.match(t, /^# NatureGram\n\n> /);
   assert.match(t, /## How to cite/);
   assert.match(t, /\[Barn owl \(Tyto alba\)\]\(https:\/\/thenaturegram\.com\/species\/tyto-alba\)/);
+  assert.ok(!t.includes('physeter'));
   const full = llmsTxt({ host: HOST, corpus: c, naturalists: nats, full: true });
   assert.match(full, /### Birds/);
   assert.match(full, /Voyage of the Beagle/);
@@ -292,4 +294,43 @@ test('server pages are lightweight and script-free', () => {
   assert.match(html, /<html lang="en">/);
   assert.match(html, /<link rel="canonical" href="https:\/\/thenaturegram\.com\/about">/);
   assert.match(html, /og:image:width/);
+});
+
+// ------------------------------------------------------------------ species quality (Nov 2026 fixes)
+test('several organisms in one frame: the first label is the subject, not a pair of names', () => {
+  const p = publicPost('m1', post({ labels: ['Funambulus pennantii', 'Azadirachta indica'], aiIdentifications: [{ commonName: 'Indian palm squirrel', scientificName: 'Funambulus pennantii' }, { commonName: 'Neem', scientificName: 'Azadirachta indica' }] }), adult);
+  assert.equal(p.scientific, 'Funambulus pennantii');
+  assert.equal(p.name, 'Indian palm squirrel');
+  assert.equal(p.group, 'Mammals');
+  const cat = publicPost('m2', post({ labels: ['Felis catus', 'Columba livia'] }), adult);
+  assert.equal(cat.scientific, 'Felis catus');
+  assert.equal(cat.group, 'Mammals');
+  assert.equal(groupOf({ labels: ['Acacia Tree', 'Pavo cristatus'] }), 'Plants');
+});
+
+test('generic names get no species page; synonyms share one page', () => {
+  for (const n of ['Bird', 'Aves', 'Trees', 'Desert shrubs', 'Manual Observation']) {
+    const c = buildCorpus([publicPost('g1', post({ labels: [n] }), adult)]);
+    assert.equal(c.species.size, 0, n);
+  }
+  const c = buildCorpus([
+    publicPost('s1', post({ labels: ['Francolinus pondicerianus'] }), adult),
+    publicPost('s2', post({ labels: ['Ortygornis pondicerianus'], userId: 'u2' }), adult),
+  ]);
+  assert.equal(c.species.size, 1);
+  assert.ok(c.species.has('ortygornis-pondicerianus'));
+  assert.equal(c.aliases.get('francolinus-pondicerianus'), 'ortygornis-pondicerianus');
+});
+
+test('a single unconfirmed species stays out of search; confirmed or repeated ones are in', () => {
+  const one = buildCorpus([publicPost('w1', post({ labels: ['Physeter macrocephalus'] }), adult)]);
+  assert.equal([...one.species.values()][0].indexable, false);
+  assert.match(speciesPage({ host: HOST, corpus: one, s: [...one.species.values()][0] }), /<meta name="robots" content="noindex">/);
+  const ok = buildCorpus([publicPost('w2', post({ labels: ['Physeter macrocephalus'], communityVerified: true }), adult)]);
+  assert.equal([...ok.species.values()][0].indexable, true);
+});
+
+test('only sightings with a real field note are offered to search', () => {
+  assert.equal(postIndexable(publicPost('n1', post({ caption: '' }), adult)), false);
+  assert.equal(postIndexable(publicPost('n2', post({ caption: 'A barn owl quartering the paddy at dusk, dropping twice on voles before settling on a post.' }), adult)), true);
 });
