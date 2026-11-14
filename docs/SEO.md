@@ -12,6 +12,17 @@ NatureGram is a single-page app, so search engines and AI answer engines (ChatGP
 
 A sighting whose author profile can't be read is left out rather than guessed about. A username that matches more than one profile shows nobody.
 
+## What goes into search (quality rules)
+
+Pages exist for every public species and sighting, but only trustworthy ones are offered to search engines and AI answers:
+
+- **Species pages** are in the sitemap, `llms.txt` and indexable only when the name is a real species (a binomial) **and** it is community verified, recorded more than once, or recorded by two or more explorers. A single unconfirmed AI suggestion (for example a sperm whale "seen" in Jodhpur) keeps its page but carries `noindex`.
+- **Generic names** ("Bird", "Aves", "Trees", "Desert shrubs", "Manual Observation" and similar) never get a species page.
+- **One subject per sighting:** the first label is the sighting's subject. Further labels are other organisms in the frame, not alternative names, unless the guide's record pairs them. The group of life (Birds, Plants…) comes from the subject alone.
+- **Synonyms** share one page and old names redirect (`SYNONYMS` in `server/dwc.js`).
+- **Sighting pages** are in the sitemap and indexable only with a named species and a real field note (60+ characters of caption, observation or guide note). Others carry `noindex, follow`.
+- **The landing page** is left exactly as people see it. Only its structured data says more: the fortnight's naturalist and the most-recorded reliable species.
+
 ## Routes
 
 | Route | What it is | Status codes |

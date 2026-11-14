@@ -12,7 +12,7 @@
  */
 import fs from 'fs';
 import {
-  publicPost, publicExplorer, buildCorpus, slugify, robotsTxt, aiCrawlerMode, sitemapIndexXml, urlsetXml, llmsTxt,
+  publicPost, publicExplorer, buildCorpus, slugify, postIndexable, robotsTxt, aiCrawlerMode, sitemapIndexXml, urlsetXml, llmsTxt,
   graph, organizationLd, websiteLd, appLd, breadcrumbLd, postLd, POST_ID_RE, USERNAME_RE, clip, redactContacts,
   currentNaturalistIndex, mergeNaturalists, origin, dayDate, fieldDate,
 } from './seo.js';
@@ -226,7 +226,7 @@ export function mountSeo(app, deps) {
   app.get('/sitemap.xml', async (req, res) => {
     const c = await getCorpus().catch(() => null);
     const today = dayDate(Date.now());
-    const pages = c ? Math.max(1, Math.ceil(c.posts.length / SITEMAP_PAGE)) : 1;
+    const pages = c ? Math.max(1, Math.ceil(c.posts.filter(postIndexable).length / SITEMAP_PAGE)) : 1;
     const last = c?.newestMs ? dayDate(c.newestMs) : undefined;
     xml(res, cachedXml('index', c?.builtAt || 0, () => sitemapIndexXml([
       { loc: `${origin(host)}/sitemaps/static.xml`, lastmod: last || STATIC_UPDATED },
@@ -265,7 +265,7 @@ export function mountSeo(app, deps) {
     if (body === null) return notFound(res);
     xml(res, cachedXml(`${name}:${req.params.page || ''}`, c.builtAt, () => body));
   };
-  app.get('/sitemaps/species.xml', corpusXml('species', (c) => urlsetXml([...c.species.values()].map(s => ({
+  app.get('/sitemaps/species.xml', corpusXml('species', (c) => urlsetXml([...c.species.values()].filter(s => s.indexable).map(s => ({
     loc: `${origin(host)}/species/${s.slug}`, lastmod: dayDate(s.lastMs) || undefined, images: s.posts.map(p => p.image).filter(Boolean).slice(0, 3),
   })))));
   app.get('/sitemaps/explorers.xml', corpusXml('explorers', (c) => urlsetXml([...c.explorers.values()].map(x => ({
@@ -274,7 +274,7 @@ export function mountSeo(app, deps) {
   app.get('/sitemaps/posts-:page.xml', corpusXml('posts', (c, req) => {
     const page = Number(req.params.page);
     if (!Number.isInteger(page) || page < 1) return null;
-    const slice = c.posts.slice((page - 1) * SITEMAP_PAGE, page * SITEMAP_PAGE);
+    const slice = c.posts.filter(postIndexable).slice((page - 1) * SITEMAP_PAGE, page * SITEMAP_PAGE);
     if (!slice.length && page > 1) return null;
     return urlsetXml(slice.map(p => ({ loc: `${origin(host)}/post/${encodeURIComponent(p.id)}`, lastmod: dayDate(p.ms) || undefined, images: p.image ? [p.image] : [] })));
   }));
@@ -367,7 +367,10 @@ export function mountSeo(app, deps) {
         const title = clip(`${name}${p.scientific && p.scientific !== name ? ` (${p.scientific})` : ''}${p.area ? `, seen near ${p.area}` : ''} · NatureGram`, 120);
         const description = clip(p.caption || p.observed || p.insight || `${p.author || 'An explorer'} recorded ${name}${p.area ? ` near ${p.area}` : ''} on NatureGram.`, 300);
         const crumbs = [{ name: 'NatureGram', path: '/' }, ...(slug ? [{ name: c.species.get(slug).name, path: `/species/${slug}` }] : []), { name: p.ms ? `Sighting, ${fieldDate(p.ms)}` : name, path }];
-        head = shellHead({ host, path, title, description, image: p.image || p.thumb, imageAlt: name, type: 'article', ld: graph(organizationLd(host), websiteLd(host), breadcrumbLd(host, crumbs), postLd(host, p, { slug })) });
+        // A photo with no field note stays reachable but out of search
+        const thin = !postIndexable(p);
+        if (thin) res.setHeader('X-Robots-Tag', 'noindex, follow');
+        head = shellHead({ host, path, title, description, image: p.image || p.thumb, imageAlt: name, type: 'article', noindex: thin, follow: true, ld: graph(organizationLd(host), websiteLd(host), breadcrumbLd(host, crumbs), postLd(host, p, { slug })) });
         root = postFallbackBody(p, slug);
       } else {
         // Hidden: gone for good. Private, waiting for review, a teen's, or unknown: indistinguishable 404.
@@ -381,6 +384,25 @@ export function mountSeo(app, deps) {
     } else if (NOINDEX_ROUTE.test(path)) {
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       head = shellHead({ host, path, title: 'NatureGram', description: DEFAULT_DESC, noindex: true });
+    } else if (path === '/') {
+      // The landing page itself stays exactly as people see it; machines also get what NatureGram
+      // covers right now: the fortnight's naturalist and the most-recorded reliable species.
+      const c = corpusIfReady();
+      const list = await getNaturalists().catch(() => []);
+      const nat = list.length ? list[currentNaturalistIndex(new Date(), list.length)] : null;
+      const featured = c ? [...c.species.values()].filter(x => x.indexable).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 8) : [];
+      const o = origin(host);
+      const pageNode = {
+        '@type': 'WebPage', '@id': `${o}/#home`, url: `${o}/`, name: DEFAULT_TITLE, description: DEFAULT_DESC,
+        isPartOf: { '@id': `${o}/#website` }, about: { '@id': `${o}/#organization` }, mainEntity: { '@id': `${o}/#webapp` },
+        significantLink: [`${o}/about`, `${o}/species`, `${o}/naturalists`, `${o}/explore`],
+        ...(nat ? { mentions: [{ '@type': 'Person', name: nat.naturalist, ...(nat.lifespan ? { description: `${nat.naturalist} (${nat.lifespan}), naturalist of the fortnight on NatureGram` } : {}), url: `${o}/naturalists/${nat.id}`, ...(nat.wiki ? { sameAs: [nat.wiki] } : {}) }] } : {}),
+      };
+      const featuredNode = featured.length ? {
+        '@type': 'ItemList', '@id': `${o}/#featured-species`, name: 'Species most recorded by NatureGram explorers',
+        itemListElement: featured.map((x, i) => ({ '@type': 'ListItem', position: i + 1, url: `${o}/species/${x.slug}`, name: x.scientific && x.scientific !== x.name ? `${x.name} (${x.scientific})` : x.name })),
+      } : null;
+      head = shellHead({ host, path: '/', title: DEFAULT_TITLE, description: DEFAULT_DESC, ld: baseLd([pageNode, featuredNode].filter(Boolean)) });
     } else {
       const m = ROUTE_META[path] || ROUTE_META['/'];
       const searching = path === '/explore' && typeof req.query.q === 'string' && req.query.q.trim();

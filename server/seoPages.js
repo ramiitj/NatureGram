@@ -152,7 +152,7 @@ ${related.length ? `<h2>Other ${e(s.group.toLowerCase())} on NatureGram</h2><ul 
 <a class="btn" href="/explore?q=${encodeURIComponent(s.name)}">Look for ${e(s.name)} in NatureGram</a>`;
   return layout({
     host, path: `/species/${s.slug}`, title, description: clip(summary, 300), crumbs, ld, body, type: 'article',
-    image: cover?.image || cover?.thumb, imageAlt: s.name,
+    image: cover?.image || cover?.thumb, imageAlt: s.name, noindex: !s.indexable,
   });
 }
 
@@ -315,14 +315,14 @@ ${p.insight ? `<p style="font-size:16px;line-height:1.55;border-left:2px solid #
 }
 
 /** Head tags for the app shell: title, description, canonical, social cards, robots, JSON-LD. */
-export function shellHead({ host, path, title, description, image, imageAlt, imageSize, type = 'website', noindex = false, ld }) {
+export function shellHead({ host, path, title, description, image, imageAlt, imageSize, type = 'website', noindex = false, follow = false, ld }) {
   const url = `${origin(host)}${path}`;
   const img = image || `${origin(host)}/og-default.jpg?v=2`;
   const size = image ? imageSize : [1200, 630];
   return `<title>${e(title)}</title>
     <meta name="description" content="${e(description)}" />
     <link rel="canonical" href="${e(url)}" />
-    ${noindex ? '<meta name="robots" content="noindex, nofollow" />' : '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />'}
+    ${noindex ? `<meta name="robots" content="noindex, ${follow ? 'follow' : 'nofollow'}" />` : '<meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />'}
     <meta property="og:type" content="${e(type)}" />
     <meta property="og:site_name" content="NatureGram" />
     <meta property="og:url" content="${e(url)}" />
