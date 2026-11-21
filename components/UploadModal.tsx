@@ -301,10 +301,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
   /** useGuide: the guide looks at them (an AI identification); otherwise the explorer names them in review. */
   const handleProcess = async (useGuide: boolean) => {
     if (items.length === 0) return;
-    if (useGuide && !RateLimitService.canUpload(userId, items.length)) {
-      setGuideBlocked(IDENTIFICATIONS_USED_MESSAGE);
-      return;
-    }
+    // The real daily allowance is kept by the server (it answers with its own message when used up);
+    // a second count on this device only blocked people early, so it no longer stops anything
     cancelledRef.current = false;
 
     setIsProcessing(true);

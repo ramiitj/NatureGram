@@ -150,3 +150,41 @@ export const isDataSaver = (): boolean => {
     return !!c && (c.saveData === true || /(^|-)2g$/.test(String(c.effectiveType || '')));
   } catch { return false; }
 };
+
+/**
+ * Still frames from a video, for identifying clips too large to send whole (phone videos are often
+ * 40 to 60 MB). Frames are spread through the clip, at most 1024 px wide, as JPEG. Resolves with
+ * whatever frames could be read (possibly none); never throws.
+ */
+export async function videoKeyframes(video: Blob, count = 4): Promise<Blob[]> {
+  if (typeof document === 'undefined') return [];
+  const url = URL.createObjectURL(video);
+  const el = document.createElement('video');
+  el.muted = true; el.playsInline = true; el.preload = 'auto'; el.src = url;
+  const once = (ev: string, ms = 8000) => new Promise<boolean>(res => {
+    const t = setTimeout(() => res(false), ms);
+    el.addEventListener(ev, () => { clearTimeout(t); res(true); }, { once: true });
+    el.addEventListener('error', () => { clearTimeout(t); res(false); }, { once: true });
+  });
+  const out: Blob[] = [];
+  try {
+    if (!(await once('loadedmetadata'))) return out;
+    const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : 0;
+    const scale = Math.min(1, 1024 / Math.max(el.videoWidth || 1, el.videoHeight || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((el.videoWidth || 640) * scale));
+    canvas.height = Math.max(1, Math.round((el.videoHeight || 480) * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return out;
+    const times = dur ? Array.from({ length: count }, (_, i) => dur * (0.12 + (0.76 * i) / Math.max(1, count - 1))) : [0];
+    for (const t of times) {
+      el.currentTime = Math.min(Math.max(0, t), Math.max(0, dur - 0.05));
+      if (!(await once('seeked', 5000))) continue;
+      ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+      if (blob && blob.size > 2000) out.push(blob);
+    }
+  } catch { /* whatever frames were read are returned */ }
+  finally { URL.revokeObjectURL(url); el.removeAttribute('src'); el.load?.(); }
+  return out;
+}
