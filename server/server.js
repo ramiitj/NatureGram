@@ -53,7 +53,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // Structured logging (no payloads, no secrets)
 // ---------------------------------------------------------------------------
 const log = (level, msg, meta = {}) => {
-  const line = JSON.stringify({ severity: level.toUpperCase(), time: new Date().toISOString(), msg, ...meta });
+  const line = JSON.stringify({ severity: level === 'warn' ? 'WARNING' : level.toUpperCase(), time: new Date().toISOString(), msg, ...meta });
   if (level === 'error') process.stderr.write(line + '\n');
   else process.stdout.write(line + '\n');
 };
@@ -601,9 +601,13 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     let url;
     try { url = new URL(req.url, `https://${TARGET_HOST}`); } catch { return res.status(400).json({ error: 'Bad request' }); }
-    const fail = (status, message) => res.status(status).json({ error: { code: status, message } });
-
     let user;
+    // Every refusal is written down with its reason, so a sighting the guide never saw can be traced
+    const fail = (status, message) => {
+      log('warn', 'gemini refused', { status, reason: message, uid: user?.uid || null, len: Number(req.headers['content-length'] || 0) || null });
+      return res.status(status).json({ error: { code: status, message } });
+    };
+
     try { user = await verifyIdToken(String(bearer(req))); } catch { return fail(401, 'Please sign in again.'); }
     const unverified = await appCheckVerdict(req.headers['x-firebase-appcheck'], { log, route: '/api-proxy', uid: user.uid });
     if (unverified) return fail(unverified.status, unverified.message);
