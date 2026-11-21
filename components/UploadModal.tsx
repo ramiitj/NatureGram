@@ -5,7 +5,7 @@ import { GenAiService, tooLargeToAnalyse } from '../services/genAiService.ts';
 import { RateLimitService, IDENTIFICATIONS_USED_MESSAGE } from '../services/rateLimitService.ts';
 import { getMyAllowance } from '../services/firebaseService.ts';
 import { useBackToClose } from '../services/overlayStack';
-import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE } from '../utils';
+import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE, prepareMediaFile, MEDIA_ACCEPT } from '../utils';
 import Glyph from './Glyph';
 
 /**
@@ -201,15 +201,14 @@ const UploadModal: React.FC<UploadModalProps> = ({
     const filesToProcess = fileList.slice(0, remainingSlots);
     const newItems: UploadedFileItem[] = [];
 
-    for (const file of filesToProcess) {
-      const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/');
-      const isImage = file.type.startsWith('image/');
-
-      if (!isImage && !isVideo && !isAudio) {
-        setUploadError(`"${file.name}" isn't a photo, video or sound.`);
-        continue;
-      }
+    for (const chosen of filesToProcess) {
+      // Every format the guide can read, from any device: the kind from the type or the extension,
+      // iPhone HEIC photos and other picture types turned into JPEG where the browser needs it
+      const prepared = await prepareMediaFile(chosen);
+      if ('error' in prepared) { setUploadError(`"${chosen.name}" ${prepared.error}`); continue; }
+      const file = prepared.file;
+      const isVideo = prepared.kind === 'video';
+      const isAudio = prepared.kind === 'audio';
 
       const mediaType: 'image' | 'video' | 'audio' = isVideo ? 'video' : isAudio ? 'audio' : 'image';
       const previewUrl = URL.createObjectURL(file);
@@ -301,10 +300,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
   /** useGuide: the guide looks at them (an AI identification); otherwise the explorer names them in review. */
   const handleProcess = async (useGuide: boolean) => {
     if (items.length === 0) return;
-    if (useGuide && !RateLimitService.canUpload(userId, items.length)) {
-      setGuideBlocked(IDENTIFICATIONS_USED_MESSAGE);
-      return;
-    }
+    // The real daily allowance is kept by the server (it answers with its own message when used up);
+    // a second count on this device only blocked people early, so it no longer stops anything
     cancelledRef.current = false;
 
     setIsProcessing(true);
@@ -402,6 +399,10 @@ const UploadModal: React.FC<UploadModalProps> = ({
       setIsProcessing(false);
       if (useGuide) RateLimitService.incrementUpload(userId, items.length);
       onProcessUploads(processedSnapshots, summaryText);
+      // Handed over to review: the next visit starts with an empty list, never the last batch again
+      // (the review keeps its own copies of the files)
+      setItems([]);
+      setUploadError(null);
     } catch (err) {
       console.error("Upload processing failed", err);
       if (cancelledRef.current) return;
@@ -449,7 +450,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                 id="upload-files"
                 type="file"
                 multiple
-                accept="image/*,video/*,audio/*"
+                accept={MEDIA_ACCEPT}
                 className="sr-only"
                 onChange={handleFileChange}
               />

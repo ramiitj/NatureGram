@@ -650,6 +650,10 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
     }
 
     const started = Date.now();
+    // If Google no longer knows the configured model (404), try once with a model known to work, so a
+    // retired or mistyped model name never silently breaks every identification
+    const FALLBACK_MODEL = process.env.MODEL_FALLBACK || 'gemini-2.5-flash';
+    const send = (model, isRetry) => {
     const proxyReq = https.request({
       hostname: TARGET_HOST, port: 443, method: 'POST', timeout: 120_000,
       path: `/${verdict.version}/models/${encodeURIComponent(model)}:generateContent`,
@@ -663,6 +667,11 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       proxyRes.on('end', async () => {
         const status = proxyRes.statusCode || 502;
         let buf = Buffer.concat(chunks);
+        if (status === 404 && !isRetry && model !== FALLBACK_MODEL) {
+          log('warn', 'gemini model not found, retrying with the fallback model', { task: verdict.task, model, fallback: FALLBACK_MODEL });
+          send(FALLBACK_MODEL, true);
+          return;
+        }
         let usage = null, finish = null, blockReason = null;
         const flags = {};
         try {
@@ -717,6 +726,8 @@ ${byline ? `<p class="by">${e(byline)}</p>` : ''}
       if (!res.headersSent) fail(502, 'AI service unavailable. Please retry.');
     });
     proxyReq.end(payload);
+    };
+    send(model, false);
   });
 
   // First page of the feed as plain JSON: arrives before the database SDK has even started,

@@ -8,7 +8,7 @@ import { FirebaseService, getMyAllowance } from '../services/firebaseService.ts'
 import { track } from '../services/analytics';
 import { getDailyTheme as getDailyThemeConst } from '../constants/naturalists';
 import { getNaturalistExtra } from '../constants/naturalistExtras';
-import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE } from '../utils';
+import { coarsenCoordinate, canCleanImage, UNCLEANABLE_IMAGE_MESSAGE, prepareMediaFile, MEDIA_ACCEPT } from '../utils';
 import { GenAiService, tooLargeToAnalyse } from '../services/genAiService.ts';
 import { useBackToClose } from '../services/overlayStack';
 import { RateLimitService } from '../services/rateLimitService.ts';
@@ -750,14 +750,17 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
 
   /** A photo, clip or sound from the camera roll, added to this session (the ⋯ menu after the first capture). */
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
+      const chosen = e.target.files?.[0];
       e.target.value = '';
-      if (!file) return;
+      if (!chosen) return;
 
-      const isVideo = file.type.startsWith('video/');
-      const isAudio = file.type.startsWith('audio/');
-      const isImage = file.type.startsWith('image/');
-      if (!isVideo && !isAudio && !isImage) { showStatus('error', "That isn't a photo, video or sound."); return; }
+      // Any format the guide reads, from any device (kind from type or extension; HEIC made JPEG where needed)
+      const prepared = await prepareMediaFile(chosen);
+      if ('error' in prepared) { showStatus('error', `That file ${prepared.error}`, 7000); return; }
+      const file = prepared.file;
+      const isVideo = prepared.kind === 'video';
+      const isAudio = prepared.kind === 'audio';
+      const isImage = prepared.kind === 'image';
       if (selectedMode === 'observation' && retakesCountRef.current >= OBSERVATION_MAX_CAPTURES) { showStatus('error', CAP_MESSAGE, 7000); return; }
       // A photo that can't be redrawn would keep its hidden location: never added
       if (isImage && !(await canCleanImage(file))) { showStatus('error', UNCLEANABLE_IMAGE_MESSAGE, 7000); return; }
@@ -1881,7 +1884,7 @@ const LiveLens: React.FC<LiveLensProps> = ({ onCapture, onEndSession, onExit, co
       <div className="absolute inset-0 overflow-hidden">
         <video ref={videoRef} autoPlay playsInline muted className={`absolute inset-0 w-full h-full object-cover transition-all duration-300 ${isCameraActive ? 'opacity-100 scale-105' : 'opacity-40 blur-[60px]'}`} />
         <canvas ref={canvasRef} className="hidden" />
-        <input ref={rollInputRef} type="file" accept="image/*,video/*,audio/*" className="hidden" tabIndex={-1} aria-hidden="true" onChange={handleMediaUpload} />
+        <input ref={rollInputRef} type="file" accept={MEDIA_ACCEPT} className="hidden" tabIndex={-1} aria-hidden="true" onChange={handleMediaUpload} />
       </div>
 
       <div className="absolute top-[calc(var(--sat)+12rem)] left-1/2 -translate-x-1/2 z-[119] w-max max-w-[62vw] pointer-events-none" role="status" aria-live="polite">

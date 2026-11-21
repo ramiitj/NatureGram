@@ -215,6 +215,7 @@ const App: React.FC = () => {
   }, []);
 
   const [returnView, setReturnView] = useState<AppView | null>(null);
+  const [lensChooser, setLensChooser] = useState(false);
   const lensBusyRef = useRef(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [currentSessionSnapshots, setCurrentSessionSnapshots] = useState<Snapshot[]>([]);
@@ -544,15 +545,16 @@ const App: React.FC = () => {
     return audioContextRef.current;
   };
 
-  const openLens = async () => {
+  const openLens = async (choice?: 'observation' | 'conversation') => {
     setSkipTourOnce(false); // the tour skipped on the first look shows on the next visit
     // Someone who arrived straight at an inner page has no guest sign-in yet: make it now, before
     // the Lens opens, so the guide can name what they find (and the session doesn't restart later)
     if (!FirebaseService.getCurrentUserId()) { try { await FirebaseService.loginAnonymous(); } catch { /* offline: the Lens says so */ } }
     await initAudioContext();
-    // No mode dialog: the Lens starts as the quiet companion unless the explorer turned on "Talk with me"
+    // The way chosen in the Lens sheet (remembered as the one to suggest next time)
     let saved: string | null = null;
-    try { saved = localStorage.getItem(MODE_PREF_KEY); } catch { /* storage blocked */ }
+    if (choice) { try { localStorage.setItem(MODE_PREF_KEY, choice); } catch { /* storage blocked */ } saved = choice; }
+    else { try { saved = localStorage.getItem(MODE_PREF_KEY); } catch { /* storage blocked */ } }
     let mode: 'observation' | 'conversation' = saved === 'conversation' ? 'conversation' : 'observation';
     if (!allowSession(mode)) {
       // Conversations used up for today: open the quiet Lens instead of nothing
@@ -598,7 +600,8 @@ const App: React.FC = () => {
     }
 
     if (targetView === AppView.LENS) {
-      await openLens();
+      // The three ways to begin are shown first, not hidden in the Lens's menu
+      setLensChooser(true);
       return;
     }
 
@@ -982,7 +985,7 @@ const App: React.FC = () => {
         />
 
         {limitNotice && (
-          <div role="alert" className="fixed left-6 right-6 bottom-24 z-[210] mx-auto max-w-sm ng-toast rounded-2xl pl-5 pr-2 py-2 flex items-center gap-3 ng-rise">
+          <div role="alert" className={`fixed left-6 right-6 ${overlayOpen() ? "top-[calc(env(safe-area-inset-top)+0.75rem)]" : "bottom-24"} z-[210] mx-auto max-w-sm ng-toast rounded-2xl pl-5 pr-2 py-2 flex items-center gap-3 ng-rise`}>
             <Glyph name="clock" size={20} className="text-white/70 shrink-0" />
             <p className="flex-1 py-1.5">{limitNotice}</p>
             <button onClick={() => setLimitNotice('')} aria-label="Dismiss" className="ng-icon-button-dark"><Glyph name="close" size={20} /></button>
@@ -1239,6 +1242,16 @@ const App: React.FC = () => {
           <button onClick={() => setUpdateReady(false)} aria-label="Later" className="ng-icon-button-dark"><Glyph name="close" size={18} /></button>
         </div>
       )}
+      {lensChooser && (
+        <LensChooser
+          onClose={() => setLensChooser(false)}
+          onPick={(how) => {
+            setLensChooser(false);
+            if (how === 'roll') { setShowUploadModal(true); return; }
+            openLens(how);
+          }}
+        />
+      )}
       {offline && currentView !== AppView.LANDING && (
         <p role="status" className="fixed top-[calc(env(safe-area-inset-top)+0.5rem)] left-1/2 -translate-x-1/2 z-[95] ng-toast text-sm px-4 py-2">You're offline. Sightings you've already seen still open; new ones will load when you're back.</p>
       )}
@@ -1279,4 +1292,44 @@ const Root: React.FC = () => (window.location.pathname.startsWith('/guardian')
   ? <Suspense fallback={null}><GuardianConsent /></Suspense>
   : <App />);
 
-export default Root;
+export default Root;/** How to begin with the Lens: shown each time the Lens is opened, the last way chosen marked. */
+const LensChooser: React.FC<{ onClose: () => void; onPick: (how: 'observation' | 'conversation' | 'roll') => void }> = ({ onClose, onPick }) => {
+  const { close } = useBackToClose(true, onClose);
+  let last = 'observation';
+  try { last = localStorage.getItem(MODE_PREF_KEY) === 'conversation' ? 'conversation' : 'observation'; } catch { /* storage blocked */ }
+  const options: { how: 'observation' | 'conversation' | 'roll'; glyph: GlyphName; title: string; body: string }[] = [
+    { how: 'observation', glyph: 'eye', title: 'Look and capture', body: 'Point at anything alive and tap to capture. Your guide names what you found afterwards. Free.' },
+    { how: 'conversation', glyph: 'mic', title: 'Talk with your guide', body: 'Your guide, an AI, sees and hears with you and answers out loud. Uses your live minutes.' },
+    { how: 'roll', glyph: 'gallery', title: 'Bring in from your camera roll', body: 'Photos, clips or sounds you have already taken.' },
+  ];
+  return (
+    <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="lens-choice-title">
+      <div className="absolute inset-0 ng-scrim" onClick={close} aria-hidden="true" />
+      <div className="relative w-full sm:max-w-md ng-sheet px-6 pt-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] animate-slide-up motion-reduce:animate-none">
+        <header className="flex items-center justify-between">
+          <h2 id="lens-choice-title" className="ng-subtitle">Open the Lens</h2>
+          <button onClick={close} aria-label="Close" className="ng-icon-button -mr-2"><Glyph name="close" size={24} /></button>
+        </header>
+        <ul className="mt-3 flex flex-col gap-2" role="list">
+          {options.map(o => (
+            <li key={o.how}>
+              <button
+                onClick={() => onPick(o.how)}
+                autoFocus={o.how === last}
+                className={`w-full text-left flex items-start gap-4 rounded-2xl border p-4 min-h-[72px] transition-colors hover:bg-stone-900/[0.03] ${o.how === last ? 'border-stone-900' : 'border-stone-200'}`}
+              >
+                <span className="mt-0.5 w-10 h-10 shrink-0 rounded-full bg-stone-100 flex items-center justify-center text-stone-700"><Glyph name={o.glyph} size={22} /></span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-stone-900">{o.title}{o.how === last && <span className="ml-2 text-xs font-normal text-stone-500">last time</span>}</span>
+                  <span className="block ng-small text-stone-600 mt-0.5">{o.body}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+

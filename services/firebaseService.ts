@@ -63,7 +63,7 @@ export const ADMIN_EMAIL = "ram@iitj.ac.in";
 import { NATURALIST_THEMES } from "../constants/naturalists";
 
 import { DailyTheme } from "./themeService";
-import { looksLikeSpam } from '../utils';
+import { looksLikeSpam, extForMime } from '../utils';
 import { isTeenProfile } from './guardian';
 
 /** A sighting the server held back, with words the explorer can act on. */
@@ -668,12 +668,10 @@ export const FirebaseService = {
     // Privacy: strip EXIF/GPS from every still image before it leaves the device
     if (type === 'image') blob = await reencodeImage(blob);
 
-    const mime = blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm');
-    let ext = 'jpg';
-    if (type === 'video') ext = mime.includes('mp4') ? 'mp4' : 'webm';
-    else if (type === 'audio') ext = mime.includes('mp4') ? 'm4a' : 'webm';
-    else if (mime.includes('png')) ext = 'png';
-    else if (mime.includes('webp')) ext = 'webp';
+    // Every format the guide reads keeps its own type and extension (MOV, AVI, FLAC, M4A…); the
+    // streaming copy made on the server plays everywhere whatever the original was
+    const mime = (blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm')).split(';')[0];
+    const ext = extForMime(mime, type);
 
     const folder = folderOverride || (type === 'image' ? 'snapshots' : (type === 'audio' ? 'audio' : 'videos'));
     const filename = `${folder}/${userId}/${Date.now()}_${crypto.randomUUID()}.${ext}`;

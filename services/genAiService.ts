@@ -1,5 +1,6 @@
 import { apiUrl } from './apiOrigin';
 import { appCheckHeaders } from './appCheck';
+import { videoKeyframes, geminiMime, geminiCanRead } from '../utils';
 import { auth } from "../firebaseConfig";
 import { signInAnonymously } from "firebase/auth";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
@@ -23,7 +24,11 @@ const MAX_INLINE_BYTES = 18 * 1024 * 1024;
 /** The largest file (or set of files) the guide can look at; larger ones can still be named by the explorer. */
 export const AI_MAX_BYTES = MAX_INLINE_BYTES;
 /** True when these files are too large for the guide to look at (checked before anything is sent). */
-export const tooLargeToAnalyse = (blobs: (Blob | null | undefined)[]) => blobs.reduce((n, b) => n + (b?.size || 0), 0) > MAX_INLINE_BYTES;
+/** Videos above this are identified from frames taken through them, not sent whole. */
+const VIDEO_WHOLE_MAX = 12 * 1024 * 1024;
+/** Too large for the guide even after that: only sounds and photos can be (videos become frames). */
+export const tooLargeToAnalyse = (blobs: (Blob | null | undefined)[]) =>
+  blobs.filter(b => !(b && /^video\//.test(b.type || ''))).reduce((n, b) => n + (b?.size || 0), 0) > MAX_INLINE_BYTES;
 const TIMEOUT_MS = 90_000;
 
 export type Confidence = 'high' | 'medium' | 'low';
@@ -132,6 +137,9 @@ const classify = (e: any): AiError => {
   // Out of credit or billing switched off upstream: no point retrying; say so plainly
   if (status === 402 || /prepayment credits|billing/i.test(msg)) return new AiError("Your guide can't name things right now. You can still name sightings yourself.", 'unavailable');
   if (/timeout|aborted/i.test(msg)) return new AiError('The analysis took too long. Please try again.', 'timeout');
+  // Say what actually went wrong upstream, so it can be put right instead of guessed at
+  if (status === 404 || /not found|is not supported|does not exist/i.test(msg)) return new AiError("Your guide's AI model isn't available. You can still name sightings yourself; an admin can change the model in Admin, The guide.", 'unavailable');
+  if (status === 400 && msg) return new AiError(`Your guide couldn't read this one (${msg.slice(0, 120)}). You can still name it yourself.`, 'invalid');
   return new AiError('AI identification is temporarily unavailable.', 'unavailable');
 };
 
@@ -147,7 +155,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
     } catch (e) {
       last = classify(e);
       const daily = last.kind === 'quota' && /daily|today/i.test(last.message);
-      const noCredit = last.message.startsWith("Your guide can't name things right now");
+      const noCredit = last.message.startsWith("Your guide can't name things right now") || last.message.startsWith("Your guide's AI model isn't available") || last.kind === 'invalid';
       if (last.kind === 'auth' || last.kind === 'too_large' || last.kind === 'offline' || daily || noCredit) break;
       if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * Math.pow(2, i) + Math.random() * 300));
     }
@@ -274,20 +282,35 @@ async function identify(parts: any[], context: string, location?: string): Promi
 export const GenAiService = {
   /** Identify organisms in a single photo, video or sound. Throws AiError on failure. */
   analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<AnalysisResult> => {
+    // A clip too large to send whole is identified from still frames taken through it
+    if (type === 'audio' && blob.type && !geminiCanRead(blob.type)) throw new AiError("Your guide can't listen to this sound format. Save it as M4A, MP3 or WAV, or name it yourself.", 'invalid');
+    if (type === 'video' && (blob.size > VIDEO_WHOLE_MAX || (blob.type && !geminiCanRead(blob.type)))) {
+      const frames = await videoKeyframes(blob, 4);
+      if (!frames.length) throw new AiError("This clip couldn't be read here. You can still name it yourself.", 'invalid');
+      const parts: any[] = [];
+      for (const f of frames) parts.push({ inlineData: { data: await toBase64(f), mimeType: 'image/jpeg' } });
+      return identify(parts, 'These are still frames taken through one field video, in order. Identify the organisms and describe the behaviour the frames show.', location);
+    }
     const data = await toBase64(blob);
     const ctx = type === 'audio'
       ? 'Identify the sources of the sounds in this field recording (species by call or song where possible).'
       : type === 'video'
         ? 'Identify the organisms in this field video using both what is seen and heard, and describe the behaviour shown.'
         : 'Identify the organisms in this field photo and describe what they are doing.';
-    return identify([{ inlineData: { data, mimeType: blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm') } }], ctx, location);
+    return identify([{ inlineData: { data, mimeType: geminiMime(blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm')) } }], ctx, location);
   },
 
   /** Identify from a recording plus key frames (photos taken during the recording). */
   analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<AnalysisResult> => {
+    // A long clip from the Lens or the camera roll: send frames from it instead of the whole file
+    if (mediaBlob && /^video\//.test(mediaBlob.type || '') && (mediaBlob.size > VIDEO_WHOLE_MAX || !geminiCanRead(mediaBlob.type))) {
+      const frames = await videoKeyframes(mediaBlob, 4);
+      imageBlobs = [...frames, ...imageBlobs].slice(0, 6);
+      mediaBlob = null;
+    }
     const parts: any[] = [];
-    if (mediaBlob) parts.push({ inlineData: { data: await toBase64(mediaBlob), mimeType: mediaBlob.type } });
-    for (const img of imageBlobs.slice(0, 4)) parts.push({ inlineData: { data: await toBase64(img), mimeType: img.type || 'image/jpeg' } });
+    if (mediaBlob) parts.push({ inlineData: { data: await toBase64(mediaBlob), mimeType: geminiMime(mediaBlob.type) } });
+    for (const img of imageBlobs.slice(0, 6)) parts.push({ inlineData: { data: await toBase64(img), mimeType: geminiMime(img.type || 'image/jpeg') } });
     if (!parts.length) throw new AiError('Nothing to analyse.', 'invalid');
     return identify(parts, 'Identify the organisms using the recording first (sounds and movement), and the key-frame photos to confirm visual features. Describe the behaviour.', location);
   },
