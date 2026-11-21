@@ -64,8 +64,11 @@ export const sendActivityPush = onDocumentCreated({ document: 'users/{uid}/notif
 // use the clip (found by `mediaPaths`, set at publish), their items and their feed entries, filling
 // only empty fields. A file with no picture stream is marked `soundOnly: true`. Nothing is deleted.
 // ---------------------------------------------------------------------------------------------
-const MEDIA_RE = /^(videos|audio|drafts)\/[^/]+\/[^/]+\.webm$/;
-const POSTER_RE = /^(videos|drafts)\/[^/]+\/[^/]+\.(mp4|m4v|mov|webm)$/i;
+// Sounds in formats some browsers can't play (Safari and WebM/OGG, many and AIFF) get an M4A copy
+const MEDIA_RE = /^(videos|audio|drafts)\/[^/]+\/[^/]+\.(webm|ogg|oga|opus|flac|aiff|aif|amr|caf)$/i;
+// Every video format explorers bring (iPhone MOV, Android MP4/3GP, Windows AVI/WMV, camcorder MTS,
+// MKV…) gets a still, a size and a streaming MP4 copy that plays in every browser
+const POSTER_RE = /^(videos|drafts)\/[^/]+\/[^/]+\.(mp4|m4v|mov|qt|webm|avi|wmv|flv|mpg|mpeg|3gp|3g2|mkv|mts|m2ts)$/i;
 const variantRef = (name) => db.doc(`media_variants/${name.replace(/\//g, '|')}`);
 // Clips are downloaded to /tmp, which counts against the function's memory: posters skip anything larger
 const MAX_POSTER_BYTES = 600 * 1024 * 1024;
@@ -184,7 +187,7 @@ const mediaComplete = (m) => !!m && (m.soundOnly === true || !!(m.posterUrl && m
 
 async function transcodeObject(bucketName, name, contentType, { transcode = true } = {}) {
   const bucket = getStorage().bucket(bucketName);
-  const isVideo = (String(contentType || '').startsWith('video/') || /\.(mp4|m4v|mov)$/i.test(name)) && !name.startsWith('audio/');
+  const isVideo = (String(contentType || '').startsWith('video/') || /\.(mp4|m4v|mov|qt|avi|wmv|flv|mpg|mpeg|3gp|3g2|mkv|mts|m2ts)$/i.test(name)) && !name.startsWith('audio/');
   const id = randomUUID();
   const ext = (/\.[^.]+$/.exec(name)?.[0] || '.webm').toLowerCase();
   const src = join(tmpdir(), `${id}${ext}`);

@@ -1,6 +1,6 @@
 import { apiUrl } from './apiOrigin';
 import { appCheckHeaders } from './appCheck';
-import { videoKeyframes } from '../utils';
+import { videoKeyframes, geminiMime, geminiCanRead } from '../utils';
 import { auth } from "../firebaseConfig";
 import { signInAnonymously } from "firebase/auth";
 import type { EthologicalDescriptors, NaturalistPersona, CommunityPost } from "../types";
@@ -283,7 +283,8 @@ export const GenAiService = {
   /** Identify organisms in a single photo, video or sound. Throws AiError on failure. */
   analyzeMedia: async (blob: Blob, type: 'audio' | 'image' | 'video', location?: string): Promise<AnalysisResult> => {
     // A clip too large to send whole is identified from still frames taken through it
-    if (type === 'video' && blob.size > VIDEO_WHOLE_MAX) {
+    if (type === 'audio' && blob.type && !geminiCanRead(blob.type)) throw new AiError("Your guide can't listen to this sound format. Save it as M4A, MP3 or WAV, or name it yourself.", 'invalid');
+    if (type === 'video' && (blob.size > VIDEO_WHOLE_MAX || (blob.type && !geminiCanRead(blob.type)))) {
       const frames = await videoKeyframes(blob, 4);
       if (!frames.length) throw new AiError("This clip couldn't be read here. You can still name it yourself.", 'invalid');
       const parts: any[] = [];
@@ -296,20 +297,20 @@ export const GenAiService = {
       : type === 'video'
         ? 'Identify the organisms in this field video using both what is seen and heard, and describe the behaviour shown.'
         : 'Identify the organisms in this field photo and describe what they are doing.';
-    return identify([{ inlineData: { data, mimeType: blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm') } }], ctx, location);
+    return identify([{ inlineData: { data, mimeType: geminiMime(blob.type || (type === 'image' ? 'image/jpeg' : type === 'audio' ? 'audio/webm' : 'video/webm')) } }], ctx, location);
   },
 
   /** Identify from a recording plus key frames (photos taken during the recording). */
   analyzeMultimodal: async (mediaBlob: Blob | null, imageBlobs: Blob[], location?: string): Promise<AnalysisResult> => {
     // A long clip from the Lens or the camera roll: send frames from it instead of the whole file
-    if (mediaBlob && /^video\//.test(mediaBlob.type || '') && mediaBlob.size > VIDEO_WHOLE_MAX) {
+    if (mediaBlob && /^video\//.test(mediaBlob.type || '') && (mediaBlob.size > VIDEO_WHOLE_MAX || !geminiCanRead(mediaBlob.type))) {
       const frames = await videoKeyframes(mediaBlob, 4);
       imageBlobs = [...frames, ...imageBlobs].slice(0, 6);
       mediaBlob = null;
     }
     const parts: any[] = [];
-    if (mediaBlob) parts.push({ inlineData: { data: await toBase64(mediaBlob), mimeType: mediaBlob.type } });
-    for (const img of imageBlobs.slice(0, 6)) parts.push({ inlineData: { data: await toBase64(img), mimeType: img.type || 'image/jpeg' } });
+    if (mediaBlob) parts.push({ inlineData: { data: await toBase64(mediaBlob), mimeType: geminiMime(mediaBlob.type) } });
+    for (const img of imageBlobs.slice(0, 6)) parts.push({ inlineData: { data: await toBase64(img), mimeType: geminiMime(img.type || 'image/jpeg') } });
     if (!parts.length) throw new AiError('Nothing to analyse.', 'invalid');
     return identify(parts, 'Identify the organisms using the recording first (sounds and movement), and the key-frame photos to confirm visual features. Describe the behaviour.', location);
   },

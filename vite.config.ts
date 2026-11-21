@@ -85,6 +85,8 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('@google/genai')) return 'vendor-genai';
+          // iPhone photo converter (3 MB): fetched only when a HEIC photo arrives in a browser that can't show it
+          if (id.includes('heic-to')) return 'vendor-heic';
           // App Check loads only when a site key is set (services/appCheck.ts): keep it out of the shared chunk
           if (id.includes('app-check')) return 'vendor-appcheck';
           // Cloud Functions client: only the admin console's poster backfill uses it
